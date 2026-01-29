@@ -5,11 +5,11 @@
 IronCore is a personal project for practicing AI development and testing training algorithms. Built from scratch to understand the internals of LLM training:
 - **Learning by Building**: Hands-on implementation of distributed training, parallelism strategies, and optimization techniques
 - **Algorithm Testing**: Playground for experimenting with training methods and model architectures
-- **DSL Experimentation**: Testing Triton kernels and low-level optimizations
 - **Unified Data Pipeline**: Single preprocessing system for pretrain, SFT, and DPO tasks
 - **Consumer Hardware**: Developed on Dual RTX 3090 (with NVLINK!!)
 - **RL Integration**: Bridge training and inference for RLHF/RLAIF experiments - not yet
 - **Inference Engine**: Integrate rollout and evaluation capabilities - not yet
+- **DSL Experimentation**: Testing Triton kernels and low-level optimizations (with or without agent) - not yet
 
 This project mostly inspired by NVIDIA Megatron-LM.
 
