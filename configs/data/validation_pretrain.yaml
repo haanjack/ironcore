@@ -1,0 +1,28 @@
+# Validation pretraining configuration
+# Increased dataset size for long training runs
+# Uses OpenWebText dataset from HuggingFace
+
+# Tokenizer configuration
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 1024
+
+# Data splits (train/eval/test)
+splits: [0.99, 0.01, 0.0]
+
+# Datasets to mix
+train_datasets:
+  - name: openwebtext
+    dataset_path: openwebtext  # HuggingFace dataset name
+    task_type: pretrain
+    ratio: 1.0
+    split: train
+    text_column: text
+    max_samples: 100000  # Increased to 100K for 5000-step validation
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

@@ -1,0 +1,28 @@
+# Example configuration for Direct Preference Optimization (DPO)
+# Uses preference pair datasets
+
+# Tokenizer configuration
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 2048
+
+# Data splits (train/eval/test)
+splits: [0.95, 0.05, 0.0]
+
+# Datasets to mix
+train_datasets:
+  - name: hh_rlhf
+    dataset_path: Anthropic/hh-rlhf  # Example DPO dataset
+    task_type: dpo
+    ratio: 1.0
+    split: train
+    chosen_column: chosen
+    rejected_column: rejected
+    # max_samples: 500  # Uncomment for testing
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 8

@@ -1,0 +1,35 @@
+# Configuration for full OpenWebText pretraining with separate evaluation
+# This config tests the support for 'eval_datasets'
+
+# Tokenizer
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence
+seq_length: 1024
+
+# Splits for the MAIN dataset (openwebtext)
+# 99% train, 1% eval (validation loss), 0% test
+splits: [0.99, 0.01, 0.0]
+
+# Main training datasets (mixed)
+train_datasets:
+  - name: openwebtext
+    dataset_path: openwebtext
+    task_type: pretrain
+    ratio: 1.0
+    split: train
+    max_samples: 100000
+
+# Separate Evaluation Datasets (for zero-shot/few-shot tasks)
+# These are NOT mixed into training data.
+eval_datasets:
+  - name: hellaswag
+    dataset_path: hellaswag
+    task_type: pretrain  # or 'eval' if we add specialized task type
+    split: validation
+    max_samples: 100
+
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

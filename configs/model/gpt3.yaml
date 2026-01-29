@@ -1,0 +1,13 @@
+num_attention_heads: 8
+num_attention_groups: 8
+attention_head_size: 64
+head_dim: 64
+max_seq_len: 2048
+num_layers: 2
+d_model: 512
+d_ffn: 1024
+untie_embed: false
+precision: bf16
+
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe

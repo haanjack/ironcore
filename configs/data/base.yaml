@@ -1,0 +1,17 @@
+train:
+  # - bookcorpus:
+  #   - column: text
+  #   - ratio: 1.0
+  - openwebtext:
+    - column: text
+    - ratio: 1.0
+  # - wikipedia:
+  #   - subgroup: 20220301.en
+  #   - column: text
+  #   - ratio: 1.0
+
+eval:
+  - hellaswag:
+    - column: ctx
+
+# test:

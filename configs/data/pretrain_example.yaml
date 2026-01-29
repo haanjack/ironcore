@@ -1,0 +1,27 @@
+# Example configuration for pretraining
+# Uses OpenWebText dataset from HuggingFace
+
+# Tokenizer configuration
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 1024
+
+# Data splits (train/eval/test)
+splits: [0.99, 0.01, 0.0]
+
+# Datasets to mix
+train_datasets:
+  - name: openwebtext
+    dataset_path: openwebtext  # HuggingFace dataset name
+    task_type: pretrain
+    ratio: 1.0
+    split: train
+    text_column: text
+    max_samples: 10000  # Quick testing with 10K samples
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

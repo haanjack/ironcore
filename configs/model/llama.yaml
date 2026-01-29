@@ -1,0 +1,23 @@
+num_attention_heads: 8
+num_attention_groups: 8
+attention_head_size: 64
+head_dim: 64
+max_seq_len: 2048
+num_layers: 2
+d_model: 512
+d_ffn: 1024
+untie_embed: false
+reset_position_ids: false
+reset_attention_mask: false
+precision: bf16
+positional_embedding:
+  type: rope
+  base: 10_000
+  offset: 1_000
+
+vocab_name_or_path: meta-llama/Llama-3.1-8B
+tokenizer_type: llama
+
+# HuggingFace/vLLM compatibility
+hf_model_type: llama
+hf_architecture: LlamaForCausalLM

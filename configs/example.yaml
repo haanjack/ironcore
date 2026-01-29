@@ -1,0 +1,74 @@
+# DP=2 Training Validation (2000 steps, Full OWT)
+# Aligned with nanoGPT hyperparameters
+# Reference: https://github.com/karpathy/nanoGPT
+
+trainer:
+  # Batch size settings (nanoGPT: batch=12, grad_accum=40, effective=480)
+  # Reduced micro_batch for 1024 context (vs nanoGPT's 256)
+  micro_batch_size: 4
+  train_batch_size: 480  # 4 * 120 = 480
+  gradient_accumulation_steps: 60  # 120/2 = 60 per GPU (2 GPUs = 120 total)
+
+  # Model parallelism
+  tensor_model_parallel_size: 1
+
+  # Checkpointing
+  save_checkpoint_steps: 1000
+  log_interval: 100
+  model_path: models/validation_dp2_full_owt
+
+  # Attention
+  use_flash_attn: true
+  vocab_padding_unit: 128
+
+operation:
+  # Training duration (2000 steps for validation)
+  train_steps: 2000
+
+  # Evaluation
+  eval_interval: 1000
+  eval_samples: 200
+
+  # Memory optimization
+  activation_recompute: false
+
+  # Checkpointing
+  no_save: false
+
+# Model: GPT2-small (124M params, matches nanoGPT target)
+model: gpt2-small
+
+# Data configuration - Full OWT dataset
+data:
+  config_path: configs/data/full_owt_pretrain.yaml
+  task_type: pretrain
+
+# Optimizer settings (nanoGPT defaults)
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+
+  # Learning rate (nanoGPT: 6e-4)
+  max_lr: 6.0e-4
+  min_lr: 6.0e-5  # 10% of max_lr
+
+  # LR schedule (nanoGPT: warmup=2000, decay=600000)
+  # Scaled down proportionally for 2000 steps
+  warmup_steps: 100      # ~5% of total
+  annealing_steps: 2000  # Full training duration
+
+  # Regularization (nanoGPT defaults)
+  weight_decay: 0.1
+
+  # Adam parameters (nanoGPT: beta1=0.9, beta2=0.95)
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+
+  # Gradient clipping (nanoGPT: 1.0)
+  clip_grad: 1.0
+
+# Initialization
+init:
+  seed: 42
+  init_std: 0.02

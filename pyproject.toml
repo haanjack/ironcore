@@ -1,0 +1,48 @@
+[project]
+name = "ironcore"
+version = "0.1.0"
+description = "Distributed training framework"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "pyyaml",
+    "tiktoken",
+    "datasets",
+    "einops",
+    "huggingface_hub",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "python-dotenv",
+    "safetensors",
+    "tabulate",
+    "tensorboard",
+    "tqdm",
+    "transformers>=4.30.0",
+]
+
+[project.optional-dependencies]
+dev = ["pylint", "pytest"]
+
+[project.scripts]
+ironcore = "ironcore.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ironcore*"]
+
+[tool.pylint.'MESSAGE CONTROL']
+disable = ["missing-module-docstring",
+           "missing-class-docstring",
+           "missing-function-docstring",
+           "too-many-instance-attributes",
+           "too-many-arguments",
+           "protected-access",
+           "line-too-long",
+           "arguments-differ",
+           "fixme"
+]

@@ -1,0 +1,35 @@
+# Example configuration for Supervised Fine-Tuning (SFT)
+# Uses chat/instruction datasets
+
+# Tokenizer configuration
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 2048  # Longer sequences for conversations
+
+# Data splits (train/eval/test)
+splits: [0.95, 0.05, 0.0]
+
+# Datasets to mix
+train_datasets:
+  - name: ultrachat
+    dataset_path: HuggingFaceH4/ultrachat_200k  # Example SFT dataset
+    task_type: sft
+    ratio: 0.7
+    split: train_sft
+    messages_column: messages
+    # max_samples: 1000  # Uncomment for testing
+
+  - name: openassistant
+    dataset_path: OpenAssistant/oasst1
+    task_type: sft
+    ratio: 0.3
+    split: train
+    messages_column: messages
+    # max_samples: 500  # Uncomment for testing
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 8

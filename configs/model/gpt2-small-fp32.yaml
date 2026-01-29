@@ -1,0 +1,17 @@
+num_attention_heads: 12
+num_attention_groups: 12
+attention_head_size: 64
+head_dim: 64
+max_seq_len: 1024
+num_layers: 12
+d_model: 768
+d_ffn: 3072
+untie_embed: false
+# Disable document-boundary resets (use nanoGPT-style continuous training)
+reset_position_ids: false
+reset_attention_mask: false
+eod_mask_loss: false
+precision: fp32
+
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe

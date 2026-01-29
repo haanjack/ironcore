@@ -1,0 +1,61 @@
+# Example: Multiple SFT datasets with weighted mixing
+#
+# This configuration shows how to mix multiple SFT datasets
+# with different ratios during training.
+
+# Tokenizer configuration
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 512
+
+# Data splits (train/eval/test)
+splits: [0.9, 0.1, 0.0]
+
+# Training datasets - mixed with specified ratios
+train_datasets:
+  # GSM8K - 30% weight
+  - name: gsm8k
+    dataset_path: openai/gsm8k
+    task_type: sft
+    ratio: 0.3
+    split: train
+    subset: main
+    messages_column: messages  # or custom columns
+    max_samples: 5000
+
+  # Alpaca - 50% weight (largest)
+  - name: alpaca
+    dataset_path: tatsu-lab/alpaca
+    task_type: sft
+    ratio: 0.5
+    split: train
+    messages_column: messages
+    max_samples: 10000
+
+  # OpenOrca - 20% weight
+  - name: openorca
+    dataset_path: Open-Orca/OpenOrca
+    task_type: sft
+    ratio: 0.2
+    split: train
+    subset: 1M-GPT4-Augmented
+    messages_column: messages
+    max_samples: 5000
+
+# Optional: Separate eval datasets
+eval_datasets:
+  - name: gsm8k
+    dataset_path: openai/gsm8k
+    task_type: sft
+    ratio: 1.0
+    split: test
+    subset: main
+    messages_column: messages
+    max_samples: 1000
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4
