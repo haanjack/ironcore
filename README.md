@@ -11,7 +11,7 @@ IronCore is a personal project for practicing AI development and testing trainin
 - **Inference Engine**: Integrate rollout and evaluation capabilities - not yet
 - **DSL Experimentation**: Testing Triton kernels and low-level optimizations (with or without agent) - not yet
 
-This project mostly inspired by NVIDIA Megatron-LM.
+This project inspired by NVIDIA Megatron-LM and HuggingFace's Transformers.
 
 
 ## Installation
