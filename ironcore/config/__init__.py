@@ -43,6 +43,10 @@ class MainConfig(BaseConfig):
     operation: OperationConfig
     utils: UtilsConfig
 
+    # DPO-specific configuration
+    dpo_beta: float = 0.5
+    dpo_label_smoothing: float = 0.0
+
 
 def _config_validation(config: MainConfig):
     """Validate arguments and update internal enum if necessary"""
