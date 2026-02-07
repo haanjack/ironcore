@@ -1,0 +1,40 @@
+# DPO (Direct Preference Optimization) Configuration
+#
+# Reference:
+#   Rafailov et al., "Direct Preference Optimization" (2023)
+#   https://arxiv.org/abs/2305.18290
+
+# DPO Hyperparameters
+dpo:
+  # Beta: Temperature parameter for preference strength
+  # Higher values = more conservative updates (stay closer to reference)
+  # Lower values = more aggressive preference learning
+  # Typical range: 0.1 - 0.5
+  beta: 0.1
+
+  # Label smoothing for preference targets
+  # 0.0 = hard targets (standard DPO)
+  # > 0 = soft targets for regularization
+  label_smoothing: 0.0
+
+# Training settings optimized for DPO
+trainer:
+  # Gradient accumulation for larger effective batch size
+  gradient_accumulation_steps: 4
+
+  # Evaluation frequency
+  eval_every: 100
+
+  # Checkpoint saving frequency
+  save_every: 500
+
+# Optimizer settings for DPO
+optim:
+  # Lower learning rate for stable preference learning
+  lr: 1.0e-5
+
+  # Warmup steps
+  warmup_steps: 100
+
+  # Gradient clipping
+  clip_grad: 1.0

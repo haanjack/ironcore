@@ -5,6 +5,7 @@ Handles downloading, tokenizing, and serializing datasets into a unified binary 
 Supports pretrain, SFT, and DPO task types.
 """
 
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np

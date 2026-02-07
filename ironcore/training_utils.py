@@ -149,3 +149,78 @@ def loss_func(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch.Ten
     loss = torch.sum(token_losses * loss_mask) / torch.sum(loss_mask)
 
     return loss
+
+
+def get_dpo_batch(data_iterator) -> dict:
+    """Get DPO batch from data iterator.
+
+    DPO batches contain both chosen and rejected samples with prefixed keys.
+
+    Returns:
+        Dictionary with 'chosen_*' and 'rejected_*' prefixed tensors
+    """
+    if data_iterator is not None:
+        batch = next(data_iterator)
+    else:
+        batch = None
+
+    # DPO dataloader returns dict with prefixed keys for chosen/rejected
+    return batch
+
+
+def forward_step_dpo(model, reference_model, data_iterator, dpo_beta=0.5, label_smoothing=0.0):
+    """Forward step for DPO training.
+
+    This is a convenience wrapper that can be used with the standard Trainer.
+    For full DPO functionality, use DPOTrainer instead.
+
+    Args:
+        model: Policy model
+        reference_model: Frozen reference model
+        data_iterator: Data iterator yielding DPO batches
+        dpo_beta: DPO temperature parameter
+        label_smoothing: Label smoothing factor
+
+    Returns:
+        Dictionary with 'loss' tensor and 'metrics' dict
+    """
+    from ironcore.rlhf.algorithms.dpo import dpo_loss
+
+    batch = get_dpo_batch(data_iterator)
+
+    # Extract chosen samples
+    chosen_input_ids = batch['chosen_input_ids']
+    chosen_labels = batch['chosen_labels']
+
+    # Extract rejected samples
+    rejected_input_ids = batch['rejected_input_ids']
+    rejected_labels = batch['rejected_labels']
+
+    # Get loss mask if available
+    loss_mask = batch.get('chosen_loss_mask')
+
+    # Forward pass on chosen (policy)
+    chosen_policy_logits = model(chosen_input_ids, labels=None)
+
+    # Forward pass on rejected (policy)
+    rejected_policy_logits = model(rejected_input_ids, labels=None)
+
+    # Forward pass on reference model (no grad)
+    with torch.no_grad():
+        chosen_ref_logits = reference_model(chosen_input_ids, labels=None)
+        rejected_ref_logits = reference_model(rejected_input_ids, labels=None)
+
+    # Compute DPO loss
+    loss, metrics = dpo_loss(
+        policy_chosen_logits=chosen_policy_logits,
+        policy_rejected_logits=rejected_policy_logits,
+        reference_chosen_logits=chosen_ref_logits,
+        reference_rejected_logits=rejected_ref_logits,
+        chosen_labels=chosen_labels,
+        rejected_labels=rejected_labels,
+        loss_mask=loss_mask,
+        beta=dpo_beta,
+        label_smoothing=label_smoothing,
+    )
+
+    return {'loss': loss, 'metrics': metrics}

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ironcore.config import MainConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
-from ironcore.trainer import Trainer
+from ironcore.trainers import Trainer
 from ironcore.training_utils import forward_step, get_loss_func
 
 
@@ -64,9 +64,15 @@ def run_train(args):
     loss_fn = get_loss_func(task_type)
     print(f"Task type: {task_type}, using loss function: {loss_fn.__name__}")
 
-    # Initialize trainer
+    # Select trainer based on task type
     print("\nInitializing trainer...")
-    trainer = Trainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    if task_type == "dpo":
+        from ironcore.trainers import DPOTrainer
+        print("Using DPOTrainer for Direct Preference Optimization")
+        trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    else:
+        print("Using standard Trainer")
+        trainer = Trainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
 
     # Run training
     print("\nStarting training...")
