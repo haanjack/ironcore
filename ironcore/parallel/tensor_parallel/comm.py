@@ -14,7 +14,9 @@ import torch.distributed as dist
 from ironcore.parallel import parallel_states
 
 
-def _reduce(x: torch.Tensor, async_op: bool = False) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
+def _reduce(
+    x: torch.Tensor, async_op: bool = False
+) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
     if parallel_states.get_tensor_model_parallel_world_size() == 1:
         if async_op:
             return x, None
@@ -24,7 +26,8 @@ def _reduce(x: torch.Tensor, async_op: bool = False) -> torch.Tensor | tuple[tor
         x = x.contiguous()
 
     handle = dist.all_reduce(
-        x, group=parallel_states.get_tensor_model_parallel_group(), async_op=async_op)
+        x, group=parallel_states.get_tensor_model_parallel_group(), async_op=async_op
+    )
 
     if async_op:
         return x, handle
@@ -163,13 +166,17 @@ class _CopyToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=a
         return x
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
+    def backward(
+        ctx, grad_output: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
         return _reduce(grad_output)
 
 
 class _ReduceFromModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
-    def forward(ctx, x: torch.Tensor, async_op: bool = False) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:  # pylint: disable=unused-argument
+    def forward(
+        ctx, x: torch.Tensor, async_op: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:  # pylint: disable=unused-argument
         return _reduce(x, async_op)
 
     @staticmethod
@@ -216,10 +223,12 @@ class _GatherFromModelParallelWorkers(torch.autograd.Function):  # pylint: disab
 
 
 def copy_inputs_to_model_parallel_workers(x) -> torch.Tensor:
-    return _CopyToModelParallelWorkers.apply(x) # type: ignore
+    return _CopyToModelParallelWorkers.apply(x)  # type: ignore
 
 
-def reduce_inputs_from_model_parallel_workers(x, async_op=False) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
+def reduce_inputs_from_model_parallel_workers(
+    x, async_op=False
+) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
     return _ReduceFromModelParallelWorkers.apply(x, async_op)  # type: ignore
 
 

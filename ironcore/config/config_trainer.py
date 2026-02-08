@@ -80,7 +80,10 @@ class TrainerConfig(BaseConfig):
 
     # Async Tensor Parallelism
     sequence_chunk_size: int | None = field(
-        default=None, metadata={"help": "Target chunk size (in tokens) for async tensor parallelism. If set, sequence is split into chunks of this size."}
+        default=None,
+        metadata={
+            "help": "Target chunk size (in tokens) for async tensor parallelism. If set, sequence is split into chunks of this size."
+        },
     )
 
     # torch.compile options

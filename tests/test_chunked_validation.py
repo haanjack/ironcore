@@ -173,17 +173,20 @@ def print_report(metrics_list, section_title):
     # detailed gradient norms for the last entry (longest sequence / most chunks)
     m = metrics_list[-1]
     print(f"\n  Gradient norm detail for [{m['label']}]:")
-    print(f"  {'Parameter':<45} {'Base Norm':>11} {'Chunk Norm':>11} {'Rel Diff':>10} {'Abs Diff':>10}")
-    print(f"  {'-'*90}")
+    print(
+        f"  {'Parameter':<45} {'Base Norm':>11} {'Chunk Norm':>11} {'Rel Diff':>10} {'Abs Diff':>10}"
+    )
+    print(f"  {'-' * 90}")
     for name, bn, cn, nd, ad in m["grad_norm_rows"]:
         print(f"  {name:<45} {bn:>11.6f} {cn:>11.6f} {nd:>10.2e} {ad:>10.2e}")
 
-    print(f"\n  Activation norms: baseline={m['output_norm_base']:.6f}  chunked={m['output_norm_chunk']:.6f}")
+    print(
+        f"\n  Activation norms: baseline={m['output_norm_base']:.6f}  chunked={m['output_norm_chunk']:.6f}"
+    )
     print(f"  Loss values:      baseline={m['loss_base']:.8f}  chunked={m['loss_chunk']:.8f}")
 
 
 class TestChunkedValidation(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         if not torch.cuda.is_available():
@@ -244,24 +247,54 @@ class TestChunkedValidation(unittest.TestCase):
     # Standard attention, float32
     # ------------------------------------------------------------------
     def test_short_seq_standard(self):
-        self._run_suite(64, [32, 16, 8], torch.float32, False, False,
-                         "Standard Attn | fp32 | Short seq=64 | bias=True")
+        self._run_suite(
+            64,
+            [32, 16, 8],
+            torch.float32,
+            False,
+            False,
+            "Standard Attn | fp32 | Short seq=64 | bias=True",
+        )
 
     def test_medium_seq_standard(self):
-        self._run_suite(256, [128, 64, 32], torch.float32, False, False,
-                         "Standard Attn | fp32 | Medium seq=256 | bias=True")
+        self._run_suite(
+            256,
+            [128, 64, 32],
+            torch.float32,
+            False,
+            False,
+            "Standard Attn | fp32 | Medium seq=256 | bias=True",
+        )
 
     def test_long_seq_standard(self):
-        self._run_suite(1024, [512, 256, 128], torch.float32, False, False,
-                         "Standard Attn | fp32 | Long seq=1024 | bias=True")
+        self._run_suite(
+            1024,
+            [512, 256, 128],
+            torch.float32,
+            False,
+            False,
+            "Standard Attn | fp32 | Long seq=1024 | bias=True",
+        )
 
     def test_long_seq_standard_no_bias(self):
-        self._run_suite(1024, [512, 256, 128], torch.float32, False, True,
-                         "Standard Attn | fp32 | Long seq=1024 | bias=False")
+        self._run_suite(
+            1024,
+            [512, 256, 128],
+            torch.float32,
+            False,
+            True,
+            "Standard Attn | fp32 | Long seq=1024 | bias=False",
+        )
 
     def test_uneven_chunks_standard(self):
-        self._run_suite(100, [33, 17, 13], torch.float32, False, False,
-                         "Standard Attn | fp32 | Uneven seq=100 | bias=True")
+        self._run_suite(
+            100,
+            [33, 17, 13],
+            torch.float32,
+            False,
+            False,
+            "Standard Attn | fp32 | Uneven seq=100 | bias=True",
+        )
 
     # ------------------------------------------------------------------
     # Flash attention, bfloat16
@@ -271,24 +304,42 @@ class TestChunkedValidation(unittest.TestCase):
             from flash_attn import flash_attn_varlen_func  # noqa: F401
         except ImportError:
             self.skipTest("flash_attn not installed")
-        self._run_suite(64, [32, 16, 8], torch.bfloat16, True, False,
-                         "Flash Attn | bf16 | Short seq=64 | bias=True")
+        self._run_suite(
+            64,
+            [32, 16, 8],
+            torch.bfloat16,
+            True,
+            False,
+            "Flash Attn | bf16 | Short seq=64 | bias=True",
+        )
 
     def test_long_seq_flash(self):
         try:
             from flash_attn import flash_attn_varlen_func  # noqa: F401
         except ImportError:
             self.skipTest("flash_attn not installed")
-        self._run_suite(1024, [512, 256, 128], torch.bfloat16, True, False,
-                         "Flash Attn | bf16 | Long seq=1024 | bias=True")
+        self._run_suite(
+            1024,
+            [512, 256, 128],
+            torch.bfloat16,
+            True,
+            False,
+            "Flash Attn | bf16 | Long seq=1024 | bias=True",
+        )
 
     def test_vlong_seq_flash(self):
         try:
             from flash_attn import flash_attn_varlen_func  # noqa: F401
         except ImportError:
             self.skipTest("flash_attn not installed")
-        self._run_suite(2048, [1024, 512, 256], torch.bfloat16, True, False,
-                         "Flash Attn | bf16 | VLong seq=2048 | bias=True")
+        self._run_suite(
+            2048,
+            [1024, 512, 256],
+            torch.bfloat16,
+            True,
+            False,
+            "Flash Attn | bf16 | VLong seq=2048 | bias=True",
+        )
 
 
 if __name__ == "__main__":

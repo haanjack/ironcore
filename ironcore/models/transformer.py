@@ -102,9 +102,7 @@ class TransformerLayer(BaseModule):
         if chunk_size is None or chunk_size <= 0 or chunk_size >= seq_len:
             # Standard synchronous execution
             # self attention
-            attention_output = self.self_attention(
-                query, key, value, attention_mask
-            )
+            attention_output = self.self_attention(query, key, value, attention_mask)
 
             # output projection
             attention_output = self.attn_output(attention_output)

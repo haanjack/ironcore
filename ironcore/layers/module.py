@@ -182,7 +182,7 @@ class BaseModule(torch.nn.Module):
                 return next(self.buffers()).device
             except StopIteration:
                 # Default to cpu if no params or buffers
-                return torch.device('cpu')
+                return torch.device("cpu")
 
     @property
     def dtype(self):

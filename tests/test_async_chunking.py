@@ -1,4 +1,3 @@
-
 import os
 import sys
 
@@ -46,17 +45,15 @@ def test_chunking():
             num_attention_groups=4,
             head_dim=16,
             d_ffn=128,
-            max_seq_len=128
+            max_seq_len=128,
         ),
-        trainer=TrainerConfig(
-            tensor_model_parallel_size=1
-        ),
+        trainer=TrainerConfig(tensor_model_parallel_size=1),
         init=InitConfig(),
         optim=OptimConfig(),
         data=DataConfig(),
         parallel=ParallelConfig(),
         operation=OperationConfig(),
-        utils=UtilsConfig()
+        utils=UtilsConfig(),
     )
 
     layer = TransformerLayer(config).cuda()
@@ -131,6 +128,7 @@ def test_chunking():
     assert diff_dynamic < 1e-5, f"Difference too high for dynamic chunk size: {diff_dynamic}"
 
     print("Test passed!")
+
 
 if __name__ == "__main__":
     if torch.cuda.is_available():

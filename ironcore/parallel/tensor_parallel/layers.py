@@ -242,7 +242,9 @@ class RowParallelLinear(ParallelLinear):
 
         if self.tensor_model_parallel_size > 1:
             if async_communication:
-                output, handle = comm.reduce_inputs_from_model_parallel_workers(output, async_op=True)
+                output, handle = comm.reduce_inputs_from_model_parallel_workers(
+                    output, async_op=True
+                )
                 return output, handle
             output = comm.reduce_inputs_from_model_parallel_workers(output)
 

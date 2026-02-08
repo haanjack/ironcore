@@ -138,8 +138,8 @@ def benchmark_one(seq_len, chunk_size, device, use_compile):
         times.append(t1 - t0)
         last_loss = loss.item()
 
-    peak_alloc = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
-    peak_resv = torch.cuda.max_memory_reserved(device) / (1024 ** 2)
+    peak_alloc = torch.cuda.max_memory_allocated(device) / (1024**2)
+    peak_resv = torch.cuda.max_memory_reserved(device) / (1024**2)
 
     # ── Cleanup ────────────────────────────────────────────────────────
     del model, optimizer, hidden, output, loss
@@ -201,7 +201,9 @@ def print_section(results, title):
             f"{r['peak_alloc_mib']:>12.1f}  {r['peak_resv_mib']:>12.1f}  {r['last_loss']:>12.6f}"
         )
 
-    print(f"\n  {'Seq Len':>8}  {'Chunk':>6}  {'Speedup':>10}  {'Time Delta':>12}  {'Mem Delta (MiB)':>16}")
+    print(
+        f"\n  {'Seq Len':>8}  {'Chunk':>6}  {'Speedup':>10}  {'Time Delta':>12}  {'Mem Delta (MiB)':>16}"
+    )
     print(f"  {'-' * 70}")
     for r in results:
         if r["chunk_size"] is None:
@@ -242,12 +244,14 @@ def main():
         pass
 
     gpu_name = torch.cuda.get_device_properties(0).name
-    gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+    gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
 
     print(f"GPU: {gpu_name} ({gpu_mem:.1f} GB)")
     print(f"Model: d={D_MODEL}, heads={NUM_HEADS}, ffn={D_FFN}, layers={NUM_LAYERS}")
     print(f"Batch size: {BATCH_SIZE}, dtype: bfloat16, flash_attn: True")
-    print(f"Warmup: eager={EAGER_WARMUP}, compiled={COMPILE_WARMUP} steps | Measure: {MEASURE_STEPS} steps")
+    print(
+        f"Warmup: eager={EAGER_WARMUP}, compiled={COMPILE_WARMUP} steps | Measure: {MEASURE_STEPS} steps"
+    )
 
     # ── Phase 1: Eager mode ────────────────────────────────────────────
     eager_results = []
@@ -291,7 +295,9 @@ def main():
     print(f"\n{'=' * 90}")
     print("  COMPILE vs EAGER (same chunk config)")
     print(f"{'=' * 90}")
-    print(f"{'Seq Len':>8}  {'Chunk':>6}  {'Eager (s)':>10}  {'Compiled (s)':>13}  {'Compile Speedup':>16}  {'Mem Δ (MiB)':>12}")
+    print(
+        f"{'Seq Len':>8}  {'Chunk':>6}  {'Eager (s)':>10}  {'Compiled (s)':>13}  {'Compile Speedup':>16}  {'Mem Δ (MiB)':>12}"
+    )
     print("-" * 90)
 
     for e, c in zip(eager_results, compiled_results, strict=True):
