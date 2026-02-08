@@ -240,18 +240,13 @@ class RowParallelLinear(ParallelLinear):
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
         output = torch.matmul(parallel_x, self.weight)
 
-        if self.tensor_model_parallel_size > 1:
-            if async_communication:
-                output, handle = comm.reduce_inputs_from_model_parallel_workers(
-                    output, async_op=True
-                )
-                return output, handle
-            output = comm.reduce_inputs_from_model_parallel_workers(output)
-
         if async_communication:
-            return output, None
+            # Async path: bias added later in finalize() to avoid race conditions
+            # comm.reduce handles both tp_size=1 and tp_size>1 cases
+            return comm.reduce_inputs_from_model_parallel_workers(output, async_op=True)
 
+        # Synchronous path: standard TP behavior (used when chunking disabled)
+        output = comm.reduce_inputs_from_model_parallel_workers(output, async_op=False)
         if self.bias is not None:
             output = output + self.bias
-
         return output
