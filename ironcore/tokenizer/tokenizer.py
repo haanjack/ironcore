@@ -8,9 +8,8 @@
 #
 # Full license text is available at LICENSE file.
 
-from abc import ABC
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Union
 
 from transformers import AutoTokenizer, GPT2Tokenizer
 
@@ -19,18 +18,18 @@ from ironcore.utils import load_yaml_config
 
 try:
     import tiktoken
-except:
-    raise ImportError(f"tiktoken is not installed.")
+except ImportError:
+    raise ImportError("tiktoken is not installed.")
 
 
-class Tokenizer(ABC):
+class Tokenizer:
 
     def __init__(
         self,
         tokenizer,
         vocab_name_or_path: Union[str, Path],
         vocab_padding_unit: int = 128,
-        special_tokens_config: Optional[Dict[str, str]] = None,
+        special_tokens_config: dict[str, str] | None = None,
     ):
         self._tokenizer = tokenizer
         self.vocab_name_or_path = vocab_name_or_path
@@ -92,7 +91,7 @@ class Tokenizer(ABC):
     @property
     def eod_token_id(self):
         if hasattr(self._tokenizer, "eod_token_id"):
-            return getattr(self._tokenizer, "eod_token_id")
+            return self._tokenizer.eod_token_id
         return self.eos_token_id
 
     @property
@@ -141,9 +140,9 @@ class BbpeTokenizer(Tokenizer):
     def __init__(
         self,
         vocab_name_or_path: Union[str, Path],
-        merge_file_path: Optional[Union[str, Path]] = None,
+        merge_file_path: Union[str, Path] | None = None,
         vocab_padding_unit: int = 128,
-        special_tokens_config: Optional[Dict[str, str]] = None,
+        special_tokens_config: dict[str, str] | None = None,
     ):
 
         if merge_file_path:
@@ -167,7 +166,7 @@ class SentencePieceTokenizer(Tokenizer):
         self,
         vocab_name_or_path: Union[str, Path],
         vocab_padding_unit: int = 128,
-        special_tokens_config: Optional[Dict[str, str]] = None,
+        special_tokens_config: dict[str, str] | None = None,
     ):
         tokenizer = AutoTokenizer.from_pretrained(vocab_name_or_path)
 

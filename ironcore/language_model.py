@@ -2,7 +2,6 @@
 
 import torch
 import torch.nn.functional as F
-from torch import nn
 
 from ironcore import get_tokenizer
 from ironcore.config import MainConfig
@@ -13,8 +12,8 @@ from ironcore.models import get_model_provider_func
 from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
-    vocab_parallel_cross_entropy,
     copy_inputs_to_model_parallel_workers,
+    vocab_parallel_cross_entropy,
 )
 
 

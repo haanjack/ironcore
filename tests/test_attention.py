@@ -23,22 +23,27 @@ Tests:
 
 import os
 import sys
-import unittest
 import time
+import unittest
 
 import torch
-import torch.distributed as dist
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.models.transformer import TransformerLayer
 from ironcore.parallel import parallel_states
-
 
 # =============================================================================
 # Test Configuration Helpers
@@ -602,7 +607,6 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         self.batch_size = 2
         self.seq_len = 64
         try:
-            from flash_attn import flash_attn_varlen_func
             self.flash_available = True
         except ImportError:
             self.flash_available = False
@@ -914,7 +918,7 @@ class TestAttentionMemory(unittest.TestCase):
         mem_before = torch.cuda.memory_allocated()
 
         # Forward pass
-        output = attention(query, key, value, attention_mask)
+        attention(query, key, value, attention_mask)
 
         # Measure memory after forward
         mem_after = torch.cuda.memory_allocated()

@@ -11,7 +11,6 @@
 # this is place holder for fused layer norm layer
 
 
-import torch
 from torch import nn
 
 from ironcore.layers.module import BaseModule

@@ -49,45 +49,45 @@ def compute_token_accuracy(
     """
     if parallel_states.get_tensor_model_parallel_world_size() > 1:
         # TP mode: logits are sharded along vocab dimension [b, s, vocab/tp_size]
-        
+
         # 1. Get local max and indices
         local_max_values, local_indices = torch.max(logits, dim=-1) # [b, s]
-        
+
         # 2. Adjust local indices to global vocab indices
         rank = parallel_states.get_tensor_model_parallel_rank()
         partition_vocab_size = logits.size(-1)
         start_idx = rank * partition_vocab_size
         global_indices = local_indices + start_idx
-        
+
         # 3. Gather max values and indices from all ranks
         # We need to find which rank has the true global max
         tp_group = parallel_states.get_tensor_model_parallel_group()
         world_size = parallel_states.get_tensor_model_parallel_world_size()
-        
+
         # List to gather into
         gathered_max_values = [torch.zeros_like(local_max_values) for _ in range(world_size)]
         gathered_indices = [torch.zeros_like(global_indices) for _ in range(world_size)]
-        
+
         dist.all_gather(gathered_max_values, local_max_values, group=tp_group)
         dist.all_gather(gathered_indices, global_indices, group=tp_group)
-        
+
         # Stack: [world_size, b, s]
         all_max_values = torch.stack(gathered_max_values)
         all_indices = torch.stack(gathered_indices)
-        
+
         # 4. Find max across ranks
         # [b, s] indices of the rank that has the max value
         max_rank_indices = torch.argmax(all_max_values, dim=0)
-        
+
         # 5. Select the corresponding global token index
         # We use gather to select from the specific rank index for each position
         # all_indices: [world_size, b, s] -> gather -> [1, b, s]
         predictions = torch.gather(
-            all_indices, 
-            dim=0, 
+            all_indices,
+            dim=0,
             index=max_rank_indices.unsqueeze(0)
         ).squeeze(0)
-        
+
     else:
         # Standard mode
         predictions = logits.argmax(dim=-1)  # [batch, seq_len]

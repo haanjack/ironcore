@@ -10,8 +10,6 @@
 
 from pathlib import Path
 
-import torch
-
 from ironcore import get_logger, set_global_states
 from ironcore.checkpointing import load_checkpoint
 from ironcore.config import MainConfig, load_trainer_config
@@ -40,7 +38,7 @@ def main():
         timeout_in_minutes=config.parallel.timeout_minute,
     )
 
-    tokenizer = build_tokenizer(config)
+    build_tokenizer(config)
 
     # initialize model with parallelism design
     model = LanguageModel(config).to(device=device, dtype=dtype)

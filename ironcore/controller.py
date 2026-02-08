@@ -4,7 +4,7 @@
 #
 # Helper for training-time cadence and actions
 
-from typing import Optional, Literal
+from typing import Literal
 
 from ironcore.config import MainConfig
 
@@ -23,14 +23,14 @@ class TrainingControl:
         self.utils = config.utils
 
     @staticmethod
-    def _cadence_now(every: Optional[int], step: int) -> bool:
+    def _cadence_now(every: int | None, step: int) -> bool:
         return isinstance(every, int) and every > 0 and step > 0 and (step % every == 0)
 
     @staticmethod
-    def _cadence_next(every: Optional[int], step: int) -> bool:
+    def _cadence_next(every: int | None, step: int) -> bool:
         return isinstance(every, int) and every > 0 and ((step + 1) % every == 0)
 
-    def _cadence_flag(self, mode: Optional[Literal['log', 'checkpoint']], step: int) -> bool:
+    def _cadence_flag(self, mode: Literal['log', 'checkpoint'] | None, step: int) -> bool:
         if mode == 'log':
             return self._cadence_next(self.trainer.log_interval, step)
         if mode == 'checkpoint':

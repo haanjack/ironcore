@@ -10,7 +10,7 @@
 
 import importlib
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Union
 
 from ironcore import get_logger, get_tokenizer
 from ironcore.eval.tasks.base_task import Task
@@ -18,11 +18,11 @@ from ironcore.utils import get_dataset_base_dir
 
 
 def get_evaluators(
-    dataset_configs: List[Dict[str, Union[str, float, int]]],
+    dataset_configs: list[dict[str, Union[str, float, int]]],
     batch_size: int = 1,
     num_samples: int = None,
     cache_dir: Union[str, Path] = None,
-) -> List[Task]:
+) -> list[Task]:
     """
     build evaluator according to config
     """

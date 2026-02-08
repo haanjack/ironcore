@@ -7,14 +7,22 @@ Run with:
 """
 import os
 import sys
+
 import torch
 import torch.distributed as dist
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.parallel import parallel_states
@@ -116,8 +124,6 @@ def run_validation():
     # Forward pass
     output = attention(hidden_states, attention_mask)
     output_norm = output.norm().item()
-    output_mean = output.mean().item()
-    output_std = output.std().item()
 
     print(f"[Rank {rank}] Output norm: {output_norm:.6f}")
 
@@ -151,14 +157,14 @@ def run_validation():
             print(f"TP={tp_size} VALIDATION RESULTS")
             print(f"{'='*70}")
 
-            print(f"\nOutput Norms:")
+            print("\nOutput Norms:")
             for i in range(world_size):
                 print(f"  Rank {i}: {gathered_output_norms[i].item():.6f}")
 
             output_diff = abs(gathered_output_norms[0].item() - gathered_output_norms[1].item())
             print(f"  Difference: {output_diff:.2e}")
 
-            print(f"\nGradient Norms:")
+            print("\nGradient Norms:")
             for i in range(world_size):
                 print(f"  Rank {i}: {gathered_grad_norms[i].item():.6f}")
 

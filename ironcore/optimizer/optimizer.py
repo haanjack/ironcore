@@ -9,9 +9,10 @@
 # Full license text is available at LICENSE file.
 
 import math
+
 import torch
 from torch.optim import Optimizer
-from torch.optim.adamw import AdamW
+
 
 class AdamWOptimizer(Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-08,

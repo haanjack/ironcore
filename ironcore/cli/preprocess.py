@@ -31,7 +31,7 @@ def run_preprocess(args):
         print(f"Loading configuration from: {config_path}")
         data_config = DataConfig.from_yaml(config_path)
 
-        print(f"\nDatasets to process:")
+        print("\nDatasets to process:")
         for ds in data_config.datasets:
             print(f"  - {ds.name} ({ds.task_type}): ratio={ds.ratio}")
 
@@ -40,7 +40,7 @@ def run_preprocess(args):
         print(f"Splits: train={data_config.splits[0]:.1%}, eval={data_config.splits[1]:.1%}, test={data_config.splits[2]:.1%}")
 
         # Load tokenizer
-        print(f"\nLoading tokenizer...")
+        print("\nLoading tokenizer...")
         if data_config.tokenizer_type == "bbpe":
             from transformers import AutoTokenizer
             tokenizer = AutoTokenizer.from_pretrained(data_config.vocab_name_or_path)

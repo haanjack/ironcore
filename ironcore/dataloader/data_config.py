@@ -7,7 +7,7 @@ and preprocessing parameters.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Literal, Union
 
 import yaml
 
@@ -29,10 +29,10 @@ class DatasetConfig:
     ratio: float = 1.0
 
     # Optional: Subset/split name (e.g., "train", "validation")
-    split: Optional[str] = "train"
+    split: str | None = "train"
 
     # Optional: Dataset subset (e.g., for HF datasets with configs)
-    subset: Optional[str] = None
+    subset: str | None = None
 
     # Optional: Column names for different task types
     text_column: str = "text"  # For pretrain
@@ -42,13 +42,13 @@ class DatasetConfig:
 
     # Optional: Chat template for SFT/DPO
     # If not specified, uses tokenizer's default
-    chat_template: Optional[str] = None
+    chat_template: str | None = None
 
     # Optional: Maximum number of samples to use (for debugging)
-    max_samples: Optional[int] = None
+    max_samples: int | None = None
 
     # Preprocessed output path (auto-generated if not specified)
-    output_path: Optional[Path] = None
+    output_path: Path | None = None
 
     def __post_init__(self):
         """Validate configuration."""
@@ -64,11 +64,11 @@ class UniversalDataConfig:
     """Top-level data configuration."""
 
     # List of datasets to use
-    datasets: List[DatasetConfig]
+    datasets: list[DatasetConfig]
 
     # Optional: Separate evaluation and test datasets
-    eval_datasets: List[DatasetConfig] = field(default_factory=list)
-    test_datasets: List[DatasetConfig] = field(default_factory=list)
+    eval_datasets: list[DatasetConfig] = field(default_factory=list)
+    test_datasets: list[DatasetConfig] = field(default_factory=list)
 
     # Tokenizer configuration
     vocab_name_or_path: str = "gpt2"
@@ -79,10 +79,10 @@ class UniversalDataConfig:
     max_seq_len: int = 1024  # Alias for compatibility
 
     # Training data splits
-    splits: List[float] = field(default_factory=lambda: [0.99, 0.01, 0.0])  # train/eval/test
+    splits: list[float] = field(default_factory=lambda: [0.99, 0.01, 0.0])  # train/eval/test
 
     # Padding token ID (None = use EOS)
-    pad_token_id: Optional[int] = None
+    pad_token_id: int | None = None
 
     # Output directory for preprocessed data
     preprocessed_dir: Path = Path("./data/preprocessed")
@@ -94,7 +94,7 @@ class UniversalDataConfig:
     num_workers: int = 4
 
     # Preprocessing-specific settings
-    preprocessing: Dict = field(default_factory=dict)
+    preprocessing: dict = field(default_factory=dict)
 
     def __post_init__(self):
         """Post-initialization validation and setup."""
@@ -130,19 +130,19 @@ class UniversalDataConfig:
         if not yaml_path.exists():
             raise FileNotFoundError(f"Config file not found: {yaml_path}")
 
-        with open(yaml_path, 'r') as f:
+        with open(yaml_path) as f:
             config_dict = yaml.safe_load(f)
 
         return cls.from_dict(config_dict)
 
     @classmethod
-    def from_dict(cls, config_dict: Dict) -> "UniversalDataConfig":
+    def from_dict(cls, config_dict: dict) -> "UniversalDataConfig":
         """
         Create UniversalDataConfig from a dictionary.
 
         Handles various YAML structures used in the ironcore project.
         """
-        def _parse_datasets(ds_list: List[Dict]) -> List[DatasetConfig]:
+        def _parse_datasets(ds_list: list[dict]) -> list[DatasetConfig]:
             parsed = []
             for ds in ds_list:
                 parsed.append(DatasetConfig(

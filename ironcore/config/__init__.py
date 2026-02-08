@@ -12,12 +12,12 @@ import os
 from argparse import ArgumentParser, Namespace
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, get_args, get_origin
+from typing import Any, Optional, Union, get_args, get_origin
 
 import torch
 from dotenv import load_dotenv
 
-from ironcore.utils import get_dataset_base_dir, load_yaml_config
+from ironcore.utils import load_yaml_config
 
 from .config import BaseConfig
 from .config_data import DataConfig
@@ -125,7 +125,7 @@ def _config_validation(config: MainConfig):
             )
 
     # positional embedding
-    if not config.model.positional_embedding.type.lower() in [
+    if config.model.positional_embedding.type.lower() not in [
         "absolute",
         "rope",
         "none",
@@ -169,7 +169,7 @@ def parse_args():
     return args
 
 
-def load_data_config(config, datasets: Dict[str, Any]) -> List[Dict[str, Any]]:
+def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
     """build data config."""
 
     output_list = []
@@ -500,7 +500,7 @@ def load_trainer_config() -> MainConfig:
             Path(base_dir) / config.trainer.special_tokens_config_path
         )
         if special_token_file_path.exists():
-            with open(special_token_file_path, "r", encoding="utf-8") as f:
+            with open(special_token_file_path, encoding="utf-8") as f:
                 import json
 
                 config.trainer.special_tokens_config = json.load(f)

@@ -144,7 +144,7 @@ class VocabParallelEmbedding(ParallelLinear):
         x_partition = F.embedding(
             x_partition.to(device=self.weight.device), self.weight
         )
-        
+
         # Mask out embeddings for tokens not in this partition
         x_partition[~token_mask, :] = 0.0
 

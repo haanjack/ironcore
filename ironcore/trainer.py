@@ -9,24 +9,22 @@
 # Full license text is available at LICENSE file.
 
 import math
-from abc import ABC
 from contextlib import nullcontext
-from typing import Dict, Union
+from typing import Union
 
 import torch
 from torch import distributed as dist
-from torch import nn
 from torch.profiler import ProfilerActivity, profile
 
 from ironcore.checkpointing import load_checkpoint, save_checkpoint
 from ironcore.config import MainConfig
+from ironcore.controller import TrainingControl
 from ironcore.dataloader import get_data_iterator
 from ironcore.eval import get_evaluators
 from ironcore.global_vars import (
-    global_states_cleanup,
     get_logger,
     get_timer,
-    log_histogram,
+    global_states_cleanup,
     log_metric,
     log_metrics,
     set_global_states,
@@ -40,19 +38,18 @@ from ironcore.parallel.parallel_states import (
     get_data_parallel_world_size,
     initialize_model_parallel,
 )
-from ironcore.controller import TrainingControl
+from ironcore.training_utils import compute_token_accuracy, get_batch
 from ironcore.utils import (
     Timer,
+    clip_grad_norm_tp,
     get_device,
     get_memory_usage,
     get_model_dtype,
     is_first_rank,
-    clip_grad_norm_tp,
 )
-from ironcore.training_utils import compute_token_accuracy, get_batch
 
 
-class Trainer(ABC):
+class Trainer:
     """Trainer for given language model."""
 
     def __init__(
@@ -92,7 +89,7 @@ class Trainer(ABC):
         )
 
         # contexts contols training process
-        self.context: Dict[str, Union[nullcontext, torch.autocast]] = {
+        self.context: dict[str, Union[nullcontext, torch.autocast]] = {
             "autocast": nullcontext(),
             "profile": nullcontext(),
         }
@@ -129,6 +126,7 @@ class Trainer(ABC):
 
         # Set random seed for reproducibility (critical for TP initialization)
         import random
+
         import numpy as np
 
         seed = self.config.init.seed

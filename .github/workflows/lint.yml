@@ -25,11 +25,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install Ruff
         run: |
           python -m pip install --upgrade pip
-          # Install the package with [dev] extras to include ruff
-          pip install .[dev]
+          # Explicitly install ruff for fast linting without heavy dependencies
+          pip install ruff
 
       - name: Run Ruff Check
         run: |
@@ -38,5 +38,5 @@ jobs:
 
       - name: Run Ruff Format Check
         run: |
-          # Ensures code adheres tog formatting standards
+          # Ensures code adheres to formatting standards
           ruff format --check

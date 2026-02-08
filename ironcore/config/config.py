@@ -124,6 +124,6 @@ class BaseConfig:
                 return [dict_to_dataclass(item, cls.__args__[0]) for item in data]
             return data
 
-        with open(filename, "r", encoding="utf-8") as file:
+        with open(filename, encoding="utf-8") as file:
             data = yaml.safe_load(file)
         return dict_to_dataclass(data, cls)

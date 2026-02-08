@@ -9,7 +9,6 @@
 # Full license text is available at LICENSE file.
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from .config import BaseConfig
 
@@ -32,13 +31,13 @@ class UtilsConfig(BaseConfig):
         metadata={
             "help": "Enable torch profiler. When profile use this command: torch.profiler.profile"},
     )
-    profile_step_start: Optional[int] = field(
+    profile_step_start: int | None = field(
         default=10, metadata={"help": "nsys profile start step"}
     )
-    profile_step_end: Optional[int] = field(
+    profile_step_end: int | None = field(
         default=12, metadata={"help": "nsys profile end step"}
     )
-    profile_ranks: Optional[List[int]] = field(
+    profile_ranks: list[int] | None = field(
         default_factory=lambda: [0], metadata={"help": "global ranks nsys profile"}
     )
     stop_on_profile_end: bool = field(
@@ -54,12 +53,12 @@ class UtilsConfig(BaseConfig):
     )
 
     # logger
-    tensorboard_dir: Optional[str] = field(
+    tensorboard_dir: str | None = field(
         default=None, metadata={"help": "tensorboard path"}
     )
-    mlflow_tracking_uri: Optional[str] = field(
+    mlflow_tracking_uri: str | None = field(
         default=None, metadata={"help": "mlflow tracking uri"}
     )
-    mlflow_experiment_name: Optional[str] = field(
+    mlflow_experiment_name: str | None = field(
         default=None, metadata={"help": "mlflow experiment name"}
     )

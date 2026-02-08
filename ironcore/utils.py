@@ -11,9 +11,10 @@
 import os
 import re
 import time
+from collections.abc import Iterable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, List, Iterable, Union
+from typing import Union
 
 import torch
 import torch.distributed as dist
@@ -65,7 +66,7 @@ def load_yaml_config(config_path):
     """Load yaml config file."""
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = yaml.safe_load(f)
         config = _convert_lists_to_dict(config)
     except FileNotFoundError as e:
@@ -147,8 +148,8 @@ class Timer:
     """Timer"""
 
     def __init__(self):
-        self.timers: Dict[str, List[float]] = {}
-        self.running: Dict[str, bool] = {}
+        self.timers: dict[str, list[float]] = {}
+        self.running: dict[str, bool] = {}
 
     def register(self, name: str):
         """Register timer."""
@@ -189,7 +190,7 @@ class Timer:
             self.stop(name)
         return sum(self.timers[name]) / len(self.timers[name])
 
-    def get_summary(self) -> Dict[str, float]:
+    def get_summary(self) -> dict[str, float]:
         """Get summary of all timers."""
         summary = {}
         for name, times in self.timers.items():
@@ -279,15 +280,16 @@ def clip_grad_norm_tp(parameters: Union[torch.Tensor, Iterable[torch.Tensor]], m
         Total norm of the parameters (viewed as a single vector).
     """
     from torch import inf
+
     from ironcore.parallel import parallel_states
 
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
     parameters = [p for p in parameters if p.grad is not None]
-    
+
     max_norm = float(max_norm)
     norm_type = float(norm_type)
-    
+
     if len(parameters) == 0:
         return torch.tensor(0.)
 
@@ -316,6 +318,6 @@ def clip_grad_norm_tp(parameters: Union[torch.Tensor, Iterable[torch.Tensor]], m
     if clip_coef < 1:
         for p in parameters:
             p.grad.detach().mul_(clip_coef)
-            
+
     return total_norm
 

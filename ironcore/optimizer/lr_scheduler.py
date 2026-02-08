@@ -100,7 +100,7 @@ class CosineAnnealingLR(LRScheduler):
         else:
             self.last_epoch = epoch
         self._step_count = self.last_epoch + 1
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
+        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr(), strict=True):
             param_group["lr"] = lr
 
 

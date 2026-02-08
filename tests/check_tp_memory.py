@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
-import torch
-import torch.distributed as dist
 import os
 import sys
+
+import torch
+import torch.distributed as dist
+
 sys.path.insert(0, '/mnt/wsl/PHYSICALDRIVE4p1/hanjack/workspace/ironcore')
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.parallel import parallel_states
+
 
 def create_config(tp_size):
     model_config = ModelConfig(

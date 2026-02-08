@@ -4,7 +4,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import torch
-from torch import distributed as dist
 from torch.distributed.fsdp import (
     BackwardPrefetch,
     CPUOffload,
@@ -69,7 +68,7 @@ def initialize_process(config: MainConfig):
         )
 
 
-def initialize_parallelism(config: MainConfig, model: "LanguageModel") -> torch.nn.Module:
+def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn.Module:
     """Initialize DDP or FSDP"""
     from ironcore.parallel import parallel_states
 

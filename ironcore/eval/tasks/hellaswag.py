@@ -8,8 +8,6 @@
 #
 # Full license text is available at LICENSE file.
 
-import argparse
-from abc import ABC
 from pathlib import Path
 from typing import Union
 
@@ -112,7 +110,7 @@ class HellaSwag(Task):
 
             # pad and tokenize inputs
             input_texts = []
-            for prompt, choice in zip(prompts, choices):
+            for prompt, choice in zip(prompts, choices, strict=True):
                 input_texts.append(prompt + " " + choice +
                                    self.tokenizer.eos_token)
 

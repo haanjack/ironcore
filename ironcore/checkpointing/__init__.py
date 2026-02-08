@@ -25,24 +25,23 @@ This module provides:
 """
 
 # Native checkpointing (training resume)
-from ironcore.checkpointing.native import (
-    load_checkpoint,
-    save_checkpoint,
-    HFConfigManager,
-)
-
 # HuggingFace interop (import/export)
 from ironcore.checkpointing.hf_interop import (
-    load_from_huggingface,
-    export_to_huggingface,
     detect_checkpoint_format,
+    export_to_huggingface,
+    load_from_huggingface,
     load_hf_config,
+)
+from ironcore.checkpointing.native import (
+    HFConfigManager,
+    load_checkpoint,
+    save_checkpoint,
 )
 
 # Weight mapping utilities
 from ironcore.checkpointing.weight_mapping import (
-    WeightMapper,
     Architecture,
+    WeightMapper,
     get_architecture,
 )
 

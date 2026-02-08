@@ -9,6 +9,7 @@
 # Full license text is available at LICENSE file.
 
 import math
+
 import torch
 from torch.cuda import nvtx
 from torch.profiler import record_function
@@ -127,7 +128,7 @@ class BaseModule(torch.nn.Module):
 
         # Extract the shard for this rank
         shard_size = param.shape[shard_dim]
-        
+
         # Check for concatenated weights (only for ColumnParallelLinear)
         concatenated_weights = getattr(module, 'concatenated_weights', 1)
 
@@ -136,10 +137,10 @@ class BaseModule(torch.nn.Module):
              # full_tensor: [input, output_total]
              output_total = full_shape[1]
              per_part = output_total // concatenated_weights
-             
+
              # Split into parts (e.g. K, V)
              parts = torch.split(full_tensor, per_part, dim=1)
-             
+
              shards = []
              for part in parts:
                  # Split part into TP shards
@@ -147,7 +148,7 @@ class BaseModule(torch.nn.Module):
                  start = tp_rank * part_shard_size
                  end = (tp_rank + 1) * part_shard_size
                  shards.append(part[:, start:end])
-                 
+
              shard = torch.cat(shards, dim=1)
         else:
             start_idx = tp_rank * shard_size

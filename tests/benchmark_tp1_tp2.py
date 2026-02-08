@@ -2,23 +2,25 @@
 Benchmark and Verification script for TP=1 vs TP=2.
 Supports verification of correctness and profiling with Nsight Systems.
 """
+import json
 import os
 import sys
+import time
+
+import numpy as np
 import torch
 import torch.distributed as dist
-import numpy as np
-import json
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import load_trainer_config
-from ironcore.parallel import parallel_states
-from ironcore.parallel.parallel import initialize_process
+from ironcore.dataloader import get_data_iterator
 from ironcore.global_vars import set_global_states
 from ironcore.language_model import LanguageModel
-from ironcore.dataloader import get_data_iterator
+from ironcore.parallel import parallel_states
+from ironcore.parallel.parallel import initialize_process
 from ironcore.utils import profile_context
+
 
 def run_benchmark():
     """Run benchmark loop."""
@@ -38,7 +40,7 @@ def run_benchmark():
     )
 
     tp_size = config.trainer.tensor_model_parallel_size
-    tp_rank = parallel_states.get_tensor_model_parallel_rank()
+    parallel_states.get_tensor_model_parallel_rank()
 
     if rank == 0:
         print(f"\n{'='*70}")
@@ -77,7 +79,7 @@ def run_benchmark():
     if rank == 0:
         print(f"Running {warmup_steps} warmup steps...")
 
-    for i in range(warmup_steps):
+    for _ in range(warmup_steps):
         batch = next(data_iter)
         input_ids = batch['input_ids'].to(device)
         labels = batch['labels'].to(device)
@@ -178,18 +180,18 @@ def run_benchmark():
         print(f"Avg Step Time: {all_stats[0]['avg_step_time']*1000:.2f} ms")
         print(f"Final Loss:    {all_stats[0]['final_loss']:.8f}")
 
-        print(f"\nGradient Statistics (Last Step):")
+        print("\nGradient Statistics (Last Step):")
         print(f"  Total grad norm: {all_stats[0]['total_grad_norm']:.6f}")
         print(f"  Q-weight grad mean: {all_stats[0]['q_weight_grad_mean']:.2e}")
 
-        print(f"\nWeight Update (linear_q.weight):")
+        print("\nWeight Update (linear_q.weight):")
         print(f"  Initial mean: {all_stats[0]['q_weight_mean_init']:.8f}")
         print(f"  Final mean:   {all_stats[0]['q_weight_mean_final']:.8f}")
         print(f"  Delta:        {all_stats[0]['q_weight_delta']:.2e}")
 
         if world_size > 1:
             loss_diff = abs(all_stats[0]['final_loss'] - all_stats[1]['final_loss'])
-            print(f"\nParallel Consistency:")
+            print("\nParallel Consistency:")
             print(f"  Loss Difference (Rank 0 vs 1): {loss_diff:.2e}")
             if loss_diff < 1e-6:
                 print("  ✓ CORRECTNESS CHECK PASSED")
@@ -208,7 +210,7 @@ def run_benchmark():
 if __name__ == "__main__":
     try:
         run_benchmark()
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         if dist.is_initialized():

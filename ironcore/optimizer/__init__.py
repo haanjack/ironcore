@@ -9,18 +9,16 @@
 # Full license text is available at LICENSE file.
 
 import inspect
-from typing import Optional
 
 from torch import nn
 from torch.optim import AdamW, Optimizer
-from torch.optim.lr_scheduler import LRScheduler
 
 from ironcore.config import MainConfig
 from ironcore.global_vars import get_logger
 from ironcore.optimizer.optimizer import AdamWOptimizer
 
 
-def get_optimizer(config: MainConfig, model, device_type: Optional[str] = None) -> Optimizer:
+def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> Optimizer:
     """Returns the optimizer."""
 
     logger = get_logger()

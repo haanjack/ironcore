@@ -8,11 +8,10 @@
 #
 # Full license text is available at LICENSE file.
 
-#
+
 
 import torch
 import torch.distributed as dist
-from typing import Optional
 
 from ironcore.parallel import parallel_states
 
@@ -22,7 +21,7 @@ class _VocabParallelCrossEntropyWorkers(torch.autograd.Function):
     def forward(ctx,
                 vocab_parallel_logits: torch.Tensor,
                 labels: torch.Tensor,
-                padding_start_idx: Optional[int] = None):
+                padding_start_idx: int | None = None):
         """
         Compute cross entropy loss when logits are sharped across tensor parallel groups.
         """
@@ -156,7 +155,7 @@ class _VocabParallelCrossEntropyWorkers(torch.autograd.Function):
 
 
 def vocab_parallel_cross_entropy(
-    vocab_parallel_logits, labels, padding_start_idx: Optional[int] = None
+    vocab_parallel_logits, labels, padding_start_idx: int | None = None
 ):
     """
     Performs cross entropy loss calculation when logits are sharded across tensor parallel ranks.

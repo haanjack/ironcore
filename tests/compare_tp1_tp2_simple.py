@@ -5,13 +5,21 @@ Tests that the attention layer produces consistent results across different tens
 """
 import os
 import sys
+
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.parallel import parallel_states
@@ -113,7 +121,7 @@ def main():
 
     # Test TP=1
     try:
-        results_tp1 = test_attention_tp1()
+        test_attention_tp1()
         print("\n✓ TP=1 test PASSED")
     except Exception as e:
         print(f"\n✗ TP=1 test FAILED: {e}")
