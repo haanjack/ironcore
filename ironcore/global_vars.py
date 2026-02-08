@@ -8,10 +8,8 @@
 #
 # Full license text is available at LICENSE file.
 
-from abc import ABC
-from typing import Dict
 
-from ironcore.logger import MLFlowLogger, IronCoreLogger, TensorboardLogger
+from ironcore.logger import IronCoreLogger, MLFlowLogger, TensorboardLogger
 from ironcore.tokenizer import Tokenizer, build_tokenizer
 from ironcore.utils import Timer
 
@@ -96,7 +94,7 @@ def log_metric(name: str, value: float, step: int):
         mlflow_logger.log_metric(name, value, step)
 
 
-def log_metrics(metrics: Dict[str, float], step: int):
+def log_metrics(metrics: dict[str, float], step: int):
     assert GLOBAL_STATES is not None, "global states should not be None"
     tensorboard_logger = getattr(GLOBAL_STATES, "tensorboard_logger", None)
     mlflow_logger = getattr(GLOBAL_STATES, "mlflow_logger", None)

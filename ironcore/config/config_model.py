@@ -9,7 +9,6 @@
 # Full license text is available at LICENSE file.
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .config import BaseConfig
 
@@ -46,9 +45,6 @@ class ModelConfig(BaseConfig):
         default=2048, metadata={"help": "model feed forward dimension size"}
     )
     num_layers: int = field(default=2, metadata={"help": "number of layers"})
-    num_attention_heads: int = field(
-        default=8, metadata={"help": "number of attention heads"}
-    )
     max_len: int = field(default=512, metadata={"help": "max sequence length"})
     max_position_embeddings: int = field(
         default=512, metadata={"help": "max position embeddings"}
@@ -106,33 +102,32 @@ class ModelConfig(BaseConfig):
                           "help": "use post layer norm"})
 
     # attention attributes
+    num_attention_heads: int = field(
+        default=8, metadata={"help": "number of attention heads"}
+    )
     head_dim: int = field(default=128, metadata={
                           "help": "attention head dimension"})
-    num_attention_heads: Optional[int] = field(
-        default=None, metadata={"help": "number of attention head"}
-    )
-    seq_len_q: Optional[int] = field(default=None, metadata={
+    seq_len_q: int | None = field(default=None, metadata={
                            "help": "query sequence length"})
-    seq_len_kv: Optional[int] = field(
+    seq_len_kv: int | None = field(
         default=None, metadata={"help": "key/value sequence length"}
     )
-    num_attention_groups: Optional[int] = field(
+    num_attention_groups: int | None = field(
         default=None,
         metadata={"help": "number of key-value groups in grouped query attention"},
     )
     attention_dropout: float = field(
         default=0.1, metadata={"help": "dropout ratio in attention"}
     )
-
     activation_type: str = field(default="gelu", metadata={
                                  "help": "activation type"})
 
     # HuggingFace compatibility
-    hf_model_type: Optional[str] = field(
+    hf_model_type: str | None = field(
         default=None,
         metadata={"help": "HuggingFace model_type for checkpoint compatibility"}
     )
-    hf_architecture: Optional[str] = field(
+    hf_architecture: str | None = field(
         default=None,
         metadata={"help": "HuggingFace architecture name (e.g., 'LlamaForCausalLM')"}
     )
@@ -145,7 +140,7 @@ class ModelConfig(BaseConfig):
     vocab_name_or_path: str = field(
         default="gpt2", metadata={"help": "vocab name or path"}
     )
-    merge_file_path: Optional[str] = field(
+    merge_file_path: str | None = field(
         default=None, metadata={"help": "merge file path"}
     )
 

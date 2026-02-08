@@ -31,26 +31,22 @@ Usage:
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict
-
-# Load environment variables from .env file
-from dotenv import load_dotenv
-load_dotenv()
 
 import pytest
 import torch
-import torch.nn as nn
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+from torch import nn
 
 # Test imports
 from ironcore.checkpointing import (
-    load_from_huggingface,
-    export_to_huggingface,
-    WeightMapper,
     Architecture,
+    WeightMapper,
     get_architecture,
 )
-from ironcore.checkpointing.weight_mapping import ARCHITECTURE_ALIASES
 
+load_dotenv()
 
 # =============================================================================
 # Test Fixtures
@@ -369,7 +365,7 @@ class TestGPT2Integration:
 
     def test_load_gpt2_state_dict(self, gpt2_checkpoint):
         """Test loading GPT-2 state dict from HuggingFace checkpoint."""
-        from ironcore.checkpointing.hf_interop import load_hf_state_dict, load_hf_config
+        from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         # Load config
         config = load_hf_config(gpt2_checkpoint)
@@ -384,7 +380,7 @@ class TestGPT2Integration:
 
     def test_gpt2_weight_conversion(self, gpt2_checkpoint):
         """Test converting GPT-2 weights to ironcore format."""
-        from ironcore.checkpointing.hf_interop import load_hf_state_dict, load_hf_config
+        from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         config = load_hf_config(gpt2_checkpoint)
         num_layers = config.get("n_layer", config.get("num_hidden_layers", 12))
@@ -406,7 +402,7 @@ class TestGPT2Integration:
 
     def test_gpt2_roundtrip(self, gpt2_checkpoint, temp_dir):
         """Test full roundtrip: HF -> ironcore -> HF for GPT-2."""
-        from ironcore.checkpointing.hf_interop import load_hf_state_dict, load_hf_config
+        from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         config = load_hf_config(gpt2_checkpoint)
         num_layers = config.get("n_layer", config.get("num_hidden_layers", 12))
@@ -462,7 +458,7 @@ class TestLLaMAIntegration:
 
     def test_load_llama_state_dict(self, llama_checkpoint):
         """Test loading LLaMA state dict from HuggingFace checkpoint."""
-        from ironcore.checkpointing.hf_interop import load_hf_state_dict, load_hf_config
+        from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         # Load config
         config = load_hf_config(llama_checkpoint)
@@ -476,7 +472,7 @@ class TestLLaMAIntegration:
 
     def test_llama_weight_conversion(self, llama_checkpoint):
         """Test converting LLaMA weights to ironcore format."""
-        from ironcore.checkpointing.hf_interop import load_hf_state_dict, load_hf_config
+        from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         config = load_hf_config(llama_checkpoint)
         num_layers = config.get("num_hidden_layers", 16)
@@ -502,7 +498,7 @@ class TestLLaMAIntegration:
 
     def test_llama_roundtrip(self, llama_checkpoint, temp_dir):
         """Test full roundtrip: HF -> ironcore -> HF for LLaMA."""
-        from ironcore.checkpointing.hf_interop import load_hf_state_dict, load_hf_config
+        from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         config = load_hf_config(llama_checkpoint)
         num_layers = config.get("num_hidden_layers", 16)

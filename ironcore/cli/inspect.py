@@ -3,10 +3,9 @@
 import json
 import random
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
 import numpy as np
 
@@ -37,7 +36,7 @@ def _load_tokenizer(vocab_name_or_path: str, tokenizer_type: str):
 
 def _decode_with_mask_highlighting(
     token_ids: np.ndarray,
-    mask_ranges: List[Tuple[int, int]],
+    mask_ranges: list[tuple[int, int]],
     tokenizer,
     tokenizer_type: str
 ) -> str:
@@ -141,7 +140,7 @@ def _print_visual_preview(
         # Parse mask ranges
         try:
             mask_ranges = json.loads(mask_ranges_str) if mask_ranges_str else []
-        except:
+        except json.JSONDecodeError:
             mask_ranges = []
 
         # Extract tokens
@@ -207,7 +206,7 @@ def _calculate_packing_efficiency(metadata: np.ndarray, max_seq_len: int) -> flo
     return efficiency
 
 
-def _save_report(report_data: Dict[str, Any], output_dir: Path):
+def _save_report(report_data: dict[str, Any], output_dir: Path):
     """Save inspection report to JSON and Markdown files.
 
     Args:
@@ -227,13 +226,13 @@ def _save_report(report_data: Dict[str, Any], output_dir: Path):
     md_path = output_dir / "inspection_report.md"
     try:
         with open(md_path, 'w', encoding='utf-8') as f:
-            f.write(f"# Data Inspection Report\n\n")
+            f.write("# Data Inspection Report\n\n")
             f.write(f"**Date:** {report_data['timestamp']}\n\n")
-            
+
             f.write("## Summary\n\n")
             f.write("| Dataset | Task | Status | Samples | Tokens | Efficiency |\n")
             f.write("|---|---|---|---|---|---|\n")
-            
+
             for ds in report_data['datasets']:
                 valid_status = "PASSED" if ds['valid'] else "FAILED"
                 stats = ds.get('statistics', {})
@@ -242,39 +241,41 @@ def _save_report(report_data: Dict[str, Any], output_dir: Path):
                 efficiency = stats.get('packing_efficiency', 'N/A')
                 if isinstance(efficiency, float):
                     efficiency = f"{efficiency*100:.1f}%"
-                
+
                 # Format numbers
-                if isinstance(samples, int): samples = f"{samples:,}"
-                if isinstance(tokens, int): tokens = f"{tokens:,}"
-                
+                if isinstance(samples, int):
+                    samples = f"{samples:,}"
+                if isinstance(tokens, int):
+                    tokens = f"{tokens:,}"
+
                 f.write(f"| {ds['name']} | {ds['task_type']} | {valid_status} | {samples} | {tokens} | {efficiency} |\n")
-            
+
             f.write("\n## Detailed Report\n\n")
-            
+
             for ds in report_data['datasets']:
                 f.write(f"### Dataset: {ds['name']}\n\n")
                 if not ds['valid']:
-                    f.write(f"**Status:** FAILED\n")
+                    f.write("**Status:** FAILED\n")
                     f.write(f"**Error:** {ds.get('error', 'Unknown error')}\n\n")
                     continue
-                
+
                 stats = ds['statistics']
                 f.write(f"- **Task Type:** {ds['task_type']}\n")
                 f.write(f"- **Total Samples:** {stats['total_samples']:,}\n")
                 f.write(f"- **Total Tokens:** {stats['total_tokens']:,}\n")
                 f.write(f"- **Avg Tokens/Sample:** {stats['avg_tokens_per_sample']:.1f}\n")
                 f.write(f"- **Length Stats:** Min={stats['min_length']:,}, Max={stats['max_length']:,}, Median={stats['median_length']:,}\n")
-                
+
                 if 'packing_efficiency' in stats:
                     f.write(f"- **Packing Efficiency:** {stats['packing_efficiency']*100:.1f}%\n")
                     f.write(f"- **Est. Batches:** {stats['estimated_packed_batches']:,}\n")
-                
+
                 if 'masked_tokens' in stats:
                     mask_pct = stats['masked_tokens'] / stats['total_tokens'] * 100
                     f.write(f"- **Masked Tokens:** {stats['masked_tokens']:,} ({mask_pct:.1f}%)\n")
-                
+
                 f.write("\n")
-                
+
         print(f"Saved Markdown report to: {md_path}")
     except Exception as e:
         print(f"{Colors.RED}[X] Failed to save Markdown report: {e}{Colors.RESET}")
@@ -307,7 +308,7 @@ def run_inspect(args):
 
     all_valid = True
     num_preview = getattr(args, 'preview', 0)
-    
+
     # Initialize report data
     report_data = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -320,7 +321,7 @@ def run_inspect(args):
         dataset_name = dataset_config.name
         print(f"\n{Colors.BOLD}Dataset: {dataset_name}{Colors.RESET}")
         print("-" * 80)
-        
+
         ds_report = {
             "name": dataset_name,
             "task_type": dataset_config.task_type,
@@ -359,7 +360,7 @@ def run_inspect(args):
             report_data["datasets"].append(ds_report)
             continue
 
-        print(f"  [V] Files exist")
+        print("  [V] Files exist")
 
         # Load and validate metadata
         try:
@@ -370,11 +371,11 @@ def run_inspect(args):
             # Check metadata structure
             expected_fields = {'offset', 'length', 'type', 'group_id', 'mask_ranges'}
             actual_fields = set(metadata.dtype.names)
-            
+
             ds_report["integrity_checks"]["metadata_fields_valid"] = (actual_fields == expected_fields)
 
             if actual_fields != expected_fields:
-                print(f"  [X] Metadata fields mismatch")
+                print("  [X] Metadata fields mismatch")
                 print(f"    Expected: {expected_fields}")
                 print(f"    Found: {actual_fields}")
                 ds_report["valid"] = False
@@ -383,26 +384,26 @@ def run_inspect(args):
                 report_data["datasets"].append(ds_report)
                 continue
 
-            print(f"  [V] Metadata structure valid")
+            print("  [V] Metadata structure valid")
 
             # Validate metadata values
             offsets = metadata['offset']
             lengths = metadata['length']
             types = metadata['type']
-            
+
             offsets_monotonic = np.all(offsets[1:] >= offsets[:-1])
             lengths_positive = np.all(lengths > 0)
-            
+
             ds_report["integrity_checks"]["offsets_monotonic"] = bool(offsets_monotonic)
             ds_report["integrity_checks"]["lengths_positive"] = bool(lengths_positive)
 
             if not offsets_monotonic:
-                print(f"  [X] Offsets are not monotonic")
+                print("  [X] Offsets are not monotonic")
                 ds_report["valid"] = False
                 all_valid = False
 
             if not lengths_positive:
-                print(f"  [X] Found zero-length samples")
+                print("  [X] Found zero-length samples")
                 ds_report["valid"] = False
                 all_valid = False
 
@@ -415,15 +416,15 @@ def run_inspect(args):
             max_offset = offsets[-1] + lengths[-1]
             offsets_valid = max_offset <= total_tokens
             ds_report["integrity_checks"]["offsets_within_bounds"] = bool(offsets_valid)
-            
+
             if not offsets_valid:
-                print(f"  [X] Metadata offsets exceed binary data size")
+                print("  [X] Metadata offsets exceed binary data size")
                 print(f"    Max offset: {max_offset:,}, Binary size: {total_tokens:,}")
                 ds_report["valid"] = False
                 all_valid = False
             else:
-                print(f"  [V] Offsets within bounds")
-            
+                print("  [V] Offsets within bounds")
+
             if not ds_report["valid"]:
                  report_data["datasets"].append(ds_report)
                  continue
@@ -439,7 +440,7 @@ def run_inspect(args):
             print(f"    Min length: {lengths.min():,}")
             print(f"    Max length: {lengths.max():,}")
             print(f"    Median length: {int(np.median(lengths)):,}")
-            
+
             ds_report["statistics"] = {
                 "total_samples": int(num_samples),
                 "total_tokens": int(total_tokens),
@@ -461,7 +462,7 @@ def run_inspect(args):
                     try:
                         mask_ranges = json.loads(mask_ranges_str) if mask_ranges_str else []
                         total_masked += sum(end - start for start, end in mask_ranges)
-                    except:
+                    except json.JSONDecodeError:
                         pass
 
                 total_trained = total_tokens - total_masked
@@ -469,7 +470,7 @@ def run_inspect(args):
 
                 print(f"    Trained tokens: {total_trained:,} ({(1-mask_ratio)*100:.1f}%)")
                 print(f"    Masked tokens: {total_masked:,} ({mask_ratio*100:.1f}%)")
-                
+
                 ds_report["statistics"]["trained_tokens"] = int(total_trained)
                 ds_report["statistics"]["masked_tokens"] = int(total_masked)
                 ds_report["statistics"]["mask_ratio"] = float(mask_ratio)
@@ -482,7 +483,7 @@ def run_inspect(args):
                 # Estimate number of batches
                 num_bins = int(np.ceil(num_samples / packing_efficiency)) if packing_efficiency > 0 else num_samples
                 print(f"    Estimated packed batches: ~{num_bins:,} (from {num_samples:,} samples)")
-                
+
                 ds_report["statistics"]["packing_efficiency"] = float(packing_efficiency)
                 ds_report["statistics"]["estimated_packed_batches"] = int(num_bins)
 
@@ -497,7 +498,7 @@ def run_inspect(args):
                     data_config,
                     num_samples=num_preview
                 )
-            
+
             # Add to report data
             report_data["datasets"].append(ds_report)
 

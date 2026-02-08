@@ -2,21 +2,22 @@
 Direct comparison of TP=1 vs TP=2 at the same step.
 Both start with the same seed and should produce identical results if TP is correct.
 """
+import json
 import os
 import sys
+
+import numpy as np
 import torch
 import torch.distributed as dist
-import numpy as np
-import json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import load_trainer_config
-from ironcore.parallel import parallel_states
-from ironcore.parallel.parallel import initialize_process
+from ironcore.dataloader import get_data_iterator
 from ironcore.global_vars import set_global_states
 from ironcore.language_model import LanguageModel
-from ironcore.dataloader import get_data_iterator
+from ironcore.parallel import parallel_states
+from ironcore.parallel.parallel import initialize_process
 
 
 def run_one_step():
@@ -86,7 +87,7 @@ def run_one_step():
         dist.all_gather_object(input_sums, input_ids.sum().item())
         if rank == 0:
             if len(set(input_sums)) == 1:
-                print(f"✓ Data is identical across all ranks")
+                print("✓ Data is identical across all ranks")
             else:
                 print(f"❌ ERROR: Data differs across ranks: {input_sums}")
 
@@ -170,7 +171,7 @@ def run_one_step():
         print(f"Results saved to {output_file}")
 
         # Print key metrics
-        print(f"\nKey Metrics:")
+        print("\nKey Metrics:")
         print(f"  Loss (rank 0): {all_stats[0]['loss']:.8f}")
         if world_size > 1:
             print(f"  Loss (rank 1): {all_stats[1]['loss']:.8f}")
@@ -178,16 +179,16 @@ def run_one_step():
             print(f"  Loss difference: {loss_diff:.2e}")
 
             if loss_diff < 1e-7:
-                print(f"  ✓ Losses are IDENTICAL (diff < 1e-7)")
+                print("  ✓ Losses are IDENTICAL (diff < 1e-7)")
             else:
                 print(f"  ⚠️  Losses DIFFER by {loss_diff:.2e}")
 
-        print(f"\nGradient Statistics:")
+        print("\nGradient Statistics:")
         print(f"  Total grad norm (rank 0): {all_stats[0]['total_grad_norm']:.6f}")
         if world_size > 1:
             print(f"  Total grad norm (rank 1): {all_stats[1]['total_grad_norm']:.6f}")
 
-        print(f"\nWeight Update (linear_q.weight):")
+        print("\nWeight Update (linear_q.weight):")
         print(f"  Initial mean (rank 0): {all_stats[0]['q_weight_mean_init']:.8f}")
         print(f"  Final mean (rank 0): {all_stats[0]['q_weight_mean_final']:.8f}")
         print(f"  Delta (rank 0): {all_stats[0]['q_weight_delta']:.8e}")

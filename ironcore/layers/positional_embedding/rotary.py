@@ -9,7 +9,7 @@
 # Full license text is available at LICENSE file.
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class RotaryPositionalEmbedding(nn.Module):

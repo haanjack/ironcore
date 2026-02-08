@@ -9,7 +9,7 @@
 # Full license text is available at LICENSE file.
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal
 
 from .config import BaseConfig
 

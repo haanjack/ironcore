@@ -12,18 +12,25 @@ Run with:
 - TP=1: python tests/test_attention_tp_validation.py
 - TP=2: torchrun --nproc_per_node=2 tests/test_attention_tp_validation.py
 """
+import json
 import os
 import sys
+
 import torch
 import torch.distributed as dist
-import json
-from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.parallel import parallel_states
@@ -244,7 +251,7 @@ def run_validation():
             rank1_stats = all_stats[1]
 
             # Compare output norms
-            print(f"\nOutput Activation Norms:")
+            print("\nOutput Activation Norms:")
             print(f"  Rank 0: {rank0_stats['output_norm']:.6f}")
             print(f"  Rank 1: {rank1_stats['output_norm']:.6f}")
             output_diff = abs(rank0_stats['output_norm'] - rank1_stats['output_norm'])
@@ -252,7 +259,7 @@ def run_validation():
 
             # Compare linear_q activation norms
             if 'linear_q_norm' in rank0_stats:
-                print(f"\nLinear Q Activation Norms:")
+                print("\nLinear Q Activation Norms:")
                 print(f"  Rank 0: {rank0_stats['linear_q_norm']:.6f}")
                 print(f"  Rank 1: {rank1_stats['linear_q_norm']:.6f}")
                 q_diff = abs(rank0_stats['linear_q_norm'] - rank1_stats['linear_q_norm'])
@@ -260,7 +267,7 @@ def run_validation():
 
             # Compare linear_kv activation norms
             if 'linear_kv_norm' in rank0_stats:
-                print(f"\nLinear KV Activation Norms:")
+                print("\nLinear KV Activation Norms:")
                 print(f"  Rank 0: {rank0_stats['linear_kv_norm']:.6f}")
                 print(f"  Rank 1: {rank1_stats['linear_kv_norm']:.6f}")
                 kv_diff = abs(rank0_stats['linear_kv_norm'] - rank1_stats['linear_kv_norm'])
@@ -268,14 +275,14 @@ def run_validation():
 
             # Compare output projection activation norms
             if 'output_proj_norm' in rank0_stats:
-                print(f"\nOutput Projection Activation Norms:")
+                print("\nOutput Projection Activation Norms:")
                 print(f"  Rank 0: {rank0_stats['output_proj_norm']:.6f}")
                 print(f"  Rank 1: {rank1_stats['output_proj_norm']:.6f}")
                 out_diff = abs(rank0_stats['output_proj_norm'] - rank1_stats['output_proj_norm'])
                 print(f"  Difference: {out_diff:.2e}")
 
             # Compare gradient norms
-            print(f"\nGradient Norms:")
+            print("\nGradient Norms:")
             print(f"  Rank 0: {rank0_stats['total_grad_norm']:.6f}")
             print(f"  Rank 1: {rank1_stats['total_grad_norm']:.6f}")
             grad_diff = abs(rank0_stats['total_grad_norm'] - rank1_stats['total_grad_norm'])
@@ -302,9 +309,9 @@ def run_validation():
                 all_close = False
 
             if all_close:
-                print(f"\n✓ TP=2 VALIDATION PASSED - Results are consistent across ranks")
+                print("\n✓ TP=2 VALIDATION PASSED - Results are consistent across ranks")
             else:
-                print(f"\n✗ TP=2 VALIDATION FAILED - Results differ across ranks")
+                print("\n✗ TP=2 VALIDATION FAILED - Results differ across ranks")
 
     # Cleanup
     if world_size > 1:

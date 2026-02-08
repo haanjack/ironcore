@@ -13,22 +13,29 @@ Run with:
 - TP=1: python tests/test_tp_proper.py --mode save_weights
 - TP=2: torchrun --nproc_per_node=2 tests/test_tp_proper.py --mode load_and_compare
 """
+import argparse
 import os
 import sys
+
 import torch
 import torch.distributed as dist
-import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig, load_trainer_config
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.global_vars import set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
-from ironcore.parallel.parallel import initialize_process
 
 
 def create_model_config(tp_size=1, use_flash_attn=False):
@@ -77,7 +84,6 @@ def save_tp1_model():
     config = create_model_config(tp_size=1)
 
     # Set global states - this will build tokenizer etc.
-    from ironcore.global_vars import set_global_states
     set_global_states(config)
 
     # Initialize TP=1
@@ -126,7 +132,7 @@ def save_tp1_model():
     mem_peak = torch.cuda.max_memory_allocated() / 1024**2
     param_count = sum(p.numel() for p in model.parameters())
 
-    print(f"\nTP=1 Statistics:")
+    print("\nTP=1 Statistics:")
     print(f"  Parameters: {param_count:,}")
     print(f"  Peak memory: {mem_peak:.2f} MB")
     print(f"  Output norm: {output.norm().item():.6f}")
@@ -173,7 +179,6 @@ def load_and_compare_tp2():
     config = create_model_config(tp_size=2, use_flash_attn=False)
 
     # Set global states for distributed
-    from ironcore.global_vars import set_global_states
     set_global_states(config)
 
     # Initialize TP=2
@@ -249,10 +254,10 @@ def load_and_compare_tp2():
 
     if rank == 0:
         print(f"\n{'='*70}")
-        print(f"TP=1 vs TP=2 COMPARISON (SAME WEIGHTS)")
+        print("TP=1 vs TP=2 COMPARISON (SAME WEIGHTS)")
         print(f"{'='*70}")
 
-        print(f"\nOutput Difference:")
+        print("\nOutput Difference:")
         print(f"  Max absolute difference: {all_output_diff[0].item():.2e}")
         print(f"  Norm difference: {all_output_norm_diff[0].item():.2e}")
 
@@ -262,7 +267,7 @@ def load_and_compare_tp2():
         else:
             print(f"  ✗ Outputs DIFFER (diff = {all_output_diff[0].item():.2e})")
 
-        print(f"\nMemory Usage:")
+        print("\nMemory Usage:")
         for i in range(world_size):
             print(f"  Rank {i} peak memory: {all_mem_peak[i].item():.2f} MB")
 

@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 from torch.utils import tensorboard
@@ -89,7 +89,7 @@ class IronCoreLogger:
         """log debug message"""
         self._log(logging.DEBUG, message)
 
-    def log_metrics(self, metrics: Dict[str, Any], msg: str = "evaluation score"):
+    def log_metrics(self, metrics: dict[str, Any], msg: str = "evaluation score"):
         """log metrics in table"""
         df = pd.DataFrame(metrics).transpose()
         df = df.infer_objects(copy=False)
@@ -109,7 +109,7 @@ class TensorboardLogger:
             return
         try:
             self.tensorboard.add_scalar(name, value, step)
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             # Silently fail to avoid disrupting training
             pass
 
@@ -118,7 +118,7 @@ class TensorboardLogger:
             return
         try:
             self.tensorboard.add_histogram(name, values, step)
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             # Silently fail to avoid disrupting training
             pass
 
@@ -155,7 +155,7 @@ class MLFlowLogger:
             self.mlflow.set_experiment(config.utils.mlflow_experiment_name)
 
             # load run_id and start run with it
-            with open(exp_file, "r", encoding="utf-8") as f:
+            with open(exp_file, encoding="utf-8") as f:
                 exp_info = json.load(f)
             exp_info["run_count"] += 1
             self.mlflow.start_run(

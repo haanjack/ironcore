@@ -48,20 +48,29 @@ src = ["ironcore", "tests", "examples"]
 select = ["F", "E", "W", "I", "B", "C90", "UP", "N", "PL"]
 
 ignore = [
-    "E501",        # Line length
-    "C901",        # Function complexity
-    "PLR0912",     # Too many branches
-    "PLR0913",     # Too many arguments
-    "PLR0915",     # Too many statements
-    "PLR2004",     # Magic value used in comparison
-    "PLW0603",     # Using global statement
-    "UP007",       # Union type (X | Y)
-    "N806",        # Variable naming in function
-    "B904",        # Raise from err
+    "E501",    # Line length
+    "C901",    # Function complexity
+    "UP007",   # Union type (X | Y)
+    "N806",    # Variable naming in function
+    "N812",    # Lowercase functional imported as non-lowercase F
+    "N817",    # CamelCase DDP imported as acronym DDP
+    "B007",    # Loop variable used in function definition
+    "B904",    # Raise from err
+    "PLC0415", # Allow imports inside functions (Lazy loading)
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used in comparison
+    "PLR5501", # Allow else: if: instead of elif:
+    "PLW0603", # Using global statement
+    "PLW2901", # Overwritten for loop variable
 ]
 
 # Keep unused imports for manual cleanup to avoid breaking logic accidentally
-unfixable = ["F401"]
+extend-unsafe-fixes = [
+    "F401",    # Unused imports
+    "F841",    # Unused variables
+]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15

@@ -27,9 +27,18 @@ def run_train(args):
     args.config_path = str(config_path)
 
     # Use the proper config loading function that handles nested configs
-    from ironcore.config import load_trainer_config, _load_config_from_yaml
-    from ironcore.config import ModelConfig, InitConfig, OptimConfig, ParallelConfig, TrainerConfig, OperationConfig, UtilsConfig
     from argparse import Namespace
+
+    from ironcore.config import (
+        InitConfig,
+        ModelConfig,
+        OperationConfig,
+        OptimConfig,
+        ParallelConfig,
+        TrainerConfig,
+        UtilsConfig,
+        _load_config_from_yaml,
+    )
 
     # Create a namespace with the config path
     config_args = Namespace(config_path=str(config_path))

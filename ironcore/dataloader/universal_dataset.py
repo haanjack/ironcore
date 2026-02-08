@@ -6,14 +6,14 @@ Implements pure streaming for pretrain and weighted mixing for all modes.
 
 import json
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Literal
 
 import numpy as np
 import torch
 from torch import distributed as dist
 from torch.utils.data import IterableDataset
 
-from ironcore.dataloader.data_config import DataConfig, DatasetConfig
+from ironcore.dataloader.data_config import DataConfig
 from ironcore.parallel import parallel_states
 
 
@@ -57,7 +57,7 @@ class BinaryDataset:
         """Number of samples in dataset."""
         return len(self.metadata)
 
-    def __getitem__(self, idx: int) -> Dict:
+    def __getitem__(self, idx: int) -> dict:
         """
         Get a single sample.
 
@@ -124,7 +124,7 @@ class WeightedMixingDataset(IterableDataset):
         # Select datasets based on split
         source_datasets = []
         self.is_separate_split = False
-        
+
         if split == "train":
             source_datasets = data_config.datasets
         elif split == "eval":
@@ -145,8 +145,8 @@ class WeightedMixingDataset(IterableDataset):
             raise ValueError(f"Invalid split: {split}")
 
         # Load datasets
-        self.datasets: List[BinaryDataset] = []
-        self.weights: List[float] = []
+        self.datasets: list[BinaryDataset] = []
+        self.weights: list[float] = []
 
         for ds_config in source_datasets:
             # Filter by task type (for mode compatibility)

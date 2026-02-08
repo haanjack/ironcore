@@ -2,11 +2,12 @@
 
 import itertools
 from pathlib import Path
+
 from torch.utils.data import DataLoader
 
 from ironcore.dataloader.collator import UniversalCollator
-from ironcore.dataloader.universal_dataset import WeightedMixingDataset
 from ironcore.dataloader.data_config import DataConfig
+from ironcore.dataloader.universal_dataset import WeightedMixingDataset
 
 __all__ = ["UniversalCollator", "WeightedMixingDataset", "get_data_iterator"]
 

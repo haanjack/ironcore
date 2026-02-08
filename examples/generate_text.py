@@ -4,10 +4,12 @@
 from pathlib import Path
 
 import torch
-from ironcore.config import load_trainer_config
-from ironcore import set_global_states, get_tokenizer
-from ironcore.language_model import LanguageModel
+
+from ironcore import get_tokenizer, set_global_states
 from ironcore.checkpointing import load_checkpoint
+from ironcore.config import load_trainer_config
+from ironcore.language_model import LanguageModel
+
 
 def generate(model, tokenizer, prompt="Once upon a time", max_length=200, temperature=0.8, top_k=40):
     """Generate text from the model."""

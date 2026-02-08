@@ -8,10 +8,9 @@ Implements:
 - Fallback to full attention masks
 """
 
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Literal
 
 import torch
-import torch.nn.functional as F
 
 
 class UniversalCollator:
@@ -47,7 +46,7 @@ class UniversalCollator:
         self.use_flash_attention = use_flash_attention
         self.return_full_attention_mask = return_full_attention_mask
 
-    def __call__(self, batch: List) -> Dict[str, torch.Tensor]:
+    def __call__(self, batch: list) -> dict[str, torch.Tensor]:
         """
         Collate a batch of samples.
 
@@ -66,7 +65,7 @@ class UniversalCollator:
         else:
             raise ValueError(f"Invalid mode: {self.mode}")
 
-    def _collate_pretrain(self, batch: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _collate_pretrain(self, batch: list[torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Collate pretrain batch.
 
@@ -84,7 +83,7 @@ class UniversalCollator:
             'labels': labels,
         }
 
-    def _collate_sft(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+    def _collate_sft(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         """
         Collate SFT batch with bin-packing.
 
@@ -203,7 +202,7 @@ class UniversalCollator:
 
         return output
 
-    def _collate_dpo(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+    def _collate_dpo(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         """
         Collate DPO batch.
 

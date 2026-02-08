@@ -11,8 +11,6 @@
 from pathlib import Path
 
 import torch
-from torch.distributed.fsdp.wrap import wrap
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 from ironcore import get_logger, set_global_states
 from ironcore.checkpointing import load_checkpoint
@@ -22,7 +20,7 @@ from ironcore.language_model import LanguageModel
 from ironcore.parallel import initialize_parallelism, initialize_process
 from ironcore.parallel.parallel_states import initialize_model_parallel
 from ironcore.tokenizer import build_tokenizer
-from ironcore.utils import get_device, get_model_dtype, is_first_rank
+from ironcore.utils import get_device, get_model_dtype
 
 
 def main():

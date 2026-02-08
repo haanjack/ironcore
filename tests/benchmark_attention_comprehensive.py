@@ -10,20 +10,27 @@ Tests all combinations of:
 
 Generates detailed metrics table and report.
 """
+import json
 import os
 import sys
 import time
-import json
+from dataclasses import asdict, dataclass
+
 import torch
 import torch.distributed as dist
-from dataclasses import dataclass, asdict
-from typing import Optional, Dict, List
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.layers.positional_embedding.rotary import RotaryPositionalEmbedding
@@ -53,7 +60,7 @@ class BenchmarkResult:
     grad_norm: float
 
     # Additional info
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def create_config(
@@ -117,10 +124,13 @@ def run_benchmark(
     batch_size: int = 2,
     seq_len: int = 128,
     use_rope: bool = False,
-    device: torch.device = torch.device('cuda:0'),
+    device: torch.device | None = None,
     rank: int = 0,
 ) -> BenchmarkResult:
     """Run benchmark for a single configuration."""
+
+    if device is None:
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     attention_type = get_attention_type_name(
         config.model.num_attention_heads,
@@ -195,7 +205,7 @@ def run_benchmark(
         torch.cuda.synchronize()
         forward_time = (time.time() - start_time) * 1000  # ms
 
-        forward_memory = torch.cuda.max_memory_allocated() / 1024**2  # MB
+        torch.cuda.max_memory_allocated() / 1024**2  # MB
 
         # Recreate for backward pass
         hidden_states = torch.randn(
@@ -278,7 +288,7 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
     else:
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    results: List[BenchmarkResult] = []
+    results: list[BenchmarkResult] = []
 
     # Test configurations
     test_configs = [
@@ -375,7 +385,7 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
     return results
 
 
-def print_results_table(results: List[BenchmarkResult]):
+def print_results_table(results: list[BenchmarkResult]):
     """Print results as a formatted table."""
 
     print("\n" + "="*140)
@@ -407,7 +417,7 @@ def print_results_table(results: List[BenchmarkResult]):
     print("="*140)
 
 
-def print_comparison_by_attention_type(results: List[BenchmarkResult]):
+def print_comparison_by_attention_type(results: list[BenchmarkResult]):
     """Print comparison grouped by attention type."""
 
     print("\n" + "="*100)
@@ -439,7 +449,7 @@ def print_comparison_by_attention_type(results: List[BenchmarkResult]):
                   f"Mem={r.peak_memory_mb:<7.2f}MB")
 
 
-def print_memory_analysis(results: List[BenchmarkResult]):
+def print_memory_analysis(results: list[BenchmarkResult]):
     """Print memory usage analysis."""
 
     print("\n" + "="*100)
@@ -456,7 +466,7 @@ def print_memory_analysis(results: List[BenchmarkResult]):
             continue
 
         print(f"\n{attn_type}:")
-        print(f"  Algorithm Comparison (seq_len=128):")
+        print("  Algorithm Comparison (seq_len=128):")
 
         for algo in ["Standard", "Flash"]:
             algo_results = [r for r in type_results if r.algorithm == algo and r.position_embedding == "None" and r.seq_len == 128]
@@ -465,7 +475,7 @@ def print_memory_analysis(results: List[BenchmarkResult]):
                 print(f"    {algo}: {avg_mem:.2f} MB (avg)")
 
 
-def generate_markdown_report(results: List[BenchmarkResult], output_file: str = "logs/ATTENTION_BENCHMARK_REPORT.md"):
+def generate_markdown_report(results: list[BenchmarkResult], output_file: str = "logs/ATTENTION_BENCHMARK_REPORT.md"):
     """Generate comprehensive markdown report."""
 
     md = []
@@ -510,7 +520,7 @@ def generate_markdown_report(results: List[BenchmarkResult], output_file: str = 
         if std_mha and flash_mha:
             speedup = std_mha[0].forward_time_ms / flash_mha[0].forward_time_ms
             mem_reduction = (std_mha[0].peak_memory_mb - flash_mha[0].peak_memory_mb) / std_mha[0].peak_memory_mb * 100
-            md.append(f"\n**Standard vs Flash Attention (seq_len=128):**")
+            md.append("\n**Standard vs Flash Attention (seq_len=128):**")
             md.append(f"- Speedup: {speedup:.2f}x")
             md.append(f"- Memory Reduction: {mem_reduction:.1f}%")
 
@@ -525,7 +535,7 @@ def generate_markdown_report(results: List[BenchmarkResult], output_file: str = 
         std_mha_base = [r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"]
         if std_gqa and std_mha_base:
             param_reduction = (std_mha_base[0].parameters - std_gqa[0].parameters) / std_mha_base[0].parameters * 100
-            md.append(f"\n**vs MHA (seq_len=128, Standard):**")
+            md.append("\n**vs MHA (seq_len=128, Standard):**")
             md.append(f"- Parameter Reduction: {param_reduction:.1f}%")
 
     md.append("\n### Multi-Query Attention (MQA)")
@@ -539,7 +549,7 @@ def generate_markdown_report(results: List[BenchmarkResult], output_file: str = 
         std_mha_base = [r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"]
         if std_mqa and std_mha_base:
             param_reduction = (std_mha_base[0].parameters - std_mqa[0].parameters) / std_mha_base[0].parameters * 100
-            md.append(f"\n**vs MHA (seq_len=128, Standard):**")
+            md.append("\n**vs MHA (seq_len=128, Standard):**")
             md.append(f"- Parameter Reduction: {param_reduction:.1f}%")
 
     # Key findings
@@ -569,13 +579,13 @@ def generate_markdown_report(results: List[BenchmarkResult], output_file: str = 
 
 def main():
     """Main benchmark entry point."""
-    rank = int(os.environ.get('RANK', 0))
-    world_size = int(os.environ.get('WORLD_SIZE', 1))
+    rank = int(os.environ.get('RANK', '0'))
+    world_size = int(os.environ.get('WORLD_SIZE', '1'))
 
     if world_size > 1:
         dist.init_process_group(backend='nccl')
         local_rank = int(os.environ['LOCAL_RANK'])
-        device = torch.device(f'cuda:{local_rank}')
+        torch.device(f'cuda:{local_rank}')
         torch.cuda.set_device(local_rank)
 
     print("="*80)

@@ -9,7 +9,7 @@
 # Full license text is available at LICENSE file.
 
 from dataclasses import dataclass, field
-from typing import Optional, Literal
+from typing import Literal
 
 from .config import BaseConfig
 
@@ -17,33 +17,33 @@ from .config import BaseConfig
 @dataclass
 class TrainerConfig(BaseConfig):
     model_name: str = field(default="model", metadata={"help": "model name"})
-    config_path: Optional[str] = field(
+    config_path: str | None = field(
         default=None, metadata={"help": "config file path"}
     )
     model_path: str = field(
         default="", metadata={"help": "model save/load dir"}
     )
 
-    micro_batch_size: Optional[int] = field(
+    micro_batch_size: int | None = field(
         default=2, metadata={"help": "micro batch size"}
     )
-    train_batch_size: Optional[int] = field(
+    train_batch_size: int | None = field(
         default=None, metadata={"help": "batch size"}
     )
-    gradient_accumulation_steps: Optional[int] = field(
+    gradient_accumulation_steps: int | None = field(
         default=None, metadata={"help": "gradient accumulation steps"}
     )
 
     # evaluation
     do_eval: bool = field(default=False, metadata={"help": "do evaluation"})
-    eval_batch_size: Optional[int] = field(
+    eval_batch_size: int | None = field(
         default=None, metadata={"help": "eval batch size"}
     )
     do_eval_subtask: bool = field(
         default=False, metadata={"help": "do evaluation using specified subtasks"}
     )
 
-    test_batch_size: Optional[int] = field(
+    test_batch_size: int | None = field(
         default=None, metadata={"help": "test batch size"}
     )
     do_test: bool = field(default=False, metadata={"help": "do prediction"})
@@ -58,13 +58,13 @@ class TrainerConfig(BaseConfig):
     # Norm computation cadence
     # Allowed: None, 'log', 'checkpoint'
     # None disables the specific norm computation; 'log' computes on log_interval; 'checkpoint' computes on save_checkpoint_steps
-    grad_norm_log_interval: Optional[Literal['log', 'checkpoint']] = field(
+    grad_norm_log_interval: Literal['log', 'checkpoint'] | None = field(
         default=None,
         metadata={
             "help": "gradient norm cadence: None | 'log' | 'checkpoint'"
         },
     )
-    param_norm_log_interval: Optional[Literal['log', 'checkpoint']] = field(
+    param_norm_log_interval: Literal['log', 'checkpoint'] | None = field(
         default=None,
         metadata={
             "help": "parameter norm cadence: None | 'log' | 'checkpoint'"
@@ -90,7 +90,7 @@ class TrainerConfig(BaseConfig):
     )
 
     # special tokens
-    special_tokens_config_path: Optional[str] = field(
+    special_tokens_config_path: str | None = field(
         default=None, metadata={"help": "special token file path"}
     )
 
@@ -102,7 +102,7 @@ class TrainerConfig(BaseConfig):
     compile_model: bool = field(
         default=False, metadata={"help": "Enable torch.compile for the model"}
     )
-    compile_mode: Optional[Literal["default", "reduce-overhead", "max-autotune"]] = field(
+    compile_mode: Literal["default", "reduce-overhead", "max-autotune"] | None = field(
         default="default",
         metadata={"help": "torch.compile mode: default | reduce-overhead | max-autotune"}
     )
@@ -140,7 +140,7 @@ class OperationConfig(BaseConfig):
             "help": "use activation recompute to reduce memory footprints in training"
         }
     )
-    recompute_strategy: Optional[str] = field(
+    recompute_strategy: str | None = field(
         default="default",
         metadata={
             "help": "Choose PyTorch's recompute activation strategy (default: use_reentrant=False, optimized: use_reentrant=True)"
@@ -149,7 +149,7 @@ class OperationConfig(BaseConfig):
 
     no_save: bool = field(default=False, metadata={
                           "help": "no save checkpoint"})
-    exit_interval: Optional[int] = field(
+    exit_interval: int | None = field(
         default=None, metadata={"help": "exit interval"}
     )
     save_dist_ckpt: bool = field(
@@ -170,6 +170,6 @@ class InitConfig(BaseConfig):
     )
     init_std: float = field(default=0.006, metadata={
                             "help": "initialization std"})
-    xavier_init: Optional[bool] = field(
+    xavier_init: bool | None = field(
         default=False, metadata={"help": "Use Xavier initialization method"}
     )

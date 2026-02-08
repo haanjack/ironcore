@@ -9,7 +9,7 @@
 # Full license text is available at LICENSE file.
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import Union
 
 from ironcore.config import BaseConfig
 
@@ -22,21 +22,21 @@ class DataConfig(BaseConfig):
         default="pretrain",
         metadata={"help": "Training task type: pretrain, sft, dpo"},
     )
-    data_path: Optional[List[Union[float, str]]] = field(
+    data_path: list[Union[float, str]] | None = field(
         default_factory=lambda: None,
         metadata={"help": "base data path with multiple datasets"},
     )
-    splits: List[float] = field(
+    splits: list[float] = field(
         default_factory=lambda: [0.97, 0.029, 0.001],
         metadata={"help": "train/eval/test split ratios"},
     )
-    train_datasets: Optional[List[Union[float, str]]] = field(
+    train_datasets: list[Union[float, str]] | None = field(
         default_factory=lambda: None, metadata={"help": "train datasets"}
     )
-    eval_datasets: Optional[List[Union[float, str]]] = field(
+    eval_datasets: list[Union[float, str]] | None = field(
         default_factory=lambda: None, metadata={"help": "eval datasets"}
     )
-    test_datasets: Optional[List[Union[float, str]]] = field(
+    test_datasets: list[Union[float, str]] | None = field(
         default_factory=lambda: None, metadata={"help": "test datasets"}
     )
 

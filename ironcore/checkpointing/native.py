@@ -9,20 +9,19 @@
 # Full license text is available at LICENSE file.
 
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 import torch
 from torch import distributed as dist
 from torch.optim.lr_scheduler import LRScheduler
 
 from ironcore.config import MainConfig
+from ironcore.config.config_data import DataConfig
 from ironcore.config.config_model import ModelConfig, PositionalEmbeddingConfig
 from ironcore.config.config_optim import OptimConfig
-from ironcore.config.config_data import DataConfig
 from ironcore.config.config_parallel import ParallelConfig
 from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
 from ironcore.config.config_utils import UtilsConfig
-
 from ironcore.global_vars import get_logger, get_timer
 from ironcore.language_model import LanguageModel
 from ironcore.optimizer import Optimizer
@@ -94,7 +93,7 @@ class HFConfigManager:
                 f"HuggingFace config file {hf_config_path} does not exist."
             )
 
-        with open(hf_config_path, "r", encoding="utf-8") as f:
+        with open(hf_config_path, encoding="utf-8") as f:
             hf_config = json.load(f)
 
         return hf_config
@@ -103,8 +102,8 @@ class HFConfigManager:
 def load_checkpoint(
     config: MainConfig,
     model: torch.nn.Module,
-    optimizer: Optional[Optimizer] = None,
-    lr_scheduler: Optional[LRScheduler] = None,
+    optimizer: Optimizer | None = None,
+    lr_scheduler: LRScheduler | None = None,
     step: int = -1,
 ) -> int:
     """Load a checkpoint and restore the model and optimizer states."""
@@ -132,7 +131,6 @@ def load_checkpoint(
 
         with open(
             Path(config.trainer.model_path) / _LATEST_STEP_FILENAME,
-            "r",
             encoding="utf-8",
         ) as f:
             step = int(f.read().strip())
@@ -420,7 +418,7 @@ def save_checkpoint(
         }
 
         for i, ((name, param), optim_state_id) in enumerate(
-            zip(model.named_parameters(), optimizer.state_dict()["state"])
+            zip(model.named_parameters(), optimizer.state_dict()["state"], strict=True)
         ):
             module_name = ".".join(name.split(".")[:-1])
             optim_state = optimizer.state_dict()["state"][optim_state_id]

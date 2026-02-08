@@ -5,7 +5,9 @@ Handles downloading, tokenizing, and serializing datasets into a unified binary 
 Supports pretrain, SFT, and DPO task types.
 """
 
-from typing import Dict, List, Optional, Tuple, Union
+
+import json
+from pathlib import Path
 
 import numpy as np
 from datasets import load_dataset
@@ -93,7 +95,7 @@ class DataSerializer:
         # Check if already processed
         if bin_path.exists() and idx_path.exists():
             if self.verbose:
-                print(f"  ⚠️  Already processed. Skipping...")
+                print("  ⚠️  Already processed. Skipping...")
             return
 
         # Load dataset
@@ -113,7 +115,7 @@ class DataSerializer:
             raise ValueError(f"Unknown task type: {dataset_config.task_type}")
 
         if self.verbose:
-            print(f"  ✓ Serialization complete")
+            print("  ✓ Serialization complete")
 
     def _load_dataset(self, dataset_config: DatasetConfig):
         """Load dataset from HuggingFace or local source."""
@@ -123,21 +125,20 @@ class DataSerializer:
                 dataset = load_dataset('json', data_files=dataset_config.source, split='train')
             else:
                 dataset = load_dataset(dataset_config.source, split=dataset_config.split)
+        # HuggingFace dataset
+        elif dataset_config.subset:
+            dataset = load_dataset(
+                dataset_config.source,
+                dataset_config.subset,
+                split=dataset_config.split,
+                cache_dir=str(self.config.cache_dir)
+            )
         else:
-            # HuggingFace dataset
-            if dataset_config.subset:
-                dataset = load_dataset(
-                    dataset_config.source,
-                    dataset_config.subset,
-                    split=dataset_config.split,
-                    cache_dir=str(self.config.cache_dir)
-                )
-            else:
-                dataset = load_dataset(
-                    dataset_config.source,
-                    split=dataset_config.split,
-                    cache_dir=str(self.config.cache_dir)
-                )
+            dataset = load_dataset(
+                dataset_config.source,
+                split=dataset_config.split,
+                cache_dir=str(self.config.cache_dir)
+            )
 
         # Limit samples if specified
         if dataset_config.max_samples:
@@ -338,7 +339,7 @@ class DataSerializer:
             print(f"  Tokens: {len(tokens_array):,}")
             print(f"  Pairs: {len(dataset):,}")
 
-    def _tokenize(self, text: str) -> List[int]:
+    def _tokenize(self, text: str) -> list[int]:
         """
         Tokenize text using the configured tokenizer.
 
@@ -362,9 +363,9 @@ class DataSerializer:
 
     def _apply_chat_template_and_get_masks(
         self,
-        messages: List[Dict[str, str]],
-        chat_template: Optional[str] = None
-    ) -> Tuple[List[int], List[List[int]]]:
+        messages: list[dict[str, str]],
+        chat_template: str | None = None
+    ) -> tuple[list[int], list[list[int]]]:
         """
         Apply chat template to messages and compute masking ranges.
 

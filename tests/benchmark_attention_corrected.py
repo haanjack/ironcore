@@ -7,21 +7,27 @@ Key fixes:
 2. Run multiple iterations and take median
 3. Time forward+backward together to avoid timing artifacts
 """
+import json
 import os
 import sys
 import time
-import json
-import torch
-import torch.distributed as dist
-from dataclasses import dataclass, asdict
-from typing import Optional, List
+from dataclasses import asdict, dataclass
+
 import numpy as np
+import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.config import (
-    MainConfig, ModelConfig, TrainerConfig, InitConfig, OptimConfig,
-    DataConfig, ParallelConfig, OperationConfig, UtilsConfig
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.layers.attention import Attention
 from ironcore.layers.positional_embedding.rotary import RotaryPositionalEmbedding
@@ -72,8 +78,12 @@ def create_config(d_model=512, num_heads=8, num_groups=8, head_dim=64,
 
 
 def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
-                  device=torch.device('cuda:0'), num_iterations=10):
+                  device=None,
+                  num_iterations=10):
     """Run benchmark with proper warmup and multiple iterations."""
+
+    if device is None:
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     attention_type = "MHA" if config.model.num_attention_heads == config.model.num_attention_groups else (
         "MQA" if config.model.num_attention_groups == 1 else "GQA"
@@ -121,7 +131,7 @@ def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
         return hidden_states, attention_mask
 
     # Warmup - run BOTH forward and backward multiple times
-    print(f"  Warming up...", end='', flush=True)
+    print("  Warming up...", end='', flush=True)
     for _ in range(5):
         hidden_states, attention_mask = create_input()
         if use_rope:
