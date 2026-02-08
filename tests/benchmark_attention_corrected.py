@@ -7,6 +7,7 @@ Key fixes:
 2. Run multiple iterations and take median
 3. Time forward+backward together to avoid timing artifacts
 """
+
 import json
 import os
 import sys
@@ -37,6 +38,7 @@ from ironcore.parallel import parallel_states
 @dataclass
 class BenchmarkResult:
     """Store benchmark results."""
+
     tp_size: int
     attention_type: str
     position_embedding: str
@@ -54,15 +56,30 @@ class BenchmarkResult:
     output_norm: float
 
 
-def create_config(d_model=512, num_heads=8, num_groups=8, head_dim=64,
-                  seq_len=128, tp_size=1, use_flash_attn=False, dropout=0.0):
+def create_config(
+    d_model=512,
+    num_heads=8,
+    num_groups=8,
+    head_dim=64,
+    seq_len=128,
+    tp_size=1,
+    use_flash_attn=False,
+    dropout=0.0,
+):
     """Create configuration."""
     model_config = ModelConfig(
-        d_model=d_model, num_attention_heads=num_heads, num_attention_groups=num_groups,
-        head_dim=head_dim, max_seq_len=seq_len, max_position_embeddings=seq_len,
-        dropout_attn=dropout, no_bias=False,
+        d_model=d_model,
+        num_attention_heads=num_heads,
+        num_attention_groups=num_groups,
+        head_dim=head_dim,
+        max_seq_len=seq_len,
+        max_position_embeddings=seq_len,
+        dropout_attn=dropout,
+        no_bias=False,
     )
-    trainer_config = TrainerConfig(tensor_model_parallel_size=tp_size, use_flash_attn=use_flash_attn)
+    trainer_config = TrainerConfig(
+        tensor_model_parallel_size=tp_size, use_flash_attn=use_flash_attn
+    )
     init_config = InitConfig(seed=42, init_std=0.02)
     optim_config = OptimConfig(max_lr=1e-3, weight_decay=0.01)
     data_config = DataConfig()
@@ -71,22 +88,29 @@ def create_config(d_model=512, num_heads=8, num_groups=8, head_dim=64,
     utils_config = UtilsConfig()
 
     return MainConfig(
-        model=model_config, trainer=trainer_config, init=init_config,
-        optim=optim_config, data=data_config, parallel=parallel_config,
-        operation=operation_config, utils=utils_config,
+        model=model_config,
+        trainer=trainer_config,
+        init=init_config,
+        optim=optim_config,
+        data=data_config,
+        parallel=parallel_config,
+        operation=operation_config,
+        utils=utils_config,
     )
 
 
-def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
-                  device=None,
-                  num_iterations=10):
+def run_benchmark(
+    config, batch_size=2, seq_len=128, use_rope=False, device=None, num_iterations=10
+):
     """Run benchmark with proper warmup and multiple iterations."""
 
     if device is None:
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    attention_type = "MHA" if config.model.num_attention_heads == config.model.num_attention_groups else (
-        "MQA" if config.model.num_attention_groups == 1 else "GQA"
+    attention_type = (
+        "MHA"
+        if config.model.num_attention_heads == config.model.num_attention_groups
+        else ("MQA" if config.model.num_attention_groups == 1 else "GQA")
     )
     position_embedding = "RoPE" if use_rope else "None"
     algorithm = "Flash" if config.trainer.use_flash_attn else "Standard"
@@ -102,6 +126,7 @@ def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
 
     # Set seed
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -116,22 +141,26 @@ def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
     if use_rope:
         head_dim = config.model.d_model // config.model.num_attention_heads
         rotary_pos_emb = RotaryPositionalEmbedding(
-            head_dim=head_dim, max_seq_len=seq_len, base=10000,
+            head_dim=head_dim,
+            max_seq_len=seq_len,
+            base=10000,
         ).to(device)
 
     # Create input
     def create_input():
         hidden_states = torch.randn(
-            batch_size, seq_len, config.model.d_model,
-            device=device, requires_grad=True
+            batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
         )
-        attention_mask = torch.tril(
-            torch.ones(seq_len, seq_len, device=device)
-        ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+        attention_mask = (
+            torch.tril(torch.ones(seq_len, seq_len, device=device))
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, -1, -1, -1)
+        )
         return hidden_states, attention_mask
 
     # Warmup - run BOTH forward and backward multiple times
-    print("  Warming up...", end='', flush=True)
+    print("  Warming up...", end="", flush=True)
     for _ in range(5):
         hidden_states, attention_mask = create_input()
         if use_rope:
@@ -181,8 +210,11 @@ def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
         attention.zero_grad()
 
         if (i + 1) % 5 == 0:
-            print(f"  Iteration {i+1}/{num_iterations}: Fwd={forward_time:.2f}ms, "
-                  f"Bwd={backward_time:.2f}ms, Total={total_time:.2f}ms", flush=True)
+            print(
+                f"  Iteration {i + 1}/{num_iterations}: Fwd={forward_time:.2f}ms, "
+                f"Bwd={backward_time:.2f}ms, Total={total_time:.2f}ms",
+                flush=True,
+            )
 
     # Use median to filter outliers
     forward_time_ms = float(np.median(forward_times))
@@ -193,8 +225,11 @@ def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
     parameters = sum(p.numel() for p in attention.parameters())
     output_norm = output.norm().item()
 
-    print(f"  Median: Fwd={forward_time_ms:.2f}ms, Bwd={backward_time_ms:.2f}ms, "
-          f"Total={total_time_ms:.2f}ms, Mem={peak_memory_mb:.2f}MB", flush=True)
+    print(
+        f"  Median: Fwd={forward_time_ms:.2f}ms, Bwd={backward_time_ms:.2f}ms, "
+        f"Total={total_time_ms:.2f}ms, Mem={peak_memory_mb:.2f}MB",
+        flush=True,
+    )
 
     return BenchmarkResult(
         tp_size=tp_size,
@@ -217,11 +252,11 @@ def run_benchmark(config, batch_size=2, seq_len=128, use_rope=False,
 def main():
     """Run corrected benchmarks."""
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    print("="*80)
+    print("=" * 80)
     print("CORRECTED ATTENTION BENCHMARK - With Proper Warmup")
-    print("="*80)
+    print("=" * 80)
 
     results = []
 
@@ -238,51 +273,64 @@ def main():
         (512, 8, 8, 256, True, False, "MHA-Flash-seq256"),
     ]
 
-    for i, (d_model, num_heads, num_groups, seq_len, use_flash, use_rope, name) in enumerate(test_configs):
-        print(f"\n[{i+1}/{len(test_configs)}] Testing: {name}")
+    for i, (d_model, num_heads, num_groups, seq_len, use_flash, use_rope, name) in enumerate(
+        test_configs
+    ):
+        print(f"\n[{i + 1}/{len(test_configs)}] Testing: {name}")
         print(f"  d_model={d_model}, heads={num_heads}, groups={num_groups}, seq_len={seq_len}")
 
         config = create_config(
-            d_model=d_model, num_heads=num_heads, num_groups=num_groups,
-            seq_len=seq_len, use_flash_attn=use_flash,
+            d_model=d_model,
+            num_heads=num_heads,
+            num_groups=num_groups,
+            seq_len=seq_len,
+            use_flash_attn=use_flash,
         )
 
         try:
             result = run_benchmark(
-                config=config, seq_len=seq_len, use_rope=use_rope,
-                device=device, num_iterations=10,
+                config=config,
+                seq_len=seq_len,
+                use_rope=use_rope,
+                device=device,
+                num_iterations=10,
             )
             results.append(result)
         except Exception as e:
             print(f"  ERROR: {e}")
             import traceback
+
             traceback.print_exc()
 
     # Print results table
-    print("\n" + "="*120)
+    print("\n" + "=" * 120)
     print("CORRECTED RESULTS")
-    print("="*120)
-    print(f"{'Config':<25} {'Params':<12} {'Fwd(ms)':<10} {'Bwd(ms)':<10} {'Total(ms)':<11} {'Mem(MB)':<10}")
-    print("-"*120)
+    print("=" * 120)
+    print(
+        f"{'Config':<25} {'Params':<12} {'Fwd(ms)':<10} {'Bwd(ms)':<10} {'Total(ms)':<11} {'Mem(MB)':<10}"
+    )
+    print("-" * 120)
 
     for r in results:
-        print(f"{r.attention_type + '-' + r.algorithm:<25} {r.parameters:<12,} "
-              f"{r.forward_time_ms:<10.2f} {r.backward_time_ms:<10.2f} "
-              f"{r.total_time_ms:<11.2f} {r.peak_memory_mb:<10.2f}")
+        print(
+            f"{r.attention_type + '-' + r.algorithm:<25} {r.parameters:<12,} "
+            f"{r.forward_time_ms:<10.2f} {r.backward_time_ms:<10.2f} "
+            f"{r.total_time_ms:<11.2f} {r.peak_memory_mb:<10.2f}"
+        )
 
-    print("="*120)
+    print("=" * 120)
 
     # Save results
     os.makedirs("logs", exist_ok=True)
     output_file = "logs/attention_benchmark_corrected.json"
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         json.dump([asdict(r) for r in results], f, indent=2)
     print(f"\nResults saved to {output_file}")
 
     # Print comparison
-    print("\n" + "="*120)
+    print("\n" + "=" * 120)
     print("COMPARISON: Standard vs Flash Attention")
-    print("="*120)
+    print("=" * 120)
 
     for attn_type in ["MHA", "GQA", "MQA"]:
         type_results = [r for r in results if r.attention_type == attn_type and r.seq_len == 128]
@@ -295,12 +343,18 @@ def main():
             total_speedup = std.total_time_ms / flash.total_time_ms
 
             print(f"\n{attn_type}:")
-            print(f"  Forward:  {std.forward_time_ms:.2f}ms -> {flash.forward_time_ms:.2f}ms "
-                  f"({fwd_speedup:.2f}x)")
-            print(f"  Backward: {std.backward_time_ms:.2f}ms -> {flash.backward_time_ms:.2f}ms "
-                  f"({bwd_speedup:.2f}x)")
-            print(f"  Total:    {std.total_time_ms:.2f}ms -> {flash.total_time_ms:.2f}ms "
-                  f"({total_speedup:.2f}x)")
+            print(
+                f"  Forward:  {std.forward_time_ms:.2f}ms -> {flash.forward_time_ms:.2f}ms "
+                f"({fwd_speedup:.2f}x)"
+            )
+            print(
+                f"  Backward: {std.backward_time_ms:.2f}ms -> {flash.backward_time_ms:.2f}ms "
+                f"({bwd_speedup:.2f}x)"
+            )
+            print(
+                f"  Total:    {std.total_time_ms:.2f}ms -> {flash.total_time_ms:.2f}ms "
+                f"({total_speedup:.2f}x)"
+            )
 
 
 if __name__ == "__main__":

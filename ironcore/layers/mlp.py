@@ -23,9 +23,7 @@ class MLP(BaseModule):
         self.config = config.model
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
 
-        self.activation = get_activation(
-            config.model.activation_type, self.config.d_model
-        )
+        self.activation = get_activation(config.model.activation_type, self.config.d_model)
         self.dropout = nn.Dropout(config.model.dropout_mlp)
 
         d_ffn = config.model.d_ffn

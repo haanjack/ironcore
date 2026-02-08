@@ -33,9 +33,7 @@ class HellaSwag(Task):
         task_name = "hellaswag"
         split_name = "validation"
 
-        super().__init__(
-            task_name, split_name, tokenizer, batch_size, num_samples, cache_dir
-        )
+        super().__init__(task_name, split_name, tokenizer, batch_size, num_samples, cache_dir)
 
     @staticmethod
     def _preprocess(examples):
@@ -48,9 +46,7 @@ class HellaSwag(Task):
             for choice_idx, choice in enumerate(examples["endings"][i]):
                 expanded_prompts.append(prompt)
                 expanded_choices.append(choice)
-                expanded_labels.append(
-                    1 if choice_idx == int(examples["label"][i]) else 0
-                )
+                expanded_labels.append(1 if choice_idx == int(examples["label"][i]) else 0)
 
         return {
             "prompts": expanded_prompts,
@@ -79,7 +75,7 @@ class HellaSwag(Task):
 
             # Compute cross-entropy loss for this sample
             sample_loss = torch.nn.functional.cross_entropy(
-                sample_logits, sample_labels, reduction='mean'
+                sample_logits, sample_labels, reduction="mean"
             )
             per_sample_losses.append(sample_loss.item())
 
@@ -111,8 +107,7 @@ class HellaSwag(Task):
             # pad and tokenize inputs
             input_texts = []
             for prompt, choice in zip(prompts, choices, strict=True):
-                input_texts.append(prompt + " " + choice +
-                                   self.tokenizer.eos_token)
+                input_texts.append(prompt + " " + choice + self.tokenizer.eos_token)
 
             tokenized_inputs = self.tokenizer(
                 input_texts,
@@ -126,9 +121,7 @@ class HellaSwag(Task):
                 tokenized_inputs = tokenized_inputs["input_ids"]
 
             with torch.no_grad():
-                total_losses = self._do_predict(
-                    model, tokenized_inputs=tokenized_inputs
-                )
+                total_losses = self._do_predict(model, tokenized_inputs=tokenized_inputs)
 
             batch_prompts.extend(prompts)
             all_losses.extend(total_losses.tolist())

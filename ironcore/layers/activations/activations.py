@@ -53,8 +53,7 @@ def get_activation(activation_name, input_dim: int = None):
         activation_layer = nn.SiLU()
     elif "glu" in activation_name:
         assert input_dim is not None, "input_dim is required for GLU activation"
-        activation_layer = GLUActivation(
-            input_dim=input_dim, variant=activation_name)
+        activation_layer = GLUActivation(input_dim=input_dim, variant=activation_name)
     else:
         raise NotImplementedError
     return activation_layer

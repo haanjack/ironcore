@@ -111,7 +111,7 @@ class UniversalDataConfig:
             raise ValueError("At least one dataset must be specified")
 
         # Set max_seq_len from seq_length if not specified
-        if hasattr(self, 'seq_length') and not hasattr(self, 'max_seq_len'):
+        if hasattr(self, "seq_length") and not hasattr(self, "max_seq_len"):
             self.max_seq_len = self.seq_length
 
     @classmethod
@@ -142,23 +142,26 @@ class UniversalDataConfig:
 
         Handles various YAML structures used in the ironcore project.
         """
+
         def _parse_datasets(ds_list: list[dict]) -> list[DatasetConfig]:
             parsed = []
             for ds in ds_list:
-                parsed.append(DatasetConfig(
-                    name=ds.get("name", ds.get("dataset_path", "unknown")),
-                    source=ds.get("dataset_path", ds.get("source", ds.get("name"))),
-                    task_type=ds.get("task_type", "pretrain"),
-                    ratio=ds.get("ratio", 1.0),
-                    subset=ds.get("subset"),
-                    split=ds.get("split", "train"),
-                    text_column=ds.get("text_column", "text"),
-                    messages_column=ds.get("messages_column", "messages"),
-                    chosen_column=ds.get("chosen_column", "chosen"),
-                    rejected_column=ds.get("rejected_column", "rejected"),
-                    chat_template=ds.get("chat_template"),
-                    max_samples=ds.get("max_samples"),
-                ))
+                parsed.append(
+                    DatasetConfig(
+                        name=ds.get("name", ds.get("dataset_path", "unknown")),
+                        source=ds.get("dataset_path", ds.get("source", ds.get("name"))),
+                        task_type=ds.get("task_type", "pretrain"),
+                        ratio=ds.get("ratio", 1.0),
+                        subset=ds.get("subset"),
+                        split=ds.get("split", "train"),
+                        text_column=ds.get("text_column", "text"),
+                        messages_column=ds.get("messages_column", "messages"),
+                        chosen_column=ds.get("chosen_column", "chosen"),
+                        rejected_column=ds.get("rejected_column", "rejected"),
+                        chat_template=ds.get("chat_template"),
+                        max_samples=ds.get("max_samples"),
+                    )
+                )
             return parsed
 
         # Extract datasets

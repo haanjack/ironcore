@@ -55,8 +55,7 @@ def _split_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int):
         partition_dim = last_dim // world_size
         partition = torch.split(splited_weight, partition_dim, dim=-1)
 
-        outputs.append(
-            partition[parallel_states.get_tensor_model_parallel_rank()])
+        outputs.append(partition[parallel_states.get_tensor_model_parallel_rank()])
     output = torch.cat(outputs, dim=-1)
 
     # # split along last dimension
@@ -94,8 +93,7 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     dim_size[-1] = x.shape[-1] * world_size
 
     slices = [torch.empty_like(x, device=x.device) for _ in range(world_size)]
-    dist.all_gather(
-        slices, x, group=parallel_states.get_tensor_model_parallel_group())
+    dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
     # Concatenate slices along the last dimension
     output = torch.cat(slices, dim=-1)
@@ -119,8 +117,7 @@ def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int):
     outputs = []
     for weight_split in weight_splits:
         slices = [
-            torch.empty_like(weight_split, device=weight_split.device)
-            for _ in range(world_size)
+            torch.empty_like(weight_split, device=weight_split.device) for _ in range(world_size)
         ]
         dist.all_gather(
             slices,
@@ -146,8 +143,7 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
 
     # Gather all slices into the output tensor
     slices = [torch.empty_like(x) for _ in range(world_size)]
-    dist.all_gather(
-        slices, x, group=parallel_states.get_tensor_model_parallel_group())
+    dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
     # Concatenate slices along the first dimension
     output = torch.cat(slices, dim=0)
@@ -155,9 +151,7 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
     return output
 
 
-class _CopyToModelParallelWorkers(
-    torch.autograd.Function
-):  # pylint: disable=abstract-method
+class _CopyToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
     def forward(ctx, x: torch.Tensor):
         return x
@@ -167,9 +161,7 @@ class _CopyToModelParallelWorkers(
         return _reduce(grad_output)
 
 
-class _ReduceFromModelParallelWorkers(
-    torch.autograd.Function
-):  # pylint: disable=abstract-method
+class _ReduceFromModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
     def forward(ctx, x: torch.Tensor):
         return _reduce(x)
@@ -179,9 +171,7 @@ class _ReduceFromModelParallelWorkers(
         return grad_output
 
 
-class _ScatterToModelParallelWorkers(
-    torch.autograd.Function
-):  # pylint: disable=abstract-method
+class _ScatterToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
     def forward(ctx, x: torch.Tensor):
         return _split_tensor_along_last_dim(x)
@@ -191,17 +181,13 @@ class _ScatterToModelParallelWorkers(
         return _gather_tensor_along_last_dim(grad_output)
 
 
-class _GatherFromModelParallelWorkers(
-    torch.autograd.Function
-):  # pylint: disable=abstract-method
+class _GatherFromModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
     def forward(ctx, x: torch.Tensor, attrib: dict):
         ctx.attrib = attrib
         if attrib["column_parallel"]:
             if attrib["concatenated_weights"] > 1:
-                return _gather_concated_tensor_along_last_dim(
-                    x, attrib["concatenated_weights"]
-                )
+                return _gather_concated_tensor_along_last_dim(x, attrib["concatenated_weights"])
             else:
                 return _gather_tensor_along_last_dim(x)
         elif attrib["row_parallel"]:
@@ -242,9 +228,7 @@ def gather_from_model_parallel_workers(x, attrib):
 def split_to_model_parallel_workers(x, attrib):
     if attrib["column_parallel"]:
         if attrib["concatenated_weights"] > 1:
-            return _split_concated_tensor_along_last_dim(
-                x, attrib["concatenated_weights"]
-            )
+            return _split_concated_tensor_along_last_dim(x, attrib["concatenated_weights"])
         else:
             return _split_tensor_along_last_dim(x)
     elif attrib["row_parallel"]:

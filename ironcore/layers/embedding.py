@@ -12,9 +12,7 @@ class LanguageModelEmbedding(BaseModule):
 
         tokenizer = get_tokenizer()
 
-        self.add_position_embedding = (
-            config.model.positional_embedding.type == "absolute"
-        )
+        self.add_position_embedding = config.model.positional_embedding.type == "absolute"
         self.fp32_residual_connection = config.model.fp32_residual_connection
 
         self.word_embeddings = VocabParallelEmbedding(

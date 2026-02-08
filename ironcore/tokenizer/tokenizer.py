@@ -23,7 +23,6 @@ except ImportError:
 
 
 class Tokenizer:
-
     def __init__(
         self,
         tokenizer,
@@ -44,9 +43,9 @@ class Tokenizer:
             or getattr(self._tokenizer, "eod_token", None)
             or getattr(self._tokenizer, "eos_token", None)
         )
-        assert (
-            self._eos_token is not None
-        ), "eos_token not found in the tokenizer. Please check special_tokens_config or tokenizer settings."
+        assert self._eos_token is not None, (
+            "eos_token not found in the tokenizer. Please check special_tokens_config or tokenizer settings."
+        )
 
         # pad token
         if self._tokenizer.pad_token is None:
@@ -55,12 +54,9 @@ class Tokenizer:
 
         # vocab_size
         self._vocab_size = getattr(
-            self._tokenizer, "vocab_size", getattr(
-                self._tokenizer, "n_vocab", None)
+            self._tokenizer, "vocab_size", getattr(self._tokenizer, "n_vocab", None)
         )
-        assert (
-            self._vocab_size is not None
-        ), "Could not find vocab_size property in tokenizer"
+        assert self._vocab_size is not None, "Could not find vocab_size property in tokenizer"
         vocab_size = self._vocab_size
         if hasattr(self._tokenizer, "SPECIAL_TOKENS_ATTRIBUTES"):
             vocab_size += len(self._tokenizer.SPECIAL_TOKENS_ATTRIBUTES) + len(
@@ -68,9 +64,7 @@ class Tokenizer:
             )
         # padding to the nearest multiple of vocab_padding_unit
         self._padded_vocab_size = (
-            (vocab_size + vocab_padding_unit - 1)
-            // vocab_padding_unit
-            * vocab_padding_unit
+            (vocab_size + vocab_padding_unit - 1) // vocab_padding_unit * vocab_padding_unit
         )
 
     @property
@@ -136,7 +130,6 @@ class Tokenizer:
 
 
 class BbpeTokenizer(Tokenizer):
-
     def __init__(
         self,
         vocab_name_or_path: Union[str, Path],
@@ -146,9 +139,7 @@ class BbpeTokenizer(Tokenizer):
     ):
 
         if merge_file_path:
-            tokenizer = tiktoken.get_bpe_tokenizer(
-                vocab_name_or_path, merge_file_path
-            )
+            tokenizer = tiktoken.get_bpe_tokenizer(vocab_name_or_path, merge_file_path)
         else:
             tokenizer = GPT2Tokenizer.from_pretrained(vocab_name_or_path)
 
@@ -161,7 +152,6 @@ class BbpeTokenizer(Tokenizer):
 
 
 class SentencePieceTokenizer(Tokenizer):
-
     def __init__(
         self,
         vocab_name_or_path: Union[str, Path],
@@ -185,9 +175,7 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
 
     # load special tokens config if exists
     if config.trainer.special_tokens_config_path:
-        special_tokens_config = load_yaml_config(
-            config.trainer.special_tokens_config_path
-        )
+        special_tokens_config = load_yaml_config(config.trainer.special_tokens_config_path)
     else:
         special_tokens_config = None
 
@@ -199,9 +187,7 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
         ),
         "vocab_padding_unit": config.trainer.vocab_padding_unit,
         "special_tokens_config": (
-            special_tokens_config
-            if hasattr(config.trainer, "special_tokens_config")
-            else None
+            special_tokens_config if hasattr(config.trainer, "special_tokens_config") else None
         ),
     }
 
@@ -214,6 +200,4 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
     elif tokenizer_type in sentencepiece_tyeps:
         return SentencePieceTokenizer(**kwargs)
     else:
-        raise NotImplementedError(
-            f"Given tokenizer ({tokenizer_type}) is not implemented."
-        )
+        raise NotImplementedError(f"Given tokenizer ({tokenizer_type}) is not implemented.")

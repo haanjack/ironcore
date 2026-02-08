@@ -42,8 +42,7 @@ class DataConfig(BaseConfig):
 
     # embedding
     vocab_size: int = field(default=51200, metadata={"help": "vocab size"})
-    num_token_types: int = field(
-        default=2, metadata={"help": "number of token types"})
+    num_token_types: int = field(default=2, metadata={"help": "number of token types"})
 
     # data loading control
     pad_to_max_length: bool = field(
@@ -54,6 +53,5 @@ class DataConfig(BaseConfig):
     )
     pad_token_id: int = field(
         default=-1,
-        metadata={
-            "help": "Input sample's PAD token id. By default, it is EOS token."},
+        metadata={"help": "Input sample's PAD token id. By default, it is EOS token."},
     )

@@ -17,7 +17,6 @@ GLOBAL_STATES = None
 
 
 class GlobalStates:
-
     def __init__(self, config):
         self.config = config
 

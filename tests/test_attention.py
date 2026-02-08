@@ -50,10 +50,7 @@ from ironcore.parallel import parallel_states
 # =============================================================================
 
 # Initialize parallel states for testing (TP=1 by default)
-parallel_states.initialize_model_parallel(
-    tensor_model_parallel_size=1,
-    timeout_in_minutes=10.0
-)
+parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
 
 
 def create_test_config(
@@ -109,14 +106,18 @@ def create_test_config(
 
 def create_causal_mask(batch_size, seq_len, device):
     """Create a causal attention mask with shape [b, 1, s, s]."""
-    return torch.tril(
-        torch.ones(seq_len, seq_len, device=device)
-    ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+    return (
+        torch.tril(torch.ones(seq_len, seq_len, device=device))
+        .unsqueeze(0)
+        .unsqueeze(0)
+        .expand(batch_size, -1, -1, -1)
+    )
 
 
 # =============================================================================
 # Test Cases for Attention Module (Pure Attention Computation)
 # =============================================================================
+
 
 class TestAttentionBasics(unittest.TestCase):
     """Test basic attention functionality with Q, K, V inputs."""
@@ -124,7 +125,7 @@ class TestAttentionBasics(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.config = create_test_config()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
         self.num_heads = self.config.model.num_attention_heads
@@ -146,16 +147,13 @@ class TestAttentionBasics(unittest.TestCase):
 
         # Create Q, K, V tensors with shape [b, s, heads, head_dim]
         query = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         key = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         value = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -170,16 +168,13 @@ class TestAttentionBasics(unittest.TestCase):
         attention = Attention(self.config).to(self.device)
 
         query = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         key = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         value = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -193,16 +188,13 @@ class TestAttentionBasics(unittest.TestCase):
         attention = Attention(self.config).to(self.device)
 
         query = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         key = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
         value = torch.randn(
-            self.batch_size, self.seq_len, self.num_heads, self.head_dim,
-            device=self.device
+            self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
 
         output = attention(query, key, value, attention_mask=None)
@@ -216,7 +208,7 @@ class TestAttentionWithDifferentConfigs(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
 
@@ -296,7 +288,7 @@ class TestAttentionVaryingDimensions(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.num_heads = 8
         self.head_dim = 64
@@ -309,16 +301,13 @@ class TestAttentionVaryingDimensions(unittest.TestCase):
         for seq_len in [16, 32, 64, 128]:
             with self.subTest(seq_len=seq_len):
                 query = torch.randn(
-                    self.batch_size, seq_len, self.num_heads, self.head_dim,
-                    device=self.device
+                    self.batch_size, seq_len, self.num_heads, self.head_dim, device=self.device
                 )
                 key = torch.randn(
-                    self.batch_size, seq_len, self.num_heads, self.head_dim,
-                    device=self.device
+                    self.batch_size, seq_len, self.num_heads, self.head_dim, device=self.device
                 )
                 value = torch.randn(
-                    self.batch_size, seq_len, self.num_heads, self.head_dim,
-                    device=self.device
+                    self.batch_size, seq_len, self.num_heads, self.head_dim, device=self.device
                 )
                 attention_mask = create_causal_mask(self.batch_size, seq_len, self.device)
 
@@ -336,16 +325,13 @@ class TestAttentionVaryingDimensions(unittest.TestCase):
         for batch_size in [1, 2, 4]:
             with self.subTest(batch_size=batch_size):
                 query = torch.randn(
-                    batch_size, seq_len, self.num_heads, self.head_dim,
-                    device=self.device
+                    batch_size, seq_len, self.num_heads, self.head_dim, device=self.device
                 )
                 key = torch.randn(
-                    batch_size, seq_len, self.num_heads, self.head_dim,
-                    device=self.device
+                    batch_size, seq_len, self.num_heads, self.head_dim, device=self.device
                 )
                 value = torch.randn(
-                    batch_size, seq_len, self.num_heads, self.head_dim,
-                    device=self.device
+                    batch_size, seq_len, self.num_heads, self.head_dim, device=self.device
                 )
                 attention_mask = create_causal_mask(batch_size, seq_len, self.device)
 
@@ -365,16 +351,13 @@ class TestAttentionVaryingDimensions(unittest.TestCase):
                 attention = Attention(config).to(self.device)
 
                 query = torch.randn(
-                    self.batch_size, seq_len, self.num_heads, head_dim,
-                    device=self.device
+                    self.batch_size, seq_len, self.num_heads, head_dim, device=self.device
                 )
                 key = torch.randn(
-                    self.batch_size, seq_len, self.num_heads, head_dim,
-                    device=self.device
+                    self.batch_size, seq_len, self.num_heads, head_dim, device=self.device
                 )
                 value = torch.randn(
-                    self.batch_size, seq_len, self.num_heads, head_dim,
-                    device=self.device
+                    self.batch_size, seq_len, self.num_heads, head_dim, device=self.device
                 )
                 attention_mask = create_causal_mask(self.batch_size, seq_len, self.device)
 
@@ -389,7 +372,7 @@ class TestAttentionGradients(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
 
@@ -402,16 +385,28 @@ class TestAttentionGradients(unittest.TestCase):
         head_dim = config.model.head_dim
 
         query = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_heads,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         key = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_heads,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         value = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_heads,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -435,13 +430,14 @@ class TestAttentionGradients(unittest.TestCase):
 # Test Cases for TransformerLayer (Full Attention with Projections)
 # =============================================================================
 
+
 class TestTransformerLayerBasics(unittest.TestCase):
     """Test TransformerLayer which includes QKV projections."""
 
     def setUp(self):
         """Set up test fixtures."""
         self.config = create_test_config()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
 
@@ -462,8 +458,7 @@ class TestTransformerLayerBasics(unittest.TestCase):
         layer.init_weights()
 
         hidden_states = torch.randn(
-            self.batch_size, self.seq_len, self.config.model.d_model,
-            device=self.device
+            self.batch_size, self.seq_len, self.config.model.d_model, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -485,8 +480,7 @@ class TestTransformerLayerBasics(unittest.TestCase):
         ).to(self.device)
 
         hidden_states = torch.randn(
-            self.batch_size, self.seq_len, self.config.model.d_model,
-            device=self.device
+            self.batch_size, self.seq_len, self.config.model.d_model, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -501,8 +495,11 @@ class TestTransformerLayerBasics(unittest.TestCase):
         layer.init_weights()
 
         hidden_states = torch.randn(
-            self.batch_size, self.seq_len, self.config.model.d_model,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            self.config.model.d_model,
+            device=self.device,
+            requires_grad=True,
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -529,7 +526,7 @@ class TestTransformerLayerWithDifferentConfigs(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
 
@@ -543,8 +540,7 @@ class TestTransformerLayerWithDifferentConfigs(unittest.TestCase):
         layer.init_weights()
 
         hidden_states = torch.randn(
-            self.batch_size, self.seq_len, config.model.d_model,
-            device=self.device
+            self.batch_size, self.seq_len, config.model.d_model, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -563,8 +559,7 @@ class TestTransformerLayerWithDifferentConfigs(unittest.TestCase):
         layer.init_weights()
 
         hidden_states = torch.randn(
-            self.batch_size, self.seq_len, config.model.d_model,
-            device=self.device
+            self.batch_size, self.seq_len, config.model.d_model, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -583,8 +578,7 @@ class TestTransformerLayerWithDifferentConfigs(unittest.TestCase):
         layer.init_weights()
 
         hidden_states = torch.randn(
-            self.batch_size, self.seq_len, config.model.d_model,
-            device=self.device
+            self.batch_size, self.seq_len, config.model.d_model, device=self.device
         )
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
 
@@ -598,12 +592,13 @@ class TestTransformerLayerWithDifferentConfigs(unittest.TestCase):
 # Test Cases for Flash Attention
 # =============================================================================
 
+
 class TestAttentionStandardVsFlash(unittest.TestCase):
     """Test numerical equivalence between standard and flash attention."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
         try:
@@ -646,18 +641,9 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
 
         # Create identical Q, K, V inputs
         torch.manual_seed(42)
-        query = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device
-        )
-        key = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device
-        )
-        value = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device
-        )
+        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
+        key = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
+        value = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -705,18 +691,9 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         # Create identical Q, K, V inputs
         # Q has num_heads, K/V have num_groups
         torch.manual_seed(42)
-        query = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device
-        )
-        key = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device
-        )
-        value = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device
-        )
+        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
+        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
+        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -764,18 +741,9 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         # Create identical Q, K, V inputs
         # Q has num_heads, K/V have 1 group
         torch.manual_seed(42)
-        query = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device
-        )
-        key = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device
-        )
-        value = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device
-        )
+        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
+        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
+        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -811,16 +779,28 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         attention = Attention(config).to(self.device)
 
         query = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_heads,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         key = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         value = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
 
         output = attention(query, key, value, None)
@@ -853,16 +833,28 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         attention = Attention(config).to(self.device)
 
         query = torch.randn(
-            self.batch_size, self.seq_len, num_heads, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_heads,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         key = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
         value = torch.randn(
-            self.batch_size, self.seq_len, num_groups, head_dim,
-            device=self.device, requires_grad=True
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            requires_grad=True,
         )
 
         output = attention(query, key, value, None)
@@ -881,12 +873,13 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
 # Test Cases for Memory Efficiency
 # =============================================================================
 
+
 class TestAttentionMemory(unittest.TestCase):
     """Test memory efficiency of attention."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA required for memory profiling")
     def test_memory_usage(self):
@@ -932,9 +925,10 @@ class TestAttentionMemory(unittest.TestCase):
 # Benchmark Utilities
 # =============================================================================
 
+
 def benchmark_attention(config, batch_size, seq_len, num_runs=100):
     """Benchmark attention forward and backward pass."""
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     num_heads = config.model.num_attention_heads
     num_groups = config.model.num_attention_groups
@@ -955,13 +949,13 @@ def benchmark_attention(config, batch_size, seq_len, num_runs=100):
         loss.backward()
         query.grad = None
 
-    torch.cuda.synchronize() if device.type == 'cuda' else None
+    torch.cuda.synchronize() if device.type == "cuda" else None
 
     # Benchmark forward
     start_time = time.time()
     for _ in range(num_runs):
         output = attention(query, key, value, attention_mask)
-    if device.type == 'cuda':
+    if device.type == "cuda":
         torch.cuda.synchronize()
     forward_time = (time.time() - start_time) / num_runs
 
@@ -973,14 +967,14 @@ def benchmark_attention(config, batch_size, seq_len, num_runs=100):
         loss = output.sum()
         loss.backward()
         query.grad = None
-    if device.type == 'cuda':
+    if device.type == "cuda":
         torch.cuda.synchronize()
     backward_time = (time.time() - start_time) / num_runs
 
     return {
-        'forward_time_ms': forward_time * 1000,
-        'backward_time_ms': backward_time * 1000,
-        'total_time_ms': (forward_time + backward_time) * 1000,
+        "forward_time_ms": forward_time * 1000,
+        "backward_time_ms": backward_time * 1000,
+        "total_time_ms": (forward_time + backward_time) * 1000,
     }
 
 
@@ -1003,7 +997,7 @@ def run_benchmarks():
         head_dim=head_dim,
         use_flash_attn=False,
     )
-    results['mha_standard'] = benchmark_attention(config_mha, batch_size, seq_len)
+    results["mha_standard"] = benchmark_attention(config_mha, batch_size, seq_len)
 
     # Benchmark GQA
     print("Benchmarking GQA...")
@@ -1014,7 +1008,7 @@ def run_benchmarks():
         head_dim=head_dim,
         use_flash_attn=False,
     )
-    results['gqa_standard'] = benchmark_attention(config_gqa, batch_size, seq_len)
+    results["gqa_standard"] = benchmark_attention(config_gqa, batch_size, seq_len)
 
     # Benchmark MQA
     print("Benchmarking MQA...")
@@ -1025,7 +1019,7 @@ def run_benchmarks():
         head_dim=head_dim,
         use_flash_attn=False,
     )
-    results['mqa_standard'] = benchmark_attention(config_mqa, batch_size, seq_len)
+    results["mqa_standard"] = benchmark_attention(config_mqa, batch_size, seq_len)
 
     # Print results
     print("\n" + "=" * 70)
@@ -1048,16 +1042,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Attention Test Suite")
-    parser.add_argument(
-        "--benchmark",
-        action="store_true",
-        help="Run benchmarks"
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Verbose output"
-    )
+    parser.add_argument("--benchmark", action="store_true", help="Run benchmarks")
+    parser.add_argument("--verbose", action="store_true", help="Verbose output")
     args = parser.parse_args()
 
     if args.benchmark:

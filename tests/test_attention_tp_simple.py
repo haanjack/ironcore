@@ -5,6 +5,7 @@ Run with:
 - TP=1: python tests/test_attention_tp_simple.py
 - TP=2: torchrun --nproc_per_node=2 tests/test_attention_tp_simple.py
 """
+
 import os
 import sys
 
@@ -68,28 +69,27 @@ def create_config(tensor_model_parallel_size=1):
 def run_validation():
     """Run TP validation."""
     # Get rank info
-    if 'RANK' in os.environ:
-        rank = int(os.environ['RANK'])
-        world_size = int(os.environ['WORLD_SIZE'])
-        local_rank = int(os.environ['LOCAL_RANK'])
+    if "RANK" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ["LOCAL_RANK"])
     else:
         rank = 0
         world_size = 1
         local_rank = 0
 
-    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
     # Initialize distributed for multi-GPU
     if world_size > 1:
-        dist.init_process_group(backend='nccl')
+        dist.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
 
     tp_size = world_size
 
     # Initialize model parallel
     parallel_states.initialize_model_parallel(
-        tensor_model_parallel_size=tp_size,
-        timeout_in_minutes=10.0
+        tensor_model_parallel_size=tp_size, timeout_in_minutes=10.0
     )
 
     config = create_config(tensor_model_parallel_size=tp_size)
@@ -99,6 +99,7 @@ def run_validation():
 
     # Set seed
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -112,14 +113,16 @@ def run_validation():
     batch_size = 2
     seq_len = 64
     hidden_states = torch.randn(
-        batch_size, seq_len, config.model.d_model,
-        device=device, requires_grad=True
+        batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
     )
 
     # Create attention mask
-    attention_mask = torch.tril(
-        torch.ones(seq_len, seq_len, device=device)
-    ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+    attention_mask = (
+        torch.tril(torch.ones(seq_len, seq_len, device=device))
+        .unsqueeze(0)
+        .unsqueeze(0)
+        .expand(batch_size, -1, -1, -1)
+    )
 
     # Forward pass
     output = attention(hidden_states, attention_mask)
@@ -132,11 +135,14 @@ def run_validation():
     loss.backward()
 
     # Compute total gradient norm
-    total_grad_norm = sum(
-        param.grad.norm().item()**2
-        for param in attention.parameters()
-        if param.grad is not None
-    )**0.5
+    total_grad_norm = (
+        sum(
+            param.grad.norm().item() ** 2
+            for param in attention.parameters()
+            if param.grad is not None
+        )
+        ** 0.5
+    )
 
     print(f"[Rank {rank}] Grad norm: {total_grad_norm:.6f}")
 
@@ -153,9 +159,9 @@ def run_validation():
         dist.all_gather(gathered_grad_norms, grad_norm_tensor)
 
         if rank == 0:
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print(f"TP={tp_size} VALIDATION RESULTS")
-            print(f"{'='*70}")
+            print(f"{'=' * 70}")
 
             print("\nOutput Norms:")
             for i in range(world_size):
@@ -192,6 +198,7 @@ if __name__ == "__main__":
         rank = dist.get_rank() if dist.is_initialized() else 0
         print(f"[Rank {rank}] ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         if dist.is_initialized():
             dist.destroy_process_group()

@@ -19,11 +19,11 @@ def run_test():
     # Initialize TP
     parallel_states.initialize_model_parallel(
         tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
-        timeout=config.parallel.timeout_minute
+        timeout=config.parallel.timeout_minute,
     )
 
     iterators = get_data_iterator(config)
-    train_iter = iterators['train']
+    train_iter = iterators["train"]
 
     rank = dist.get_rank()
 
@@ -31,12 +31,13 @@ def run_test():
 
     for i in range(5):
         batch = next(train_iter)
-        input_ids = batch['input_ids']
+        input_ids = batch["input_ids"]
         s = input_ids.sum().item()
         print(f"Rank {rank}: Batch {i} sum: {s}")
 
     dist.barrier()
     dist.destroy_process_group()
+
 
 if __name__ == "__main__":
     run_test()

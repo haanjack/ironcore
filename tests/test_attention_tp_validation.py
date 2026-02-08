@@ -12,6 +12,7 @@ Run with:
 - TP=1: python tests/test_attention_tp_validation.py
 - TP=2: torchrun --nproc_per_node=2 tests/test_attention_tp_validation.py
 """
+
 import json
 import os
 import sys
@@ -94,18 +95,19 @@ def collect_activation_stats(module, name=""):
                         stats[f"{name}_{i}_mean"] = t.mean().item()
                         stats[f"{name}_{i}_std"] = t.std().item()
                         stats[f"{name}_{i}_norm"] = t.norm().item()
+
         return hook
 
     # Register hooks for key components
-    if hasattr(module, 'linear_q'):
+    if hasattr(module, "linear_q"):
         hook = module.linear_q.register_forward_hook(make_hook("linear_q"))
         activation_hooks.append(hook)
 
-    if hasattr(module, 'linear_kv'):
+    if hasattr(module, "linear_kv"):
         hook = module.linear_kv.register_forward_hook(make_hook("linear_kv"))
         activation_hooks.append(hook)
 
-    if hasattr(module, 'output'):
+    if hasattr(module, "output"):
         hook = module.output.register_forward_hook(make_hook("output_proj"))
         activation_hooks.append(hook)
 
@@ -115,19 +117,19 @@ def collect_activation_stats(module, name=""):
 def run_validation():
     """Run TP validation."""
     # Initialize distributed
-    if 'RANK' in os.environ:
-        rank = int(os.environ['RANK'])
-        world_size = int(os.environ['WORLD_SIZE'])
-        local_rank = int(os.environ['LOCAL_RANK'])
+    if "RANK" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ["LOCAL_RANK"])
     else:
         rank = 0
         world_size = 1
         local_rank = 0
 
-    device = torch.device(f'cuda:{local_rank}' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
     if world_size > 1:
-        dist.init_process_group(backend='nccl')
+        dist.init_process_group(backend="nccl")
         dist.barrier()
 
     # Get TP size from config
@@ -136,8 +138,7 @@ def run_validation():
 
     # Initialize model parallel
     parallel_states.initialize_model_parallel(
-        tensor_model_parallel_size=tp_size,
-        timeout_in_minutes=10.0
+        tensor_model_parallel_size=tp_size, timeout_in_minutes=10.0
     )
 
     # Create config with proper TP size
@@ -145,12 +146,13 @@ def run_validation():
 
     tp_rank = parallel_states.get_tensor_model_parallel_rank()
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"[Rank {rank}] TP={tp_size} (TP rank {tp_rank})")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     # Set seed
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -164,14 +166,16 @@ def run_validation():
     batch_size = 2
     seq_len = 64
     hidden_states = torch.randn(
-        batch_size, seq_len, config.model.d_model,
-        device=device, requires_grad=True
+        batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
     )
 
     # Create attention mask
-    attention_mask = torch.tril(
-        torch.ones(seq_len, seq_len, device=device)
-    ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+    attention_mask = (
+        torch.tril(torch.ones(seq_len, seq_len, device=device))
+        .unsqueeze(0)
+        .unsqueeze(0)
+        .expand(batch_size, -1, -1, -1)
+    )
 
     # Collect activation statistics
     hooks, activation_stats = collect_activation_stats(attention)
@@ -203,11 +207,14 @@ def run_validation():
             grad_stats[f"{name}_norm"] = param.grad.norm().item()
 
     # Compute total gradient norm
-    total_grad_norm = sum(
-        param.grad.norm().item()**2
-        for param in attention.parameters()
-        if param.grad is not None
-    )**0.5
+    total_grad_norm = (
+        sum(
+            param.grad.norm().item() ** 2
+            for param in attention.parameters()
+            if param.grad is not None
+        )
+        ** 0.5
+    )
     grad_stats["total_grad_norm"] = total_grad_norm
 
     print(f"[Rank {rank}] Output norm: {activation_stats['output_norm']:.6f}")
@@ -215,9 +222,9 @@ def run_validation():
 
     # Combine stats
     stats = {
-        'rank': rank,
-        'tp_size': tp_size,
-        'tp_rank': tp_rank,
+        "rank": rank,
+        "tp_size": tp_size,
+        "tp_rank": tp_rank,
         **activation_stats,
         **grad_stats,
     }
@@ -231,20 +238,20 @@ def run_validation():
 
     # Print comparison on rank 0
     if rank == 0:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"TP={tp_size} VALIDATION RESULTS")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         # Save results
         os.makedirs("logs", exist_ok=True)
-        with open(f"logs/tp{tp_size}_attention_validation.json", 'w') as f:
+        with open(f"logs/tp{tp_size}_attention_validation.json", "w") as f:
             json.dump(all_stats, f, indent=2)
         print(f"Results saved to logs/tp{tp_size}_attention_validation.json")
 
         # Print activation norm comparison
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("ACTIVATION NORM COMPARISON")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         if tp_size == 2:
             rank0_stats = all_stats[0]
@@ -254,44 +261,44 @@ def run_validation():
             print("\nOutput Activation Norms:")
             print(f"  Rank 0: {rank0_stats['output_norm']:.6f}")
             print(f"  Rank 1: {rank1_stats['output_norm']:.6f}")
-            output_diff = abs(rank0_stats['output_norm'] - rank1_stats['output_norm'])
+            output_diff = abs(rank0_stats["output_norm"] - rank1_stats["output_norm"])
             print(f"  Difference: {output_diff:.2e}")
 
             # Compare linear_q activation norms
-            if 'linear_q_norm' in rank0_stats:
+            if "linear_q_norm" in rank0_stats:
                 print("\nLinear Q Activation Norms:")
                 print(f"  Rank 0: {rank0_stats['linear_q_norm']:.6f}")
                 print(f"  Rank 1: {rank1_stats['linear_q_norm']:.6f}")
-                q_diff = abs(rank0_stats['linear_q_norm'] - rank1_stats['linear_q_norm'])
+                q_diff = abs(rank0_stats["linear_q_norm"] - rank1_stats["linear_q_norm"])
                 print(f"  Difference: {q_diff:.2e}")
 
             # Compare linear_kv activation norms
-            if 'linear_kv_norm' in rank0_stats:
+            if "linear_kv_norm" in rank0_stats:
                 print("\nLinear KV Activation Norms:")
                 print(f"  Rank 0: {rank0_stats['linear_kv_norm']:.6f}")
                 print(f"  Rank 1: {rank1_stats['linear_kv_norm']:.6f}")
-                kv_diff = abs(rank0_stats['linear_kv_norm'] - rank1_stats['linear_kv_norm'])
+                kv_diff = abs(rank0_stats["linear_kv_norm"] - rank1_stats["linear_kv_norm"])
                 print(f"  Difference: {kv_diff:.2e}")
 
             # Compare output projection activation norms
-            if 'output_proj_norm' in rank0_stats:
+            if "output_proj_norm" in rank0_stats:
                 print("\nOutput Projection Activation Norms:")
                 print(f"  Rank 0: {rank0_stats['output_proj_norm']:.6f}")
                 print(f"  Rank 1: {rank1_stats['output_proj_norm']:.6f}")
-                out_diff = abs(rank0_stats['output_proj_norm'] - rank1_stats['output_proj_norm'])
+                out_diff = abs(rank0_stats["output_proj_norm"] - rank1_stats["output_proj_norm"])
                 print(f"  Difference: {out_diff:.2e}")
 
             # Compare gradient norms
             print("\nGradient Norms:")
             print(f"  Rank 0: {rank0_stats['total_grad_norm']:.6f}")
             print(f"  Rank 1: {rank1_stats['total_grad_norm']:.6f}")
-            grad_diff = abs(rank0_stats['total_grad_norm'] - rank1_stats['total_grad_norm'])
+            grad_diff = abs(rank0_stats["total_grad_norm"] - rank1_stats["total_grad_norm"])
             print(f"  Difference: {grad_diff:.2e}")
 
             # Validate correctness
-            print(f"\n{'='*70}")
+            print(f"\n{'=' * 70}")
             print("CORRECTNESS VALIDATION")
-            print(f"{'='*70}")
+            print(f"{'=' * 70}")
 
             tol = 1e-5
             all_close = True
@@ -329,6 +336,7 @@ if __name__ == "__main__":
         rank = dist.get_rank() if dist.is_initialized() else 0
         print(f"[Rank {rank}] ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         if dist.is_initialized():
             dist.destroy_process_group()

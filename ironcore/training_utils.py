@@ -26,8 +26,8 @@ def loss_func_sft(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch
 
     # Per-sample: sum tokens / count tokens for each row
     sample_token_sum = (token_losses * loss_mask).sum(dim=1)  # [batch]
-    sample_token_count = loss_mask.sum(dim=1).clamp(min=1)    # [batch]
-    sample_losses = sample_token_sum / sample_token_count      # [batch]
+    sample_token_count = loss_mask.sum(dim=1).clamp(min=1)  # [batch]
+    sample_losses = sample_token_sum / sample_token_count  # [batch]
 
     return sample_losses.mean()
 
@@ -51,7 +51,7 @@ def compute_token_accuracy(
         # TP mode: logits are sharded along vocab dimension [b, s, vocab/tp_size]
 
         # 1. Get local max and indices
-        local_max_values, local_indices = torch.max(logits, dim=-1) # [b, s]
+        local_max_values, local_indices = torch.max(logits, dim=-1)  # [b, s]
 
         # 2. Adjust local indices to global vocab indices
         rank = parallel_states.get_tensor_model_parallel_rank()
@@ -82,11 +82,9 @@ def compute_token_accuracy(
         # 5. Select the corresponding global token index
         # We use gather to select from the specific rank index for each position
         # all_indices: [world_size, b, s] -> gather -> [1, b, s]
-        predictions = torch.gather(
-            all_indices,
-            dim=0,
-            index=max_rank_indices.unsqueeze(0)
-        ).squeeze(0)
+        predictions = torch.gather(all_indices, dim=0, index=max_rank_indices.unsqueeze(0)).squeeze(
+            0
+        )
 
     else:
         # Standard mode
@@ -126,8 +124,8 @@ def get_batch(
         batch = None
 
     # IronCore dataloader returns dict with 'input_ids' and 'labels'
-    input_ids = batch['input_ids']
-    labels = batch['labels']
+    input_ids = batch["input_ids"]
+    labels = batch["labels"]
 
     return input_ids, labels
 

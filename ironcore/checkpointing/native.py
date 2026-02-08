@@ -89,9 +89,7 @@ class HFConfigManager:
         hf_config_path = load_directory / "config.json"
 
         if not hf_config_path.exists():
-            raise FileNotFoundError(
-                f"HuggingFace config file {hf_config_path} does not exist."
-            )
+            raise FileNotFoundError(f"HuggingFace config file {hf_config_path} does not exist.")
 
         with open(hf_config_path, encoding="utf-8") as f:
             hf_config = json.load(f)
@@ -125,8 +123,7 @@ def load_checkpoint(
         # find the latest checkpoint file
         latest_file = Path(config.trainer.model_path) / _LATEST_STEP_FILENAME
         if not latest_file.exists():
-            logger.warning(
-                f"Latest checkpoint file {latest_file} does not exist")
+            logger.warning(f"Latest checkpoint file {latest_file} does not exist")
             return -1
 
         with open(
@@ -137,10 +134,7 @@ def load_checkpoint(
 
     # checkpoint file name
     init_ckpt_path = Path(config.trainer.model_path) / f"step_{step}"
-    dist_ckpt_path = (
-        init_ckpt_path /
-        f"tp{parallel_states.get_tensor_model_parallel_rank()}"
-    )
+    dist_ckpt_path = init_ckpt_path / f"tp{parallel_states.get_tensor_model_parallel_rank()}"
     load_dist_ckpt = True if dist_ckpt_path.exists() else False
     ckpt_path = dist_ckpt_path if dist_ckpt_path.exists() else init_ckpt_path
     ckpt_path /= _CKPT_FILENAME
@@ -154,13 +148,24 @@ def load_checkpoint(
     logger.info(f"Loading checkpoint from {init_ckpt_path}")
 
     # Register safe globals for weights_only=True
-    torch.serialization.add_safe_globals([
-        MainConfig, ModelConfig, InitConfig, OptimConfig, DataConfig,
-        ParallelConfig, TrainerConfig, OperationConfig, UtilsConfig, PositionalEmbeddingConfig
-    ])
+    torch.serialization.add_safe_globals(
+        [
+            MainConfig,
+            ModelConfig,
+            InitConfig,
+            OptimConfig,
+            DataConfig,
+            ParallelConfig,
+            TrainerConfig,
+            OperationConfig,
+            UtilsConfig,
+            PositionalEmbeddingConfig,
+        ]
+    )
 
-    checkpoint = torch.load(ckpt_path, weights_only=True,
-                            map_location=next(model.parameters()).device)
+    checkpoint = torch.load(
+        ckpt_path, weights_only=True, map_location=next(model.parameters()).device
+    )
 
     # Load config
     hf_config = checkpoint.get("config")
@@ -185,15 +190,9 @@ def load_checkpoint(
     for name, param in model.named_parameters():
         loaded_param = checkpoint["model_state_dict"][name]
         module_name = ".".join(name.split(".")[:-1])
-        if (
-            not load_dist_ckpt
-            and parallel_states.get_tensor_model_parallel_world_size() > 1
-        ):
+        if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
             # universal checkpoint
-            if (
-                module_name in model_attribs
-                and model_attribs[module_name]["column_parallel"]
-            ):
+            if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
                 loaded_param = comm.split_to_model_parallel_workers(
                     loaded_param, model_attribs[module_name]
                 )
@@ -212,17 +211,16 @@ def load_checkpoint(
         assert loaded_param is not None, f"loaded layer [{name}] is None"
 
         # assert torch.all(param_ == get_tensor_model_parallel_rank()), f"loaded state {name} are not aligned with tensor model parallel"
-        assert (
-            loaded_param.numel() == param.numel()
-        ), f"loaded layer [{name}] has elements {loaded_param.numel()} which is invalid to target shape {param.shape}"
+        assert loaded_param.numel() == param.numel(), (
+            f"loaded layer [{name}] has elements {loaded_param.numel()} which is invalid to target shape {param.shape}"
+        )
 
         loaded_checkpoint[name] = loaded_param.reshape_as(param)
 
     for name, param in model.state_dict().items():
         if name in dict(model.named_parameters()):
             continue
-        loaded_checkpoint[name] = checkpoint["model_state_dict"][name].reshape_as(
-            param)
+        loaded_checkpoint[name] = checkpoint["model_state_dict"][name].reshape_as(param)
 
     model.load_state_dict(loaded_checkpoint)
 
@@ -230,8 +228,7 @@ def load_checkpoint(
         loaded_optim_state_dict = checkpoint.get("optimizer_state_dict", None)
 
         if loaded_optim_state_dict is None:
-            logger.warning(
-                "Checkpoint does not contain optimizer state dict.")
+            logger.warning("Checkpoint does not contain optimizer state dict.")
             return -1
         else:
             logger.info("Loading optimizer state dict.")
@@ -267,9 +264,7 @@ def load_checkpoint(
             loaded_optim_state["state"][param] = processed_state
 
         # split optimizer state for tensor parallel
-        if (not load_dist_ckpt
-            and parallel_states.get_tensor_model_parallel_world_size() > 1
-        ):
+        if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
             for name, param in model.named_parameters():
                 module_name = ".".join(name.split(".")[:-1])
                 # universal checkpoint
@@ -299,8 +294,9 @@ def load_checkpoint(
                     else:
                         pass
 
-                    loaded_optim_state["state"][param][state_key] = \
-                        loaded_optim_state["state"][param][state_key].reshape(param.shape)
+                    loaded_optim_state["state"][param][state_key] = loaded_optim_state["state"][
+                        param
+                    ][state_key].reshape(param.shape)
 
         optimizer.load_state_dict(loaded_optim_state)
 
@@ -332,8 +328,7 @@ def save_checkpoint(
 
     if config.operation.no_save:
         if config.trainer.model_path == "":
-            logger.info(
-                "Skip checkpoint saving due to the unspecified model path")
+            logger.info("Skip checkpoint saving due to the unspecified model path")
         else:
             logger.info("Skip checkpoint saving since no-save flag is set")
         return
@@ -341,8 +336,7 @@ def save_checkpoint(
     # checkpoint file name
     init_ckpt_path = Path(config.trainer.model_path) / f"step_{step}"
     ckpt_path = (
-        init_ckpt_path /
-        f"tp{parallel_states.get_tensor_model_parallel_rank()}"
+        init_ckpt_path / f"tp{parallel_states.get_tensor_model_parallel_rank()}"
         if config.operation.save_dist_ckpt
         else init_ckpt_path
     )
@@ -381,10 +375,7 @@ def save_checkpoint(
         output_param = param
         if _is_universal_checkpoint(config):
             # if the layer is parallel layer, we need to gather the tensor from all tensor model parallel workers
-            if (
-                module_name in model_attribs
-                and model_attribs[module_name]["column_parallel"]
-            ):
+            if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
                 output_param = comm.gather_from_model_parallel_workers(
                     param, model_attribs[module_name]
                 )
@@ -425,10 +416,7 @@ def save_checkpoint(
 
             output_optim_state = {}
             for key in ["exp_avg", "exp_avg_sq"]:
-                if (
-                    module_name in model_attribs
-                    and model_attribs[module_name]["column_parallel"]
-                ):
+                if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
                     output_optim_state[key] = comm.gather_from_model_parallel_workers(
                         optim_state[key], model_attribs[module_name]
                     )
@@ -458,13 +446,12 @@ def save_checkpoint(
         "lr_scheduler": lr_scheduler.state_dict(),
         "step": step,
         "config": model.config if hasattr(model, "config") else None,
-        "hf_config": hf_config, # HuggingFace compatible config
+        "hf_config": hf_config,  # HuggingFace compatible config
     }
 
     # save checkpoint
     if parallel_states.get_data_parallel_group_rank() == 0 and (
-        config.operation.save_dist_ckpt
-        or parallel_states.get_tensor_model_parallel_rank() == 0
+        config.operation.save_dist_ckpt or parallel_states.get_tensor_model_parallel_rank() == 0
     ):
         with open(ckpt_path, "wb") as f:
             torch.save(checkpoint, f)
@@ -484,6 +471,4 @@ def save_checkpoint(
     timer.stop("ckpt-save")
     if parallel_states.get_tensor_model_parallel_world_size() > 1:
         dist.barrier(group=parallel_states.get_tensor_model_parallel_group())
-    logger.info(
-        f"Checkpoint saved successfully. Checkpoint saved in {timer.get('ckpt-save'):.3f}s"
-    )
+    logger.info(f"Checkpoint saved successfully. Checkpoint saved in {timer.get('ckpt-save'):.3f}s")

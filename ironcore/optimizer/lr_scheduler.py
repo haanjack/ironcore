@@ -83,15 +83,9 @@ class CosineAnnealingLR(LRScheduler):
             lr = [self.min_lr for _ in self.base_lrs]
         else:
             # cosine annealing
-            cos_inner = (
-                math.pi * (self._step_count - self.warmup_steps) /
-                self.annealing_steps
-            )
+            cos_inner = math.pi * (self._step_count - self.warmup_steps) / self.annealing_steps
             cos_out = (1 + math.cos(cos_inner)) / 2
-            lr = [
-                self.min_lr + (base_lr - self.min_lr) * cos_out
-                for base_lr in self.base_lrs
-            ]
+            lr = [self.min_lr + (base_lr - self.min_lr) * cos_out for base_lr in self.base_lrs]
         return lr
 
     def step(self, epoch=None):

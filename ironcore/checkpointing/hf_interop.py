@@ -130,6 +130,7 @@ def load_hf_state_dict(checkpoint_path: Path, device: str = "cpu") -> dict[str, 
         if ckpt_info["format"] == "safetensors":
             try:
                 from safetensors.torch import load_file
+
                 file_state_dict = load_file(str(file_path), device=device)
             except ImportError:
                 raise ImportError(
@@ -207,7 +208,7 @@ def load_from_huggingface(
     # Determine number of layers
     num_layers = hf_config.get(
         "num_hidden_layers",
-        hf_config.get("n_layer", 12)  # GPT-2 uses n_layer
+        hf_config.get("n_layer", 12),  # GPT-2 uses n_layer
     )
 
     # Create weight mapper
@@ -262,10 +263,10 @@ def load_from_huggingface(
             elif "embedding" in name or "output_layer" in name:
                 # Handle vocab size mismatch by truncating or padding
                 if loaded.shape[0] > param.shape[0]:
-                    final_state_dict[name] = loaded[:param.shape[0]]
+                    final_state_dict[name] = loaded[: param.shape[0]]
                 else:
                     padded = torch.zeros_like(param)
-                    padded[:loaded.shape[0]] = loaded
+                    padded[: loaded.shape[0]] = loaded
                     final_state_dict[name] = padded
             else:
                 raise ValueError(
@@ -377,7 +378,11 @@ def export_to_huggingface(
 
     # Determine number of layers from model
     num_layers = sum(1 for name in ironcore_state_dict if re.match(r"model\.layers\.\d+\.", name))
-    num_layers = num_layers // len([k for k in ironcore_state_dict if "layers.0." in k]) if num_layers > 0 else 12
+    num_layers = (
+        num_layers // len([k for k in ironcore_state_dict if "layers.0." in k])
+        if num_layers > 0
+        else 12
+    )
 
     # Count layers properly
     layer_indices = set()
@@ -422,9 +427,7 @@ def export_to_huggingface(
         torch.save(hf_state_dict, output_file)
         saved_files.append(output_file)
     else:
-        saved_files.extend(
-            _save_sharded_pytorch(hf_state_dict, output_path, shard_size)
-        )
+        saved_files.extend(_save_sharded_pytorch(hf_state_dict, output_path, shard_size))
 
     # Generate and save config
     if config is None:
@@ -605,7 +608,9 @@ def _generate_hf_config(
             "num_hidden_layers": num_layers,
             "num_attention_heads": num_heads or 32,
             "intermediate_size": (hidden_size or 4096) * 4,
-            "max_position_embeddings": getattr(config, "max_position_embeddings", 4096) if config else 4096,
+            "max_position_embeddings": getattr(config, "max_position_embeddings", 4096)
+            if config
+            else 4096,
             "rms_norm_eps": 1e-6,
             "tie_word_embeddings": False,
         }

@@ -41,7 +41,7 @@ class BinaryDataset:
         # Memory-map token data
         # Determine dtype from file size
         file_size = bin_path.stat().st_size
-        total_tokens = self.metadata['offset'][-1] + self.metadata['length'][-1]
+        total_tokens = self.metadata["offset"][-1] + self.metadata["length"][-1]
 
         if file_size // total_tokens == 2:
             dtype = np.uint16
@@ -51,7 +51,7 @@ class BinaryDataset:
             # Fallback: try both
             dtype = np.uint16
 
-        self.data = np.memmap(str(bin_path), dtype=dtype, mode='r')
+        self.data = np.memmap(str(bin_path), dtype=dtype, mode="r")
 
     def __len__(self) -> int:
         """Number of samples in dataset."""
@@ -68,18 +68,18 @@ class BinaryDataset:
         """
         meta = self.metadata[idx]
 
-        offset = int(meta['offset'])
-        length = int(meta['length'])
+        offset = int(meta["offset"])
+        length = int(meta["length"])
 
-        token_ids = self.data[offset:offset + length]
+        token_ids = self.data[offset : offset + length]
 
         return {
-            'token_ids': token_ids,
-            'metadata': {
-                'type': str(meta['type']),
-                'group_id': int(meta['group_id']),
-                'mask_ranges': json.loads(str(meta['mask_ranges'])) if meta['mask_ranges'] else []
-            }
+            "token_ids": token_ids,
+            "metadata": {
+                "type": str(meta["type"]),
+                "group_id": int(meta["group_id"]),
+                "mask_ranges": json.loads(str(meta["mask_ranges"])) if meta["mask_ranges"] else [],
+            },
         }
 
     @property
@@ -164,8 +164,7 @@ class WeightedMixingDataset(IterableDataset):
 
             if not bin_path.exists() or not idx_path.exists():
                 raise FileNotFoundError(
-                    f"Dataset {ds_config.name} not preprocessed. "
-                    f"Run: python -m ironcore prepare"
+                    f"Dataset {ds_config.name} not preprocessed. Run: python -m ironcore prepare"
                 )
 
             dataset = BinaryDataset(bin_path, idx_path)
@@ -205,7 +204,7 @@ class WeightedMixingDataset(IterableDataset):
         split_ratios = {
             "train": self.config.splits[0],
             "eval": self.config.splits[1],
-            "test": self.config.splits[2]
+            "test": self.config.splits[2],
         }
 
         self.split_ranges = {}
@@ -301,7 +300,9 @@ class WeightedMixingDataset(IterableDataset):
         # Only shard if we have multiple data parallel ranks (world_size > 1)
         # For pure TP training (world_size == 1), all ranks get all data
         if self.world_size > 1:
-            rank_positions = [pos for i, pos in enumerate(positions) if i % self.world_size == self.rank]
+            rank_positions = [
+                pos for i, pos in enumerate(positions) if i % self.world_size == self.rank
+            ]
         else:
             rank_positions = positions
 
@@ -324,7 +325,7 @@ class WeightedMixingDataset(IterableDataset):
                     if len(token_ids) < self.max_seq_len + 1:
                         # Wrap to beginning of dataset
                         needed = (self.max_seq_len + 1) - len(token_ids)
-                        wrap_tokens = dataset.data[start:start + needed]
+                        wrap_tokens = dataset.data[start : start + needed]
                         token_ids = np.concatenate([token_ids, wrap_tokens])
 
                     yield torch.from_numpy(token_ids.astype(np.int64))
@@ -365,14 +366,16 @@ class WeightedMixingDataset(IterableDataset):
             num_samples,
             size=num_samples,
             replace=False,  # No replacement for one epoch
-            p=weights_array
+            p=weights_array,
         )
 
         # Shard across ranks (deterministic)
         # Only shard if we have multiple data parallel ranks (world_size > 1)
         # For pure TP training (world_size == 1), all ranks get all data
         if self.world_size > 1:
-            rank_indices = [idx for i, idx in enumerate(sampled_indices) if i % self.world_size == self.rank]
+            rank_indices = [
+                idx for i, idx in enumerate(sampled_indices) if i % self.world_size == self.rank
+            ]
         else:
             rank_indices = sampled_indices
 
@@ -385,6 +388,6 @@ class WeightedMixingDataset(IterableDataset):
 
             # Return sample with metadata
             yield {
-                'token_ids': torch.from_numpy(sample['token_ids'].astype(np.int64)),
-                'metadata': sample['metadata']
+                "token_ids": torch.from_numpy(sample["token_ids"].astype(np.int64)),
+                "metadata": sample["metadata"],
             }
