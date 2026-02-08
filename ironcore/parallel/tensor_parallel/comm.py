@@ -14,14 +14,23 @@ import torch.distributed as dist
 from ironcore.parallel import parallel_states
 
 
-def _reduce(x: torch.Tensor):
+def _reduce(
+    x: torch.Tensor, async_op: bool = False
+) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
     if parallel_states.get_tensor_model_parallel_world_size() == 1:
+        if async_op:
+            return x, None
         return x
 
     if not x.is_contiguous():
         x = x.contiguous()
 
-    dist.all_reduce(x, group=parallel_states.get_tensor_model_parallel_group())
+    handle = dist.all_reduce(
+        x, group=parallel_states.get_tensor_model_parallel_group(), async_op=async_op
+    )
+
+    if async_op:
+        return x, handle
 
     return x
 
@@ -41,7 +50,7 @@ def _split_tensor_along_last_dim(x: torch.Tensor):
     return output
 
 
-def _split_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int):
+def _split_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> torch.Tensor:
     world_size = parallel_states.get_tensor_model_parallel_world_size()
     if world_size == 1:
         return x
@@ -101,7 +110,7 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     return output
 
 
-def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int):
+def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> torch.Tensor:
     world_size = parallel_states.get_tensor_model_parallel_world_size()
     if world_size == 1:
         return x
@@ -153,31 +162,35 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
 
 class _CopyToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
-    def forward(ctx, x: torch.Tensor):
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:  # pylint: disable=unused-argument
         return x
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
+    def backward(
+        ctx, grad_output: torch.Tensor
+    ) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
         return _reduce(grad_output)
 
 
 class _ReduceFromModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
-    def forward(ctx, x: torch.Tensor):
-        return _reduce(x)
+    def forward(
+        ctx, x: torch.Tensor, async_op: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:  # pylint: disable=unused-argument
+        return _reduce(x, async_op)
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        return grad_output
+    def backward(ctx, grad_output: torch.Tensor, grad_handle=None) -> tuple[torch.Tensor, None]:  # pylint: disable=unused-argument
+        return grad_output, None
 
 
 class _ScatterToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
-    def forward(ctx, x: torch.Tensor):
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:  # pylint: disable=unused-argument
         return _split_tensor_along_last_dim(x)
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
+    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
         return _gather_tensor_along_last_dim(grad_output)
 
 
@@ -209,20 +222,22 @@ class _GatherFromModelParallelWorkers(torch.autograd.Function):  # pylint: disab
         return grad_output, None
 
 
-def copy_inputs_to_model_parallel_workers(x):
-    return _CopyToModelParallelWorkers.apply(x)
+def copy_inputs_to_model_parallel_workers(x) -> torch.Tensor:
+    return _CopyToModelParallelWorkers.apply(x)  # type: ignore
 
 
-def reduce_inputs_from_model_parallel_workers(x):
-    return _ReduceFromModelParallelWorkers.apply(x)
+def reduce_inputs_from_model_parallel_workers(
+    x, async_op=False
+) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
+    return _ReduceFromModelParallelWorkers.apply(x, async_op)  # type: ignore
 
 
-def scatter_input_to_model_parallel_workers(x):
-    return _ScatterToModelParallelWorkers.apply(x)
+def scatter_input_to_model_parallel_workers(x) -> torch.Tensor:
+    return _ScatterToModelParallelWorkers.apply(x)  # type: ignore
 
 
-def gather_from_model_parallel_workers(x, attrib):
-    return _GatherFromModelParallelWorkers.apply(x, attrib)
+def gather_from_model_parallel_workers(x, attrib) -> torch.Tensor:
+    return _GatherFromModelParallelWorkers.apply(x, attrib)  # type: ignore
 
 
 def split_to_model_parallel_workers(x, attrib):
