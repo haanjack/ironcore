@@ -11,7 +11,7 @@
 from dataclasses import dataclass, field
 from typing import Union
 
-from ironcore.config import BaseConfig
+from .config import BaseConfig
 
 
 @dataclass

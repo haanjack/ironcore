@@ -43,6 +43,10 @@ class MainConfig(BaseConfig):
     operation: OperationConfig
     utils: UtilsConfig
 
+    # DPO-specific configuration
+    dpo_beta: float = 0.5
+    dpo_label_smoothing: float = 0.0
+
 
 def _config_validation(config: MainConfig):
     """Validate arguments and update internal enum if necessary"""
@@ -365,6 +369,7 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             getattr(config, config_group_key).name = sub_group_config
 
             # load sub-config: data, model config
+            # Resolve sub-config path relative to the project's 'configs/' directory
             sub_group_config_path = (
                 Path(args.config_path).parent / f"{config_group_key}/{sub_group_config}.yaml"
             )

@@ -38,7 +38,7 @@ Configuration:
 """
 
 from ironcore.config import load_trainer_config
-from ironcore.trainer import Trainer
+from ironcore.trainers import Trainer
 from ironcore.training_utils import forward_step, loss_func
 
 if __name__ == "__main__":
