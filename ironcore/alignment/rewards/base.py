@@ -5,7 +5,7 @@
 """Base class for reward managers."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 
 import torch
 
@@ -23,8 +23,8 @@ class BaseReward(ABC):
     @abstractmethod
     def compute_reward(
         self,
-        prompts: List[str],
-        responses: List[str],
+        prompts: list[str],
+        responses: list[str],
         **kwargs: Any,
     ) -> torch.Tensor:
         """Compute rewards for a batch of prompt-response pairs.
@@ -41,8 +41,8 @@ class BaseReward(ABC):
 
     def batch_compute_reward(
         self,
-        prompts: List[str],
-        responses: List[List[str]],
+        prompts: list[str],
+        responses: list[list[str]],
         **kwargs: Any,
     ) -> torch.Tensor:
         """Compute rewards for grouped responses (e.g., GRPO).
@@ -56,7 +56,7 @@ class BaseReward(ABC):
             Tensor of reward scores [batch_size, group_size]
         """
         batch_rewards = []
-        for prompt, response_group in zip(prompts, responses):
+        for prompt, response_group in zip(prompts, responses, strict=False):
             rewards = self.compute_reward(
                 [prompt] * len(response_group),
                 response_group,

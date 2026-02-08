@@ -15,15 +15,15 @@ Reference:
 
 import copy
 from contextlib import nullcontext
-from typing import Dict, Tuple
 
 import torch
 import torch.distributed as dist
 
-from .trainer import Trainer
 from ironcore.alignment.loss import dpo_loss
 from ironcore.global_vars import log_metric
 from ironcore.utils import clip_grad_norm_tp
+
+from .trainer import Trainer
 
 
 def is_first_rank() -> bool:
@@ -68,8 +68,8 @@ class DPOTrainer(Trainer):
         super().__init__(config, forward_step_func, loss_fn)
 
         # DPO-specific hyperparameters
-        self.dpo_beta = getattr(config, 'dpo_beta', 0.5)
-        self.dpo_label_smoothing = getattr(config, 'dpo_label_smoothing', 0.0)
+        self.dpo_beta = getattr(config, "dpo_beta", 0.5)
+        self.dpo_label_smoothing = getattr(config, "dpo_label_smoothing", 0.0)
 
         # Create reference model (frozen copy of initial policy)
         self.logger.info(f"Creating reference model with beta={self.dpo_beta}")
@@ -88,9 +88,7 @@ class DPOTrainer(Trainer):
             Frozen copy of self.model
         """
         # Handle distributed training: get the underlying model
-        model_to_copy = (
-            self.model.module if hasattr(self.model, 'module') else self.model
-        )
+        model_to_copy = self.model.module if hasattr(self.model, "module") else self.model
 
         # Create a deep copy of the model
         # Note: This can be memory-intensive for large models
@@ -107,7 +105,7 @@ class DPOTrainer(Trainer):
 
         return reference_model
 
-    def train_step(self, step: int) -> Tuple[float, float, float]:
+    def train_step(self, step: int) -> tuple[float, float, float]:
         """DPO training step.
 
         Processes chosen and rejected pairs, computes DPO loss,
@@ -126,12 +124,10 @@ class DPOTrainer(Trainer):
         """
         self.timer.start(name="iter")
         total_loss = 0.0
-        total_metrics: Dict[str, float] = {}
+        total_metrics: dict[str, float] = {}
 
         for i in range(self.config.trainer.gradient_accumulation_steps):
-            is_last_accum_step = (
-                i == self.config.trainer.gradient_accumulation_steps - 1
-            )
+            is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
 
             backward_sync_ctx = (
                 self.model.no_sync
@@ -148,9 +144,7 @@ class DPOTrainer(Trainer):
                     loss, metrics = self._dpo_forward_step(batch)
 
                     total_loss += loss.item()
-                    scaled_loss = (
-                        loss / self.config.trainer.gradient_accumulation_steps
-                    )
+                    scaled_loss = loss / self.config.trainer.gradient_accumulation_steps
 
                     # Accumulate metrics
                     for k, v in metrics.items():
@@ -164,20 +158,16 @@ class DPOTrainer(Trainer):
 
         grad_norm = 0.0
         if self.config.optim.clip_grad > 0.0:
-            grad_norm = clip_grad_norm_tp(
-                self.model.parameters(), self.config.optim.clip_grad
-            )
+            grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
         elif self.control.do_grad_norm(step):
-            grad_norm = clip_grad_norm_tp(
-                self.model.parameters(), float("inf")
-            )
+            grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
             for p in self.model.parameters():
                 if p.data is not None:
                     param_norm += p.data.norm() ** 2
-            param_norm = param_norm ** 0.5
+            param_norm = param_norm**0.5
 
         # Update model
         self.scaler.step(self.optimizer)
@@ -204,8 +194,8 @@ class DPOTrainer(Trainer):
 
     def _dpo_forward_step(
         self,
-        batch: Dict[str, torch.Tensor],
-    ) -> Tuple[torch.Tensor, Dict[str, float]]:
+        batch: dict[str, torch.Tensor],
+    ) -> tuple[torch.Tensor, dict[str, float]]:
         """Forward step for DPO training.
 
         Processes chosen and rejected pairs through both policy
@@ -218,15 +208,15 @@ class DPOTrainer(Trainer):
             Tuple of (loss, metrics_dict)
         """
         # Extract chosen samples
-        chosen_input_ids = batch['chosen_input_ids']
-        chosen_labels = batch['chosen_labels']
+        chosen_input_ids = batch["chosen_input_ids"]
+        chosen_labels = batch["chosen_labels"]
 
         # Extract rejected samples
-        rejected_input_ids = batch['rejected_input_ids']
-        rejected_labels = batch['rejected_labels']
+        rejected_input_ids = batch["rejected_input_ids"]
+        rejected_labels = batch["rejected_labels"]
 
         # Get loss mask if available
-        loss_mask = batch.get('chosen_loss_mask')
+        loss_mask = batch.get("chosen_loss_mask")
 
         # Forward pass on chosen (policy)
         chosen_policy_logits = self.model(chosen_input_ids, labels=None)
@@ -236,12 +226,8 @@ class DPOTrainer(Trainer):
 
         # Forward pass on reference model (no grad)
         with torch.no_grad():
-            chosen_ref_logits = self.reference_model(
-                chosen_input_ids, labels=None
-            )
-            rejected_ref_logits = self.reference_model(
-                rejected_input_ids, labels=None
-            )
+            chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None)
+            rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None)
 
         # Compute DPO loss
         loss, metrics = dpo_loss(
@@ -258,7 +244,7 @@ class DPOTrainer(Trainer):
 
         return loss, metrics
 
-    def _log_dpo_metrics(self, step: int, metrics: Dict[str, float]) -> None:
+    def _log_dpo_metrics(self, step: int, metrics: dict[str, float]) -> None:
         """Log DPO-specific metrics.
 
         Args:

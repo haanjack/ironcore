@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ironcore.config import MainConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
-from ironcore.trainers import Trainer, DPOTrainer
+from ironcore.trainers import DPOTrainer, Trainer
 from ironcore.training_utils import forward_step, get_loss_func
 
 
@@ -77,12 +77,15 @@ def run_train(args):
 
     # Select trainer based on task type
     print("\nInitializing trainer...")
-    if task_type == "dpo":
+    if task_type in ["pretrain", "sft"]:
+        print("Using standard Trainer for pretraining or SFT")
+        trainer = Trainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    elif task_type == "dpo":
         print("Using DPOTrainer for Direct Preference Optimization")
         trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     else:
-        print("Using standard Trainer")
-        trainer = Trainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+        print(f"Error: Unsupported task type: {task_type}")
+        sys.exit(1)
 
     # Run training
     print("\nStarting training...")

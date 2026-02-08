@@ -10,7 +10,7 @@ This module contains specialized trainers:
 - GRPOTrainer: Group Relative Policy Optimization (online) [planned]
 """
 
-from ironcore.trainers.trainer import Trainer
 from ironcore.trainers.dpo_trainer import DPOTrainer
+from ironcore.trainers.trainer import Trainer
 
 __all__ = ["Trainer", "DPOTrainer"]

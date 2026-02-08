@@ -51,7 +51,7 @@ def compute_token_accuracy(
         # TP mode: logits are sharded along vocab dimension [b, s, vocab/tp_size]
 
         # 1. Get local max and indices
-        local_max_values, local_indices = torch.max(logits, dim=-1) # [b, s]
+        local_max_values, local_indices = torch.max(logits, dim=-1)  # [b, s]
 
         # 2. Adjust local indices to global vocab indices
         rank = parallel_states.get_tensor_model_parallel_rank()
@@ -82,11 +82,9 @@ def compute_token_accuracy(
         # 5. Select the corresponding global token index
         # We use gather to select from the specific rank index for each position
         # all_indices: [world_size, b, s] -> gather -> [1, b, s]
-        predictions = torch.gather(
-            all_indices,
-            dim=0,
-            index=max_rank_indices.unsqueeze(0)
-        ).squeeze(0)
+        predictions = torch.gather(all_indices, dim=0, index=max_rank_indices.unsqueeze(0)).squeeze(
+            0
+        )
 
     else:
         # Standard mode
@@ -189,15 +187,15 @@ def forward_step_dpo(model, reference_model, data_iterator, dpo_beta=0.5, label_
     batch = get_dpo_batch(data_iterator)
 
     # Extract chosen samples
-    chosen_input_ids = batch['chosen_input_ids']
-    chosen_labels = batch['chosen_labels']
+    chosen_input_ids = batch["chosen_input_ids"]
+    chosen_labels = batch["chosen_labels"]
 
     # Extract rejected samples
-    rejected_input_ids = batch['rejected_input_ids']
-    rejected_labels = batch['rejected_labels']
+    rejected_input_ids = batch["rejected_input_ids"]
+    rejected_labels = batch["rejected_labels"]
 
     # Get loss mask if available
-    loss_mask = batch.get('chosen_loss_mask')
+    loss_mask = batch.get("chosen_loss_mask")
 
     # Forward pass on chosen (policy)
     chosen_policy_logits = model(chosen_input_ids, labels=None)
@@ -223,4 +221,4 @@ def forward_step_dpo(model, reference_model, data_iterator, dpo_beta=0.5, label_
         label_smoothing=label_smoothing,
     )
 
-    return {'loss': loss, 'metrics': metrics}
+    return {"loss": loss, "metrics": metrics}
