@@ -1,0 +1,45 @@
+trainer:
+  tensor_model_parallel_size: 1
+  sequence_chunk_size: 1024  # 4096 / 1024 = 4 chunks
+  micro_batch_size: 1
+  train_batch_size: 4
+  gradient_accumulation_steps: 4
+  save_checkpoint_steps: 1000
+  log_interval: 10
+  model_path: models/long_context_async
+  use_flash_attn: true
+  vocab_padding_unit: 128
+  compile_model: true
+
+operation:
+  train_steps: 50
+  eval_interval: 50
+  no_save: true
+  activation_recompute: true
+
+model: gpt2-small
+
+data:
+  config_path: configs/data/pretrain_long.yaml
+  task_type: pretrain
+
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+  max_lr: 6.0e-4
+  min_lr: 6.0e-5
+  warmup_steps: 10
+  annealing_steps: 50
+  weight_decay: 0.1
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+  clip_grad: 1.0
+
+init:
+  seed: 42
+  init_std: 0.02
+
+utils:
+  tensorboard_dir: logs/long_context_test/async
+  report_memory_usage: true

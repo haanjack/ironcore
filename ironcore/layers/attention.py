@@ -172,21 +172,21 @@ class Attention(BaseModule):
             (batch_size + 1) * seq_len_q,
             step=seq_len_q,
             dtype=torch.int32,
-            device=self.device,
+            device=query.device,
         )
         cu_seqlens_k = torch.arange(
             0,
             (batch_size + 1) * seq_len_kv,
             step=seq_len_kv,
             dtype=torch.int32,
-            device=self.device,
+            device=key.device,
         )
 
         max_seqlen_q = torch.tensor(max_seqlen_q, dtype=torch.int32)
         max_seqlen_k = torch.tensor(max_seqlen_k, dtype=torch.int32)
 
         # output: [b, sq, hn, hd]
-        context_output = flash_attn_varlen_func(
+        context_output = flash_attn_varlen_func(  # type: ignore
             query,
             key,
             value,

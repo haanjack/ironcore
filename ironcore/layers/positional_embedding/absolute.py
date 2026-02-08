@@ -16,11 +16,11 @@ from torch import nn
 
 class PositionalEncoding(nn.Module):
 
-    def __init__(self, d_model, max_len=4096):
+    def __init__(self, d_model, max_seq_len=4096):
         super().__init__()
 
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        pe = torch.zeros(max_seq_len, d_model)
+        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
             torch.arange(0, d_model, 2).float() *
             (-math.log(10000.0) / d_model)

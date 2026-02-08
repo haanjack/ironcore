@@ -45,7 +45,6 @@ class ModelConfig(BaseConfig):
         default=2048, metadata={"help": "model feed forward dimension size"}
     )
     num_layers: int = field(default=2, metadata={"help": "number of layers"})
-    max_len: int = field(default=512, metadata={"help": "max sequence length"})
     max_position_embeddings: int = field(
         default=512, metadata={"help": "max position embeddings"}
     )
@@ -112,12 +111,9 @@ class ModelConfig(BaseConfig):
     seq_len_kv: int | None = field(
         default=None, metadata={"help": "key/value sequence length"}
     )
-    num_attention_groups: int | None = field(
-        default=None,
+    num_attention_groups: int = field(
+        default=8,
         metadata={"help": "number of key-value groups in grouped query attention"},
-    )
-    attention_dropout: float = field(
-        default=0.1, metadata={"help": "dropout ratio in attention"}
     )
     activation_type: str = field(default="gelu", metadata={
                                  "help": "activation type"})

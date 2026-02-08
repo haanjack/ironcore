@@ -97,39 +97,127 @@ class TransformerLayer(BaseModule):
             query = rotary_pos_emb.forward(query)
             key = rotary_pos_emb.forward(key)
 
-        # self attention
-        attention_output = self.self_attention(
-            query, key, value, attention_mask
-        )
+        # Chunking for Async TP
+        chunk_size = self.config.trainer.sequence_chunk_size
 
-        # output projection
-        attention_output = self.attn_output(attention_output)
+        if chunk_size is None or chunk_size <= 0 or chunk_size >= seq_len:
+            # Standard synchronous execution
+            # self attention
+            attention_output = self.self_attention(
+                query, key, value, attention_mask
+            )
 
-        # dropout
-        if self.config.model.dropout_attn > 0.0:
-            attention_output = self.residual_dropout(attention_output)
+            # output projection
+            attention_output = self.attn_output(attention_output)
+
+            # dropout
+            if self.config.model.dropout_attn > 0.0:
+                attention_output = self.residual_dropout(attention_output)
+
+            if self.model_config.post_ln:
+                residual = norm_output
+            else:
+                residual = hidden_states
+
+            # dropout
+            norm_input = residual + attention_output
+
+            # layer norm after attention
+            norm_output = self.post_attn_layernorm(norm_input)
+
+            mlp_output = self.mlp(norm_output)
+
+            if self.model_config.post_ln:
+                residual = norm_output
+            else:
+                residual = norm_input
+
+            output = residual + mlp_output
+
+            return output
+
+        # Use torch.split for splitting
+        query_chunks = torch.split(query, chunk_size, dim=1)
 
         if self.model_config.post_ln:
-            residual = norm_output
+            residual_base = norm_output
         else:
-            residual = hidden_states
+            residual_base = hidden_states
+        residual_chunks = torch.split(residual_base, chunk_size, dim=1)
 
-        # dropout
-        norm_input = residual + attention_output
+        attn_partials = []
+        attn_handles = []
 
-        # layer norm after attention
-        norm_output = self.post_attn_layernorm(norm_input)
+        # 1. Launch Attention Compute & Reduce for all chunks
+        current_idx = 0
+        for i, query_chunk in enumerate(query_chunks):
+            chunk_len = query_chunk.size(1)
+            kv_end = current_idx + chunk_len
 
-        mlp_output = self.mlp(norm_output)
+            # Truncate key/value to the causal boundary: positions beyond
+            # kv_end are masked by causal attention anyway. This ensures
+            # correct causal mask alignment with flash attention, which
+            # applies bottom-right aligned masking when seq_len_q != seq_len_kv.
+            key_chunk = key[:, :kv_end]
+            value_chunk = value[:, :kv_end]
 
-        if self.model_config.post_ln:
-            residual = norm_output
-        else:
-            residual = norm_input
+            mask_chunk = None
+            if attention_mask is not None:
+                mask_chunk = attention_mask[:, :, current_idx:kv_end, :kv_end]
 
-        output = residual + mlp_output
+            attention_output_chunk = self.self_attention(
+                query_chunk, key_chunk, value_chunk, mask_chunk
+            )
 
-        return output
+            # output projection (Async)
+            partial, handle = self.attn_output(attention_output_chunk, async_communication=True)
+            attn_partials.append(partial)
+            attn_handles.append(handle)
+            current_idx += chunk_len
+
+        # 2. Finish Attention, Launch MLP
+        mlp_partials = []
+        mlp_handles = []
+        mlp_residual_bases = []
+
+        for i in range(len(query_chunks)):
+            # Wait for Attention Reduce
+            if attn_handles[i]:
+                attn_handles[i].wait()
+
+            # Finish Attention (Bias + Dropout)
+            attention_output = attn_partials[i]
+            if self.attn_output.bias is not None:
+                attention_output = attention_output + self.attn_output.bias
+
+            if self.config.model.dropout_attn > 0.0:
+                attention_output = self.residual_dropout(attention_output)
+
+            # Residual + Norm
+            norm_input = residual_chunks[i] + attention_output
+            norm_output_chunk = self.post_attn_layernorm(norm_input)
+
+            # Store residual base for MLP
+            if self.model_config.post_ln:
+                mlp_residual_bases.append(norm_output_chunk)
+            else:
+                mlp_residual_bases.append(norm_input)
+
+            # MLP (Async)
+            partial, handle = self.mlp(norm_output_chunk, async_communication=True)
+            mlp_partials.append(partial)
+            mlp_handles.append(handle)
+
+        # 3. Finish MLP
+        final_chunks = []
+        for i in range(len(query_chunks)):
+            # Wait MLP and Finalize
+            mlp_output = self.mlp.finalize(mlp_partials[i], mlp_handles[i])
+
+            output_chunk = mlp_residual_bases[i] + mlp_output
+            final_chunks.append(output_chunk)
+
+        return torch.cat(final_chunks, dim=1)
 
     def forward(self, hidden_states, attention_mask, rotary_pos_emb):
         return self.custom_forward(hidden_states, attention_mask, rotary_pos_emb)
