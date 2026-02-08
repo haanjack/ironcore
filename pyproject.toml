@@ -2,7 +2,7 @@
 name = "ironcore"
 version = "0.1.0"
 description = "Distributed training framework"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "torch",
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pylint", "pytest"]
+dev = ["pytest", "ruff"]
 
 [project.scripts]
 ironcore = "ironcore.__main__:main"
@@ -35,14 +35,42 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["ironcore*"]
 
-[tool.pylint.'MESSAGE CONTROL']
-disable = ["missing-module-docstring",
-           "missing-class-docstring",
-           "missing-function-docstring",
-           "too-many-instance-attributes",
-           "too-many-arguments",
-           "protected-access",
-           "line-too-long",
-           "arguments-differ",
-           "fixme"
+[tool.ruff]
+# Configuration for static analysis and formatting
+target-version = "py312"
+line-length = 100
+src = ["ironcore", "tests", "examples"]
+
+[tool.ruff.lint]
+# Combined rules for comprehensive checking
+# F: Pyflakes, E/W: pycodestyle, I: isort, B: flake8-bugbear
+# C90: McCabe complexity, UP: pyupgrade, N: pep8-naming, PL: Pylint compatibility
+select = ["F", "E", "W", "I", "B", "C90", "UP", "N", "PL"]
+
+ignore = [
+    "E501",        # Line length
+    "C901",        # Function complexity
+    "PLR0912",     # Too many branches
+    "PLR0913",     # Too many arguments
+    "PLR0915",     # Too many statements
+    "PLR2004",     # Magic value used in comparison
+    "PLW0603",     # Using global statement
+    "UP007",       # Union type (X | Y)
+    "N806",        # Variable naming in function
+    "B904",        # Raise from err
 ]
+
+# Keep unused imports for manual cleanup to avoid breaking logic accidentally
+unfixable = ["F401"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.isort]
+known-first-party = ["ironcore"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
