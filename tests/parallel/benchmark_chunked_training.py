@@ -183,12 +183,11 @@ def benchmark_one(seq_len, chunk_size, tp_size, device, use_flash_attn=False):
     }
 
 
-
-
 def run_benchmark(tp_size):
     """Run benchmark for a given TP size."""
     try:
         from flash_attn import flash_attn_varlen_func  # noqa: F401
+
         use_flash_attn = True
     except ImportError:
         print("WARNING: flash_attn not installed, using standard attention")
@@ -254,36 +253,44 @@ def run_benchmark(tp_size):
                 print(f"  {label} tp={tp_size} ...", end=" ", flush=True)
 
             try:
-                result = benchmark_one(seq_len, chunk_size, tp_size, device, use_flash_attn=use_flash_attn)
+                result = benchmark_one(
+                    seq_len, chunk_size, tp_size, device, use_flash_attn=use_flash_attn
+                )
                 all_results.append(result)
 
                 if rank == 0:
-                    print(f"avg={result['avg_time']*1000:.2f}ms  "
-                          f"mem={result['peak_alloc_mib']:.0f}MB  "
-                          f"throughput={result['throughput_tokens_per_sec']:.0f} tok/s")
+                    print(
+                        f"avg={result['avg_time'] * 1000:.2f}ms  "
+                        f"mem={result['peak_alloc_mib']:.0f}MB  "
+                        f"throughput={result['throughput_tokens_per_sec']:.0f} tok/s"
+                    )
 
             except torch.cuda.OutOfMemoryError:
                 if rank == 0:
                     print("OOM")
                 torch.cuda.empty_cache()
                 gc.collect()
-                all_results.append({
-                    "rank": rank,
-                    "tp_size": tp_size,
-                    "seq_len": seq_len,
-                    "chunk_size": chunk_size,
-                    "error": "OOM",
-                })
+                all_results.append(
+                    {
+                        "rank": rank,
+                        "tp_size": tp_size,
+                        "seq_len": seq_len,
+                        "chunk_size": chunk_size,
+                        "error": "OOM",
+                    }
+                )
             except Exception as e:
                 if rank == 0:
                     print(f"ERROR: {e}")
-                all_results.append({
-                    "rank": rank,
-                    "tp_size": tp_size,
-                    "seq_len": seq_len,
-                    "chunk_size": chunk_size,
-                    "error": str(e),
-                })
+                all_results.append(
+                    {
+                        "rank": rank,
+                        "tp_size": tp_size,
+                        "seq_len": seq_len,
+                        "chunk_size": chunk_size,
+                        "error": str(e),
+                    }
+                )
 
     # Gather results from all ranks
     if world_size > 1:
@@ -337,19 +344,25 @@ def print_summary(results, tp_size):
         if r["chunk_size"] is None:
             baselines[r["seq_len"]] = r
 
-    print(f"{'Seq':>5}  {'Chunk':>6}  {'Chunks':>7}  "
-          f"{'Time (ms)':>11}  {'vs Base':>9}  "
-          f"{'Mem (MB)':>10}  {'Mem Δ':>9}  "
-          f"{'Throughput':>12}")
+    print(
+        f"{'Seq':>5}  {'Chunk':>6}  {'Chunks':>7}  "
+        f"{'Time (ms)':>11}  {'vs Base':>9}  "
+        f"{'Mem (MB)':>10}  {'Mem Δ':>9}  "
+        f"{'Throughput':>12}"
+    )
     print("-" * 120)
 
     for seq_len in sorted(set(r["seq_len"] for r in rank0_results)):
         seq_results = [r for r in rank0_results if r["seq_len"] == seq_len]
         baseline = baselines.get(seq_len)
 
-        for r in sorted(seq_results, key=lambda x: (x["chunk_size"] is None, x["chunk_size"] or 0), reverse=True):
+        for r in sorted(
+            seq_results, key=lambda x: (x["chunk_size"] is None, x["chunk_size"] or 0), reverse=True
+        ):
             chunk_label = "none" if r["chunk_size"] is None else str(r["chunk_size"])
-            num_chunks = 1 if r["chunk_size"] is None else (seq_len + r["chunk_size"] - 1) // r["chunk_size"]
+            num_chunks = (
+                1 if r["chunk_size"] is None else (seq_len + r["chunk_size"] - 1) // r["chunk_size"]
+            )
 
             if r["chunk_size"] is None or baseline is None:
                 speedup_str = "baseline"
@@ -360,10 +373,12 @@ def print_summary(results, tp_size):
                 mem_delta = r["peak_alloc_mib"] - baseline["peak_alloc_mib"]
                 mem_delta_str = f"{mem_delta:+.0f}MB"
 
-            print(f"{seq_len:>5}  {chunk_label:>6}  {num_chunks:>7}  "
-                  f"{r['avg_time']*1000:>10.2f}ms  {speedup_str:>9}  "
-                  f"{r['peak_alloc_mib']:>9.0f}MB  {mem_delta_str:>9}  "
-                  f"{r['throughput_tokens_per_sec']:>11.0f} t/s")
+            print(
+                f"{seq_len:>5}  {chunk_label:>6}  {num_chunks:>7}  "
+                f"{r['avg_time'] * 1000:>10.2f}ms  {speedup_str:>9}  "
+                f"{r['peak_alloc_mib']:>9.0f}MB  {mem_delta_str:>9}  "
+                f"{r['throughput_tokens_per_sec']:>11.0f} t/s"
+            )
 
     print()
 
@@ -391,10 +406,12 @@ def compare_tp1_tp2():
     print("TP=1 vs TP=2 COMPARISON")
     print(f"{'=' * 120}\n")
 
-    print(f"{'Seq':>5}  {'Chunk':>6}  "
-          f"{'TP=1 Time':>11}  {'TP=2 Time':>11}  {'Speedup':>9}  "
-          f"{'TP=1 Mem':>10}  {'TP=2 Mem':>10}  "
-          f"{'Loss Δ':>10}")
+    print(
+        f"{'Seq':>5}  {'Chunk':>6}  "
+        f"{'TP=1 Time':>11}  {'TP=2 Time':>11}  {'Speedup':>9}  "
+        f"{'TP=1 Mem':>10}  {'TP=2 Mem':>10}  "
+        f"{'Loss Δ':>10}"
+    )
     print("-" * 120)
 
     # Create lookup for TP=2
@@ -410,18 +427,22 @@ def compare_tp1_tp2():
         chunk_label = "none" if r1["chunk_size"] is None else str(r1["chunk_size"])
 
         if r2 is None:
-            print(f"{r1['seq_len']:>5}  {chunk_label:>6}  "
-                  f"{r1['avg_time']*1000:>10.2f}ms  {'—':>11}  {'—':>9}  "
-                  f"{r1['peak_alloc_mib']:>9.0f}MB  {'—':>10}  {'—':>10}")
+            print(
+                f"{r1['seq_len']:>5}  {chunk_label:>6}  "
+                f"{r1['avg_time'] * 1000:>10.2f}ms  {'—':>11}  {'—':>9}  "
+                f"{r1['peak_alloc_mib']:>9.0f}MB  {'—':>10}  {'—':>10}"
+            )
             continue
 
         speedup = r1["avg_time"] / r2["avg_time"]
         loss_diff = abs(r1["final_loss"] - r2["final_loss"])
 
-        print(f"{r1['seq_len']:>5}  {chunk_label:>6}  "
-              f"{r1['avg_time']*1000:>10.2f}ms  {r2['avg_time']*1000:>10.2f}ms  {speedup:>8.3f}x  "
-              f"{r1['peak_alloc_mib']:>9.0f}MB  {r2['peak_alloc_mib']:>9.0f}MB  "
-              f"{loss_diff:>10.2e}")
+        print(
+            f"{r1['seq_len']:>5}  {chunk_label:>6}  "
+            f"{r1['avg_time'] * 1000:>10.2f}ms  {r2['avg_time'] * 1000:>10.2f}ms  {speedup:>8.3f}x  "
+            f"{r1['peak_alloc_mib']:>9.0f}MB  {r2['peak_alloc_mib']:>9.0f}MB  "
+            f"{loss_diff:>10.2e}"
+        )
 
     print()
 
@@ -438,6 +459,7 @@ def run_both():
     result_tp1 = subprocess.run(
         [sys.executable, __file__, "--tp", "1"],
         cwd=Path(__file__).parent.parent,
+        check=False,
     )
 
     if result_tp1.returncode != 0:
@@ -449,6 +471,7 @@ def run_both():
     result_tp2 = subprocess.run(
         ["torchrun", "--nproc_per_node=2", __file__, "--tp", "2"],
         cwd=Path(__file__).parent.parent,
+        check=False,
     )
 
     if result_tp2.returncode != 0:
@@ -462,7 +485,9 @@ def run_both():
 def main():
     parser = argparse.ArgumentParser(description="Benchmark chunked tensor parallelism")
     parser.add_argument("--tp", type=int, choices=[1, 2], help="Tensor parallel size")
-    parser.add_argument("--run-both", action="store_true", help="Run both TP=1 and TP=2 and compare")
+    parser.add_argument(
+        "--run-both", action="store_true", help="Run both TP=1 and TP=2 and compare"
+    )
     args = parser.parse_args()
 
     if args.run_both:
