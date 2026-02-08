@@ -13,6 +13,7 @@ from .transformer import TransformerModel
 
 SUPPORTED_TRANSFORMER_PREFIXES = ["GPT", "LLAMA", "GEMMA1", "QWEN", "PHI1", "PHI2"]
 
+
 def get_model_provider_func(config):
     model_name = config.model.name.upper()
 

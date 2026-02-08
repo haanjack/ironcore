@@ -33,9 +33,9 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
     for mn, m in model.named_modules():
         for pn, p in m.named_parameters(recurse=False):
             fpn = f"{mn}.{pn}" if mn else pn
-            if pn == 'bias' or isinstance(m, (nn.LayerNorm, nn.RMSNorm)):
+            if pn == "bias" or isinstance(m, (nn.LayerNorm, nn.RMSNorm)):
                 no_decay.add(fpn)
-            elif pn == 'weight' and isinstance(m, nn.Embedding):
+            elif pn == "weight" and isinstance(m, nn.Embedding):
                 if no_decay_on_embedding:
                     no_decay.add(fpn)
                 else:
@@ -49,8 +49,8 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
         {"params": [param_dict[n] for n in no_decay], "weight_decay": 0.0},
     ]
 
-    fused_available = 'fused' in inspect.signature(AdamW).parameters
-    use_fused = fused_available and 'cuda' in device_type
+    fused_available = "fused" in inspect.signature(AdamW).parameters
+    use_fused = fused_available and "cuda" in device_type
     extra_args = dict(fused=False) if use_fused else dict()
 
     if config.optim.optimizer == "adam":
@@ -61,10 +61,12 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
         #     **extra_args
         # )
         optimizer = AdamWOptimizer(
-            optimizer_grouped_parameters, lr=max_lr, weight_decay=weight_decay,
+            optimizer_grouped_parameters,
+            lr=max_lr,
+            weight_decay=weight_decay,
             betas=(config.optim.adam_beta1, config.optim.adam_beta2),
             eps=config.optim.adam_eps,
-            **extra_args
+            **extra_args,
         )
 
     else:

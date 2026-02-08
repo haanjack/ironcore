@@ -30,10 +30,10 @@ class TrainingControl:
     def _cadence_next(every: int | None, step: int) -> bool:
         return isinstance(every, int) and every > 0 and ((step + 1) % every == 0)
 
-    def _cadence_flag(self, mode: Literal['log', 'checkpoint'] | None, step: int) -> bool:
-        if mode == 'log':
+    def _cadence_flag(self, mode: Literal["log", "checkpoint"] | None, step: int) -> bool:
+        if mode == "log":
             return self._cadence_next(self.trainer.log_interval, step)
-        if mode == 'checkpoint':
+        if mode == "checkpoint":
             return self._cadence_next(self.trainer.save_checkpoint_steps, step)
         return False
 
@@ -52,16 +52,12 @@ class TrainingControl:
 
     def do_eval(self, step: int) -> bool:
         """True when evaluation should run."""
-        return (
-            self.trainer.do_eval
-            and self._cadence_now(self.operation.eval_interval, step)
-        )
+        return self.trainer.do_eval and self._cadence_now(self.operation.eval_interval, step)
 
     def do_eval_subtask(self, step: int) -> bool:
         """True when subtask evaluation should run."""
-        return (
-            self.trainer.do_eval_subtask
-            and self._cadence_now(self.operation.eval_interval, step)
+        return self.trainer.do_eval_subtask and self._cadence_now(
+            self.operation.eval_interval, step
         )
 
     def do_exit(self, step: int) -> bool:

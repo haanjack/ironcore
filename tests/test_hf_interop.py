@@ -52,6 +52,7 @@ load_dotenv()
 # Test Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for test outputs."""
@@ -130,6 +131,7 @@ def mock_llama_hf_state_dict():
 # =============================================================================
 # Unit Tests: Weight Mapping
 # =============================================================================
+
 
 class TestArchitectureDetection:
     """Test architecture detection from model type strings."""
@@ -226,13 +228,17 @@ class TestGPT2WeightMapping:
         recovered_hf_state_dict = mapper.ironcore_to_hf(ironcore_state_dict, strict=False)
 
         # Check that key weights are preserved (allowing for numerical precision)
-        for key in ["transformer.wte.weight", "transformer.wpe.weight",
-                    "transformer.ln_f.weight", "transformer.ln_f.bias"]:
+        for key in [
+            "transformer.wte.weight",
+            "transformer.wpe.weight",
+            "transformer.ln_f.weight",
+            "transformer.ln_f.bias",
+        ]:
             if key in mock_gpt2_hf_state_dict and key in recovered_hf_state_dict:
                 torch.testing.assert_close(
                     mock_gpt2_hf_state_dict[key],
                     recovered_hf_state_dict[key],
-                    msg=f"Mismatch for {key}"
+                    msg=f"Mismatch for {key}",
                 )
 
         # Check fused QKV roundtrip
@@ -314,7 +320,7 @@ class TestLLaMAWeightMapping:
                 torch.testing.assert_close(
                     mock_llama_hf_state_dict[key],
                     recovered_hf_state_dict[key],
-                    msg=f"Mismatch for {key}"
+                    msg=f"Mismatch for {key}",
                 )
 
         # Check K/V roundtrip
@@ -327,10 +333,12 @@ class TestLLaMAWeightMapping:
 # Integration Tests: Real HuggingFace Models
 # =============================================================================
 
+
 def is_hf_model_available(model_name: str) -> bool:
     """Check if a HuggingFace model is available for download."""
     try:
         from huggingface_hub import HfApi
+
         api = HfApi()
         api.model_info(model_name)
         return True
@@ -376,7 +384,10 @@ class TestGPT2Integration:
         state_dict = load_hf_state_dict(gpt2_checkpoint)
         # GPT-2 keys may or may not have "transformer." prefix depending on format
         assert "wte.weight" in state_dict or "transformer.wte.weight" in state_dict
-        assert "h.0.attn.c_attn.weight" in state_dict or "transformer.h.0.attn.c_attn.weight" in state_dict
+        assert (
+            "h.0.attn.c_attn.weight" in state_dict
+            or "transformer.h.0.attn.c_attn.weight" in state_dict
+        )
 
     def test_gpt2_weight_conversion(self, gpt2_checkpoint):
         """Test converting GPT-2 weights to ironcore format."""
@@ -434,7 +445,7 @@ class TestGPT2Integration:
                     recovered_state_dict[key],
                     rtol=1e-5,
                     atol=1e-5,
-                    msg=f"Roundtrip mismatch for {key}"
+                    msg=f"Roundtrip mismatch for {key}",
                 )
 
 
@@ -532,13 +543,14 @@ class TestLLaMAIntegration:
                     recovered_state_dict[key],
                     rtol=1e-5,
                     atol=1e-5,
-                    msg=f"Roundtrip mismatch for {key}"
+                    msg=f"Roundtrip mismatch for {key}",
                 )
 
 
 # =============================================================================
 # Export Tests
 # =============================================================================
+
 
 class TestExportFunctionality:
     """Test export to HuggingFace format."""
@@ -551,9 +563,7 @@ class TestExportFunctionality:
         class MockModel(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.embedding = nn.ModuleDict({
-                    "word_embeddings": nn.Embedding(100, 64)
-                })
+                self.embedding = nn.ModuleDict({"word_embeddings": nn.Embedding(100, 64)})
 
         model = MockModel()
         config = _generate_hf_config(model, "gpt2", num_layers=2)
@@ -573,6 +583,7 @@ class TestExportFunctionality:
         # Write mock safetensors file
         try:
             from safetensors.torch import save_file
+
             save_file(mock_llama_hf_state_dict, str(output_path / "model.safetensors"))
         except ImportError:
             # Fall back to pytorch format
@@ -589,7 +600,9 @@ class TestExportFunctionality:
 
         # Verify files exist
         assert (output_path / "config.json").exists()
-        assert (output_path / "model.safetensors").exists() or (output_path / "pytorch_model.bin").exists()
+        assert (output_path / "model.safetensors").exists() or (
+            output_path / "pytorch_model.bin"
+        ).exists()
 
 
 # =============================================================================

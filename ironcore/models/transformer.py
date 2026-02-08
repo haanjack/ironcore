@@ -29,9 +29,7 @@ class TransformerLayer(BaseModule):
 
         # QKV projection dimensions
         query_projection_size = config.model.head_dim * config.model.num_attention_heads
-        key_value_projection_size = (
-            config.model.head_dim * config.model.num_attention_groups * 2
-        )
+        key_value_projection_size = config.model.head_dim * config.model.num_attention_groups * 2
         self.head_dimension = config.model.d_model // config.model.num_attention_heads
 
         # tensor parallel attention info
@@ -39,8 +37,7 @@ class TransformerLayer(BaseModule):
             config.model.num_attention_heads // config.trainer.tensor_model_parallel_size
         )
         self.num_local_attention_groups = (
-            config.model.num_attention_groups
-            // config.trainer.tensor_model_parallel_size
+            config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
         )
 
         # QKV projections
@@ -90,7 +87,9 @@ class TransformerLayer(BaseModule):
         # reshape to add head dimension
         query = query.view(batch_size, seq_len, self.num_local_attention_heads, self.head_dimension)
         key = key.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
-        value = value.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
+        value = value.view(
+            batch_size, seq_len, self.num_local_attention_groups, self.head_dimension
+        )
 
         # apply rotary positional embedding if provided
         if rotary_pos_emb:
@@ -224,7 +223,6 @@ class TransformerLayer(BaseModule):
 
 
 class TransformerModel(BaseModule):
-
     def __init__(self, config: MainConfig):
 
         super().__init__(config)
@@ -245,6 +243,5 @@ class TransformerModel(BaseModule):
                     use_reentrant=self.use_reentrant,
                 )
             else:
-                hidden_states = layer(
-                    hidden_states, attention_mask, rotary_pos_emb)
+                hidden_states = layer(hidden_states, attention_mask, rotary_pos_emb)
         return hidden_states

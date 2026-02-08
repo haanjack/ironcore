@@ -5,7 +5,6 @@ Handles downloading, tokenizing, and serializing datasets into a unified binary 
 Supports pretrain, SFT, and DPO task types.
 """
 
-
 import json
 from pathlib import Path
 
@@ -31,20 +30,17 @@ class DataSerializer:
     """
 
     # Metadata dtype for .idx files
-    METADATA_DTYPE = np.dtype([
-        ('offset', np.uint64),      # Byte offset in .bin file
-        ('length', np.uint32),       # Number of tokens
-        ('type', 'U20'),             # Task type string
-        ('group_id', np.int64),      # For DPO pairing (-1 = not paired)
-        ('mask_ranges', 'U500'),     # JSON string of masking ranges
-    ])
+    METADATA_DTYPE = np.dtype(
+        [
+            ("offset", np.uint64),  # Byte offset in .bin file
+            ("length", np.uint32),  # Number of tokens
+            ("type", "U20"),  # Task type string
+            ("group_id", np.int64),  # For DPO pairing (-1 = not paired)
+            ("mask_ranges", "U500"),  # JSON string of masking ranges
+        ]
+    )
 
-    def __init__(
-        self,
-        data_config: DataConfig,
-        tokenizer,
-        verbose: bool = True
-    ):
+    def __init__(self, data_config: DataConfig, tokenizer, verbose: bool = True):
         """
         Initialize serializer.
 
@@ -64,17 +60,17 @@ class DataSerializer:
     def serialize_all(self):
         """Serialize all datasets defined in config."""
         if self.verbose:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"Starting serialization of {len(self.config.datasets)} dataset(s)")
-            print(f"{'='*60}\n")
+            print(f"{'=' * 60}\n")
 
         for dataset_config in self.config.datasets:
             self.serialize_dataset(dataset_config)
 
         if self.verbose:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("Serialization complete!")
-            print(f"{'='*60}\n")
+            print(f"{'=' * 60}\n")
 
     def serialize_dataset(self, dataset_config: DatasetConfig):
         """
@@ -121,8 +117,8 @@ class DataSerializer:
         """Load dataset from HuggingFace or local source."""
         if Path(dataset_config.source).exists():
             # Local dataset
-            if dataset_config.source.endswith('.json') or dataset_config.source.endswith('.jsonl'):
-                dataset = load_dataset('json', data_files=dataset_config.source, split='train')
+            if dataset_config.source.endswith(".json") or dataset_config.source.endswith(".jsonl"):
+                dataset = load_dataset("json", data_files=dataset_config.source, split="train")
             else:
                 dataset = load_dataset(dataset_config.source, split=dataset_config.split)
         # HuggingFace dataset
@@ -131,13 +127,13 @@ class DataSerializer:
                 dataset_config.source,
                 dataset_config.subset,
                 split=dataset_config.split,
-                cache_dir=str(self.config.cache_dir)
+                cache_dir=str(self.config.cache_dir),
             )
         else:
             dataset = load_dataset(
                 dataset_config.source,
                 split=dataset_config.split,
-                cache_dir=str(self.config.cache_dir)
+                cache_dir=str(self.config.cache_dir),
             )
 
         # Limit samples if specified
@@ -147,11 +143,7 @@ class DataSerializer:
         return dataset
 
     def _serialize_pretrain(
-        self,
-        dataset,
-        dataset_config: DatasetConfig,
-        bin_path: Path,
-        idx_path: Path
+        self, dataset, dataset_config: DatasetConfig, bin_path: Path, idx_path: Path
     ):
         """
         Serialize pretrain dataset.
@@ -184,19 +176,23 @@ class DataSerializer:
             all_tokens.extend(token_ids)
 
             # Record metadata
-            metadata.append((
-                current_offset,          # offset
-                len(token_ids),          # length
-                'pretrain',              # type
-                -1,                      # group_id (not used)
-                '[]'                     # mask_ranges (empty)
-            ))
+            metadata.append(
+                (
+                    current_offset,  # offset
+                    len(token_ids),  # length
+                    "pretrain",  # type
+                    -1,  # group_id (not used)
+                    "[]",  # mask_ranges (empty)
+                )
+            )
 
             current_offset += len(token_ids)
 
         # Save .bin file
-        tokens_array = np.array(all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32)
-        with open(bin_path, 'wb') as f:
+        tokens_array = np.array(
+            all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32
+        )
+        with open(bin_path, "wb") as f:
             tokens_array.tofile(f)
 
         # Save .idx file
@@ -208,11 +204,7 @@ class DataSerializer:
             print(f"  Documents: {len(metadata):,}")
 
     def _serialize_sft(
-        self,
-        dataset,
-        dataset_config: DatasetConfig,
-        bin_path: Path,
-        idx_path: Path
+        self, dataset, dataset_config: DatasetConfig, bin_path: Path, idx_path: Path
     ):
         """
         Serialize SFT dataset.
@@ -235,27 +227,30 @@ class DataSerializer:
 
             # Apply chat template and get token IDs + mask ranges
             token_ids, mask_ranges = self._apply_chat_template_and_get_masks(
-                messages,
-                dataset_config.chat_template
+                messages, dataset_config.chat_template
             )
 
             # Append to token stream
             all_tokens.extend(token_ids)
 
             # Record metadata with mask ranges
-            metadata.append((
-                current_offset,                    # offset
-                len(token_ids),                    # length
-                'sft',                             # type
-                -1,                                # group_id (not used)
-                json.dumps(mask_ranges)            # mask_ranges as JSON
-            ))
+            metadata.append(
+                (
+                    current_offset,  # offset
+                    len(token_ids),  # length
+                    "sft",  # type
+                    -1,  # group_id (not used)
+                    json.dumps(mask_ranges),  # mask_ranges as JSON
+                )
+            )
 
             current_offset += len(token_ids)
 
         # Save .bin file
-        tokens_array = np.array(all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32)
-        with open(bin_path, 'wb') as f:
+        tokens_array = np.array(
+            all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32
+        )
+        with open(bin_path, "wb") as f:
             tokens_array.tofile(f)
 
         # Save .idx file
@@ -267,11 +262,7 @@ class DataSerializer:
             print(f"  Conversations: {len(metadata):,}")
 
     def _serialize_dpo(
-        self,
-        dataset,
-        dataset_config: DatasetConfig,
-        bin_path: Path,
-        idx_path: Path
+        self, dataset, dataset_config: DatasetConfig, bin_path: Path, idx_path: Path
     ):
         """
         Serialize DPO dataset.
@@ -295,40 +286,44 @@ class DataSerializer:
             # Process chosen response
             chosen_messages = sample[chosen_column]
             chosen_token_ids, chosen_mask_ranges = self._apply_chat_template_and_get_masks(
-                chosen_messages,
-                dataset_config.chat_template
+                chosen_messages, dataset_config.chat_template
             )
 
             all_tokens.extend(chosen_token_ids)
-            metadata.append((
-                current_offset,
-                len(chosen_token_ids),
-                'dpo_chosen',
-                pair_idx,                          # group_id links chosen/rejected
-                json.dumps(chosen_mask_ranges)
-            ))
+            metadata.append(
+                (
+                    current_offset,
+                    len(chosen_token_ids),
+                    "dpo_chosen",
+                    pair_idx,  # group_id links chosen/rejected
+                    json.dumps(chosen_mask_ranges),
+                )
+            )
             current_offset += len(chosen_token_ids)
 
             # Process rejected response
             rejected_messages = sample[rejected_column]
             rejected_token_ids, rejected_mask_ranges = self._apply_chat_template_and_get_masks(
-                rejected_messages,
-                dataset_config.chat_template
+                rejected_messages, dataset_config.chat_template
             )
 
             all_tokens.extend(rejected_token_ids)
-            metadata.append((
-                current_offset,
-                len(rejected_token_ids),
-                'dpo_rejected',
-                pair_idx,                          # Same group_id
-                json.dumps(rejected_mask_ranges)
-            ))
+            metadata.append(
+                (
+                    current_offset,
+                    len(rejected_token_ids),
+                    "dpo_rejected",
+                    pair_idx,  # Same group_id
+                    json.dumps(rejected_mask_ranges),
+                )
+            )
             current_offset += len(rejected_token_ids)
 
         # Save .bin file
-        tokens_array = np.array(all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32)
-        with open(bin_path, 'wb') as f:
+        tokens_array = np.array(
+            all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32
+        )
+        with open(bin_path, "wb") as f:
             tokens_array.tofile(f)
 
         # Save .idx file
@@ -350,9 +345,9 @@ class DataSerializer:
             List of token IDs
         """
         # Handle different tokenizer types
-        if hasattr(self.tokenizer, 'encode'):
+        if hasattr(self.tokenizer, "encode"):
             # HuggingFace or tiktoken
-            if hasattr(self.tokenizer, 'add_special_tokens'):
+            if hasattr(self.tokenizer, "add_special_tokens"):
                 # HuggingFace
                 return self.tokenizer.encode(text, add_special_tokens=False)
             else:
@@ -362,9 +357,7 @@ class DataSerializer:
             raise ValueError(f"Unsupported tokenizer type: {type(self.tokenizer)}")
 
     def _apply_chat_template_and_get_masks(
-        self,
-        messages: list[dict[str, str]],
-        chat_template: str | None = None
+        self, messages: list[dict[str, str]], chat_template: str | None = None
     ) -> tuple[list[int], list[list[int]]]:
         """
         Apply chat template to messages and compute masking ranges.
@@ -378,12 +371,10 @@ class DataSerializer:
             mask_ranges: List of [start, end] ranges for user prompts to mask
         """
         # Try to use HuggingFace apply_chat_template if available
-        if hasattr(self.tokenizer, 'apply_chat_template'):
+        if hasattr(self.tokenizer, "apply_chat_template"):
             # Use tokenizer's built-in chat template
             token_ids = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=True,
-                add_generation_prompt=False
+                messages, tokenize=True, add_generation_prompt=False
             )
 
             # Compute mask ranges by tokenizing each message separately
@@ -392,15 +383,13 @@ class DataSerializer:
 
             for msg in messages:
                 msg_tokens = self.tokenizer.apply_chat_template(
-                    [msg],
-                    tokenize=True,
-                    add_generation_prompt=False
+                    [msg], tokenize=True, add_generation_prompt=False
                 )
 
                 msg_length = len(msg_tokens)
 
                 # Mask user messages (set labels to -100 for these ranges)
-                if msg['role'] == 'user' or msg['role'] == 'system':
+                if msg["role"] == "user" or msg["role"] == "system":
                     mask_ranges.append([current_pos, current_pos + msg_length])
 
                 current_pos += msg_length
@@ -416,8 +405,8 @@ class DataSerializer:
             current_pos = 0
 
             for msg in messages:
-                role = msg['role']
-                content = msg['content']
+                role = msg["role"]
+                content = msg["content"]
 
                 # Simple template (customize based on your needs)
                 msg_text = f"<|start_header_id|>{role}<|end_header_id|>\n{content}<|eot_id|>"
@@ -426,7 +415,7 @@ class DataSerializer:
                 msg_length = len(msg_tokens)
 
                 # Mask non-assistant messages
-                if role in ['user', 'system']:
+                if role in ["user", "system"]:
                     mask_ranges.append([current_pos, current_pos + msg_length])
 
                 full_text += msg_text

@@ -55,8 +55,7 @@ class Attention(BaseModule):
             self.num_attention_heads // config.trainer.tensor_model_parallel_size
         )
         self.num_local_attention_groups = (
-            config.model.num_attention_groups
-            // config.trainer.tensor_model_parallel_size
+            config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
         )
 
         self.softmax = torch.nn.Softmax(dim=-1)
@@ -113,8 +112,7 @@ class Attention(BaseModule):
             )
 
             if attention_mask is not None:
-                attention_score = attention_score.masked_fill(
-                    attention_mask == 0, self.mask_value)
+                attention_score = attention_score.masked_fill(attention_mask == 0, self.mask_value)
 
         # max subtraction trick for numerical stability
         with profile_context("attention softmax"):
@@ -134,10 +132,7 @@ class Attention(BaseModule):
             context_output = torch.matmul(attention_probs, value)
 
         # context_output: [b, hn, sq, hd] -> [b, sq, hn, hd] -> [b, sq, hn * hd]
-        context_output = (
-            context_output.transpose(1, 2)
-            .reshape(batch_size, seq_len_q, -1)
-        )
+        context_output = context_output.transpose(1, 2).reshape(batch_size, seq_len_q, -1)
 
         return context_output
 

@@ -145,35 +145,24 @@ class MLFlowLogger:
         # check if hash run id exists
         exp_info_filename = "exp_info.json"
         exp_file = (
-            Path(config.utils.tensorboard_dir)
-            / config.trainer.model_name
-            / exp_info_filename
+            Path(config.utils.tensorboard_dir) / config.trainer.model_name / exp_info_filename
         )
         if exp_file.exists():
-            self.mlflow.get_experiment_by_name(
-                config.utils.mlflow_experiment_name)
+            self.mlflow.get_experiment_by_name(config.utils.mlflow_experiment_name)
             self.mlflow.set_experiment(config.utils.mlflow_experiment_name)
 
             # load run_id and start run with it
             with open(exp_file, encoding="utf-8") as f:
                 exp_info = json.load(f)
             exp_info["run_count"] += 1
-            self.mlflow.start_run(
-                run_name=f'{config.trainer.model_name}-{exp_info["run_count"]}'
-            )
+            self.mlflow.start_run(run_name=f"{config.trainer.model_name}-{exp_info['run_count']}")
             self.mlflow.set_tag("run_count", exp_info["run_count"])
             with open(exp_file, "w", encoding="utf-8") as f:
                 json.dump(exp_info, f)
         else:
-            if (
-                self.mlflow.get_experiment_by_name(
-                    config.utils.mlflow_experiment_name)
-                is None
-            ):
-                self.mlflow.create_experiment(
-                    config.utils.mlflow_experiment_name)
-            active_run = self.mlflow.start_run(
-                run_name=config.trainer.model_name)
+            if self.mlflow.get_experiment_by_name(config.utils.mlflow_experiment_name) is None:
+                self.mlflow.create_experiment(config.utils.mlflow_experiment_name)
+            active_run = self.mlflow.start_run(run_name=config.trainer.model_name)
 
             # start run and save run_id
             exp_info = {"run_id": active_run.info.run_id, "run_count": 0}

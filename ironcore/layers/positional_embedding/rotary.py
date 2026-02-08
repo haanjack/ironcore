@@ -28,8 +28,7 @@ class RotaryPositionalEmbedding(nn.Module):
         self.offset = offset
         self.scale = scale
 
-        theta = 1.0 / \
-            (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        theta = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
         self.register_buffer("theta", theta)
         self._update_rope_cache(max_seq_len)
 
@@ -58,26 +57,19 @@ class RotaryPositionalEmbedding(nn.Module):
         if seq_len > self.max_seq_len_cached:
             self._update_rope_cache(seq_len)
 
-        sin_emb = self.sin_emb[:seq_len, :].unsqueeze(
-            1).unsqueeze(0).to(x.device)
-        cos_emb = self.cos_emb[:seq_len, :].unsqueeze(
-            1).unsqueeze(0).to(x.device)
+        sin_emb = self.sin_emb[:seq_len, :].unsqueeze(1).unsqueeze(0).to(x.device)
+        cos_emb = self.cos_emb[:seq_len, :].unsqueeze(1).unsqueeze(0).to(x.device)
 
-        x = self.apply_rotary_pos_emb(
-            x, sin_emb, cos_emb).transpose(0, 1).contiguous()
+        x = self.apply_rotary_pos_emb(x, sin_emb, cos_emb).transpose(0, 1).contiguous()
 
         return x
 
-    def apply_rotary_pos_emb(
-        self, x: torch.Tensor, sin_emb: torch.Tensor, cos_emb: torch.Tensor
-    ):
+    def apply_rotary_pos_emb(self, x: torch.Tensor, sin_emb: torch.Tensor, cos_emb: torch.Tensor):
         # x: [batch_size, seq_len, num_heads, head_dim]
         x1 = x[..., ::2]
         x2 = x[..., 1::2]
         sin_emb = sin_emb.repeat(x.size(0), 1, x.size(2), 1)
         cos_emb = cos_emb.repeat(x.size(0), 1, x.size(2), 1)
-        x_rotated = torch.stack(
-            [x1 * cos_emb - x2 * sin_emb, x1 * sin_emb + x2 * cos_emb], dim=-1
-        )
+        x_rotated = torch.stack([x1 * cos_emb - x2 * sin_emb, x1 * sin_emb + x2 * cos_emb], dim=-1)
         x_rotated = x_rotated.flatten(-2)
         return x_rotated

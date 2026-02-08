@@ -2,6 +2,7 @@
 Benchmark and Verification script for TP=1 vs TP=2.
 Supports verification of correctness and profiling with Nsight Systems.
 """
+
 import json
 import os
 import sys
@@ -30,25 +31,32 @@ def run_benchmark():
 
     rank = dist.get_rank() if dist.is_initialized() else 0
     world_size = dist.get_world_size() if dist.is_initialized() else 1
-    device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
 
     # Initialize model parallelism
-    timeout_minutes = config.parallel.timeout_minute if world_size > 1 and hasattr(config, 'parallel') and hasattr(config.parallel, 'timeout_minute') else 30
+    timeout_minutes = (
+        config.parallel.timeout_minute
+        if world_size > 1
+        and hasattr(config, "parallel")
+        and hasattr(config.parallel, "timeout_minute")
+        else 30
+    )
     parallel_states.initialize_model_parallel(
         tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
-        timeout=timeout_minutes
+        timeout=timeout_minutes,
     )
 
     tp_size = config.trainer.tensor_model_parallel_size
     parallel_states.get_tensor_model_parallel_rank()
 
     if rank == 0:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"BENCHMARK START: TP={tp_size}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
     # Set seed
     import random
+
     seed = config.init.seed
     random.seed(seed)
     np.random.seed(seed)
@@ -63,14 +71,12 @@ def run_benchmark():
 
     # Create optimizer
     optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=config.optim.max_lr,
-        weight_decay=config.optim.weight_decay
+        model.parameters(), lr=config.optim.max_lr, weight_decay=config.optim.weight_decay
     )
 
     # Get data
     iterators = get_data_iterator(config)
-    data_iter = iterators['train']
+    data_iter = iterators["train"]
 
     # Warmup steps
     warmup_steps = 3
@@ -81,8 +87,8 @@ def run_benchmark():
 
     for _ in range(warmup_steps):
         batch = next(data_iter)
-        input_ids = batch['input_ids'].to(device)
-        labels = batch['labels'].to(device)
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
 
         loss = model(input_ids, labels)
         optimizer.zero_grad()
@@ -96,10 +102,10 @@ def run_benchmark():
     # Capture initial weight statistics for a specific layer
     weight_stats = {}
     for name, param in model.named_parameters():
-        if 'layers.0.self_attention.linear_q.weight' in name:
-            weight_stats['q_weight_mean_init'] = param.data.mean().item()
-            weight_stats['q_weight_std_init'] = param.data.std().item()
-            weight_stats['q_weight_norm_init'] = param.data.norm().item()
+        if "layers.0.self_attention.linear_q.weight" in name:
+            weight_stats["q_weight_mean_init"] = param.data.mean().item()
+            weight_stats["q_weight_std_init"] = param.data.std().item()
+            weight_stats["q_weight_norm_init"] = param.data.norm().item()
 
     start_time = time.time()
 
@@ -111,8 +117,8 @@ def run_benchmark():
         torch.cuda.nvtx.range_push(f"Step {i}")
 
         batch = next(data_iter)
-        input_ids = batch['input_ids'].to(device)
-        labels = batch['labels'].to(device)
+        input_ids = batch["input_ids"].to(device)
+        labels = batch["labels"].to(device)
 
         # Forward
         with profile_context("Forward"):
@@ -129,41 +135,43 @@ def run_benchmark():
             total_grad_norm = 0.0
             for name, param in model.named_parameters():
                 if param.grad is not None:
-                    if 'layers.0.self_attention.linear_q.weight' in name:
-                        grad_stats['q_weight_grad_mean'] = param.grad.mean().item()
-                        grad_stats['q_weight_grad_norm'] = param.grad.norm().item()
-                    if 'layers.0.self_attention.linear_q.bias' in name:
-                        grad_stats['q_bias_grad_mean'] = param.grad.mean().item()
+                    if "layers.0.self_attention.linear_q.weight" in name:
+                        grad_stats["q_weight_grad_mean"] = param.grad.mean().item()
+                        grad_stats["q_weight_grad_norm"] = param.grad.norm().item()
+                    if "layers.0.self_attention.linear_q.bias" in name:
+                        grad_stats["q_bias_grad_mean"] = param.grad.mean().item()
 
                     total_grad_norm += param.grad.norm().item() ** 2
-            grad_stats['total_grad_norm'] = total_grad_norm ** 0.5
+            grad_stats["total_grad_norm"] = total_grad_norm**0.5
 
         # Optimizer
         with profile_context("Optimizer"):
             optimizer.step()
 
-        torch.cuda.nvtx.range_pop() # Step i
+        torch.cuda.nvtx.range_pop()  # Step i
 
     torch.cuda.synchronize()
     end_time = time.time()
 
     # Capture final weight statistics
     for name, param in model.named_parameters():
-        if 'layers.0.self_attention.linear_q.weight' in name:
-            weight_stats['q_weight_mean_final'] = param.data.mean().item()
-            weight_stats['q_weight_norm_final'] = param.data.norm().item()
-            weight_stats['q_weight_delta'] = weight_stats['q_weight_mean_final'] - weight_stats['q_weight_mean_init']
+        if "layers.0.self_attention.linear_q.weight" in name:
+            weight_stats["q_weight_mean_final"] = param.data.mean().item()
+            weight_stats["q_weight_norm_final"] = param.data.norm().item()
+            weight_stats["q_weight_delta"] = (
+                weight_stats["q_weight_mean_final"] - weight_stats["q_weight_mean_init"]
+            )
 
     avg_step_time = (end_time - start_time) / benchmark_steps
     final_loss = losses[-1]
 
     # Collect stats
     stats = {
-        'rank': rank,
-        'tp_size': tp_size,
-        'avg_step_time': avg_step_time,
-        'final_loss': final_loss,
-        'losses': losses,
+        "rank": rank,
+        "tp_size": tp_size,
+        "avg_step_time": avg_step_time,
+        "final_loss": final_loss,
+        "losses": losses,
         **weight_stats,
         **grad_stats,
     }
@@ -174,10 +182,10 @@ def run_benchmark():
         dist.all_gather_object(all_stats, stats)
 
     if rank == 0:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"RESULTS TP={tp_size}")
-        print(f"{'='*70}")
-        print(f"Avg Step Time: {all_stats[0]['avg_step_time']*1000:.2f} ms")
+        print(f"{'=' * 70}")
+        print(f"Avg Step Time: {all_stats[0]['avg_step_time'] * 1000:.2f} ms")
         print(f"Final Loss:    {all_stats[0]['final_loss']:.8f}")
 
         print("\nGradient Statistics (Last Step):")
@@ -190,7 +198,7 @@ def run_benchmark():
         print(f"  Delta:        {all_stats[0]['q_weight_delta']:.2e}")
 
         if world_size > 1:
-            loss_diff = abs(all_stats[0]['final_loss'] - all_stats[1]['final_loss'])
+            loss_diff = abs(all_stats[0]["final_loss"] - all_stats[1]["final_loss"])
             print("\nParallel Consistency:")
             print(f"  Loss Difference (Rank 0 vs 1): {loss_diff:.2e}")
             if loss_diff < 1e-6:
@@ -200,18 +208,20 @@ def run_benchmark():
 
         # Save results
         os.makedirs("logs", exist_ok=True)
-        with open(f"logs/benchmark_tp{tp_size}.json", 'w') as f:
+        with open(f"logs/benchmark_tp{tp_size}.json", "w") as f:
             json.dump(all_stats, f, indent=2)
 
     if world_size > 1:
         dist.barrier()
         dist.destroy_process_group()
 
+
 if __name__ == "__main__":
     try:
         run_benchmark()
     except Exception:
         import traceback
+
         traceback.print_exc()
         if dist.is_initialized():
             dist.destroy_process_group()

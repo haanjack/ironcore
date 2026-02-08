@@ -32,9 +32,7 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
 
         self.tensor_model_parallel_rank = 1
         if self.tensor_model_parallel_size > 1:
-            self.tensor_model_parallel_rank = (
-                parallel_states.get_tensor_model_parallel_rank()
-            )
+            self.tensor_model_parallel_rank = parallel_states.get_tensor_model_parallel_rank()
 
         # Divide the weight matrix
         self.weight = nn.Parameter(torch.Tensor(input_size, output_size))
@@ -76,9 +74,7 @@ class VocabParallelEmbedding(ParallelLinear):
         self.parallel_input_dim = (
             input_dim // parallel_states.get_tensor_model_parallel_world_size()
         )
-        super().__init__(
-            config, input_size=self.parallel_input_dim, output_size=embedding_dim
-        )
+        super().__init__(config, input_size=self.parallel_input_dim, output_size=embedding_dim)
 
         self.padding_start_idx = padding_start_idx
         self.parallel_input = parallel_input
@@ -95,10 +91,7 @@ class VocabParallelEmbedding(ParallelLinear):
         # set local padding start idx
         if self.padding_start_idx is not None:
             # calcualte local padding index for this rank
-            start_idx = (
-                self.parallel_input_dim
-                * parallel_states.get_tensor_model_parallel_rank()
-            )
+            start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
             end_idx = self.parallel_input_dim * (
                 parallel_states.get_tensor_model_parallel_rank() + 1
             )
@@ -107,18 +100,16 @@ class VocabParallelEmbedding(ParallelLinear):
                 self.padding_start_idx < end_idx
             )
             self.local_padding_start_idx = (
-                self.padding_start_idx - start_idx
-                if local_padding
-                else end_idx - start_idx
+                self.padding_start_idx - start_idx if local_padding else end_idx - start_idx
             )
 
             # zero out from local_padding_start_idx to the end
             with torch.no_grad():
-                self.weight[self.local_padding_start_idx:].zero_()
+                self.weight[self.local_padding_start_idx :].zero_()
 
         def _zero_padding_grad_hook(grad):
             # zero out the gradient in the padding region to disable updates during training
-            grad[self.local_padding_start_idx:] = 0
+            grad[self.local_padding_start_idx :] = 0
             return grad
 
         # register hook
@@ -129,20 +120,14 @@ class VocabParallelEmbedding(ParallelLinear):
         Forward pass for the embedding layer.
         """
 
-        start_idx = (
-            self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
-        )
-        end_idx = self.parallel_input_dim * (
-            parallel_states.get_tensor_model_parallel_rank() + 1
-        )
+        start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
+        end_idx = self.parallel_input_dim * (parallel_states.get_tensor_model_parallel_rank() + 1)
 
         # set token ids to the corresponding embedding space
         token_mask = (x >= start_idx) & (x < end_idx)
         x_partition = (x - start_idx) * token_mask
 
-        x_partition = F.embedding(
-            x_partition.to(device=self.weight.device), self.weight
-        )
+        x_partition = F.embedding(x_partition.to(device=self.weight.device), self.weight)
 
         # Mask out embeddings for tokens not in this partition
         x_partition[~token_mask, :] = 0.0
@@ -181,9 +166,9 @@ class ColumnParallelLinear(ParallelLinear):
     ):
 
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
-        assert (
-            output_size % self.tensor_model_parallel_size == 0
-        ), "output_size must be divisible by tensor_model_parallel_size in ColumnParallelLinear"
+        assert output_size % self.tensor_model_parallel_size == 0, (
+            "output_size must be divisible by tensor_model_parallel_size in ColumnParallelLinear"
+        )
         output_size = output_size // self.tensor_model_parallel_size
         self.gather_output = gather_output
         super().__init__(config, input_size, output_size, bias)
@@ -197,7 +182,9 @@ class ColumnParallelLinear(ParallelLinear):
             parallel_output = parallel_output + self.bias
         if self.gather_output:
             output = comm.gather_from_model_parallel_workers(
-                parallel_output, {"column_parallel": True, "concatenated_weights": self.concatenated_weights})
+                parallel_output,
+                {"column_parallel": True, "concatenated_weights": self.concatenated_weights},
+            )
         else:
             output = parallel_output
         return output
@@ -239,9 +226,9 @@ class RowParallelLinear(ParallelLinear):
     ):
         self.input_is_parallel = input_is_parallel
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
-        assert (
-            input_size % self.tensor_model_parallel_size == 0
-        ), "input_size must be divisible by tensor_model_parallel_size in RowParallelLinear"
+        assert input_size % self.tensor_model_parallel_size == 0, (
+            "input_size must be divisible by tensor_model_parallel_size in RowParallelLinear"
+        )
         input_size = input_size // self.tensor_model_parallel_size
         super().__init__(config, input_size, output_size, bias)
         self.row_parallel = True

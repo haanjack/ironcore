@@ -60,16 +60,18 @@ def run_train(args):
 
     # Set rank/world_size from environment
     import os
+
     config.parallel.rank = int(os.getenv("RANK", "0"))
     config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
     config.parallel.world_size = int(os.getenv("WORLD_SIZE", "1"))
 
     # Validate config
     from ironcore.config import _config_validation
+
     _config_validation(config)
 
     # Select loss function based on task type
-    task_type = getattr(config.data, 'task_type', 'pretrain')
+    task_type = getattr(config.data, "task_type", "pretrain")
     loss_fn = get_loss_func(task_type)
     print(f"Task type: {task_type}, using loss function: {loss_fn.__name__}")
 
@@ -88,5 +90,6 @@ def run_train(args):
     except Exception as e:
         print(f"\nError during training: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
