@@ -64,7 +64,7 @@ def initialize_model_parallel(
         [i * tensor_model_parallel_size + j for j in range(tensor_model_parallel_size)]
         for i in range(dp_world_size)
     ]
-    for tp_group_id, ranks in enumerate(tp_ranks):
+    for tp_group_id, ranks in enumerate(tp_ranks):  # pylint: disable=unused-variable
         group = dist.new_group(
             ranks,
             timeout=timeout,
@@ -84,7 +84,7 @@ def initialize_model_parallel(
     global _DATA_PARALLEL_GROUP
     dp_ranks = [[tp_group[i] for tp_group in tp_ranks] for i in range(tensor_model_parallel_size)]
     # create a new process group for data parallelism
-    for dp_group_id, ranks in enumerate(dp_ranks):
+    for dp_group_id, ranks in enumerate(dp_ranks):  # pylint: disable=unused-variable
         group = dist.new_group(
             ranks,
             timeout=timeout,
@@ -109,31 +109,31 @@ def get_tensor_model_parallel_world_size():
     return _TENSOR_MODEL_PARALLEL_WORLD_SIZE
 
 
-def get_tensor_model_parallel_group():
+def get_tensor_model_parallel_group() -> dist.ProcessGroup:
     """Get model parallel group that the caller rank belongs to."""
     assert _TENSOR_MODEL_PARALLEL_GROUP is not None, "model parallel group should not be None"
     return _TENSOR_MODEL_PARALLEL_GROUP
 
 
-def get_data_parallel_group():
+def get_data_parallel_group() -> dist.ProcessGroup:
     """Get data parallel group that the caller rank belongs to."""
     assert _DATA_PARALLEL_GROUP is not None, "data parallel group should not be None"
     return _DATA_PARALLEL_GROUP
 
 
-def get_tensor_model_parallel_rank():
+def get_tensor_model_parallel_rank() -> int:
     """Get tensor model parallel rank that the caller rank belongs to."""
     if dist.is_available() and dist.is_initialized():
         return dist.get_rank(group=get_tensor_model_parallel_group())
     return 0
 
 
-def get_tensor_model_parallel_group_rank():
+def get_tensor_model_parallel_group_rank() -> int:
     """Alias for get_tensor_model_parallel_rank"""
     return get_tensor_model_parallel_rank()
 
 
-def get_data_parallel_group_rank():
+def get_data_parallel_group_rank() -> int:
     """Get data parallel rank that the caller rank belongs to."""
     if dist.is_available() and dist.is_initialized():
         return dist.get_rank(group=get_data_parallel_group())

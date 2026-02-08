@@ -365,6 +365,7 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             getattr(config, config_group_key).name = sub_group_config
 
             # load sub-config: data, model config
+            # Resolve sub-config path relative to the project's 'configs/' directory
             sub_group_config_path = (
                 Path(args.config_path).parent / f"{config_group_key}/{sub_group_config}.yaml"
             )
