@@ -20,6 +20,7 @@ from ironcore.config import MainConfig
 if TYPE_CHECKING:
     from ironcore.language_model import LanguageModel
 
+
 def initialize_process(config: MainConfig):
 
     logger = get_logger()
@@ -99,16 +100,12 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
             "no_shard": ShardingStrategy.NO_SHARD,
         }
         fsdp_config = {
-            "cpu_offload": CPUOffload(
-                offload_params=config.parallel.fsdp_offload_params
-            ),
+            "cpu_offload": CPUOffload(offload_params=config.parallel.fsdp_offload_params),
             "forward_prefetch": True,
             "backward_prefetch": BackwardPrefetch.BACKWARD_PRE,
             "mixed_precision": _mixed_precision_opt,
             "device_id": torch.cuda.current_device(),
-            "sharding_strategy": _sharding_strategy[
-                config.parallel.fsdp_sharding_strategy
-            ],
+            "sharding_strategy": _sharding_strategy[config.parallel.fsdp_sharding_strategy],
             "state_dict_type": _state_dict_type[config.parallel.fsdp_state_dict_type],
         }
         model = wrap(model, **fsdp_config)

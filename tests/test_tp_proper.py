@@ -13,6 +13,7 @@ Run with:
 - TP=1: python tests/test_tp_proper.py --mode save_weights
 - TP=2: torchrun --nproc_per_node=2 tests/test_tp_proper.py --mode load_and_compare
 """
+
 import argparse
 import os
 import sys
@@ -66,19 +67,24 @@ def create_model_config(tp_size=1, use_flash_attn=False):
     utils_config = UtilsConfig()
 
     return MainConfig(
-        model=model_config, trainer=trainer_config, init=init_config,
-        optim=optim_config, data=data_config, parallel=parallel_config,
-        operation=operation_config, utils=utils_config,
+        model=model_config,
+        trainer=trainer_config,
+        init=init_config,
+        optim=optim_config,
+        data=data_config,
+        parallel=parallel_config,
+        operation=operation_config,
+        utils=utils_config,
     )
 
 
 def save_tp1_model():
     """Create and save TP=1 model."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("MODE: Save TP=1 Model Weights")
-    print("="*70)
+    print("=" * 70)
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Create config
     config = create_model_config(tp_size=1)
@@ -91,6 +97,7 @@ def save_tp1_model():
 
     # Set seed for reproducibility
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -118,13 +125,16 @@ def save_tp1_model():
     # Save model
     os.makedirs("checkpoints/tp1", exist_ok=True)
     checkpoint_path = "checkpoints/tp1/model.pt"
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'config': config,
-        'input_ids': input_ids,
-        'labels': labels,
-        'output': output,
-    }, checkpoint_path)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "config": config,
+            "input_ids": input_ids,
+            "labels": labels,
+            "output": output,
+        },
+        checkpoint_path,
+    )
 
     print(f"Model saved to {checkpoint_path}")
 
@@ -144,23 +154,25 @@ def save_tp1_model():
 
 def load_and_compare_tp2():
     """Load TP=1 weights into TP=2 and compare."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("MODE: Load TP=1 Weights into TP=2 and Compare")
-    print("="*70)
+    print("=" * 70)
 
     # Get rank info
-    if 'RANK' not in os.environ:
+    if "RANK" not in os.environ:
         print("ERROR: Must run with torchrun for TP=2")
-        print("Usage: torchrun --nproc_per_node=2 python tests/test_tp_proper.py --mode load_and_compare")
+        print(
+            "Usage: torchrun --nproc_per_node=2 python tests/test_tp_proper.py --mode load_and_compare"
+        )
         sys.exit(1)
 
-    rank = int(os.environ['RANK'])
-    local_rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-    device = torch.device(f'cuda:{local_rank}')
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{local_rank}")
 
     # Initialize distributed
-    dist.init_process_group(backend='nccl')
+    dist.init_process_group(backend="nccl")
     torch.cuda.set_device(local_rank)
 
     # Load checkpoint
@@ -186,6 +198,7 @@ def load_and_compare_tp2():
 
     # Set same seed
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -201,11 +214,11 @@ def load_and_compare_tp2():
     if rank == 0:
         print("Loading TP=1 weights into TP=2 model...")
 
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model.load_state_dict(checkpoint["model_state_dict"])
 
     # Get the same input
-    input_ids = checkpoint['input_ids'].to(device)
-    labels = checkpoint['labels'].to(device)
+    input_ids = checkpoint["input_ids"].to(device)
+    labels = checkpoint["labels"].to(device)
 
     # Verify input is same across ranks
     input_sum = input_ids.sum().item()
@@ -232,7 +245,7 @@ def load_and_compare_tp2():
     local_params = sum(p.numel() for p in model.parameters())
 
     # Get original TP=1 output
-    output_tp1 = checkpoint['output'].to(device)
+    output_tp1 = checkpoint["output"].to(device)
 
     # Compare outputs
     output_diff = (output_tp2 - output_tp1).abs().max().item()
@@ -253,9 +266,9 @@ def load_and_compare_tp2():
     dist.all_gather(all_output_norm_diff, torch.tensor(output_norm_diff, device=device))
 
     if rank == 0:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("TP=1 vs TP=2 COMPARISON (SAME WEIGHTS)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         print("\nOutput Difference:")
         print(f"  Max absolute difference: {all_output_diff[0].item():.2e}")
@@ -281,14 +294,18 @@ def load_and_compare_tp2():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, required=True,
-                       choices=['save_weights', 'load_and_compare'],
-                       help='Mode: save_weights (TP=1) or load_and_compare (TP=2)')
+    parser.add_argument(
+        "--mode",
+        type=str,
+        required=True,
+        choices=["save_weights", "load_and_compare"],
+        help="Mode: save_weights (TP=1) or load_and_compare (TP=2)",
+    )
     args = parser.parse_args()
 
-    if args.mode == 'save_weights':
+    if args.mode == "save_weights":
         save_tp1_model()
-    elif args.mode == 'load_and_compare':
+    elif args.mode == "load_and_compare":
         load_and_compare_tp2()
 
 

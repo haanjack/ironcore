@@ -35,6 +35,7 @@ import torch
 
 class Architecture(Enum):
     """Supported HuggingFace model architectures."""
+
     GPT2 = "gpt2"
     LLAMA = "llama"
 
@@ -186,9 +187,7 @@ class WeightMapper:
         mapped_keys = set()
 
         for hf_key, tensor in hf_state_dict.items():
-            ironcore_key, transformed_tensor = self._map_gpt2_key_to_ironcore(
-                hf_key, tensor
-            )
+            ironcore_key, transformed_tensor = self._map_gpt2_key_to_ironcore(hf_key, tensor)
 
             if ironcore_key is not None:
                 if isinstance(ironcore_key, tuple):
@@ -220,7 +219,12 @@ class WeightMapper:
         normalized_key = hf_key
         if not hf_key.startswith("transformer.") and not hf_key.startswith("lm_head"):
             # Add prefix if missing (safetensors format)
-            if hf_key.startswith("wte.") or hf_key.startswith("wpe.") or hf_key.startswith("ln_f.") or hf_key.startswith("h."):
+            if (
+                hf_key.startswith("wte.")
+                or hf_key.startswith("wpe.")
+                or hf_key.startswith("ln_f.")
+                or hf_key.startswith("h.")
+            ):
                 normalized_key = "transformer." + hf_key
 
         # Simple non-layer mappings
@@ -251,25 +255,38 @@ class WeightMapper:
                 q, k, v = tensor_t.split(hidden_size, dim=0)
                 kv = torch.cat([k, v], dim=0)  # ironcore uses fused KV
                 return (
-                    (f"model.layers.{layer_idx}.self_attention.linear_q.weight",
-                     f"model.layers.{layer_idx}.self_attention.linear_kv.weight"),
-                    (q, kv)
+                    (
+                        f"model.layers.{layer_idx}.self_attention.linear_q.weight",
+                        f"model.layers.{layer_idx}.self_attention.linear_kv.weight",
+                    ),
+                    (q, kv),
                 )
             if layer_key == "attn.c_attn.bias":
                 hidden_size = tensor.shape[0] // 3
                 q, k, v = tensor.split(hidden_size, dim=0)
                 kv = torch.cat([k, v], dim=0)
                 return (
-                    (f"model.layers.{layer_idx}.self_attention.linear_q.bias",
-                     f"model.layers.{layer_idx}.self_attention.linear_kv.bias"),
-                    (q, kv)
+                    (
+                        f"model.layers.{layer_idx}.self_attention.linear_q.bias",
+                        f"model.layers.{layer_idx}.self_attention.linear_kv.bias",
+                    ),
+                    (q, kv),
                 )
 
             # Layer mappings that require transformation
             transform_mappings = {
-                "attn.c_proj.weight": (f"model.layers.{layer_idx}.self_attention.output.weight", lambda t: t.t()),
-                "mlp.c_fc.weight": (f"model.layers.{layer_idx}.mlp.up_proj.weight", lambda t: t.t()),
-                "mlp.c_proj.weight": (f"model.layers.{layer_idx}.mlp.down_proj.weight", lambda t: t.t()),
+                "attn.c_proj.weight": (
+                    f"model.layers.{layer_idx}.self_attention.output.weight",
+                    lambda t: t.t(),
+                ),
+                "mlp.c_fc.weight": (
+                    f"model.layers.{layer_idx}.mlp.up_proj.weight",
+                    lambda t: t.t(),
+                ),
+                "mlp.c_proj.weight": (
+                    f"model.layers.{layer_idx}.mlp.down_proj.weight",
+                    lambda t: t.t(),
+                ),
             }
 
             if layer_key in transform_mappings:
@@ -418,9 +435,9 @@ class WeightMapper:
                 k = hf_state_dict[k_key]
                 v = hf_state_dict[v_key]
                 kv = torch.cat([k, v], dim=0)
-                ironcore_state_dict[
-                    f"model.layers.{layer_idx}.self_attention.linear_kv.weight"
-                ] = kv
+                ironcore_state_dict[f"model.layers.{layer_idx}.self_attention.linear_kv.weight"] = (
+                    kv
+                )
                 mapped_keys.add(k_key)
                 mapped_keys.add(v_key)
 
@@ -431,9 +448,9 @@ class WeightMapper:
                 k_bias = hf_state_dict[k_bias_key]
                 v_bias = hf_state_dict[v_bias_key]
                 kv_bias = torch.cat([k_bias, v_bias], dim=0)
-                ironcore_state_dict[
-                    f"model.layers.{layer_idx}.self_attention.linear_kv.bias"
-                ] = kv_bias
+                ironcore_state_dict[f"model.layers.{layer_idx}.self_attention.linear_kv.bias"] = (
+                    kv_bias
+                )
                 mapped_keys.add(k_bias_key)
                 mapped_keys.add(v_bias_key)
 
@@ -473,8 +490,12 @@ class WeightMapper:
         layer_key = layer_match.group(2)
 
         # K and V are handled separately (fused in _hf_llama_to_ironcore)
-        if layer_key in ["self_attn.k_proj.weight", "self_attn.k_proj.bias",
-                        "self_attn.v_proj.weight", "self_attn.v_proj.bias"]:
+        if layer_key in [
+            "self_attn.k_proj.weight",
+            "self_attn.k_proj.bias",
+            "self_attn.v_proj.weight",
+            "self_attn.v_proj.bias",
+        ]:
             return None, None  # Skip, handled in fusion step
 
         # MLP - LLaMA uses gate_proj + up_proj (SwiGLU), ironcore fuses them
@@ -513,6 +534,7 @@ class WeightMapper:
             up_key = f"model.layers.{layer_idx}.mlp.up_proj.weight"
             if up_key in full_state_dict:
                 import torch
+
                 gate = tensor
                 up = full_state_dict[up_key]
                 # Fuse gate and up for SwiGLU: [gate; up]
@@ -574,7 +596,9 @@ class WeightMapper:
                 mapped_keys.add(q_key)
             q_bias_key = f"{prefix}.self_attention.linear_q.bias"
             if q_bias_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.bias"] = ironcore_state_dict[q_bias_key]
+                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.bias"] = ironcore_state_dict[
+                    q_bias_key
+                ]
                 mapped_keys.add(q_bias_key)
 
             # Split KV back to K and V
@@ -601,7 +625,9 @@ class WeightMapper:
                 mapped_keys.add(out_key)
             out_bias_key = f"{prefix}.self_attention.output.bias"
             if out_bias_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.bias"] = ironcore_state_dict[out_bias_key]
+                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.bias"] = ironcore_state_dict[
+                    out_bias_key
+                ]
                 mapped_keys.add(out_bias_key)
 
             # MLP - split fused gate+up back to separate
@@ -627,7 +653,9 @@ class WeightMapper:
                 mapped_keys.add(down_key)
             down_bias_key = f"{prefix}.mlp.down_proj.bias"
             if down_bias_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.mlp.down_proj.bias"] = ironcore_state_dict[down_bias_key]
+                hf_state_dict[f"{hf_prefix}.mlp.down_proj.bias"] = ironcore_state_dict[
+                    down_bias_key
+                ]
                 mapped_keys.add(down_bias_key)
 
         return hf_state_dict

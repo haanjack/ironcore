@@ -75,12 +75,12 @@ class UniversalCollator:
         tokens = torch.stack(batch)  # [batch_size, max_seq_len + 1]
 
         # Split into input_ids and labels
-        input_ids = tokens[:, :-1]   # [batch_size, max_seq_len]
-        labels = tokens[:, 1:]        # [batch_size, max_seq_len]
+        input_ids = tokens[:, :-1]  # [batch_size, max_seq_len]
+        labels = tokens[:, 1:]  # [batch_size, max_seq_len]
 
         return {
-            'input_ids': input_ids,
-            'labels': labels,
+            "input_ids": input_ids,
+            "labels": labels,
         }
 
     def _collate_sft(self, batch: list[dict]) -> dict[str, torch.Tensor]:
@@ -93,10 +93,7 @@ class UniversalCollator:
         3. Generate attention masks and position IDs
         """
         # Extract token_ids and metadata
-        samples = [
-            (sample['token_ids'], sample['metadata'])
-            for sample in batch
-        ]
+        samples = [(sample["token_ids"], sample["metadata"]) for sample in batch]
 
         # Sort by length (descending) for better packing
         samples.sort(key=lambda x: len(x[0]), reverse=True)
@@ -126,20 +123,13 @@ class UniversalCollator:
         batch_size = len(bins)
 
         # Initialize tensors
-        input_ids = torch.full(
-            (batch_size, self.max_seq_len),
-            self.pad_token_id,
-            dtype=torch.long
-        )
+        input_ids = torch.full((batch_size, self.max_seq_len), self.pad_token_id, dtype=torch.long)
         labels = torch.full(
             (batch_size, self.max_seq_len),
             -100,  # Ignore index for loss
-            dtype=torch.long
+            dtype=torch.long,
         )
-        position_ids = torch.zeros(
-            (batch_size, self.max_seq_len),
-            dtype=torch.long
-        )
+        position_ids = torch.zeros((batch_size, self.max_seq_len), dtype=torch.long)
 
         # For FlashAttention: cumulative sequence lengths
         cu_seqlens_list = []
@@ -147,8 +137,7 @@ class UniversalCollator:
         # For full attention mask (fallback)
         if self.return_full_attention_mask:
             attention_mask = torch.zeros(
-                (batch_size, self.max_seq_len, self.max_seq_len),
-                dtype=torch.bool
+                (batch_size, self.max_seq_len, self.max_seq_len), dtype=torch.bool
             )
 
         # Fill tensors
@@ -158,11 +147,11 @@ class UniversalCollator:
 
             for token_ids, metadata in bin_samples:
                 sample_len = len(token_ids)
-                mask_ranges = metadata.get('mask_ranges', [])
+                mask_ranges = metadata.get("mask_ranges", [])
 
                 # Copy tokens
-                input_ids[batch_idx, current_pos:current_pos + sample_len - 1] = token_ids[:-1]
-                labels[batch_idx, current_pos:current_pos + sample_len - 1] = token_ids[1:]
+                input_ids[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[:-1]
+                labels[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[1:]
 
                 # Apply masking for user prompts
                 for start, end in mask_ranges:
@@ -172,7 +161,9 @@ class UniversalCollator:
                     labels[batch_idx, mask_start:mask_end] = -100
 
                 # Position IDs reset for each sample
-                position_ids[batch_idx, current_pos:current_pos + sample_len] = torch.arange(sample_len)
+                position_ids[batch_idx, current_pos : current_pos + sample_len] = torch.arange(
+                    sample_len
+                )
 
                 # Block-diagonal attention mask
                 if self.return_full_attention_mask:
@@ -188,17 +179,17 @@ class UniversalCollator:
 
         # Prepare output dict
         output = {
-            'input_ids': input_ids,
-            'labels': labels,
-            'position_ids': position_ids,
+            "input_ids": input_ids,
+            "labels": labels,
+            "position_ids": position_ids,
         }
 
         if self.use_flash_attention:
             # FlashAttention format: list of cu_seqlens per batch element
-            output['cu_seqlens'] = cu_seqlens_list
+            output["cu_seqlens"] = cu_seqlens_list
 
         if self.return_full_attention_mask:
-            output['attention_mask'] = attention_mask
+            output["attention_mask"] = attention_mask
 
         return output
 
@@ -209,8 +200,8 @@ class UniversalCollator:
         Groups chosen/rejected pairs and returns separate tensors.
         """
         # Separate chosen and rejected
-        chosen_samples = [s for s in batch if s['metadata']['type'] == 'dpo_chosen']
-        rejected_samples = [s for s in batch if s['metadata']['type'] == 'dpo_rejected']
+        chosen_samples = [s for s in batch if s["metadata"]["type"] == "dpo_chosen"]
+        rejected_samples = [s for s in batch if s["metadata"]["type"] == "dpo_rejected"]
 
         # Collate each separately using SFT logic
         chosen_batch = self._collate_sft(chosen_samples) if chosen_samples else None
@@ -220,19 +211,16 @@ class UniversalCollator:
         output = {}
         if chosen_batch:
             for k, v in chosen_batch.items():
-                output[f'chosen_{k}'] = v
+                output[f"chosen_{k}"] = v
         if rejected_batch:
             for k, v in rejected_batch.items():
-                output[f'rejected_{k}'] = v
+                output[f"rejected_{k}"] = v
 
         return output
 
 
 def create_collator(
-    mode: Literal["pretrain", "sft", "dpo"],
-    max_seq_len: int,
-    pad_token_id: int = 0,
-    **kwargs
+    mode: Literal["pretrain", "sft", "dpo"], max_seq_len: int, pad_token_id: int = 0, **kwargs
 ) -> UniversalCollator:
     """
     Factory function to create collator.
@@ -247,8 +235,5 @@ def create_collator(
         UniversalCollator instance
     """
     return UniversalCollator(
-        mode=mode,
-        max_seq_len=max_seq_len,
-        pad_token_id=pad_token_id,
-        **kwargs
+        mode=mode, max_seq_len=max_seq_len, pad_token_id=pad_token_id, **kwargs
     )

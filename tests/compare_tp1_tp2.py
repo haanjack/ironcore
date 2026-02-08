@@ -2,6 +2,7 @@
 Direct comparison of TP=1 vs TP=2 at the same step.
 Both start with the same seed and should produce identical results if TP is correct.
 """
+
 import json
 import os
 import sys
@@ -28,25 +29,32 @@ def run_one_step():
 
     rank = dist.get_rank() if dist.is_initialized() else 0
     world_size = dist.get_world_size() if dist.is_initialized() else 1
-    device = torch.device(f'cuda:{rank}' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f"cuda:{rank}" if torch.cuda.is_available() else "cpu")
 
     # Initialize model parallelism (required even for TP=1)
-    timeout_minutes = config.parallel.timeout_minute if world_size > 1 and hasattr(config, 'parallel') and hasattr(config.parallel, 'timeout_minute') else 30
+    timeout_minutes = (
+        config.parallel.timeout_minute
+        if world_size > 1
+        and hasattr(config, "parallel")
+        and hasattr(config.parallel, "timeout_minute")
+        else 30
+    )
     parallel_states.initialize_model_parallel(
         tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
-        timeout=timeout_minutes
+        timeout=timeout_minutes,
     )
 
     tp_size = config.trainer.tensor_model_parallel_size
     tp_rank = parallel_states.get_tensor_model_parallel_rank()
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"[Rank {rank}] Running TP={tp_size} (TP rank {tp_rank})")
     print(f"[Rank {rank}] Precision: {config.model.precision}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     # Set seed
     import random
+
     seed = config.init.seed
     random.seed(seed)
     np.random.seed(seed)
@@ -69,15 +77,15 @@ def run_one_step():
         lr=config.optim.max_lr,
         weight_decay=config.optim.weight_decay,
         eps=1e-8,
-        betas=(0.9, 0.999)
+        betas=(0.9, 0.999),
     )
 
     # Get data
     iterators = get_data_iterator(config)
-    data_iter = iterators['train']
+    data_iter = iterators["train"]
     batch = next(data_iter)
-    input_ids = batch['input_ids'].to(device)
-    labels = batch['labels'].to(device)
+    input_ids = batch["input_ids"].to(device)
+    labels = batch["labels"].to(device)
 
     print(f"[Rank {rank}] Data loaded: input_sum={input_ids.sum().item()}")
 
@@ -94,10 +102,10 @@ def run_one_step():
     # Capture initial weight statistics
     weight_stats = {}
     for name, param in model.named_parameters():
-        if 'layers.0.self_attention.linear_q.weight' in name:
-            weight_stats['q_weight_mean_init'] = param.data.mean().item()
-            weight_stats['q_weight_std_init'] = param.data.std().item()
-            weight_stats['q_weight_norm_init'] = param.data.norm().item()
+        if "layers.0.self_attention.linear_q.weight" in name:
+            weight_stats["q_weight_mean_init"] = param.data.mean().item()
+            weight_stats["q_weight_std_init"] = param.data.std().item()
+            weight_stats["q_weight_norm_init"] = param.data.norm().item()
 
     # Forward pass
     print(f"[Rank {rank}] Running forward pass...")
@@ -114,18 +122,18 @@ def run_one_step():
     total_grad_norm = 0.0
     for name, param in model.named_parameters():
         if param.grad is not None:
-            if 'layers.0.self_attention.linear_q.weight' in name:
-                grad_stats['q_weight_grad_mean'] = param.grad.mean().item()
-                grad_stats['q_weight_grad_std'] = param.grad.std().item()
-                grad_stats['q_weight_grad_norm'] = param.grad.norm().item()
-            if 'layers.0.self_attention.linear_q.bias' in name:
-                grad_stats['q_bias_grad_mean'] = param.grad.mean().item()
-                grad_stats['q_bias_grad_norm'] = param.grad.norm().item()
+            if "layers.0.self_attention.linear_q.weight" in name:
+                grad_stats["q_weight_grad_mean"] = param.grad.mean().item()
+                grad_stats["q_weight_grad_std"] = param.grad.std().item()
+                grad_stats["q_weight_grad_norm"] = param.grad.norm().item()
+            if "layers.0.self_attention.linear_q.bias" in name:
+                grad_stats["q_bias_grad_mean"] = param.grad.mean().item()
+                grad_stats["q_bias_grad_norm"] = param.grad.norm().item()
 
             total_grad_norm += param.grad.norm().item() ** 2
 
-    total_grad_norm = total_grad_norm ** 0.5
-    grad_stats['total_grad_norm'] = total_grad_norm
+    total_grad_norm = total_grad_norm**0.5
+    grad_stats["total_grad_norm"] = total_grad_norm
 
     print(f"[Rank {rank}] Total gradient norm: {total_grad_norm:.6f}")
 
@@ -135,19 +143,21 @@ def run_one_step():
 
     # Capture final weight statistics
     for name, param in model.named_parameters():
-        if 'layers.0.self_attention.linear_q.weight' in name:
-            weight_stats['q_weight_mean_final'] = param.data.mean().item()
-            weight_stats['q_weight_std_final'] = param.data.std().item()
-            weight_stats['q_weight_norm_final'] = param.data.norm().item()
-            weight_stats['q_weight_delta'] = weight_stats['q_weight_mean_final'] - weight_stats['q_weight_mean_init']
+        if "layers.0.self_attention.linear_q.weight" in name:
+            weight_stats["q_weight_mean_final"] = param.data.mean().item()
+            weight_stats["q_weight_std_final"] = param.data.std().item()
+            weight_stats["q_weight_norm_final"] = param.data.norm().item()
+            weight_stats["q_weight_delta"] = (
+                weight_stats["q_weight_mean_final"] - weight_stats["q_weight_mean_init"]
+            )
 
     # Collect statistics
     stats = {
-        'rank': rank,
-        'tp_size': tp_size,
-        'tp_rank': tp_rank,
-        'loss': loss.item(),
-        'precision': config.model.precision,
+        "rank": rank,
+        "tp_size": tp_size,
+        "tp_rank": tp_rank,
+        "loss": loss.item(),
+        "precision": config.model.precision,
         **weight_stats,
         **grad_stats,
     }
@@ -159,14 +169,14 @@ def run_one_step():
 
     # Print comparison
     if rank == 0:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"RESULTS FOR TP={tp_size}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         # Save to file
         output_file = f"logs/tp{tp_size}_results.json"
         os.makedirs("logs", exist_ok=True)
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(all_stats, f, indent=2)
         print(f"Results saved to {output_file}")
 
@@ -175,7 +185,7 @@ def run_one_step():
         print(f"  Loss (rank 0): {all_stats[0]['loss']:.8f}")
         if world_size > 1:
             print(f"  Loss (rank 1): {all_stats[1]['loss']:.8f}")
-            loss_diff = abs(all_stats[0]['loss'] - all_stats[1]['loss'])
+            loss_diff = abs(all_stats[0]["loss"] - all_stats[1]["loss"])
             print(f"  Loss difference: {loss_diff:.2e}")
 
             if loss_diff < 1e-7:
@@ -213,6 +223,7 @@ if __name__ == "__main__":
         rank = dist.get_rank() if dist.is_initialized() else 0
         print(f"[Rank {rank}] ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         if dist.is_initialized():
             dist.destroy_process_group()

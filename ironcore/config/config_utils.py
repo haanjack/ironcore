@@ -29,14 +29,11 @@ class UtilsConfig(BaseConfig):
     profile_torch: bool = field(
         default=False,
         metadata={
-            "help": "Enable torch profiler. When profile use this command: torch.profiler.profile"},
+            "help": "Enable torch profiler. When profile use this command: torch.profiler.profile"
+        },
     )
-    profile_step_start: int | None = field(
-        default=10, metadata={"help": "nsys profile start step"}
-    )
-    profile_step_end: int | None = field(
-        default=12, metadata={"help": "nsys profile end step"}
-    )
+    profile_step_start: int | None = field(default=10, metadata={"help": "nsys profile start step"})
+    profile_step_end: int | None = field(default=12, metadata={"help": "nsys profile end step"})
     profile_ranks: list[int] | None = field(
         default_factory=lambda: [0], metadata={"help": "global ranks nsys profile"}
     )
@@ -44,21 +41,15 @@ class UtilsConfig(BaseConfig):
         default=False, metadata={"help": "stop training on profile end"}
     )
 
-    deterministic: bool = field(
-        default=False, metadata={"help": "Enable deterministic mode"}
-    )
+    deterministic: bool = field(default=False, metadata={"help": "Enable deterministic mode"})
 
     report_memory_usage: bool = field(
         default=True, metadata={"help": "Enable memory report at the first log step"}
     )
 
     # logger
-    tensorboard_dir: str | None = field(
-        default=None, metadata={"help": "tensorboard path"}
-    )
-    mlflow_tracking_uri: str | None = field(
-        default=None, metadata={"help": "mlflow tracking uri"}
-    )
+    tensorboard_dir: str | None = field(default=None, metadata={"help": "tensorboard path"})
+    mlflow_tracking_uri: str | None = field(default=None, metadata={"help": "mlflow tracking uri"})
     mlflow_experiment_name: str | None = field(
         default=None, metadata={"help": "mlflow experiment name"}
     )

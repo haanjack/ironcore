@@ -10,6 +10,7 @@ Tests all combinations of:
 
 Generates detailed metrics table and report.
 """
+
 import json
 import os
 import sys
@@ -40,6 +41,7 @@ from ironcore.parallel import parallel_states
 @dataclass
 class BenchmarkResult:
     """Store benchmark results for a single configuration."""
+
     tp_size: int
     attention_type: str  # MHA, GQA, MQA
     position_embedding: str  # None, RoPE
@@ -130,11 +132,10 @@ def run_benchmark(
     """Run benchmark for a single configuration."""
 
     if device is None:
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     attention_type = get_attention_type_name(
-        config.model.num_attention_heads,
-        config.model.num_attention_groups
+        config.model.num_attention_heads, config.model.num_attention_groups
     )
 
     position_embedding = "RoPE" if use_rope else "None"
@@ -144,6 +145,7 @@ def run_benchmark(
     try:
         # Set seed
         import random
+
         seed = 42
         random.seed(seed + rank)
         torch.manual_seed(seed + rank)
@@ -155,14 +157,16 @@ def run_benchmark(
 
         # Create input
         hidden_states = torch.randn(
-            batch_size, seq_len, config.model.d_model,
-            device=device, requires_grad=True
+            batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
         )
 
         # Create attention mask
-        attention_mask = torch.tril(
-            torch.ones(seq_len, seq_len, device=device)
-        ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+        attention_mask = (
+            torch.tril(torch.ones(seq_len, seq_len, device=device))
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, -1, -1, -1)
+        )
 
         # Create rotary embedding if needed
         rotary_pos_emb = None
@@ -188,8 +192,7 @@ def run_benchmark(
 
         # Recreate tensors for actual benchmark (warmup may have modified them)
         hidden_states = torch.randn(
-            batch_size, seq_len, config.model.d_model,
-            device=device, requires_grad=True
+            batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
         )
 
         torch.cuda.synchronize()
@@ -209,8 +212,7 @@ def run_benchmark(
 
         # Recreate for backward pass
         hidden_states = torch.randn(
-            batch_size, seq_len, config.model.d_model,
-            device=device, requires_grad=True
+            batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
         )
 
         if use_rope:
@@ -233,11 +235,10 @@ def run_benchmark(
         output_std = output.std().item() if output.numel() > 1 else 0.0
 
         # Compute gradient norm
-        grad_norm = sum(
-            p.grad.norm().item()**2
-            for p in attention.parameters()
-            if p.grad is not None
-        )**0.5
+        grad_norm = (
+            sum(p.grad.norm().item() ** 2 for p in attention.parameters() if p.grad is not None)
+            ** 0.5
+        )
 
         return BenchmarkResult(
             tp_size=tp_size,
@@ -284,9 +285,9 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
     """Run all benchmark configurations."""
 
     if world_size > 1:
-        device = torch.device(f'cuda:{rank}')
+        device = torch.device(f"cuda:{rank}")
     else:
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     results: list[BenchmarkResult] = []
 
@@ -298,25 +299,21 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
         (512, 8, 8, 128, 1, True, False, "MHA-Flash"),
         (512, 8, 8, 128, 1, False, True, "MHA-RoPE"),
         (512, 8, 8, 128, 1, True, True, "MHA-Flash-RoPE"),
-
         # GQA configurations (4 groups for 8 heads)
         (512, 8, 4, 128, 1, False, False, "GQA-Standard"),
         (512, 8, 4, 128, 1, True, False, "GQA-Flash"),
         (512, 8, 4, 128, 1, False, True, "GQA-RoPE"),
         (512, 8, 4, 128, 1, True, True, "GQA-Flash-RoPE"),
-
         # MQA configurations (1 group for 8 heads)
         (512, 8, 1, 128, 1, False, False, "MQA-Standard"),
         (512, 8, 1, 128, 1, True, False, "MQA-Flash"),
         (512, 8, 1, 128, 1, False, True, "MQA-RoPE"),
         (512, 8, 1, 128, 1, True, True, "MQA-Flash-RoPE"),
-
         # Longer sequence length
         (512, 8, 8, 256, 1, False, False, "MHA-Standard-seq256"),
         (512, 8, 8, 256, 1, True, False, "MHA-Flash-seq256"),
         (512, 8, 4, 256, 1, False, False, "GQA-Standard-seq256"),
         (512, 8, 4, 256, 1, True, False, "GQA-Flash-seq256"),
-
         # Larger model
         (768, 12, 12, 128, 1, False, False, "MHA-Standard-d768"),
         (768, 12, 12, 128, 1, True, False, "MHA-Flash-d768"),
@@ -324,9 +321,9 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
         (768, 12, 6, 128, 1, True, False, "GQA-Flash-d768"),
     ]
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Running {len(test_configs)} benchmark configurations on rank {rank}/{world_size}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     # Initialize model parallel once with TP=1
     try:
@@ -334,16 +331,24 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
     except AssertionError:
         # Not initialized yet
         parallel_states.initialize_model_parallel(
-            tensor_model_parallel_size=1,
-            timeout_in_minutes=10.0
+            tensor_model_parallel_size=1, timeout_in_minutes=10.0
         )
 
-    for i, (d_model, num_heads, num_groups, seq_len, tp_size, use_flash, use_rope, desc) in enumerate(test_configs):
+    for i, (
+        d_model,
+        num_heads,
+        num_groups,
+        seq_len,
+        tp_size,
+        use_flash,
+        use_rope,
+        desc,
+    ) in enumerate(test_configs):
         # Skip TP=2 tests on rank 1 (they'll be run separately)
         if tp_size == 2 and rank != 0:
             continue
 
-        print(f"[{i+1}/{len(test_configs)}] Testing: {desc}")
+        print(f"[{i + 1}/{len(test_configs)}] Testing: {desc}")
         print(f"  d_model={d_model}, heads={num_heads}, groups={num_groups}, seq_len={seq_len}")
         print(f"  TP={tp_size}, Flash={use_flash}, RoPE={use_rope}")
 
@@ -367,9 +372,11 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
         if result.error:
             print(f"  ✗ ERROR: {result.error}")
         else:
-            print(f"  ✓ Forward: {result.forward_time_ms:.2f}ms, "
-                  f"Backward: {result.backward_time_ms:.2f}ms, "
-                  f"Memory: {result.peak_memory_mb:.2f}MB")
+            print(
+                f"  ✓ Forward: {result.forward_time_ms:.2f}ms, "
+                f"Backward: {result.backward_time_ms:.2f}ms, "
+                f"Memory: {result.peak_memory_mb:.2f}MB"
+            )
 
         results.append(result)
         print()
@@ -378,7 +385,7 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
     if rank == 0:
         os.makedirs("logs", exist_ok=True)
         output_file = "logs/attention_benchmark_results.json"
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump([asdict(r) for r in results], f, indent=2)
         print(f"Results saved to {output_file}")
 
@@ -388,41 +395,45 @@ def run_all_benchmarks(rank: int = 0, world_size: int = 1):
 def print_results_table(results: list[BenchmarkResult]):
     """Print results as a formatted table."""
 
-    print("\n" + "="*140)
+    print("\n" + "=" * 140)
     print("ATTENTION LAYER BENCHMARK RESULTS")
-    print("="*140)
+    print("=" * 140)
 
     # Header
     header = f"{'Config':<25} {'Type':<4} {'PE':<5} {'Algo':<8} {'TP':<3} "
     header += f"{'Params':<10} {'Fwd':<8} {'Bwd':<8} {'Mem':<8} {'OutNorm':<10} {'GradNorm':<10}"
     print(header)
-    print("-"*140)
+    print("-" * 140)
 
     # Results
     for r in results:
         if r.error:
             status = f"ERROR: {r.error[:30]}"
-            print(f"{r.attention_type + '-' + r.algorithm + '-' + r.position_embedding:<25} {r.attention_type:<4} "
-                  f"{r.position_embedding:<5} {r.algorithm:<8} TP={r.tp_size:<2} {status}")
+            print(
+                f"{r.attention_type + '-' + r.algorithm + '-' + r.position_embedding:<25} {r.attention_type:<4} "
+                f"{r.position_embedding:<5} {r.algorithm:<8} TP={r.tp_size:<2} {status}"
+            )
         else:
             config_name = f"{r.attention_type}-{r.algorithm}"
             if r.position_embedding != "None":
                 config_name += f"-{r.position_embedding}"
 
-            print(f"{config_name:<25} {r.attention_type:<4} {r.position_embedding:<5} {r.algorithm:<8} "
-                  f"TP={r.tp_size:<2} {r.parameters:<10,} {r.forward_time_ms:<8.2f} "
-                  f"{r.backward_time_ms:<8.2f} {r.peak_memory_mb:<8.2f} "
-                  f"{r.output_norm:<10.4f} {r.grad_norm:<10.4f}")
+            print(
+                f"{config_name:<25} {r.attention_type:<4} {r.position_embedding:<5} {r.algorithm:<8} "
+                f"TP={r.tp_size:<2} {r.parameters:<10,} {r.forward_time_ms:<8.2f} "
+                f"{r.backward_time_ms:<8.2f} {r.peak_memory_mb:<8.2f} "
+                f"{r.output_norm:<10.4f} {r.grad_norm:<10.4f}"
+            )
 
-    print("="*140)
+    print("=" * 140)
 
 
 def print_comparison_by_attention_type(results: list[BenchmarkResult]):
     """Print comparison grouped by attention type."""
 
-    print("\n" + "="*100)
+    print("\n" + "=" * 100)
     print("COMPARISON BY ATTENTION TYPE")
-    print("="*100)
+    print("=" * 100)
 
     attention_types = ["MHA", "GQA", "MQA"]
 
@@ -431,8 +442,10 @@ def print_comparison_by_attention_type(results: list[BenchmarkResult]):
         if not type_results:
             continue
 
-        print(f"\n{attn_type} (Multi-{'Head' if attn_type == 'MHA' else 'Query' if attn_type == 'MQA' else 'Grouped Query'} Attention)")
-        print("-"*100)
+        print(
+            f"\n{attn_type} (Multi-{'Head' if attn_type == 'MHA' else 'Query' if attn_type == 'MQA' else 'Grouped Query'} Attention)"
+        )
+        print("-" * 100)
 
         # Group by configuration
         configs = {}
@@ -444,17 +457,19 @@ def print_comparison_by_attention_type(results: list[BenchmarkResult]):
 
         for config_name, config_results in sorted(configs.items()):
             r = config_results[0]  # Take first result
-            print(f"  {config_name:<20}: Params={r.parameters:<10,} "
-                  f"Fwd={r.forward_time_ms:<7.2f}ms Bwd={r.backward_time_ms:<7.2f}ms "
-                  f"Mem={r.peak_memory_mb:<7.2f}MB")
+            print(
+                f"  {config_name:<20}: Params={r.parameters:<10,} "
+                f"Fwd={r.forward_time_ms:<7.2f}ms Bwd={r.backward_time_ms:<7.2f}ms "
+                f"Mem={r.peak_memory_mb:<7.2f}MB"
+            )
 
 
 def print_memory_analysis(results: list[BenchmarkResult]):
     """Print memory usage analysis."""
 
-    print("\n" + "="*100)
+    print("\n" + "=" * 100)
     print("MEMORY USAGE ANALYSIS")
-    print("="*100)
+    print("=" * 100)
 
     # Filter results without errors
     valid_results = [r for r in results if r.error is None]
@@ -469,13 +484,19 @@ def print_memory_analysis(results: list[BenchmarkResult]):
         print("  Algorithm Comparison (seq_len=128):")
 
         for algo in ["Standard", "Flash"]:
-            algo_results = [r for r in type_results if r.algorithm == algo and r.position_embedding == "None" and r.seq_len == 128]
+            algo_results = [
+                r
+                for r in type_results
+                if r.algorithm == algo and r.position_embedding == "None" and r.seq_len == 128
+            ]
             if algo_results:
                 avg_mem = sum(r.peak_memory_mb for r in algo_results) / len(algo_results)
                 print(f"    {algo}: {avg_mem:.2f} MB (avg)")
 
 
-def generate_markdown_report(results: list[BenchmarkResult], output_file: str = "logs/ATTENTION_BENCHMARK_REPORT.md"):
+def generate_markdown_report(
+    results: list[BenchmarkResult], output_file: str = "logs/ATTENTION_BENCHMARK_REPORT.md"
+):
     """Generate comprehensive markdown report."""
 
     md = []
@@ -483,7 +504,9 @@ def generate_markdown_report(results: list[BenchmarkResult], output_file: str = 
     md.append("\n**Date:** " + time.strftime("%Y-%m-%d %H:%M:%S"))
     md.append("\n---")
     md.append("\n## Overview")
-    md.append("\nThis report presents comprehensive benchmarking results for the IronCore attention layer")
+    md.append(
+        "\nThis report presents comprehensive benchmarking results for the IronCore attention layer"
+    )
     md.append("across various configurations including:")
     md.append("\n- **Attention Types:** MHA, GQA, MQA")
     md.append("- **Tensor Parallelism:** TP=1, TP=2")
@@ -493,17 +516,25 @@ def generate_markdown_report(results: list[BenchmarkResult], output_file: str = 
 
     # Results table
     md.append("\n## Detailed Results Table")
-    md.append("\n| Config | Type | PE | Algo | TP | Params | Fwd (ms) | Bwd (ms) | Mem (MB) | OutNorm | GradNorm |")
-    md.append("|--------|------|----|----|----|--------|----------|----------|----------|---------|----------|")
+    md.append(
+        "\n| Config | Type | PE | Algo | TP | Params | Fwd (ms) | Bwd (ms) | Mem (MB) | OutNorm | GradNorm |"
+    )
+    md.append(
+        "|--------|------|----|----|----|--------|----------|----------|----------|---------|----------|"
+    )
 
     for r in results:
         if r.error:
-            md.append(f"| {r.attention_type}-{r.algorithm} | {r.attention_type} | {r.position_embedding} | "
-                     f"{r.algorithm} | {r.tp_size} | ERROR | - | - | - | - | - |")
+            md.append(
+                f"| {r.attention_type}-{r.algorithm} | {r.attention_type} | {r.position_embedding} | "
+                f"{r.algorithm} | {r.tp_size} | ERROR | - | - | - | - | - |"
+            )
         else:
-            md.append(f"| {r.attention_type}-{r.algorithm} | {r.attention_type} | {r.position_embedding} | "
-                     f"{r.algorithm} | {r.tp_size} | {r.parameters:,} | {r.forward_time_ms:.2f} | "
-                     f"{r.backward_time_ms:.2f} | {r.peak_memory_mb:.2f} | {r.output_norm:.4f} | {r.grad_norm:.4f} |")
+            md.append(
+                f"| {r.attention_type}-{r.algorithm} | {r.attention_type} | {r.position_embedding} | "
+                f"{r.algorithm} | {r.tp_size} | {r.parameters:,} | {r.forward_time_ms:.2f} | "
+                f"{r.backward_time_ms:.2f} | {r.peak_memory_mb:.2f} | {r.output_norm:.4f} | {r.grad_norm:.4f} |"
+            )
 
     # Summary by attention type
     md.append("\n---")
@@ -513,13 +544,23 @@ def generate_markdown_report(results: list[BenchmarkResult], output_file: str = 
     md.append("- **Parameters:** Highest parameter count")
     md.append("- **Use Case:** Best performance, highest memory usage")
 
-    mha_results = [r for r in results if r.attention_type == "MHA" and r.error is None and r.seq_len == 128]
+    mha_results = [
+        r for r in results if r.attention_type == "MHA" and r.error is None and r.seq_len == 128
+    ]
     if mha_results:
-        std_mha = [r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"]
-        flash_mha = [r for r in mha_results if r.algorithm == "Flash" and r.position_embedding == "None"]
+        std_mha = [
+            r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"
+        ]
+        flash_mha = [
+            r for r in mha_results if r.algorithm == "Flash" and r.position_embedding == "None"
+        ]
         if std_mha and flash_mha:
             speedup = std_mha[0].forward_time_ms / flash_mha[0].forward_time_ms
-            mem_reduction = (std_mha[0].peak_memory_mb - flash_mha[0].peak_memory_mb) / std_mha[0].peak_memory_mb * 100
+            mem_reduction = (
+                (std_mha[0].peak_memory_mb - flash_mha[0].peak_memory_mb)
+                / std_mha[0].peak_memory_mb
+                * 100
+            )
             md.append("\n**Standard vs Flash Attention (seq_len=128):**")
             md.append(f"- Speedup: {speedup:.2f}x")
             md.append(f"- Memory Reduction: {mem_reduction:.1f}%")
@@ -529,12 +570,22 @@ def generate_markdown_report(results: list[BenchmarkResult], output_file: str = 
     md.append("- **Parameters:** Reduced parameter count compared to MHA")
     md.append("- **Use Case:** Good balance between performance and efficiency")
 
-    gqa_results = [r for r in results if r.attention_type == "GQA" and r.error is None and r.seq_len == 128]
+    gqa_results = [
+        r for r in results if r.attention_type == "GQA" and r.error is None and r.seq_len == 128
+    ]
     if gqa_results and mha_results:
-        std_gqa = [r for r in gqa_results if r.algorithm == "Standard" and r.position_embedding == "None"]
-        std_mha_base = [r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"]
+        std_gqa = [
+            r for r in gqa_results if r.algorithm == "Standard" and r.position_embedding == "None"
+        ]
+        std_mha_base = [
+            r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"
+        ]
         if std_gqa and std_mha_base:
-            param_reduction = (std_mha_base[0].parameters - std_gqa[0].parameters) / std_mha_base[0].parameters * 100
+            param_reduction = (
+                (std_mha_base[0].parameters - std_gqa[0].parameters)
+                / std_mha_base[0].parameters
+                * 100
+            )
             md.append("\n**vs MHA (seq_len=128, Standard):**")
             md.append(f"- Parameter Reduction: {param_reduction:.1f}%")
 
@@ -543,12 +594,22 @@ def generate_markdown_report(results: list[BenchmarkResult], output_file: str = 
     md.append("- **Parameters:** Lowest parameter count")
     md.append("- **Use Case:** Maximum efficiency, minimal performance impact")
 
-    mqa_results = [r for r in results if r.attention_type == "MQA" and r.error is None and r.seq_len == 128]
+    mqa_results = [
+        r for r in results if r.attention_type == "MQA" and r.error is None and r.seq_len == 128
+    ]
     if mqa_results and mha_results:
-        std_mqa = [r for r in mqa_results if r.algorithm == "Standard" and r.position_embedding == "None"]
-        std_mha_base = [r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"]
+        std_mqa = [
+            r for r in mqa_results if r.algorithm == "Standard" and r.position_embedding == "None"
+        ]
+        std_mha_base = [
+            r for r in mha_results if r.algorithm == "Standard" and r.position_embedding == "None"
+        ]
         if std_mqa and std_mha_base:
-            param_reduction = (std_mha_base[0].parameters - std_mqa[0].parameters) / std_mha_base[0].parameters * 100
+            param_reduction = (
+                (std_mha_base[0].parameters - std_mqa[0].parameters)
+                / std_mha_base[0].parameters
+                * 100
+            )
             md.append("\n**vs MHA (seq_len=128, Standard):**")
             md.append(f"- Parameter Reduction: {param_reduction:.1f}%")
 
@@ -571,26 +632,26 @@ def generate_markdown_report(results: list[BenchmarkResult], output_file: str = 
 
     # Write report
     os.makedirs("logs", exist_ok=True)
-    with open(output_file, 'w') as f:
-        f.write('\n'.join(md))
+    with open(output_file, "w") as f:
+        f.write("\n".join(md))
 
     print(f"\nMarkdown report saved to {output_file}")
 
 
 def main():
     """Main benchmark entry point."""
-    rank = int(os.environ.get('RANK', '0'))
-    world_size = int(os.environ.get('WORLD_SIZE', '1'))
+    rank = int(os.environ.get("RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
 
     if world_size > 1:
-        dist.init_process_group(backend='nccl')
-        local_rank = int(os.environ['LOCAL_RANK'])
-        torch.device(f'cuda:{local_rank}')
+        dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.device(f"cuda:{local_rank}")
         torch.cuda.set_device(local_rank)
 
-    print("="*80)
+    print("=" * 80)
     print("IRONCORE ATTENTION LAYER - COMPREHENSIVE BENCHMARK")
-    print("="*80)
+    print("=" * 80)
 
     results = run_all_benchmarks(rank, world_size)
 

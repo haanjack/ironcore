@@ -55,8 +55,7 @@ def get_evaluators(
                 if isinstance(cls, type) and issubclass(cls, Task) and cls != Task
             )
             evaluators.append(
-                evaluator_class(tokenizer, batch_size,
-                                num_samples, cache_dir=cache_dir)
+                evaluator_class(tokenizer, batch_size, num_samples, cache_dir=cache_dir)
             )
         except (ImportError, StopIteration):
             print(f"Evaluator for task '{task_name}' could not be loaded.")

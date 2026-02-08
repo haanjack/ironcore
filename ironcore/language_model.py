@@ -18,7 +18,6 @@ from ironcore.parallel.tensor_parallel import (
 
 
 class LanguageModel(BaseModule):
-
     def __init__(
         self,
         config: MainConfig,
@@ -60,7 +59,7 @@ class LanguageModel(BaseModule):
         self.init_weights()
 
         # Initialize VocabParallelEmbedding (zeros padding, registers hooks)
-        if hasattr(self.embedding.word_embeddings, 'init_weight'):
+        if hasattr(self.embedding.word_embeddings, "init_weight"):
             self.embedding.word_embeddings.init_weight()
 
     def forward(self, input_ids, labels=None):
@@ -114,9 +113,7 @@ class LanguageModel(BaseModule):
 
         # loss mask - CRITICAL: Must be based on labels, not input_ids
         # We're predicting the NEXT token, so mask positions where labels contain EOS/PAD
-        loss_mask = torch.ones(
-            input_ids.size(), dtype=torch.float, device=input_ids.device
-        )
+        loss_mask = torch.ones(input_ids.size(), dtype=torch.float, device=input_ids.device)
         # Only mask EOS/PAD tokens if eod_mask_loss is enabled
         # For nanoGPT-style training, we want to predict ALL tokens including across documents
         if self.eod_mask_loss and labels is not None:
@@ -124,9 +121,7 @@ class LanguageModel(BaseModule):
             loss_mask[labels == get_tokenizer().pad_token_id] = 0
 
         # position ids
-        position_ids = torch.arange(
-            input_ids.size(1), dtype=torch.long, device=input_ids.device
-        )
+        position_ids = torch.arange(input_ids.size(1), dtype=torch.long, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if self.reset_position_ids:
             position_ids = position_ids.clone()
@@ -135,9 +130,7 @@ class LanguageModel(BaseModule):
             # loop through the batches
             for b in range(input_ids.size(0)):
                 # find indices of EOD
-                eod_index = position_ids[
-                    b, input_ids[b] == get_tokenizer().eod_token_id
-                ]
+                eod_index = position_ids[b, input_ids[b] == get_tokenizer().eod_token_id]
                 # detach indices from position if going to modify them
                 if self.reset_position_ids:
                     eod_index = eod_index.clone()
@@ -148,10 +141,10 @@ class LanguageModel(BaseModule):
                     i = eod_index[j]
                     # reset attention mask
                     if self.reset_attention_mask:
-                        attention_mask[b, 0, (i + 1):, : (i + 1)] = 0
+                        attention_mask[b, 0, (i + 1) :, : (i + 1)] = 0
                     # reset position
                     if self.reset_position_ids:
-                        position_ids[b, (i + 1):] -= i + 1 - prev_index
+                        position_ids[b, (i + 1) :] -= i + 1 - prev_index
                         prev_index = i + 1
 
         # convert attention mast to binary
@@ -200,7 +193,12 @@ class LanguageModel(BaseModule):
         return loss
 
     def post_lm_processing(
-        self, lm_output, labels, loss_mask, fp16_lm_cross_entropy=False, padding_start_idx: int = None
+        self,
+        lm_output,
+        labels,
+        loss_mask,
+        fp16_lm_cross_entropy=False,
+        padding_start_idx: int = None,
     ):
         # b: batch size
         # s: sequence length

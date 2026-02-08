@@ -13,6 +13,7 @@ Run with:
 - TP=1: python tests/test_tp_weight_sharding.py --mode save_weights
 - TP=2: torchrun --nproc_per_node=2 tests/test_tp_weight_sharding.py --mode load_and_compare
 """
+
 import argparse
 import os
 import sys
@@ -97,19 +98,19 @@ def shard_tp1_to_tp2(state_dict, tp_rank, tp_size=2):
     sharded_state_dict = {}
 
     for name, param in state_dict.items():
-        if 'linear_q.weight' in name:
+        if "linear_q.weight" in name:
             # Column parallel: split along output dimension (dim 1)
             # TP=1: [512, 512] -> TP=2: [512, 256]
             chunk_size = param.shape[1] // tp_size
-            sharded_param = param[:, tp_rank * chunk_size:(tp_rank + 1) * chunk_size]
+            sharded_param = param[:, tp_rank * chunk_size : (tp_rank + 1) * chunk_size]
             sharded_state_dict[name] = sharded_param
-        elif 'linear_q.bias' in name:
+        elif "linear_q.bias" in name:
             # Bias splits along output dimension (dim 0)
             # TP=1: [512] -> TP=2: [256]
             chunk_size = param.shape[0] // tp_size
-            sharded_param = param[tp_rank * chunk_size:(tp_rank + 1) * chunk_size]
+            sharded_param = param[tp_rank * chunk_size : (tp_rank + 1) * chunk_size]
             sharded_state_dict[name] = sharded_param
-        elif 'linear_kv.weight' in name:
+        elif "linear_kv.weight" in name:
             # KV weight: [input_size, 2 * output_size] where K and V are concatenated along dim 1
             # TP=1: [512, 1024] -> TP=2: [512, 512]
             # K is first half, V is second half along dim 1
@@ -120,13 +121,17 @@ def shard_tp1_to_tp2(state_dict, tp_rank, tp_size=2):
 
             # Split each along output dimension (dim 1)
             chunk_size = k_weight.shape[1] // tp_size  # 256
-            k_weight_sharded = k_weight[:, tp_rank * chunk_size:(tp_rank + 1) * chunk_size]  # [512, 256]
-            v_weight_sharded = v_weight[:, tp_rank * chunk_size:(tp_rank + 1) * chunk_size]  # [512, 256]
+            k_weight_sharded = k_weight[
+                :, tp_rank * chunk_size : (tp_rank + 1) * chunk_size
+            ]  # [512, 256]
+            v_weight_sharded = v_weight[
+                :, tp_rank * chunk_size : (tp_rank + 1) * chunk_size
+            ]  # [512, 256]
 
             # Concatenate back
             sharded_param = torch.cat([k_weight_sharded, v_weight_sharded], dim=1)  # [512, 512]
             sharded_state_dict[name] = sharded_param
-        elif 'linear_kv.bias' in name:
+        elif "linear_kv.bias" in name:
             # KV bias: [2 * output_size] where K and V are concatenated along dim 0
             # TP=1: [1024] -> TP=2: [512]
             k_dim = param.shape[0] // 2  # 512
@@ -135,19 +140,19 @@ def shard_tp1_to_tp2(state_dict, tp_rank, tp_size=2):
 
             # Split each along output dimension
             chunk_size = k_bias.shape[0] // tp_size  # 256
-            k_bias_sharded = k_bias[tp_rank * chunk_size:(tp_rank + 1) * chunk_size]  # [256]
-            v_bias_sharded = v_bias[tp_rank * chunk_size:(tp_rank + 1) * chunk_size]  # [256]
+            k_bias_sharded = k_bias[tp_rank * chunk_size : (tp_rank + 1) * chunk_size]  # [256]
+            v_bias_sharded = v_bias[tp_rank * chunk_size : (tp_rank + 1) * chunk_size]  # [256]
 
             # Concatenate back
             sharded_param = torch.cat([k_bias_sharded, v_bias_sharded], dim=0)  # [512]
             sharded_state_dict[name] = sharded_param
-        elif 'output.weight' in name:
+        elif "output.weight" in name:
             # Row parallel: split along input dimension (dim 0)
             # TP=1: [512, 512] -> TP=2: [256, 512]
             chunk_size = param.shape[0] // tp_size
-            sharded_param = param[tp_rank * chunk_size:(tp_rank + 1) * chunk_size]
+            sharded_param = param[tp_rank * chunk_size : (tp_rank + 1) * chunk_size]
             sharded_state_dict[name] = sharded_param
-        elif 'output.bias' in name:
+        elif "output.bias" in name:
             # Bias is NOT sharded in row parallel (replicated across ranks)
             sharded_state_dict[name] = param
         else:
@@ -159,11 +164,11 @@ def shard_tp1_to_tp2(state_dict, tp_rank, tp_size=2):
 
 def save_tp1_weights():
     """Create and save TP=1 attention weights."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("MODE: Save TP=1 Attention Weights")
-    print("="*70)
+    print("=" * 70)
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # Initialize TP=1
     parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
@@ -171,6 +176,7 @@ def save_tp1_weights():
 
     # Set seed
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -184,12 +190,14 @@ def save_tp1_weights():
     batch_size = 2
     seq_len = 64
     hidden_states = torch.randn(
-        batch_size, seq_len, config.model.d_model,
-        device=device, requires_grad=True
+        batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
     )
-    attention_mask = torch.tril(
-        torch.ones(seq_len, seq_len, device=device)
-    ).unsqueeze(0).unsqueeze(0).expand(batch_size, -1, -1, -1)
+    attention_mask = (
+        torch.tril(torch.ones(seq_len, seq_len, device=device))
+        .unsqueeze(0)
+        .unsqueeze(0)
+        .expand(batch_size, -1, -1, -1)
+    )
 
     # Forward pass
     print("Running forward pass...")
@@ -203,13 +211,16 @@ def save_tp1_weights():
     # Save checkpoint
     os.makedirs("checkpoints/tp1", exist_ok=True)
     checkpoint_path = "checkpoints/tp1/attention.pt"
-    torch.save({
-        'state_dict': attention.state_dict(),
-        'config': config,
-        'hidden_states': hidden_states,
-        'attention_mask': attention_mask,
-        'output': output,
-    }, checkpoint_path)
+    torch.save(
+        {
+            "state_dict": attention.state_dict(),
+            "config": config,
+            "hidden_states": hidden_states,
+            "attention_mask": attention_mask,
+            "output": output,
+        },
+        checkpoint_path,
+    )
 
     print("\nTP=1 Statistics:")
     print(f"  Parameters: {param_count:,}")
@@ -223,23 +234,25 @@ def save_tp1_weights():
 
 def load_and_compare_tp2():
     """Load TP=1 weights into TP=2 and compare."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("MODE: Load TP=1 Weights into TP=2 and Compare")
-    print("="*70)
+    print("=" * 70)
 
     # Get rank info
-    if 'RANK' not in os.environ:
+    if "RANK" not in os.environ:
         print("ERROR: Must run with torchrun for TP=2")
-        print("Usage: torchrun --nproc_per_node=2 tests/test_tp_weight_sharding.py --mode load_and_compare")
+        print(
+            "Usage: torchrun --nproc_per_node=2 tests/test_tp_weight_sharding.py --mode load_and_compare"
+        )
         sys.exit(1)
 
-    rank = int(os.environ['RANK'])
-    local_rank = int(os.environ['LOCAL_RANK'])
-    world_size = int(os.environ['WORLD_SIZE'])
-    device = torch.device(f'cuda:{local_rank}')
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    device = torch.device(f"cuda:{local_rank}")
 
     # Initialize distributed
-    dist.init_process_group(backend='nccl')
+    dist.init_process_group(backend="nccl")
     torch.cuda.set_device(local_rank)
 
     # Load checkpoint
@@ -263,6 +276,7 @@ def load_and_compare_tp2():
 
     # Set same seed
     import random
+
     seed = 42
     random.seed(seed)
     torch.manual_seed(seed)
@@ -275,12 +289,12 @@ def load_and_compare_tp2():
     if rank == 0:
         print("Sharding and loading TP=1 weights into TP=2 model...")
 
-    sharded_state_dict = shard_tp1_to_tp2(checkpoint['state_dict'], tp_rank, tp_size=2)
+    sharded_state_dict = shard_tp1_to_tp2(checkpoint["state_dict"], tp_rank, tp_size=2)
     attention.load_state_dict(sharded_state_dict)
 
     # Get the same input
-    hidden_states = checkpoint['hidden_states'].to(device)
-    attention_mask = checkpoint['attention_mask'].to(device)
+    hidden_states = checkpoint["hidden_states"].to(device)
+    attention_mask = checkpoint["attention_mask"].to(device)
 
     # Verify input is same across ranks
     input_sum = hidden_states.sum().item()
@@ -307,7 +321,7 @@ def load_and_compare_tp2():
     local_params = sum(p.numel() for p in attention.parameters())
 
     # Get original TP=1 output
-    output_tp1 = checkpoint['output'].to(device)
+    output_tp1 = checkpoint["output"].to(device)
 
     # Compare outputs (both ranks should produce identical output after all-reduce)
     output_diff = (output_tp2 - output_tp1).abs().max().item()
@@ -319,18 +333,24 @@ def load_and_compare_tp2():
     print(f"  Output norm: {output_tp2.norm().item():.6f}")
 
     # Gather results
-    all_mem_peak = [torch.zeros_like(torch.tensor(mem_peak, device=device)) for _ in range(world_size)]
-    all_output_diff = [torch.zeros_like(torch.tensor(output_diff, device=device)) for _ in range(world_size)]
-    all_output_norm_diff = [torch.zeros_like(torch.tensor(output_norm_diff, device=device)) for _ in range(world_size)]
+    all_mem_peak = [
+        torch.zeros_like(torch.tensor(mem_peak, device=device)) for _ in range(world_size)
+    ]
+    all_output_diff = [
+        torch.zeros_like(torch.tensor(output_diff, device=device)) for _ in range(world_size)
+    ]
+    all_output_norm_diff = [
+        torch.zeros_like(torch.tensor(output_norm_diff, device=device)) for _ in range(world_size)
+    ]
 
     dist.all_gather(all_mem_peak, torch.tensor(mem_peak, device=device))
     dist.all_gather(all_output_diff, torch.tensor(output_diff, device=device))
     dist.all_gather(all_output_norm_diff, torch.tensor(output_norm_diff, device=device))
 
     if rank == 0:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("TP=1 vs TP=2 COMPARISON (SAME WEIGHTS, PROPERLY SHARDED)")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         print("\nOutput Difference:")
         print(f"  Max absolute difference: {all_output_diff[0].item():.2e}")
@@ -356,14 +376,18 @@ def load_and_compare_tp2():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, required=True,
-                       choices=['save_weights', 'load_and_compare'],
-                       help='Mode: save_weights (TP=1) or load_and_compare (TP=2)')
+    parser.add_argument(
+        "--mode",
+        type=str,
+        required=True,
+        choices=["save_weights", "load_and_compare"],
+        help="Mode: save_weights (TP=1) or load_and_compare (TP=2)",
+    )
     args = parser.parse_args()
 
-    if args.mode == 'save_weights':
+    if args.mode == "save_weights":
         save_tp1_weights()
-    elif args.mode == 'load_and_compare':
+    elif args.mode == "load_and_compare":
         load_and_compare_tp2()
 
 

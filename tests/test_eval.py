@@ -49,8 +49,7 @@ def main():
     # load checkpoint
     last_step = load_checkpoint(config, model)
     if last_step > -1:
-        logger.info(
-            f"Successfuly loaded checkpoint: {config.trainer.model_path}")
+        logger.info(f"Successfuly loaded checkpoint: {config.trainer.model_path}")
     else:
         logger.info("Training start from scratch")
         last_step = 0

@@ -32,9 +32,7 @@ class DummyModelLayer(BaseModule):
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, output_size)
 
-    def custom_forward(
-        self, x, attention_mask, rotary_pos_emb
-    ):  # pylint: disable=unused-argument
+    def custom_forward(self, x, attention_mask, rotary_pos_emb):  # pylint: disable=unused-argument
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
         return x
@@ -44,7 +42,6 @@ class DummyModelLayer(BaseModule):
 
 
 class DummyModel(BaseModule):
-
     def __init__(self, config: MainConfig):
 
         super().__init__(config)

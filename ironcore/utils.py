@@ -111,13 +111,9 @@ def print_last_rank(message: str):
 def get_device():
     """Returns device type"""
     if torch.cuda.is_available():
-        assert (
-            torch.distributed.is_initialized()
-        ), "torch distributed is not initialized"
+        assert torch.distributed.is_initialized(), "torch distributed is not initialized"
         device = (
-            f"cuda:{dist.get_node_local_rank()}"
-            if hasattr(dist, "get_node_local_rank")
-            else "cuda"
+            f"cuda:{dist.get_node_local_rank()}" if hasattr(dist, "get_node_local_rank") else "cuda"
         )
     elif torch.backends.mps.is_available():
         device = "mps"
@@ -131,9 +127,7 @@ def get_model_dtype(config):
     """Returns model dtype checking device supports"""
     if config.model.precision.lower() in ["bfloat16", "bf16"]:
         if torch.cuda.is_available():
-            assert (
-                torch.cuda.is_bf16_supported()
-            ), "bfloat16 is not supported on this device"
+            assert torch.cuda.is_bf16_supported(), "bfloat16 is not supported on this device"
         dtype = torch.bfloat16
     elif config.model.precision.lower() in ["float16", "fp16"]:
         dtype = torch.float16
@@ -163,9 +157,9 @@ class Timer:
         if name not in self.running:
             self.register(name)
 
-        assert not self.running[
-            name
-        ], f"Timer {name} is already running. This can happen in duplicated operaiton"
+        assert not self.running[name], (
+            f"Timer {name} is already running. This can happen in duplicated operaiton"
+        )
 
         self.running[name] = True
         self.timers[name].append(time.time())
@@ -229,8 +223,7 @@ def get_memory_usage(in_mib: bool = False):
     if torch.cuda.is_available():
         device = torch.cuda.current_device()
         summary["memory_allocated"] = torch.cuda.memory_allocated(device)
-        summary["max_memory_allocated"] = torch.cuda.max_memory_allocated(
-            device)
+        summary["max_memory_allocated"] = torch.cuda.max_memory_allocated(device)
         summary["memory_reserved"] = torch.cuda.memory_reserved(device)
         summary["max_memory_reserved"] = torch.cuda.max_memory_reserved(device)
     elif torch.backends.mps.is_available():
@@ -246,6 +239,7 @@ def get_memory_usage(in_mib: bool = False):
 
 def profile_function(tag):
     """Decorator for profiling function"""
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             with torch.profiler.record_function(tag):
@@ -253,7 +247,9 @@ def profile_function(tag):
                 result = func(*args, **kwargs)
                 torch.cuda.nvtx.range_pop()
                 return result
+
         return wrapper
+
     return decorator
 
 
@@ -266,7 +262,9 @@ def profile_context(tag):
     torch.cuda.nvtx.range_pop()
 
 
-def clip_grad_norm_tp(parameters: Union[torch.Tensor, Iterable[torch.Tensor]], max_norm: float, norm_type: float = 2.0) -> torch.Tensor:
+def clip_grad_norm_tp(
+    parameters: Union[torch.Tensor, Iterable[torch.Tensor]], max_norm: float, norm_type: float = 2.0
+) -> torch.Tensor:
     """
     Clips gradient norm of an iterable of parameters, considering Tensor Parallelism.
     Arguments:
@@ -291,28 +289,38 @@ def clip_grad_norm_tp(parameters: Union[torch.Tensor, Iterable[torch.Tensor]], m
     norm_type = float(norm_type)
 
     if len(parameters) == 0:
-        return torch.tensor(0.)
+        return torch.tensor(0.0)
 
     if norm_type == inf:
         total_norm = max(p.grad.detach().abs().max() for p in parameters)
         # All-reduce max across TP group
         if parallel_states.get_tensor_model_parallel_world_size() > 1:
-            dist.all_reduce(total_norm, op=dist.ReduceOp.MAX, group=parallel_states.get_tensor_model_parallel_group())
+            dist.all_reduce(
+                total_norm,
+                op=dist.ReduceOp.MAX,
+                group=parallel_states.get_tensor_model_parallel_group(),
+            )
     else:
-        total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), norm_type) for p in parameters]), norm_type)
-        if norm_type == 2.0: # Most common case
-             # Square the norm
-             total_norm_sq = total_norm ** 2
-             # All-reduce sum across TP group
-             if parallel_states.get_tensor_model_parallel_world_size() > 1:
-                dist.all_reduce(total_norm_sq, op=dist.ReduceOp.SUM, group=parallel_states.get_tensor_model_parallel_group())
-             total_norm = total_norm_sq ** 0.5
+        total_norm = torch.norm(
+            torch.stack([torch.norm(p.grad.detach(), norm_type) for p in parameters]), norm_type
+        )
+        if norm_type == 2.0:  # Most common case
+            # Square the norm
+            total_norm_sq = total_norm**2
+            # All-reduce sum across TP group
+            if parallel_states.get_tensor_model_parallel_world_size() > 1:
+                dist.all_reduce(
+                    total_norm_sq,
+                    op=dist.ReduceOp.SUM,
+                    group=parallel_states.get_tensor_model_parallel_group(),
+                )
+            total_norm = total_norm_sq**0.5
         else:
-             # For other norms, it's more complex (p-norm sum is not additive like sq norm)
-             # Fallback: assume local clipping is approximation or raise error
-             # For strict correctness, we'd need to gather all grads or sum powers.
-             # Assuming standard L2 norm usage for now.
-             pass
+            # For other norms, it's more complex (p-norm sum is not additive like sq norm)
+            # Fallback: assume local clipping is approximation or raise error
+            # For strict correctness, we'd need to gather all grads or sum powers.
+            # Assuming standard L2 norm usage for now.
+            pass
 
     clip_coef = max_norm / (total_norm + 1e-6)
     if clip_coef < 1:
@@ -320,4 +328,3 @@ def clip_grad_norm_tp(parameters: Union[torch.Tensor, Iterable[torch.Tensor]], m
             p.grad.detach().mul_(clip_coef)
 
     return total_norm
-

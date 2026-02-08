@@ -47,10 +47,11 @@ def main():
     # load checkpoint
     last_step = load_checkpoint(config, model)
     if last_step > -1:
-        logger.info(
-            f"Successfully loaded checkpoint: {config.trainer.model_path}")
+        logger.info(f"Successfully loaded checkpoint: {config.trainer.model_path}")
     else:
-        logger.error(f"Failed to load checkpoint from {config.trainer.model_path}. Aborting evaluation.")
+        logger.error(
+            f"Failed to load checkpoint from {config.trainer.model_path}. Aborting evaluation."
+        )
         return
 
     # initialize evaluators

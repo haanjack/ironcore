@@ -24,8 +24,7 @@ class BaseConfig:
         """update config"""
         for k, v in kwargs.items():
             if k not in self.__dataclass_fields__:
-                raise KeyError(
-                    f"{k} is not defined in {self.__dataclass_fields__}")
+                raise KeyError(f"{k} is not defined in {self.__dataclass_fields__}")
             if not self._type_checker(self):
                 raise TypeError(
                     f"'{k}' data type is not match with defined information: {type(v)} vs {self.__dataclass_fields__[k].type}"
@@ -75,7 +74,9 @@ class BaseConfig:
                         matched = True
                         break
                     # Check for Literal types within Union
-                    elif get_origin(union_arg) is Literal and input_field_value in get_args(union_arg):
+                    elif get_origin(union_arg) is Literal and input_field_value in get_args(
+                        union_arg
+                    ):
                         matched = True
                         break
                     # Check for regular types
@@ -117,9 +118,7 @@ class BaseConfig:
         def dict_to_dataclass(data, cls):
             if isinstance(data, dict):
                 fieldtypes = {f.name: f.type for f in fields(cls)}
-                return cls(
-                    **{k: dict_to_dataclass(v, fieldtypes[k]) for k, v in data.items()}
-                )
+                return cls(**{k: dict_to_dataclass(v, fieldtypes[k]) for k, v in data.items()})
             if isinstance(data, list):
                 return [dict_to_dataclass(item, cls.__args__[0]) for item in data]
             return data
