@@ -19,7 +19,7 @@ train_datasets:
     ratio: 1.0
     split: train
     text_column: text
-    max_samples: 10000  # Quick testing with 10K samples
+    max_samples: 100000
 
 # Preprocessing settings
 preprocessed_dir: ./data/preprocessed

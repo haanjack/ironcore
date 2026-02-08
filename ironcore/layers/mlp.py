@@ -43,10 +43,25 @@ class MLP(BaseModule):
             input_is_parallel=True,
         )
 
-    def forward(self, x):
+    def forward(self, x, async_communication=False):
         x = self.up_proj(x)
         x = self.activation(x)
+        if async_communication:
+            x, handle = self.down_proj(x, async_communication=True)
+            return x, handle
+
         x = self.down_proj(x)
+        if self.config.dropout_mlp > 0.0:
+            x = self.dropout(x)
+        return x
+
+    def finalize(self, x, handle):
+        if handle:
+            handle.wait()
+
+        if self.down_proj.bias is not None:
+            x = x + self.down_proj.bias
+
         if self.config.dropout_mlp > 0.0:
             x = self.dropout(x)
         return x
