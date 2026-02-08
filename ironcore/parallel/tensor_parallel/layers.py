@@ -9,8 +9,8 @@
 # Full license text is available at LICENSE file.
 
 import torch
+import torch.nn.functional as F
 from torch import nn
-from torch.functional import F
 
 from ironcore.layers.module import BaseModule
 from ironcore.parallel import parallel_states
@@ -28,7 +28,6 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
         super().__init__(config)
         self.input_size = input_size
         self.output_size = output_size
-        self.use_bias = bias
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
 
         self.tensor_model_parallel_rank = 1
@@ -37,7 +36,7 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
 
         # Divide the weight matrix
         self.weight = nn.Parameter(torch.Tensor(input_size, output_size))
-        if self.use_bias:
+        if bias:
             self.bias = nn.Parameter(torch.Tensor(output_size))
         else:
             self.bias = None
@@ -63,7 +62,7 @@ class VocabParallelEmbedding(ParallelLinear):
         config,
         input_dim: int,
         embedding_dim: int,
-        padding_start_idx: int = None,
+        padding_start_idx: int | None = None,
         parallel_input: bool = False,
         parallel_output: bool = False,
     ):
@@ -179,7 +178,7 @@ class ColumnParallelLinear(ParallelLinear):
     def forward(self, x):
         parallel_x = comm.copy_inputs_to_model_parallel_workers(x)
         parallel_output = torch.matmul(parallel_x, self.weight)
-        if self.use_bias:
+        if self.bias is not None:
             parallel_output = parallel_output + self.bias
         if self.gather_output:
             output = comm.gather_from_model_parallel_workers(
@@ -234,7 +233,7 @@ class RowParallelLinear(ParallelLinear):
         super().__init__(config, input_size, output_size, bias)
         self.row_parallel = True
 
-    def forward(self, x):
+    def forward(self, x, async_communication=False):
         if self.input_is_parallel:
             parallel_x = x
         else:
@@ -242,9 +241,17 @@ class RowParallelLinear(ParallelLinear):
         output = torch.matmul(parallel_x, self.weight)
 
         if self.tensor_model_parallel_size > 1:
+            if async_communication:
+                output, handle = comm.reduce_inputs_from_model_parallel_workers(
+                    output, async_op=True
+                )
+                return output, handle
             output = comm.reduce_inputs_from_model_parallel_workers(output)
 
-        if self.use_bias:
+        if async_communication:
+            return output, None
+
+        if self.bias is not None:
             output = output + self.bias
 
         return output

@@ -78,6 +78,14 @@ class TrainerConfig(BaseConfig):
         default=True, metadata={"help": "use flash attention for the attention layer"}
     )
 
+    # Async Tensor Parallelism
+    sequence_chunk_size: int | None = field(
+        default=None,
+        metadata={
+            "help": "Target chunk size (in tokens) for async tensor parallelism. If set, sequence is split into chunks of this size."
+        },
+    )
+
     # torch.compile options
     compile_model: bool = field(
         default=False, metadata={"help": "Enable torch.compile for the model"}
