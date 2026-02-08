@@ -49,7 +49,6 @@ from ironcore.config import (
 from ironcore.models.transformer import TransformerModel
 from ironcore.parallel import parallel_states
 
-
 # Test configurations
 D_MODEL = 512
 NUM_HEADS = 8
@@ -206,7 +205,9 @@ def test_tp_correctness(tp_size):
 
             grad_diff = 0.0
             if "q_weight_grad_norm" in baseline_result and "q_weight_grad_norm" in result:
-                grad_diff = abs(baseline_result["q_weight_grad_norm"] - result["q_weight_grad_norm"])
+                grad_diff = abs(
+                    baseline_result["q_weight_grad_norm"] - result["q_weight_grad_norm"]
+                )
 
             num_chunks = (seq_len + chunk_size - 1) // chunk_size
 
@@ -233,9 +234,11 @@ def test_tp_correctness(tp_size):
 
             if rank == 0:
                 status = "✓ PASS" if passed else "✗ FAIL"
-                print(f"  chunk={chunk_size:<6} ({num_chunks:>2} chunks): "
-                      f"out_diff={output_diff:.2e}, loss_diff={loss_diff:.2e}, "
-                      f"grad_diff={grad_diff:.2e} {status}")
+                print(
+                    f"  chunk={chunk_size:<6} ({num_chunks:>2} chunks): "
+                    f"out_diff={output_diff:.2e}, loss_diff={loss_diff:.2e}, "
+                    f"grad_diff={grad_diff:.2e} {status}"
+                )
 
             del model
             torch.cuda.empty_cache()
@@ -269,8 +272,10 @@ def test_tp_correctness(tp_size):
             print(f"✗ SOME TESTS FAILED for TP={tp_size}")
             failed = [r for r in rank0_results if not r["passed"]]
             for r in failed:
-                print(f"  FAILED: seq={r['seq_len']}, chunk={r['chunk_size']}, "
-                      f"out_diff={r['output_diff']:.2e}")
+                print(
+                    f"  FAILED: seq={r['seq_len']}, chunk={r['chunk_size']}, "
+                    f"out_diff={r['output_diff']:.2e}"
+                )
         print(f"{'=' * 80}\n")
 
         print(f"Results saved to: {output_file}")
@@ -308,7 +313,9 @@ def compare_tp1_tp2():
     print("TP=1 vs TP=2 COMPARISON")
     print(f"{'=' * 100}\n")
 
-    print(f"{'Seq':>5}  {'Chunk':>6}  {'TP=1 Loss':>12}  {'TP=2 Loss':>12}  {'Loss Δ':>10}  {'Status':>8}")
+    print(
+        f"{'Seq':>5}  {'Chunk':>6}  {'TP=1 Loss':>12}  {'TP=2 Loss':>12}  {'Loss Δ':>10}  {'Status':>8}"
+    )
     print("-" * 100)
 
     # Create lookup for TP=2
@@ -332,9 +339,11 @@ def compare_tp1_tp2():
         passed = loss_diff < 1e-3
         status = "✓ PASS" if passed else "✗ FAIL"
 
-        print(f"{r1['seq_len']:>5}  {r1['chunk_size']:>6}  "
-              f"{r1['chunked_loss']:>12.8f}  {r2['chunked_loss']:>12.8f}  "
-              f"{loss_diff:>10.2e}  {status:>8}")
+        print(
+            f"{r1['seq_len']:>5}  {r1['chunk_size']:>6}  "
+            f"{r1['chunked_loss']:>12.8f}  {r2['chunked_loss']:>12.8f}  "
+            f"{loss_diff:>10.2e}  {status:>8}"
+        )
 
     print(f"\n{'=' * 100}")
     print(f"Maximum loss difference between TP=1 and TP=2: {max_diff:.2e}")
@@ -357,6 +366,7 @@ def test_both():
     result_tp1 = subprocess.run(
         [sys.executable, __file__, "--tp", "1"],
         cwd=Path(__file__).parent.parent,
+        check=False,
     )
 
     if result_tp1.returncode != 0:
@@ -368,6 +378,7 @@ def test_both():
     result_tp2 = subprocess.run(
         ["torchrun", "--nproc_per_node=2", __file__, "--tp", "2"],
         cwd=Path(__file__).parent.parent,
+        check=False,
     )
 
     if result_tp2.returncode != 0:
@@ -381,7 +392,9 @@ def test_both():
 def main():
     parser = argparse.ArgumentParser(description="Test TP=1 vs TP=2 correctness")
     parser.add_argument("--tp", type=int, choices=[1, 2], help="Tensor parallel size")
-    parser.add_argument("--test-both", action="store_true", help="Run both TP=1 and TP=2 and compare")
+    parser.add_argument(
+        "--test-both", action="store_true", help="Run both TP=1 and TP=2 and compare"
+    )
     args = parser.parse_args()
 
     if args.test_both:

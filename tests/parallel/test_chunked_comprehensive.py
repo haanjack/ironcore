@@ -211,7 +211,9 @@ def print_report(metrics_list, section_title):
         f"\n  Activation norms: baseline={m['output_norm_base']:.6f}  chunked={m['output_norm_chunk']:.6f}"
     )
     print(f"  Loss values:      baseline={m['loss_base']:.8f}  chunked={m['loss_chunk']:.8f}")
-    print(f"  Memory usage:     baseline={m['peak_alloc_base']:.0f}MB  chunked={m['peak_alloc_chunk']:.0f}MB  Δ={m['mem_delta']:+.0f}MB")
+    print(
+        f"  Memory usage:     baseline={m['peak_alloc_base']:.0f}MB  chunked={m['peak_alloc_chunk']:.0f}MB  Δ={m['mem_delta']:+.0f}MB"
+    )
 
 
 class TestChunkedValidation(unittest.TestCase):
@@ -256,7 +258,9 @@ class TestChunkedValidation(unittest.TestCase):
         hidden = torch.randn(BATCH_SIZE, seq_len, D_MODEL, device=self.device, dtype=dtype)
         mask = torch.tril(torch.ones(1, 1, seq_len, seq_len, device=self.device, dtype=dtype))
 
-        baseline = run_forward_backward(model, hidden, mask, config, chunk_size=None, device=self.device)
+        baseline = run_forward_backward(
+            model, hidden, mask, config, chunk_size=None, device=self.device
+        )
 
         atol = 1e-5 if dtype == torch.float32 else 5e-2
         rtol = 1e-4 if dtype == torch.float32 else 1e-1
@@ -265,7 +269,9 @@ class TestChunkedValidation(unittest.TestCase):
         for cs in chunk_sizes:
             n_chunks = (seq_len + cs - 1) // cs
             label = f"seq={seq_len} chunk={cs} (x{n_chunks})"
-            result = run_forward_backward(model, hidden, mask, config, chunk_size=cs, device=self.device)
+            result = run_forward_backward(
+                model, hidden, mask, config, chunk_size=cs, device=self.device
+            )
             m = compare(baseline, result, atol, rtol, label)
             metrics.append(m)
 
@@ -427,7 +433,9 @@ class TestChunkedValidationTP2(unittest.TestCase):
         hidden = torch.randn(BATCH_SIZE, seq_len, D_MODEL, device=self.device, dtype=dtype)
         mask = torch.tril(torch.ones(1, 1, seq_len, seq_len, device=self.device, dtype=dtype))
 
-        baseline = run_forward_backward(model, hidden, mask, config, chunk_size=None, device=self.device)
+        baseline = run_forward_backward(
+            model, hidden, mask, config, chunk_size=None, device=self.device
+        )
 
         atol = 1e-5 if dtype == torch.float32 else 5e-2
         rtol = 1e-4 if dtype == torch.float32 else 1e-1
@@ -436,7 +444,9 @@ class TestChunkedValidationTP2(unittest.TestCase):
         for cs in chunk_sizes:
             n_chunks = (seq_len + cs - 1) // cs
             label = f"seq={seq_len} chunk={cs} (x{n_chunks}) TP=2"
-            result = run_forward_backward(model, hidden, mask, config, chunk_size=cs, device=self.device)
+            result = run_forward_backward(
+                model, hidden, mask, config, chunk_size=cs, device=self.device
+            )
             m = compare(baseline, result, atol, rtol, label)
             metrics.append(m)
 
@@ -499,8 +509,12 @@ class TestChunkedValidationTP2(unittest.TestCase):
 if __name__ == "__main__":
     # Parse arguments to determine which test suite to run
     parser = argparse.ArgumentParser()
-    parser.add_argument("test_class", nargs="?", default="TestChunkedValidation",
-                        help="Test class to run (TestChunkedValidation or TestChunkedValidationTP2)")
+    parser.add_argument(
+        "test_class",
+        nargs="?",
+        default="TestChunkedValidation",
+        help="Test class to run (TestChunkedValidation or TestChunkedValidationTP2)",
+    )
     args, unknown = parser.parse_known_args()
 
     # Restore sys.argv for unittest
