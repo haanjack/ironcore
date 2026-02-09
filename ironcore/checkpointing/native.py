@@ -432,9 +432,9 @@ def save_checkpoint(
                     output_optim_state[key] = optim_state[key]
             output_optim_state["step"] = step
 
-            merged_optimizer_state["state"][i] = output_optim_state
+            merged_optimizer_state["state"][name] = output_optim_state
 
-        optimizer_state_dict = merged_optimizer_state
+        optimizer_state_dict_by_name = merged_optimizer_state
 
     # HuggingFace compatible config
     hf_config = HFConfigManager.get_hf_config(config)
