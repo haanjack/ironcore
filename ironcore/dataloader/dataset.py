@@ -51,7 +51,9 @@ class StreamingBinaryDataset:
         elif file_size // total_tokens == 4:
             dtype = np.uint32
         else:
-            raise ValueError(f"Unsupported bytes per token: {file_size // total_tokens}. Expected 2 or 4.")
+            raise ValueError(
+                f"Unsupported bytes per token: {file_size // total_tokens}. Expected 2 or 4."
+            )
 
         # Memory-map token data
         self.data = np.memmap(str(bin_path), dtype=dtype, mode="r")
