@@ -1,15 +1,17 @@
 """IronCore dataloader module."""
 
-import itertools
 from pathlib import Path
 
 from torch.utils.data import DataLoader
 
 from ironcore.dataloader.collator import UniversalCollator
 from ironcore.dataloader.data_config import DataConfig
-from ironcore.dataloader.universal_dataset import WeightedMixingDataset
+from ironcore.dataloader.dataset import (
+    StreamingDataset as WeightedMixingDataset,
+    StreamingBinaryDataset as BinaryDataset,
+)
 
-__all__ = ["UniversalCollator", "WeightedMixingDataset", "get_data_iterator"]
+__all__ = ["UniversalCollator", "WeightedMixingDataset", "BinaryDataset", "get_data_iterator"]
 
 
 def get_data_iterator(config):
@@ -36,7 +38,8 @@ def get_data_iterator(config):
     iterators = {}
 
     for split in ["train", "eval", "test"]:
-        # Create dataset
+        # Create dataset with streaming implementation
+        # shuffle_buffer_size is auto-tuned: 1% of dataset, capped at [1K, 100K]
         dataset = WeightedMixingDataset(
             data_config=data_config,
             mode=task_type,  # type: ignore
@@ -61,15 +64,11 @@ def get_data_iterator(config):
             dataset,
             batch_size=batch_size,
             collate_fn=collator,
-            num_workers=0,
+            num_workers=0, # Streaming datasets handle their own prefetching
         )
 
         # Store iterator
-        # For train split, use cycling iterator to repeat data for multiple epochs
-        # For eval/test, use single-pass iterator
-        if split == "train":
-            iterators[split] = itertools.cycle(iter(dataloader))
-        else:
-            iterators[split] = iter(dataloader)
+        # Streaming dataset already provides infinite iteration for pretrain mode
+        iterators[split] = iter(dataloader)
 
     return iterators
