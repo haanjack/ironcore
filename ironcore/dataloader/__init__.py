@@ -7,8 +7,10 @@ from torch.utils.data import DataLoader
 from ironcore.dataloader.collator import UniversalCollator
 from ironcore.dataloader.data_config import DataConfig
 from ironcore.dataloader.dataset import (
-    StreamingDataset as WeightedMixingDataset,
     StreamingBinaryDataset as BinaryDataset,
+)
+from ironcore.dataloader.dataset import (
+    StreamingDataset as WeightedMixingDataset,
 )
 
 __all__ = ["UniversalCollator", "WeightedMixingDataset", "BinaryDataset", "get_data_iterator"]
@@ -64,7 +66,7 @@ def get_data_iterator(config):
             dataset,
             batch_size=batch_size,
             collate_fn=collator,
-            num_workers=0, # Streaming datasets handle their own prefetching
+            num_workers=0,  # Streaming datasets handle their own prefetching
         )
 
         # Store iterator

@@ -40,7 +40,7 @@ class StreamingBinaryDataset:
         self.idx_path = idx_path
 
         # Memory-map metadata (don't load into RAM)
-        self.metadata = np.load(str(idx_path), allow_pickle=False, mmap_mode='r')
+        self.metadata = np.load(str(idx_path), allow_pickle=False, mmap_mode="r")
 
         # Determine dtype from file size
         file_size = bin_path.stat().st_size
@@ -346,7 +346,8 @@ class StreamingDataset(IterableDataset):
                 # Shard across data parallel ranks
                 if self.world_size > 1:
                     rank_positions = [
-                        pos for i, pos in enumerate(block_positions)
+                        pos
+                        for i, pos in enumerate(block_positions)
                         if (block_start + i) % self.world_size == self.rank
                     ]
                 else:
@@ -397,13 +398,15 @@ class StreamingDataset(IterableDataset):
         for ds_idx, dataset in enumerate(self.datasets):
             start, end = self.split_ranges[id(dataset)]
             num_samples = end - start
-            dataset_info.append({
-                'ds_idx': ds_idx,
-                'start': start,
-                'end': end,
-                'num_samples': num_samples,
-                'weight': self.weights[ds_idx],
-            })
+            dataset_info.append(
+                {
+                    "ds_idx": ds_idx,
+                    "start": start,
+                    "end": end,
+                    "num_samples": num_samples,
+                    "weight": self.weights[ds_idx],
+                }
+            )
             total_samples += num_samples
 
         # Create RNG
@@ -411,10 +414,9 @@ class StreamingDataset(IterableDataset):
 
         # Generate weighted sampling probabilities
         # Effective probability = (num_samples * weight) / total_weighted_samples
-        weighted_counts = np.array([
-            info['num_samples'] * info['weight']
-            for info in dataset_info
-        ], dtype=np.float64)
+        weighted_counts = np.array(
+            [info["num_samples"] * info["weight"] for info in dataset_info], dtype=np.float64
+        )
 
         # Use reservoir sampling for memory-efficient weighted shuffle
         # For each position, decide which dataset it comes from
@@ -432,12 +434,12 @@ class StreamingDataset(IterableDataset):
             info = dataset_info[selected_ds_idx]
 
             # Get next sample from selected dataset
-            if indices_per_dataset[selected_ds_idx] < info['num_samples']:
-                sample_idx = info['start'] + indices_per_dataset[selected_ds_idx]
+            if indices_per_dataset[selected_ds_idx] < info["num_samples"]:
+                sample_idx = info["start"] + indices_per_dataset[selected_ds_idx]
                 indices_per_dataset[selected_ds_idx] += 1
 
                 # Fetch and yield sample
-                dataset = self.datasets[info['ds_idx']]
+                dataset = self.datasets[info["ds_idx"]]
                 sample = dataset[sample_idx]
 
                 yield {
@@ -446,7 +448,7 @@ class StreamingDataset(IterableDataset):
                 }
 
             # Reduce weight to ensure we don't oversample
-            if indices_per_dataset[selected_ds_idx] >= info['num_samples']:
+            if indices_per_dataset[selected_ds_idx] >= info["num_samples"]:
                 weighted_counts[selected_ds_idx] = 0
 
 
@@ -463,6 +465,7 @@ def get_streaming_data_iterator(config):
         dict: Dictionary with 'train', 'eval', 'test' iterators
     """
     from torch.utils.data import DataLoader
+
     from ironcore.dataloader.collator import UniversalCollator
 
     # Load data configuration
@@ -497,8 +500,7 @@ def get_streaming_data_iterator(config):
 
         # Create dataloader
         batch_size = (
-            config.trainer.micro_batch_size if split == "train"
-            else config.trainer.eval_batch_size
+            config.trainer.micro_batch_size if split == "train" else config.trainer.eval_batch_size
         )
 
         # For IterableDataset, num_workers > 0 can cause issues with seeding
