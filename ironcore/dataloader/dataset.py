@@ -51,7 +51,7 @@ class StreamingBinaryDataset:
         elif file_size // total_tokens == 4:
             dtype = np.uint32
         else:
-            dtype = np.uint16
+            raise ValueError(f"Unsupported bytes per token: {file_size // total_tokens}. Expected 2 or 4.")
 
         # Memory-map token data
         self.data = np.memmap(str(bin_path), dtype=dtype, mode="r")
@@ -386,8 +386,9 @@ class StreamingDataset(IterableDataset):
 
         Strategy:
             1. Compute total samples (don't store indices)
-            2. Generate shuffled indices on-the-fly using Fisher-Yates
-            3. Yield samples lazily
+            2. Generate shuffled indices on-the-fly with weighted sampling
+            3. Only sample from non-exhausted datasets (prevents division by zero)
+            4. Yield samples lazily
 
         Memory: O(1) instead of O(num_samples)
         """
@@ -427,27 +428,32 @@ class StreamingDataset(IterableDataset):
             if self.world_size > 1 and global_idx % self.world_size != self.rank:
                 continue
 
-            # Weighted random selection of dataset
-            dataset_probs = weighted_counts / weighted_counts.sum()
+            # Check if all datasets are exhausted
+            current_weighted_counts_sum = weighted_counts.sum()
+            if current_weighted_counts_sum <= 0:
+                # All available samples have been yielded.
+                break
+
+            # Weighted random selection of dataset (only from non-exhausted datasets)
+            dataset_probs = weighted_counts / current_weighted_counts_sum
             selected_ds_idx = rng.choice(len(dataset_info), p=dataset_probs)
 
             info = dataset_info[selected_ds_idx]
 
-            # Get next sample from selected dataset
-            if indices_per_dataset[selected_ds_idx] < info["num_samples"]:
-                sample_idx = info["start"] + indices_per_dataset[selected_ds_idx]
-                indices_per_dataset[selected_ds_idx] += 1
+            # The selected dataset is guaranteed to have samples because its weight was > 0.
+            sample_idx = info["start"] + indices_per_dataset[selected_ds_idx]
+            indices_per_dataset[selected_ds_idx] += 1
 
-                # Fetch and yield sample
-                dataset = self.datasets[info["ds_idx"]]
-                sample = dataset[sample_idx]
+            # Fetch and yield sample
+            dataset = self.datasets[info["ds_idx"]]
+            sample = dataset[sample_idx]
 
-                yield {
-                    "token_ids": torch.from_numpy(sample["token_ids"].astype(np.int64)),
-                    "metadata": sample["metadata"],
-                }
+            yield {
+                "token_ids": torch.from_numpy(sample["token_ids"].astype(np.int64)),
+                "metadata": sample["metadata"],
+            }
 
-            # Reduce weight to ensure we don't oversample
+            # If the dataset is now exhausted, set its weight to 0 for future selections.
             if indices_per_dataset[selected_ds_idx] >= info["num_samples"]:
                 weighted_counts[selected_ds_idx] = 0
 
@@ -486,7 +492,6 @@ def get_streaming_data_iterator(config):
             mode=task_type,  # type: ignore
             split=split,
             seed=1337,
-            shuffle_buffer_size=10000,  # Configurable
         )
 
         # Create collator
