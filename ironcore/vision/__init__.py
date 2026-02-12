@@ -8,6 +8,13 @@
 #
 # Full license text is available at LICENSE file.
 
+from .async_pipeline import (
+    AsyncVisionEncoder,
+    CUDASyncVisionEncoder,
+    HybridAsyncVisionPipeline,
+    VisionFeatureBatch,
+    VisionFeatureQueue,
+)
 from .device_manager import (
     DeviceManager,
     HybridVisionEncoder,
@@ -22,4 +29,10 @@ __all__ = [
     "DeviceManager",
     "HybridVisionEncoder",
     "get_optimal_device_config",
+    # Async pipeline
+    "VisionFeatureQueue",
+    "VisionFeatureBatch",
+    "AsyncVisionEncoder",
+    "CUDASyncVisionEncoder",
+    "HybridAsyncVisionPipeline",
 ]

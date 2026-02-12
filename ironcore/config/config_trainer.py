@@ -111,6 +111,16 @@ class TrainerConfig(BaseConfig):
         },
     )
 
+    # Async Vision Pipeline (for VLA models)
+    async_vision_queue_size: int = field(
+        default=4,
+        metadata={"help": "Queue size for async vision feature prefetching"},
+    )
+    async_vision_workers: int = field(
+        default=2,
+        metadata={"help": "Number of worker threads for CPU vision encoding"},
+    )
+
 
 @dataclass
 class OperationConfig(BaseConfig):
