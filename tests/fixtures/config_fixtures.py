@@ -231,10 +231,6 @@ def test_config_fim_enabled(temp_dir):
                 name="test_fim",
                 source="dummy",
                 task_type="pretrain",
-                fim_rate=0.5,
-                fim_prefix_token="<fim_prefix>",
-                fim_suffix_token="<fim_suffix>",
-                fim_middle_token="<fim_middle>",
                 text_column="text",
             )
         ],
@@ -242,6 +238,11 @@ def test_config_fim_enabled(temp_dir):
         seq_length=1024,
         preprocessed_dir=temp_dir / "preprocessed",
         cache_dir=temp_dir / "cache",
+        # FIM settings at config level (not per-dataset)
+        fim_rate=0.5,
+        fim_prefix_token="<fim_prefix>",
+        fim_suffix_token="<fim_suffix>",
+        fim_middle_token="<fim_middle>",
     )
 
 
@@ -256,7 +257,6 @@ def test_config_fim_disabled(temp_dir):
                 name="test_no_fim",
                 source="dummy",
                 task_type="pretrain",
-                fim_rate=0.0,
                 text_column="text",
             )
         ],
@@ -264,6 +264,7 @@ def test_config_fim_disabled(temp_dir):
         seq_length=1024,
         preprocessed_dir=temp_dir / "preprocessed",
         cache_dir=temp_dir / "cache",
+        fim_rate=0.0,  # FIM disabled
     )
 
 
@@ -278,10 +279,6 @@ def test_config_fim_100(temp_dir):
                 name="test_fim_100",
                 source="dummy",
                 task_type="pretrain",
-                fim_rate=1.0,
-                fim_prefix_token="<fim_prefix>",
-                fim_suffix_token="<fim_suffix>",
-                fim_middle_token="<fim_middle>",
                 text_column="text",
             )
         ],
@@ -289,6 +286,11 @@ def test_config_fim_100(temp_dir):
         seq_length=1024,
         preprocessed_dir=temp_dir / "preprocessed",
         cache_dir=temp_dir / "cache",
+        # FIM at 100%
+        fim_rate=1.0,
+        fim_prefix_token="<fim_prefix>",
+        fim_suffix_token="<fim_suffix>",
+        fim_middle_token="<fim_middle>",
     )
 
 

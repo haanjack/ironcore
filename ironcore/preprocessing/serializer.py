@@ -185,19 +185,19 @@ class DataSerializer:
         """
         text_column = dataset_config.text_column
 
-        # Check if FIM is enabled
-        fim_enabled = hasattr(dataset_config, "fim_rate") and dataset_config.fim_rate > 0
+        # Check if FIM is enabled (read from global config, not per-dataset)
+        fim_enabled = self.config.fim_rate > 0
 
         # Get FIM special token IDs if enabled
         if fim_enabled:
-            fim_prefix_id = self._get_token_id(dataset_config.fim_prefix_token)
-            fim_suffix_id = self._get_token_id(dataset_config.fim_suffix_token)
-            fim_middle_id = self._get_token_id(dataset_config.fim_middle_token)
+            fim_prefix_id = self._get_token_id(self.config.fim_prefix_token)
+            fim_suffix_id = self._get_token_id(self.config.fim_suffix_token)
+            fim_middle_id = self._get_token_id(self.config.fim_middle_token)
             rng = Random(1337)
 
             if self.verbose:
                 print(
-                    f"  FIM enabled: {dataset_config.fim_rate:.0%} of sequences will be transformed"
+                    f"  FIM enabled: {self.config.fim_rate:.0%} of sequences will be transformed"
                 )
 
         # Open binary file for writing
@@ -218,7 +218,7 @@ class DataSerializer:
             token_ids = self._tokenize(text)
 
             # Apply FIM transformation with probability fim_rate
-            if fim_enabled and rng.random() < dataset_config.fim_rate:
+            if fim_enabled and rng.random() < self.config.fim_rate:
                 token_ids = self._apply_fim_transformation(
                     token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
                 )
@@ -267,19 +267,19 @@ class DataSerializer:
         """
         messages_column = dataset_config.messages_column
 
-        # Check if FIM is enabled
-        fim_enabled = hasattr(dataset_config, "fim_rate") and dataset_config.fim_rate > 0
+        # Check if FIM is enabled (read from global config, not per-dataset)
+        fim_enabled = self.config.fim_rate > 0
 
         # Get FIM special token IDs if enabled
         if fim_enabled:
-            fim_prefix_id = self._get_token_id(dataset_config.fim_prefix_token)
-            fim_suffix_id = self._get_token_id(dataset_config.fim_suffix_token)
-            fim_middle_id = self._get_token_id(dataset_config.fim_middle_token)
+            fim_prefix_id = self._get_token_id(self.config.fim_prefix_token)
+            fim_suffix_id = self._get_token_id(self.config.fim_suffix_token)
+            fim_middle_id = self._get_token_id(self.config.fim_middle_token)
             rng = Random(1337)
 
             if self.verbose:
                 print(
-                    f"  FIM enabled: {dataset_config.fim_rate:.0%} of conversations will be transformed"
+                    f"  FIM enabled: {self.config.fim_rate:.0%} of conversations will be transformed"
                 )
 
         all_tokens = []
@@ -301,7 +301,7 @@ class DataSerializer:
             )
 
             # Apply FIM transformation with probability fim_rate
-            if fim_enabled and rng.random() < dataset_config.fim_rate:
+            if fim_enabled and rng.random() < self.config.fim_rate:
                 token_ids = self._apply_fim_transformation(
                     token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
                 )
@@ -351,19 +351,19 @@ class DataSerializer:
         chosen_column = dataset_config.chosen_column
         rejected_column = dataset_config.rejected_column
 
-        # Check if FIM is enabled
-        fim_enabled = hasattr(dataset_config, "fim_rate") and dataset_config.fim_rate > 0
+        # Check if FIM is enabled (read from global config, not per-dataset)
+        fim_enabled = self.config.fim_rate > 0
 
         # Get FIM special token IDs if enabled
         if fim_enabled:
-            fim_prefix_id = self._get_token_id(dataset_config.fim_prefix_token)
-            fim_suffix_id = self._get_token_id(dataset_config.fim_suffix_token)
-            fim_middle_id = self._get_token_id(dataset_config.fim_middle_token)
+            fim_prefix_id = self._get_token_id(self.config.fim_prefix_token)
+            fim_suffix_id = self._get_token_id(self.config.fim_suffix_token)
+            fim_middle_id = self._get_token_id(self.config.fim_middle_token)
             rng = Random(1337)
 
             if self.verbose:
                 print(
-                    f"  FIM enabled: {dataset_config.fim_rate:.0%} of DPO pairs will be transformed"
+                    f"  FIM enabled: {self.config.fim_rate:.0%} of DPO pairs will be transformed"
                 )
 
         all_tokens = []
@@ -390,7 +390,7 @@ class DataSerializer:
             )
 
             # Apply FIM transformation to both if enabled (same roll for the pair)
-            if fim_enabled and rng.random() < dataset_config.fim_rate:
+            if fim_enabled and rng.random() < self.config.fim_rate:
                 # Transform chosen
                 chosen_token_ids = self._apply_fim_transformation(
                     chosen_token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
