@@ -227,3 +227,109 @@ def compute_action_metrics(
         "action_l1": l1,
         "action_max_error": max_error,
     }
+
+
+def compute_vla_success_rate(
+    pred_actions: torch.Tensor,
+    target_actions: torch.Tensor,
+    position_tol: float = 0.05,
+    rotation_tol: float = 0.1,
+    gripper_tol: float = 0.1,
+) -> dict[str, float]:
+    """Compute success rate based on action tolerances.
+
+    Success is determined by whether predictions are within tolerance
+    for all action dimensions (position, rotation, gripper).
+
+    Args:
+        pred_actions: [batch, action_dim * horizon] predicted actions
+        target_actions: [batch, action_dim * horizon] target actions
+        position_tol: Position tolerance (default 5cm)
+        rotation_tol: Rotation tolerance (default ~5.7 degrees)
+        gripper_tol: Gripper state tolerance (default 10%)
+
+    Returns:
+        Dictionary with success rates
+    """
+    with torch.no_grad():
+        errors = (pred_actions - target_actions).abs()
+
+        # Position success (first 3 dims)
+        if pred_actions.shape[1] >= 3:
+            pos_errors = errors[:, :3].max(dim=1)[0]
+            pos_success = (pos_errors < position_tol).float().mean().item()
+        else:
+            pos_success = 1.0
+
+        # Rotation success (dims 3-5)
+        if pred_actions.shape[1] >= 6:
+            rot_errors = errors[:, 3:6].max(dim=1)[0]
+            rot_success = (rot_errors < rotation_tol).float().mean().item()
+        else:
+            rot_success = 1.0
+
+        # Gripper success (dim 6)
+        if pred_actions.shape[1] >= 7:
+            grip_errors = errors[:, 6]
+            grip_success = (grip_errors < gripper_tol).float().mean().item()
+        else:
+            grip_success = 1.0
+
+        # Overall success (all within tolerance)
+        all_success = pos_success * rot_success * grip_success
+
+    return {
+        "success_rate": all_success * 100,
+        "position_success": pos_success * 100,
+        "rotation_success": rot_success * 100,
+        "gripper_success": grip_success * 100,
+    }
+
+
+def eval_step_vla(model, data_iterator) -> dict[str, float]:
+    """Evaluation step for VLA model.
+
+    Computes validation loss and action prediction metrics.
+
+    Args:
+        model: VLA model
+        data_iterator: Iterator over validation data
+
+    Returns:
+        Dictionary with loss and action metrics
+    """
+    batch = get_vla_batch(data_iterator)
+
+    # Extract batch components
+    input_ids = batch["input_ids"]
+    labels = batch.get("labels")
+    pixel_values = batch.get("pixel_values")
+    actions = batch.get("actions")
+    attention_mask = batch.get("attention_mask")
+
+    # Forward pass
+    loss = model(
+        input_ids=input_ids,
+        pixel_values=pixel_values,
+        labels=labels,
+        actions=actions,
+        attention_mask=attention_mask,
+    )
+
+    metrics = {"val_loss": loss.item()}
+
+    # Compute action metrics if actions present
+    if actions is not None and pixel_values is not None:
+        with torch.no_grad():
+            pred_actions = model.predict_action(
+                input_ids=input_ids,
+                pixel_values=pixel_values,
+            )
+
+            action_metrics = compute_action_metrics(pred_actions, actions)
+            success_metrics = compute_vla_success_rate(pred_actions, actions)
+
+            metrics.update(action_metrics)
+            metrics.update(success_metrics)
+
+    return metrics
