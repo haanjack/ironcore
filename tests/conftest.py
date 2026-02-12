@@ -19,6 +19,23 @@ Provides:
 
 import pytest
 
+
+def pytest_addoption(parser):
+    """Add custom command line options."""
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="Run slow tests",
+    )
+    parser.addoption(
+        "--run-tp",
+        action="store_true",
+        default=False,
+        help="Run tensor parallel tests (requires multi-GPU)",
+    )
+
+
 # Register custom markers
 markers = [
     "unit: Fast, isolated unit tests",
@@ -30,6 +47,8 @@ markers = [
     "distributed: Tests requiring multiple GPUs or distributed setup",
     "cuda: Tests requiring CUDA/GPU",
     "flash_attn: Tests requiring flash-attn package",
+    "tp: Tests requiring tensor parallelism",
+    "gpu: Tests requiring GPU",
 ]
 
 
@@ -40,7 +59,10 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Add marker for distributed tests based on file name patterns."""
+    """Add markers and skip tests based on options."""
+    skip_slow = pytest.mark.skip(reason="need --run-slow option to run")
+    skip_tp = pytest.mark.skip(reason="need --run-tp option to run")
+
     for item in items:
         # Auto-mark distributed tests
         if "tp_" in item.nodeid or "distributed" in item.nodeid:
@@ -49,3 +71,9 @@ def pytest_collection_modifyitems(config, items):
         # Auto-mark cuda tests
         if any(x in item.nodeid for x in ["cuda", "attention", "transformer", "tp_"]):
             item.add_marker(pytest.mark.cuda)
+
+        # Skip based on options
+        if "slow" in item.keywords and not config.getoption("--run-slow"):
+            item.add_marker(skip_slow)
+        if "tp" in item.keywords and not config.getoption("--run-tp"):
+            item.add_marker(skip_tp)

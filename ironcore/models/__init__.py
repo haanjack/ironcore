@@ -12,14 +12,30 @@ from .dummy import DummyModel
 from .transformer import TransformerModel
 
 SUPPORTED_TRANSFORMER_PREFIXES = ["GPT", "LLAMA", "GEMMA1", "QWEN", "PHI1", "PHI2"]
+SUPPORTED_VLA_PREFIXES = ["VLA", "VLA-", "ROBOT"]
 
 
 def get_model_provider_func(config):
+    """Get model class based on configuration.
+
+    Args:
+        config: MainConfig with model.name specifying architecture
+
+    Returns:
+        Model class to instantiate
+    """
     model_name = config.model.name.upper()
 
     if model_name == "DUMMY":
         return DummyModel
 
+    # Check for VLA models
+    if any(model_name.startswith(prefix) for prefix in SUPPORTED_VLA_PREFIXES):
+        from .vla_model import VLAModel
+
+        return VLAModel
+
+    # Standard transformer models
     if any(model_name.startswith(prefix) for prefix in SUPPORTED_TRANSFORMER_PREFIXES):
         return TransformerModel
 
@@ -29,4 +45,5 @@ def get_model_provider_func(config):
 __all__ = [
     "DummyModel",
     "TransformerModel",
+    "get_model_provider_func",
 ]

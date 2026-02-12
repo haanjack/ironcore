@@ -9,13 +9,19 @@
 # Full license text is available at LICENSE file.
 
 from .attention import Attention
+from .cross_attention import CrossAttention, GatedCrossAttention, VisionLanguageFusion
 from .embedding import LanguageModelEmbedding
 from .mlp import MLP
 from .module import BaseModule
+from .multimodal import VisionLanguageProjector
 
 __all__ = [
     "BaseModule",
     "LanguageModelEmbedding",
     "Attention",
+    "CrossAttention",
+    "GatedCrossAttention",
+    "VisionLanguageFusion",
     "MLP",
+    "VisionLanguageProjector",
 ]

@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from ironcore.config import (
@@ -62,6 +64,100 @@ STANDARD_MODEL_CONFIG = {
     "no_bias": False,
     "precision": "float32",
 }
+
+
+# =============================================================================
+# Mock Configs for VLA Testing
+# =============================================================================
+
+
+class MockConfig:
+    """Minimal mock config for testing without full MainConfig."""
+
+    trainer: Any
+    model: Any
+    init: Any
+    operation: Any
+    vla: Any
+
+    def __init__(self, **kwargs):
+        # Default values
+        self.trainer = kwargs.get("trainer", type("trainer", (), {
+            "tensor_model_parallel_size": 1,
+        })())
+        self.model = kwargs.get("model", type("model", (), {
+            "d_model": 512,
+            "d_ffn": 2048,
+            "num_layers": 2,
+            "num_attention_heads": 8,
+            "num_attention_groups": 2,
+            "head_dim": 64,
+            "max_seq_len": 512,
+            "dropout_embd": 0.0,
+            "dropout_attn": 0.0,
+            "dropout_mlp": 0.0,
+            "no_bias": False,
+            "ln_type": "layernorm",
+            "ln_eps": 1e-5,
+        })())
+        self.init = kwargs.get("init", type("init", (), {
+            "init_std": 0.02,
+            "xavier_init": False,
+        })())
+        self.operation = kwargs.get("operation", type("operation", (), {
+            "activation_recompute": False,
+            "recompute_strategy": "standard",
+        })())
+        self.vla = kwargs.get("vla", None)
+
+
+class MockVLAConfig:
+    """Mock VLA config for testing."""
+
+    vision: Any
+    projector: Any
+    fusion: Any
+    action: Any
+
+    def __init__(self, **kwargs):
+        self.vision = kwargs.get("vision", type("vision", (), {
+            "encoder_type": "siglip",
+            "model_name": "test-model",
+            "image_size": 384,
+            "patch_size": 14,
+            "hidden_size": 1152,
+            "num_hidden_layers": 2,  # Reduced for testing
+            "num_attention_heads": 16,
+            "intermediate_size": 4304,
+            "freeze_vision": True,
+            "layer_norm_eps": 1e-6,
+            "device": "cpu",
+            "prefer_cpu_with_avx512": False,
+        })())
+        self.projector = kwargs.get("projector", type("projector", (), {
+            "projector_type": "mlp",
+            "hidden_size": 1024,
+            "num_layers": 2,
+            "activation": "gelu",
+        })())
+        self.fusion = kwargs.get("fusion", type("fusion", (), {
+            "fusion_type": "gated_cross_attention",
+            "num_layers": 1,
+            "num_query_tokens": 32,
+        })())
+        self.action = kwargs.get("action", type("action", (), {
+            "action_dim": 7,
+            "hidden_size": 512,
+            "num_layers": 2,
+            "prediction_horizon": 1,
+            "loss_type": "mse",
+            "action_weight": 1.0,
+            "use_normalizer": True,
+        })())
+        # VLA-specific
+        self.image_token_id = kwargs.get("image_token_id", -200)
+        self.action_token_id = kwargs.get("action_token_id", -201)
+        self.num_image_tokens = kwargs.get("num_image_tokens", 729)
 
 
 # =============================================================================
@@ -206,6 +302,23 @@ def attention_config(request) -> MainConfig:
         num_attention_heads=8,
         num_attention_groups=num_groups,
     )
+
+
+@pytest.fixture
+def mock_config():
+    """Create a minimal mock config for testing."""
+    return MockConfig()
+
+
+@pytest.fixture
+def vla_config():
+    """Create a mock VLA config for testing."""
+    config = MockConfig()
+    config.vla = MockVLAConfig()
+    # Update model dimensions to match VLA
+    config.model.d_model = 1024
+    config.model.d_ffn = 4096
+    return config
 
 
 # =============================================================================

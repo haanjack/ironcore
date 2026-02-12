@@ -28,6 +28,7 @@ from .config_peft import LoRAConfig as LoRAConfig
 from .config_peft import PEFTConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
 from .config_utils import UtilsConfig
+from .config_vla import VLAConfig
 
 load_dotenv()
 
@@ -69,6 +70,7 @@ class MainConfig(BaseConfig):
     operation: OperationConfig
     utils: UtilsConfig
     peft: PEFTConfig
+    vla: VLAConfig | None = None
 
 
 def _config_validation(config: MainConfig):
@@ -442,6 +444,7 @@ def load_trainer_config() -> MainConfig:
         operation=OperationConfig(),
         utils=UtilsConfig(),
         peft=PEFTConfig(),
+        vla=None,  # Optional VLA config, loaded if model is VLA type
     )
 
     # get config from command line
@@ -453,6 +456,11 @@ def load_trainer_config() -> MainConfig:
 
     # update config from command line arguments
     _update_config_from_args(config, args)
+
+    # Initialize VLA config if model name starts with VLA
+    if config.model.name.upper().startswith("VLA") or config.model.name.upper().startswith("ROBOT"):
+        if config.vla is None:
+            config.vla = VLAConfig()
 
     # Args from environment
     config.parallel.rank = int(os.getenv("RANK", "0"))

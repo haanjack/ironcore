@@ -1,0 +1,129 @@
+# VLA Small Configuration
+# Optimized for dual RTX 3090 (48GB VRAM)
+#
+# Device placement options:
+# - auto: Automatically select best device
+# - cuda:0: First GPU (internal)
+# - cuda:1: Second GPU (internal)
+# - cuda:2: e-GPU (if available)
+# - cpu: Use CPU with AVX-512 optimization
+#
+# Fusion strategies:
+# - gated_cross_attention: Flamingo-style (recommended)
+# - qformer: BLIP-2 style
+# - concat: Simple concatenation (baseline)
+
+model:
+  name: vla-small
+  d_model: 1024
+  d_ffn: 4096
+  num_layers: 12
+  num_attention_heads: 16
+  num_attention_groups: 4
+  head_dim: 64
+  max_seq_len: 1024
+  max_position_embeddings: 1024
+  dropout_embd: 0.1
+  dropout_attn: 0.1
+  dropout_mlp: 0.1
+  attention_head_size: 64
+  precision: bfloat16
+  ln_type: rmsnorm
+  ln_eps: 1.0e-5
+  no_bias: false
+  positional_embedding:
+    type: rope
+    base: 10000
+  tokenizer_type: gpt2
+  vocab_name_or_path: gpt2
+
+init:
+  init_std: 0.02
+  xavier_init: false
+
+optim:
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  lr_scheduler: cosine
+  warmup_steps: 2000
+  min_lr: 1.0e-6
+
+data:
+  task_type: vla
+  seq_length: 1024
+
+parallel:
+  world_size: 2
+
+trainer:
+  micro_batch_size: 4
+  gradient_accumulation_steps: 4
+  eval_batch_size: 4
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 10
+  tensor_model_parallel_size: 2
+  pipeline_model_parallel_size: 1
+  activation_recompute: true
+  use_flash_attn: true
+
+operation:
+  train_steps: 50000
+  recompute_strategy: optimized
+
+utils:
+  checkpoint_dir: checkpoints/vla-small
+  log_dir: logs/vla-small
+
+# VLA-specific configuration
+vla:
+  vision:
+    encoder_type: siglip
+    model_name: google/siglip-so400m-patch14-384
+    image_size: 384
+    patch_size: 14
+    hidden_size: 1152
+    num_hidden_layers: 27
+    num_attention_heads: 16
+    intermediate_size: 4304
+    freeze_vision: true
+    layer_norm_eps: 1.0e-6
+    # Device options:
+    device: auto
+    prefer_cpu_with_avx512: true
+
+  projector:
+    projector_type: mlp
+    hidden_size: 4096
+    num_layers: 2
+    activation: gelu
+
+  # Cross-attention fusion settings
+  fusion:
+    # Fusion type: gated_cross_attention, qformer, concat
+    fusion_type: gated_cross_attention
+    # Number of cross-attention layers
+    num_layers: 1
+    # For Q-Former only
+    num_query_tokens: 32
+    # Apply cross-attention every N language layers (for interleaved)
+    cross_attn_every_n_layers: 1
+
+  action:
+    action_dim: 7
+    hidden_size: 1024
+    num_layers: 3
+    prediction_horizon: 1
+    loss_type: mse
+    action_weight: 1.0
+    use_normalizer: true
+
+  image_token_id: -200
+  action_token_id: -201
+  num_image_tokens: 729  # (384/14)^2
+  vision_weight: 1.0
+  language_weight: 1.0

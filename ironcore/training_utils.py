@@ -147,3 +147,83 @@ def loss_func(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch.Ten
     loss = torch.sum(token_losses * loss_mask) / torch.sum(loss_mask)
 
     return loss
+
+
+def get_vla_batch(data_iterator) -> dict:
+    """Get VLA batch from data iterator.
+
+    Returns:
+        Dictionary with:
+        - input_ids: Token IDs
+        - labels: Labels for language modeling
+        - pixel_values: Processed images
+        - actions: Target actions
+        - attention_mask: Attention mask
+        - image_token_mask: Mask for image token positions
+    """
+    if data_iterator is not None:
+        batch = next(data_iterator)
+    else:
+        batch = None
+
+    return batch
+
+
+def forward_step_vla(model, data_iterator) -> torch.Tensor:
+    """Forward step for VLA training.
+
+    Handles vision, language, and action inputs for VLA models.
+
+    Args:
+        model: VLAModel instance
+        data_iterator: Iterator yielding VLA batches
+
+    Returns:
+        Total loss (language loss + action loss)
+    """
+    batch = get_vla_batch(data_iterator)
+
+    # Extract batch components
+    input_ids = batch["input_ids"]
+    labels = batch["labels"]
+    pixel_values = batch["pixel_values"]
+    actions = batch["actions"]
+    attention_mask = batch.get("attention_mask", None)
+    image_token_mask = batch.get("image_token_mask", None)
+
+    # Forward pass
+    loss = model(
+        input_ids=input_ids,
+        pixel_values=pixel_values,
+        labels=labels,
+        actions=actions,
+        attention_mask=attention_mask,
+        image_token_mask=image_token_mask,
+    )
+
+    return loss
+
+
+def compute_action_metrics(
+    pred_actions: torch.Tensor,
+    target_actions: torch.Tensor,
+) -> dict[str, float]:
+    """Compute metrics for action prediction.
+
+    Args:
+        pred_actions: [batch, action_dim * horizon] predicted actions
+        target_actions: [batch, action_dim * horizon] target actions
+
+    Returns:
+        Dictionary with MSE, L1, and max error metrics
+    """
+    with torch.no_grad():
+        mse = torch.nn.functional.mse_loss(pred_actions, target_actions).item()
+        l1 = torch.nn.functional.l1_loss(pred_actions, target_actions).item()
+        max_error = (pred_actions - target_actions).abs().max().item()
+
+    return {
+        "action_mse": mse,
+        "action_l1": l1,
+        "action_max_error": max_error,
+    }
