@@ -203,3 +203,114 @@ def attention_config(request) -> MainConfig:
         num_attention_heads=8,
         num_attention_groups=num_groups,
     )
+
+
+# =============================================================================
+# FIM (Fill-In-the-Middle) Configuration Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def temp_dir():
+    """Temporary directory for test outputs."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
+
+
+@pytest.fixture
+def test_config_fim_enabled(temp_dir):
+    """Test configuration with FIM enabled at 50%."""
+    from ironcore.dataloader.data_config import DatasetConfig, UniversalDataConfig
+
+    return UniversalDataConfig(
+        datasets=[
+            DatasetConfig(
+                name="test_fim",
+                source="dummy",
+                task_type="pretrain",
+                fim_rate=0.5,
+                fim_prefix_token="<fim_prefix>",
+                fim_suffix_token="<fim_suffix>",
+                fim_middle_token="<fim_middle>",
+                text_column="text",
+            )
+        ],
+        vocab_name_or_path="gpt2",
+        seq_length=1024,
+        preprocessed_dir=temp_dir / "preprocessed",
+        cache_dir=temp_dir / "cache",
+    )
+
+
+@pytest.fixture
+def test_config_fim_disabled(temp_dir):
+    """Test configuration with FIM disabled."""
+    from ironcore.dataloader.data_config import DatasetConfig, UniversalDataConfig
+
+    return UniversalDataConfig(
+        datasets=[
+            DatasetConfig(
+                name="test_no_fim",
+                source="dummy",
+                task_type="pretrain",
+                fim_rate=0.0,
+                text_column="text",
+            )
+        ],
+        vocab_name_or_path="gpt2",
+        seq_length=1024,
+        preprocessed_dir=temp_dir / "preprocessed",
+        cache_dir=temp_dir / "cache",
+    )
+
+
+@pytest.fixture
+def test_config_fim_100(temp_dir):
+    """Test configuration with FIM at 100%."""
+    from ironcore.dataloader.data_config import DatasetConfig, UniversalDataConfig
+
+    return UniversalDataConfig(
+        datasets=[
+            DatasetConfig(
+                name="test_fim_100",
+                source="dummy",
+                task_type="pretrain",
+                fim_rate=1.0,
+                fim_prefix_token="<fim_prefix>",
+                fim_suffix_token="<fim_suffix>",
+                fim_middle_token="<fim_middle>",
+                text_column="text",
+            )
+        ],
+        vocab_name_or_path="gpt2",
+        seq_length=1024,
+        preprocessed_dir=temp_dir / "preprocessed",
+        cache_dir=temp_dir / "cache",
+    )
+
+
+@pytest.fixture
+def serializer_with_fim(test_config_fim_enabled, test_tokenizer_with_fim):
+    """DataSerializer with FIM-enabled tokenizer."""
+    from ironcore.preprocessing.serializer import DataSerializer
+
+    return DataSerializer(test_config_fim_enabled, test_tokenizer_with_fim, verbose=False)
+
+
+@pytest.fixture
+def serializer_without_fim(test_config_fim_disabled, test_tokenizer_without_fim):
+    """DataSerializer with FIM disabled."""
+    from ironcore.preprocessing.serializer import DataSerializer
+
+    return DataSerializer(test_config_fim_disabled, test_tokenizer_without_fim, verbose=False)
+
+
+@pytest.fixture
+def serializer_fim_100(test_config_fim_100, test_tokenizer_with_fim):
+    """DataSerializer with FIM at 100%."""
+    from ironcore.preprocessing.serializer import DataSerializer
+
+    return DataSerializer(test_config_fim_100, test_tokenizer_with_fim, verbose=False)

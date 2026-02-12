@@ -1,0 +1,45 @@
+# Fill-In-the-Middle (FIM) pretraining configuration
+# For code completion models (like GitHub Copilot, StarCoder)
+#
+# IMPORTANT: Before preprocessing, add FIM tokens to your tokenizer:
+#   from transformers import AutoTokenizer
+#   tokenizer = AutoTokenizer.from_pretrained("gpt2")
+#   tokenizer.add_special_tokens({
+#       "additional_special_tokens": ["<fim_prefix>", "<fim_suffix>", "<fim_middle>"]
+#   })
+#   tokenizer.save_pretrained("./tokenizers/gpt2-fim")
+#
+# Then update vocab_name_or_path below to point to the tokenizer with FIM tokens.
+
+# Tokenizer configuration (MUST have FIM tokens added if fim_rate > 0)
+vocab_name_or_path: gpt2  # Update to path with FIM tokens added
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 2048  # Longer sequences benefit FIM more
+
+# Data splits (train/eval/test)
+splits: [0.99, 0.01, 0.0]
+
+# Datasets to mix
+train_datasets:
+  - name: the_stack_python
+    dataset_path: bigcode/the-stack-dedup
+    subset: data/python
+    task_type: pretrain  # FIM is enabled via fim_rate, not as separate task type
+    ratio: 1.0
+    split: train
+    text_column: content
+    max_samples: 100000
+
+    # FIM parameters - set fim_rate > 0 to enable FIM transformation
+    fim_rate: 0.5  # 50% FIM, 50% normal autoregressive (set to 0.0 to disable)
+    fim_split_type: random  # Random splitting strategy
+    fim_prefix_token: "<fim_prefix>"
+    fim_suffix_token: "<fim_suffix>"
+    fim_middle_token: "<fim_middle>"
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

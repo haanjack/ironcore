@@ -150,3 +150,102 @@ class TensorComparator:
                 f"  norm_diff={stats['norm_diff']:.2e}\n"
                 f"  (rtol={self.rtol}, atol={self.atol})"
             )
+
+
+# =============================================================================
+# FIM (Fill-In-the-Middle) Utility Functions
+# =============================================================================
+
+
+def verify_psm_structure(token_ids: list[int], fp_id: int, fs_id: int, fm_id: int) -> bool:
+    """
+    Verify FIM sequence has correct PSM (Prefix-Suffix-Middle) structure.
+
+    Args:
+        token_ids: Token IDs to check
+        fp_id: fim_prefix token ID
+        fs_id: fim_suffix token ID
+        fm_id: fim_middle token ID
+
+    Returns:
+        True if structure is valid, False otherwise
+    """
+    try:
+        fp_pos = token_ids.index(fp_id)
+        fs_pos = token_ids.index(fs_id)
+        fm_pos = token_ids.index(fm_id)
+
+        # Check order: prefix < suffix < middle
+        if not (fp_pos < fs_pos < fm_pos):
+            return False
+
+        # Check each special token appears exactly once
+        if token_ids.count(fp_id) != 1 or token_ids.count(fs_id) != 1 or token_ids.count(fm_id) != 1:
+            return False
+
+        return True
+    except ValueError:
+        return False
+
+
+def has_fim_tokens(token_ids: list[int], fp_id: int, fs_id: int, fm_id: int) -> bool:
+    """Check if sequence contains all three FIM special tokens."""
+    return fp_id in token_ids and fs_id in token_ids and fm_id in token_ids
+
+
+def count_fim_samples(token_sequences: list[list[int]], fp_id: int) -> int:
+    """Count number of sequences containing FIM tokens."""
+    return sum(1 for seq in token_sequences if fp_id in seq)
+
+
+def calculate_fim_rate(token_sequences: list[list[int]], fp_id: int) -> float:
+    """Calculate actual FIM transformation rate."""
+    if not token_sequences:
+        return 0.0
+    return count_fim_samples(token_sequences, fp_id) / len(token_sequences)
+
+
+def get_section_lengths(
+    fim_tokens: list[int], fp_id: int, fs_id: int, fm_id: int
+) -> tuple[int, int, int]:
+    """Get lengths of prefix, suffix, and middle sections."""
+    fp_pos = fim_tokens.index(fp_id)
+    fs_pos = fim_tokens.index(fs_id)
+    fm_pos = fim_tokens.index(fm_id)
+
+    prefix_len = fs_pos - fp_pos - 1
+    suffix_len = fm_pos - fs_pos - 1
+    middle_len = len(fim_tokens) - fm_pos - 1
+
+    return (prefix_len, suffix_len, middle_len)
+
+
+def extract_split_positions(
+    fim_tokens: list[int], fp_id: int, fs_id: int, fm_id: int
+) -> tuple[int, int]:
+    """Reverse engineer original split positions from FIM-transformed sequence."""
+    prefix_len, _suffix_len, middle_len = get_section_lengths(fim_tokens, fp_id, fs_id, fm_id)
+    return (prefix_len, prefix_len + middle_len)
+
+
+def reconstruct_original_sequence(
+    fim_tokens: list[int], fp_id: int, fs_id: int, fm_id: int
+) -> list[int]:
+    """Reconstruct original sequence from FIM-transformed tokens."""
+    fp_pos = fim_tokens.index(fp_id)
+    fs_pos = fim_tokens.index(fs_id)
+    fm_pos = fim_tokens.index(fm_id)
+
+    prefix = fim_tokens[fp_pos + 1 : fs_pos]
+    suffix = fim_tokens[fs_pos + 1 : fm_pos]
+    middle = fim_tokens[fm_pos + 1 :]
+
+    return prefix + middle + suffix
+
+
+def validate_token_conservation(
+    original: list[int], transformed: list[int], fp_id: int, fs_id: int, fm_id: int
+) -> bool:
+    """Verify that all original tokens are present in transformed sequence."""
+    transformed_no_special = [t for t in transformed if t not in [fp_id, fs_id, fm_id]]
+    return sorted(original) == sorted(transformed_no_special)
