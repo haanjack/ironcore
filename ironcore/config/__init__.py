@@ -24,6 +24,7 @@ from .config_data import DataConfig
 from .config_model import ModelConfig
 from .config_optim import OptimConfig
 from .config_parallel import ParallelConfig
+from .config_peft import LoRAConfig, PEFTConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
 from .config_utils import UtilsConfig
 
@@ -42,6 +43,7 @@ class MainConfig(BaseConfig):
     trainer: TrainerConfig
     operation: OperationConfig
     utils: UtilsConfig
+    peft: PEFTConfig
 
 
 def _config_validation(config: MainConfig):
@@ -426,6 +428,7 @@ def load_trainer_config() -> MainConfig:
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        peft=PEFTConfig(),
     )
 
     # get config from command line

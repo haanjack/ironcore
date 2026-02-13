@@ -16,12 +16,18 @@ from torch.optim import AdamW, Optimizer
 from ironcore.config import MainConfig
 from ironcore.global_vars import get_logger
 from ironcore.optimizer.optimizer import AdamWOptimizer
+from ironcore.peft.utils import freeze_base_model
 
 
 def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> Optimizer:
     """Returns the optimizer."""
 
     logger = get_logger()
+
+    # Freeze base model parameters if using PEFT
+    if config.peft.method != "none":
+        logger.info(f"Freezing base model parameters for PEFT method: {config.peft.method}")
+        freeze_base_model(model, config.peft.method)
 
     # optimizer arguments
     max_lr = config.optim.max_lr
@@ -32,8 +38,17 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
     no_decay = set()
     for mn, m in model.named_modules():
         for pn, p in m.named_parameters(recurse=False):
+            # Skip frozen parameters
+            if not p.requires_grad:
+                continue
+
             fpn = f"{mn}.{pn}" if mn else pn
-            if pn == "bias" or isinstance(m, (nn.LayerNorm, nn.RMSNorm)):
+
+            # LoRA-specific weight decay rules
+            if "lora_A" in pn:
+                # No weight decay on LoRA A matrices (standard practice)
+                no_decay.add(fpn)
+            elif pn == "bias" or isinstance(m, (nn.LayerNorm, nn.RMSNorm)):
                 no_decay.add(fpn)
             elif pn == "weight" and isinstance(m, nn.Embedding):
                 if no_decay_on_embedding:
@@ -44,10 +59,22 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
                 decay.add(fpn)
 
     param_dict = dict(model.named_parameters())
+    # Filter out frozen parameters
+    decay_params = [param_dict[n] for n in decay if param_dict[n].requires_grad]
+    no_decay_params = [param_dict[n] for n in no_decay if param_dict[n].requires_grad]
+
     optimizer_grouped_parameters = [
-        {"params": [param_dict[n] for n in decay], "weight_decay": weight_decay},
-        {"params": [param_dict[n] for n in no_decay], "weight_decay": 0.0},
+        {"params": decay_params, "weight_decay": weight_decay},
+        {"params": no_decay_params, "weight_decay": 0.0},
     ]
+
+    # Log trainable parameters
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    logger.info(
+        f"Trainable parameters: {trainable_params:,} / {total_params:,} "
+        f"({100.0 * trainable_params / total_params:.2f}%)"
+    )
 
     fused_available = "fused" in inspect.signature(AdamW).parameters
     use_fused = fused_available and "cuda" in device_type

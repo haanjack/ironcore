@@ -18,6 +18,7 @@ from ironcore.layers.attention import Attention
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.mlp import MLP
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
+from ironcore.peft import wrap_with_lora_if_target
 
 
 class TransformerLayer(BaseModule):
@@ -63,6 +64,21 @@ class TransformerLayer(BaseModule):
             bias=not config.model.no_bias,
             input_is_parallel=True,
         )
+
+        # Wrap with LoRA if PEFT is enabled
+        if config.peft.method == "lora":
+            self.linear_q = wrap_with_lora_if_target(
+                self.linear_q, "q_proj", config.peft.lora
+            )
+
+            # Handle K and V projections (concatenated layer)
+            self.linear_kv = wrap_with_lora_if_target(
+                self.linear_kv, ["k_proj", "v_proj"], config.peft.lora, concatenated=True
+            )
+
+            self.attn_output = wrap_with_lora_if_target(
+                self.attn_output, "o_proj", config.peft.lora
+            )
 
         self.input_layernorm = get_norm(config)
         self.self_attention = Attention(config)
@@ -178,14 +194,18 @@ class TransformerLayer(BaseModule):
         mlp_residual_bases = []
 
         for i in range(len(query_chunks)):
-            # Wait for Attention Reduce
-            if attn_handles[i]:
-                attn_handles[i].wait()
+            # Finish Attention (handle LoRA if present)
+            # Check if attn_output has finalize method (LoRA-wrapped)
+            if hasattr(self.attn_output, 'finalize'):
+                attention_output = self.attn_output.finalize(attn_partials[i], attn_handles[i])
+            else:
+                # Standard path without LoRA
+                if attn_handles[i]:
+                    attn_handles[i].wait()
 
-            # Finish Attention (Bias + Dropout)
-            attention_output = attn_partials[i]
-            if self.attn_output.bias is not None:
-                attention_output = attention_output + self.attn_output.bias
+                attention_output = attn_partials[i]
+                if self.attn_output.bias is not None:
+                    attention_output = attention_output + self.attn_output.bias
 
             if self.config.model.dropout_attn > 0.0:
                 attention_output = self.residual_dropout(attention_output)

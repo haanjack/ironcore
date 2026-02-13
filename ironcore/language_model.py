@@ -207,25 +207,31 @@ class LanguageModel(BaseModule):
         # mp: tensor model parallel size
 
         # Compute logits from model output
-        lm_output_parallel = lm_output
-        if parallel_states.get_tensor_model_parallel_world_size() > 1:
-            lm_output_parallel = copy_inputs_to_model_parallel_workers(lm_output)
-
+        # If weights are tied, embedding is VocabParallel (RowParallel style: shard rows/vocab)
+        # If weights are untied, output_layer is ColumnParallel (shard columns/vocab)
+        # In both cases, matmul with lm_output (unsharded) results in vocab-parallel logits.
+        
         if self.config.model.untie_embed:
-            logits = torch.matmul(lm_output_parallel, self.output_layer.weight)
+            logits_parallel = torch.matmul(lm_output, self.output_layer.weight)
         else:
-            logits = torch.matmul(
-                lm_output_parallel, self.embedding.word_embeddings.weight.transpose(0, 1)
+            logits_parallel = torch.matmul(
+                lm_output, self.embedding.word_embeddings.weight.transpose(0, 1)
             )
 
         if labels is None:
             # Return full logits for inference/evaluation
-            # Shape: [b, s, v] where each position predicts the next token
+            # Gather from all TP ranks to get full vocab
+            from ironcore.parallel.tensor_parallel import comm
+            logits = comm.gather_from_model_parallel_workers(
+                logits_parallel,
+                {"column_parallel": True, "concatenated_weights": 1}
+            )
             return logits
 
         # Compute loss from logits using shared method
+        # This function expects parallelized logits
         losses = self.compute_loss_from_logits(
-            logits, labels, loss_mask, fp16_lm_cross_entropy, padding_start_idx
+            logits_parallel, labels, loss_mask, fp16_lm_cross_entropy, padding_start_idx
         )
 
         return losses
