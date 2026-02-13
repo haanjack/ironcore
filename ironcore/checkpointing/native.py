@@ -169,22 +169,31 @@ def load_checkpoint(
     for name, param in model.named_parameters():
         loaded_param = checkpoint["model_state_dict"][name]
         module_name = ".".join(name.split(".")[:-1])
+
+        # Check if this is a PEFT parameter (LoRA, adapters, etc.)
+        is_peft_param = any(keyword in name for keyword in ["lora_", "adapter_", "prefix_"])
+
         if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
-            # universal checkpoint
-            if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
-                loaded_param = comm.split_to_model_parallel_workers(
-                    loaded_param, model_attribs[module_name]
-                )
-            elif (
-                module_name in model_attribs
-                and model_attribs[module_name]["row_parallel"]
-                and "weight" in name
-            ):
-                loaded_param = comm.split_to_model_parallel_workers(
-                    loaded_param, model_attribs[module_name]
-                )
-            else:
+            if is_peft_param:
+                # PEFT parameters are replicated - load identically to all ranks
+                # No splitting needed
                 pass
+            else:
+                # Base model parameters - apply TP splitting for universal checkpoint
+                if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
+                    loaded_param = comm.split_to_model_parallel_workers(
+                        loaded_param, model_attribs[module_name]
+                    )
+                elif (
+                    module_name in model_attribs
+                    and model_attribs[module_name]["row_parallel"]
+                    and "weight" in name
+                ):
+                    loaded_param = comm.split_to_model_parallel_workers(
+                        loaded_param, model_attribs[module_name]
+                    )
+                else:
+                    pass
 
         # Sanity check
         assert loaded_param is not None, f"loaded layer [{name}] is None"
@@ -217,6 +226,15 @@ def load_checkpoint(
         loaded_optim_state["param_groups"] = loaded_optim_state_dict["param_groups"]
 
         for name, param in model.named_parameters():
+            # Skip frozen parameters (they don't have optimizer state)
+            if not param.requires_grad:
+                continue
+
+            # Skip if optimizer state doesn't exist for this param (e.g., newly added PEFT params)
+            if name not in loaded_optim_state_dict["state"]:
+                logger.warning(f"Optimizer state for {name} not found in checkpoint, skipping")
+                continue
+
             processed_state = {}
             for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
                 if state_key in ["exp_avg", "exp_avg_sq"]:
@@ -359,23 +377,36 @@ def save_checkpoint(
     for name, param in raw_state_dict.items():
         # remove 'weights' or 'bias' from the name
         module_name = ".".join(name.split(".")[:-1])
+
+        # Check if this is a PEFT parameter (LoRA, adapters, etc.)
+        is_peft_param = any(keyword in name for keyword in ["lora_", "adapter_", "prefix_"])
+
         output_param = param
         if _is_universal_checkpoint(config):
-            # if the layer is parallel layer, we need to gather the tensor from all tensor model parallel workers
-            if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
-                output_param = comm.gather_from_model_parallel_workers(
-                    param, model_attribs[module_name]
-                )
-            elif (
-                module_name in model_attribs
-                and model_attribs[module_name]["row_parallel"]
-                and "weight" in name
-            ):
-                output_param = comm.gather_from_model_parallel_workers(
-                    param, model_attribs[module_name]
-                )
+            if is_peft_param:
+                # PEFT parameters are replicated across TP ranks
+                # Only save from rank 0 to avoid duplicates
+                if parallel_states.get_tensor_model_parallel_rank() == 0:
+                    output_param = param
+                else:
+                    # Skip saving from other ranks (will be handled by rank 0)
+                    output_param = param  # Still include but will only be saved from rank 0
             else:
-                output_param = param
+                # Base model parameters - gather from TP workers for universal checkpoint
+                if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
+                    output_param = comm.gather_from_model_parallel_workers(
+                        param, model_attribs[module_name]
+                    )
+                elif (
+                    module_name in model_attribs
+                    and model_attribs[module_name]["row_parallel"]
+                    and "weight" in name
+                ):
+                    output_param = comm.gather_from_model_parallel_workers(
+                        param, model_attribs[module_name]
+                    )
+                else:
+                    output_param = param
 
         model_state_dict[name] = output_param
 
@@ -403,12 +434,22 @@ def save_checkpoint(
         for i, ((name, param), optim_state_id) in enumerate(
             zip(model.named_parameters(), optimizer.state_dict()["state"], strict=True)
         ):
+            # Skip frozen parameters
+            if not param.requires_grad:
+                continue
+
             module_name = ".".join(name.split(".")[:-1])
             optim_state = optimizer.state_dict()["state"][optim_state_id]
 
+            # Check if this is a PEFT parameter
+            is_peft_param = any(keyword in name for keyword in ["lora_", "adapter_", "prefix_"])
+
             output_optim_state = {}
             for key in ["exp_avg", "exp_avg_sq"]:
-                if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
+                if is_peft_param:
+                    # PEFT parameters are replicated - no gathering needed
+                    output_optim_state[key] = optim_state[key]
+                elif module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
                     output_optim_state[key] = comm.gather_from_model_parallel_workers(
                         optim_state[key], model_attribs[module_name]
                     )

@@ -30,7 +30,7 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
         self.output_size = output_size
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
 
-        self.tensor_model_parallel_rank = 1
+        self.tensor_model_parallel_rank = 0
         if self.tensor_model_parallel_size > 1:
             self.tensor_model_parallel_rank = parallel_states.get_tensor_model_parallel_rank()
 
@@ -65,6 +65,7 @@ class VocabParallelEmbedding(ParallelLinear):
         padding_start_idx: int | None = None,
         parallel_input: bool = False,
         parallel_output: bool = False,
+        reduce_output: bool = True,
     ):
 
         if input_dim % parallel_states.get_tensor_model_parallel_world_size() != 0:
@@ -80,6 +81,7 @@ class VocabParallelEmbedding(ParallelLinear):
         self.parallel_input = parallel_input
         self.parallel_output = parallel_output
         self.row_parallel = True
+        self.reduce_output = reduce_output
 
         # we will calculate local_padding_start_idx later in init_weight()
         self.local_padding_start_idx = None
@@ -102,6 +104,8 @@ class VocabParallelEmbedding(ParallelLinear):
             self.local_padding_start_idx = (
                 self.padding_start_idx - start_idx if local_padding else end_idx - start_idx
             )
+            
+            # print(f"[DEBUG] Rank {parallel_states.get_tensor_model_parallel_rank()} local_padding_start_idx: {self.local_padding_start_idx}")
 
             # zero out from local_padding_start_idx to the end
             with torch.no_grad():
@@ -122,17 +126,24 @@ class VocabParallelEmbedding(ParallelLinear):
 
         start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
         end_idx = self.parallel_input_dim * (parallel_states.get_tensor_model_parallel_rank() + 1)
-
+        
         # set token ids to the corresponding embedding space
+        # We need to subtract start_idx because self.weight only contains this rank's partition
+        # Tokens not in this rank's range should be masked out (0.0)
         token_mask = (x >= start_idx) & (x < end_idx)
-        x_partition = (x - start_idx) * token_mask
-
-        x_partition = F.embedding(x_partition.to(device=self.weight.device), self.weight)
+        x_local = (x - start_idx) * token_mask
+        
+        # Ensure x_local is on the correct device and long type for embedding lookup
+        x_local = x_local.to(device=self.weight.device, dtype=torch.long)
+        x_partition = F.embedding(x_local, self.weight)
 
         # Mask out embeddings for tokens not in this partition
+        # This is critical: if token is NOT in this rank, its embedding must be 0.0
+        # so that summing (all_reduce) across ranks yields the correct embedding.
         x_partition[~token_mask, :] = 0.0
 
-        if parallel_states.get_tensor_model_parallel_world_size() > 1:
+        if self.reduce_output and parallel_states.get_tensor_model_parallel_world_size() > 1:
+            # Sum embeddings across all TP ranks
             x = comm.reduce_inputs_from_model_parallel_workers(x_partition)
         else:
             x = x_partition

@@ -59,6 +59,12 @@ def set_global_states(config):
     GLOBAL_STATES = GlobalStates(config)
 
 
+def reset_global_states():
+    """reset global states"""
+    global GLOBAL_STATES  # pylint: disable=global-statement
+    GLOBAL_STATES = None
+
+
 def get_global_states():
     """get global states"""
     assert GLOBAL_STATES is not None, "global states should not be None"
