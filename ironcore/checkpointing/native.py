@@ -16,12 +16,6 @@ from torch import distributed as dist
 from torch.optim.lr_scheduler import LRScheduler
 
 from ironcore.config import MainConfig
-from ironcore.config.config_data import DataConfig
-from ironcore.config.config_model import ModelConfig, PositionalEmbeddingConfig
-from ironcore.config.config_optim import OptimConfig
-from ironcore.config.config_parallel import ParallelConfig
-from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
-from ironcore.config.config_utils import UtilsConfig
 from ironcore.global_vars import get_logger, get_timer
 from ironcore.language_model import LanguageModel
 from ironcore.optimizer import Optimizer
@@ -29,8 +23,6 @@ from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import comm
 from ironcore.utils import is_first_rank
 
-_CONFIG_FILENAME = "train_config.yaml"
-_MODEL_CONFIG_FILENAME = "model_config.yaml"
 _CKPT_FILENAME = "pytorch_model.bin"
 _LATEST_STEP_FILENAME = "latest_step.txt"
 
@@ -147,24 +139,11 @@ def load_checkpoint(
     timer.start("ckpt-load")
     logger.info(f"Loading checkpoint from {init_ckpt_path}")
 
-    # Register safe globals for weights_only=True
-    torch.serialization.add_safe_globals(
-        [
-            MainConfig,
-            ModelConfig,
-            InitConfig,
-            OptimConfig,
-            DataConfig,
-            ParallelConfig,
-            TrainerConfig,
-            OperationConfig,
-            UtilsConfig,
-            PositionalEmbeddingConfig,
-        ]
-    )
-
+    # Load checkpoint with weights_only=False for compatibility with optimizer states
+    # and other complex objects in the checkpoint. For security considerations,
+    # only load checkpoints from trusted sources.
     checkpoint = torch.load(
-        ckpt_path, weights_only=True, map_location=next(model.parameters()).device
+        ckpt_path, weights_only=False, map_location=next(model.parameters()).device
     )
 
     # Load config
