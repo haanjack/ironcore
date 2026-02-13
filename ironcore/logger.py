@@ -67,7 +67,7 @@ class IronCoreLogger:
         lineno = frame.f_lineno
 
         extra = {"filename": filename, "lineno": lineno}
-        self.logger.log(level, message, {"extra": extra})
+        self.logger.log(level, message, extra=extra)
 
     def set_log_level(self, level):
         """set log level"""
