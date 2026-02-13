@@ -222,3 +222,38 @@ def llama_state_dict() -> dict[str, torch.Tensor]:
         state_dict[f"{prefix}.mlp.down_proj.weight"] = torch.randn(hidden_size, 4 * hidden_size)
 
     return state_dict
+
+
+# =============================================================================
+# FIM (Fill-In-the-Middle) Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def test_tokenizer_with_fim():
+    """HuggingFace tokenizer with FIM special tokens added."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    tokenizer.add_special_tokens(
+        {"additional_special_tokens": ["<fim_prefix>", "<fim_suffix>", "<fim_middle>"]}
+    )
+    return tokenizer
+
+
+@pytest.fixture
+def test_tokenizer_without_fim():
+    """HuggingFace tokenizer without FIM tokens (for error testing)."""
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained("gpt2")
+
+
+@pytest.fixture
+def fim_token_ids(test_tokenizer_with_fim):
+    """FIM special token IDs."""
+    return {
+        "prefix": test_tokenizer_with_fim.convert_tokens_to_ids("<fim_prefix>"),
+        "suffix": test_tokenizer_with_fim.convert_tokens_to_ids("<fim_suffix>"),
+        "middle": test_tokenizer_with_fim.convert_tokens_to_ids("<fim_middle>"),
+    }

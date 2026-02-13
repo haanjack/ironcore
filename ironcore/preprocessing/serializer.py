@@ -2,11 +2,12 @@
 Universal Data Serializer
 
 Handles downloading, tokenizing, and serializing datasets into a unified binary format.
-Supports pretrain, SFT, and DPO task types.
+Supports pretrain, SFT, DPO, and FIM task types.
 """
 
 import json
 from pathlib import Path
+from random import Random
 
 import numpy as np
 from datasets import load_dataset
@@ -98,7 +99,13 @@ class DataSerializer:
         dataset = self._load_dataset(dataset_config)
 
         if self.verbose:
-            print(f"  Loaded {len(dataset)} samples")
+            # Handle both streaming and non-streaming datasets
+            if hasattr(dataset, "__len__"):
+                print(f"  Loaded {len(dataset)} samples")
+            else:
+                print(
+                    f"  Streaming dataset (max {dataset_config.max_samples or 'unlimited'} samples)"
+                )
 
         # Serialize based on task type
         if dataset_config.task_type == "pretrain":
@@ -114,14 +121,41 @@ class DataSerializer:
             print("  ✓ Serialization complete")
 
     def _load_dataset(self, dataset_config: DatasetConfig):
-        """Load dataset from HuggingFace or local source."""
+        """Load dataset from HuggingFace or local source.
+
+        Uses streaming mode when max_samples is specified to avoid downloading
+        the full dataset when only a subset is needed.
+        """
+        use_streaming = dataset_config.max_samples is not None and dataset_config.max_samples > 0
+
         if Path(dataset_config.source).exists():
             # Local dataset
             if dataset_config.source.endswith(".json") or dataset_config.source.endswith(".jsonl"):
                 dataset = load_dataset("json", data_files=dataset_config.source, split="train")
             else:
                 dataset = load_dataset(dataset_config.source, split=dataset_config.split)
-        # HuggingFace dataset
+        # HuggingFace dataset with streaming
+        elif use_streaming:
+            if dataset_config.subset:
+                dataset = load_dataset(
+                    dataset_config.source,
+                    dataset_config.subset,
+                    split=dataset_config.split,
+                    cache_dir=str(self.config.cache_dir),
+                    streaming=True,
+                )
+            else:
+                dataset = load_dataset(
+                    dataset_config.source,
+                    split=dataset_config.split,
+                    cache_dir=str(self.config.cache_dir),
+                    streaming=True,
+                )
+            # For streaming datasets, take only the needed samples
+            if dataset_config.max_samples:
+                dataset = dataset.take(dataset_config.max_samples)
+            return dataset
+        # HuggingFace dataset without streaming (full download)
         elif dataset_config.subset:
             dataset = load_dataset(
                 dataset_config.source,
@@ -136,7 +170,7 @@ class DataSerializer:
                 cache_dir=str(self.config.cache_dir),
             )
 
-        # Limit samples if specified
+        # Limit samples if specified (for non-streaming datasets)
         if dataset_config.max_samples:
             dataset = dataset.select(range(min(dataset_config.max_samples, len(dataset))))
 
@@ -148,18 +182,32 @@ class DataSerializer:
         """
         Serialize pretrain dataset.
 
-        For pretrain, we simply tokenize raw text and append to .bin.
+        For pretrain, we tokenize raw text and optionally apply FIM transformation.
         No masking metadata needed.
         """
         text_column = dataset_config.text_column
+
+        # Check if FIM is enabled (read from global config, not per-dataset)
+        fim_enabled = self.config.fim_rate > 0
+
+        # Get FIM special token IDs if enabled
+        if fim_enabled:
+            fim_prefix_id = self._get_token_id(self.config.fim_prefix_token)
+            fim_suffix_id = self._get_token_id(self.config.fim_suffix_token)
+            fim_middle_id = self._get_token_id(self.config.fim_middle_token)
+            rng = Random(1337)
+
+            if self.verbose:
+                print(f"  FIM enabled: {self.config.fim_rate:.0%} of sequences will be transformed")
 
         # Open binary file for writing
         all_tokens = []
         metadata = []
         current_offset = 0
 
+        desc = "  Tokenizing" + (" (FIM)" if fim_enabled else "")
         if self.verbose:
-            dataset_iter = tqdm(dataset, desc="  Tokenizing", unit="docs")
+            dataset_iter = tqdm(dataset, desc=desc, unit="docs")
         else:
             dataset_iter = dataset
 
@@ -168,6 +216,12 @@ class DataSerializer:
 
             # Tokenize
             token_ids = self._tokenize(text)
+
+            # Apply FIM transformation with probability fim_rate
+            if fim_enabled and rng.random() < self.config.fim_rate:
+                token_ids = self._apply_fim_transformation(
+                    token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
+                )
 
             # Add EOS token
             token_ids.append(self.tokenizer.eos_token_id)
@@ -213,12 +267,28 @@ class DataSerializer:
         """
         messages_column = dataset_config.messages_column
 
+        # Check if FIM is enabled (read from global config, not per-dataset)
+        fim_enabled = self.config.fim_rate > 0
+
+        # Get FIM special token IDs if enabled
+        if fim_enabled:
+            fim_prefix_id = self._get_token_id(self.config.fim_prefix_token)
+            fim_suffix_id = self._get_token_id(self.config.fim_suffix_token)
+            fim_middle_id = self._get_token_id(self.config.fim_middle_token)
+            rng = Random(1337)
+
+            if self.verbose:
+                print(
+                    f"  FIM enabled: {self.config.fim_rate:.0%} of conversations will be transformed"
+                )
+
         all_tokens = []
         metadata = []
         current_offset = 0
 
+        desc = "  Tokenizing" + (" (FIM)" if fim_enabled else "")
         if self.verbose:
-            dataset_iter = tqdm(dataset, desc="  Tokenizing", unit="convs")
+            dataset_iter = tqdm(dataset, desc=desc, unit="convs")
         else:
             dataset_iter = dataset
 
@@ -229,6 +299,14 @@ class DataSerializer:
             token_ids, mask_ranges = self._apply_chat_template_and_get_masks(
                 messages, dataset_config.chat_template
             )
+
+            # Apply FIM transformation with probability fim_rate
+            if fim_enabled and rng.random() < self.config.fim_rate:
+                token_ids = self._apply_fim_transformation(
+                    token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
+                )
+                # FIM sequences don't use standard SFT masking as tokens are reordered
+                mask_ranges = []
 
             # Append to token stream
             all_tokens.extend(token_ids)
@@ -273,12 +351,26 @@ class DataSerializer:
         chosen_column = dataset_config.chosen_column
         rejected_column = dataset_config.rejected_column
 
+        # Check if FIM is enabled (read from global config, not per-dataset)
+        fim_enabled = self.config.fim_rate > 0
+
+        # Get FIM special token IDs if enabled
+        if fim_enabled:
+            fim_prefix_id = self._get_token_id(self.config.fim_prefix_token)
+            fim_suffix_id = self._get_token_id(self.config.fim_suffix_token)
+            fim_middle_id = self._get_token_id(self.config.fim_middle_token)
+            rng = Random(1337)
+
+            if self.verbose:
+                print(f"  FIM enabled: {self.config.fim_rate:.0%} of DPO pairs will be transformed")
+
         all_tokens = []
         metadata = []
         current_offset = 0
 
+        desc = "  Tokenizing" + (" (FIM)" if fim_enabled else "")
         if self.verbose:
-            dataset_iter = tqdm(dataset, desc="  Tokenizing", unit="pairs")
+            dataset_iter = tqdm(dataset, desc=desc, unit="pairs")
         else:
             dataset_iter = dataset
 
@@ -289,31 +381,47 @@ class DataSerializer:
                 chosen_messages, dataset_config.chat_template
             )
 
-            all_tokens.extend(chosen_token_ids)
-            metadata.append(
-                (
-                    current_offset,
-                    len(chosen_token_ids),
-                    "dpo_chosen",
-                    pair_idx,  # group_id links chosen/rejected
-                    json.dumps(chosen_mask_ranges),
-                )
-            )
-            current_offset += len(chosen_token_ids)
-
             # Process rejected response
             rejected_messages = sample[rejected_column]
             rejected_token_ids, rejected_mask_ranges = self._apply_chat_template_and_get_masks(
                 rejected_messages, dataset_config.chat_template
             )
 
+            # Apply FIM transformation to both if enabled (same roll for the pair)
+            if fim_enabled and rng.random() < self.config.fim_rate:
+                # Transform chosen
+                chosen_token_ids = self._apply_fim_transformation(
+                    chosen_token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
+                )
+                chosen_mask_ranges = []
+
+                # Transform rejected
+                rejected_token_ids = self._apply_fim_transformation(
+                    rejected_token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
+                )
+                rejected_mask_ranges = []
+
+            # Add chosen to stream
+            all_tokens.extend(chosen_token_ids)
+            metadata.append(
+                (
+                    current_offset,
+                    len(chosen_token_ids),
+                    "dpo_chosen",
+                    pair_idx,
+                    json.dumps(chosen_mask_ranges),
+                )
+            )
+            current_offset += len(chosen_token_ids)
+
+            # Add rejected to stream
             all_tokens.extend(rejected_token_ids)
             metadata.append(
                 (
                     current_offset,
                     len(rejected_token_ids),
                     "dpo_rejected",
-                    pair_idx,  # Same group_id
+                    pair_idx,
                     json.dumps(rejected_mask_ranges),
                 )
             )
@@ -425,3 +533,88 @@ class DataSerializer:
             token_ids = self._tokenize(full_text)
 
             return token_ids, mask_ranges
+
+    def _apply_fim_transformation(
+        self,
+        token_ids: list[int],
+        fim_prefix_id: int,
+        fim_suffix_id: int,
+        fim_middle_id: int,
+        rng: Random,
+    ) -> list[int]:
+        """
+        Apply FIM transformation to token IDs.
+
+        Transforms: [1,2,3,4,5,6,7,8]
+        Into: [FP,1,2,FS,6,7,8,FM,3,4,5] where FP=fim_prefix, FS=fim_suffix, FM=fim_middle
+
+        Args:
+            token_ids: Original token IDs
+            fim_prefix_id: Token ID for <fim_prefix>
+            fim_suffix_id: Token ID for <fim_suffix>
+            fim_middle_id: Token ID for <fim_middle>
+            rng: Random number generator
+
+        Returns:
+            Transformed token IDs in PSM format
+        """
+        length = len(token_ids)
+
+        # Skip if too short (< 10 tokens) for meaningful FIM
+        if length < 10:
+            return token_ids
+
+        # Random split: choose 2 split points
+        split_points = sorted(rng.sample(range(1, length), 2))
+        split1, split2 = split_points[0], split_points[1]
+
+        # Ensure different split points (should be guaranteed by sample, but double-check)
+        if split1 == split2:
+            split2 = min(split1 + 1, length - 1)
+
+        # Split sequence
+        prefix = token_ids[:split1]
+        middle = token_ids[split1:split2]
+        suffix = token_ids[split2:]
+
+        # Handle edge case: empty middle (shouldn't happen with sample, but be safe)
+        if not middle:
+            middle = [token_ids[split1]]
+
+        # Construct PSM format: [fim_prefix] + prefix + [fim_suffix] + suffix + [fim_middle] + middle
+        return [fim_prefix_id] + prefix + [fim_suffix_id] + suffix + [fim_middle_id] + middle
+
+    def _get_token_id(self, token: str) -> int:
+        """
+        Get token ID from string, with clear error if not found.
+
+        Args:
+            token: Token string (e.g., "<fim_prefix>")
+
+        Returns:
+            Token ID
+
+        Raises:
+            ValueError: If token not found in tokenizer
+        """
+        if hasattr(self.tokenizer, "convert_tokens_to_ids"):
+            # HuggingFace tokenizer
+            token_id = self.tokenizer.convert_tokens_to_ids(token)
+            unk_id = getattr(self.tokenizer, "unk_token_id", None)
+
+            # Check if token is unknown/UNK
+            if unk_id is not None and token_id == unk_id:
+                raise ValueError(
+                    f"FIM token '{token}' not found in tokenizer vocabulary. "
+                    f"Please add FIM tokens before preprocessing:\n"
+                    f"  tokenizer.add_special_tokens({{'additional_special_tokens': "
+                    f"['<fim_prefix>', '<fim_suffix>', '<fim_middle>']}})\n"
+                    f"  tokenizer.save_pretrained(...)"
+                )
+            return token_id
+
+        # Fallback for other tokenizer types
+        raise TypeError(
+            f"Unsupported tokenizer type: {type(self.tokenizer)}. "
+            f"Please use a HuggingFace tokenizer for FIM."
+        )
