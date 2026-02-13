@@ -129,6 +129,11 @@ class LoRAColumnParallelLinear(nn.Module):
         self.lora.row_parallel = False
         self.lora.concatenated_weights = 1
 
+        # Expose attributes for checkpointing logic
+        self.column_parallel = True
+        self.row_parallel = False
+        self.concatenated_weights = base_layer.concatenated_weights
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass with sharded LoRA.
@@ -201,6 +206,11 @@ class LoRAConcatenatedColumnParallel(nn.Module):
                 self.lora_adapters.append(adapter)
                 self.adapter_map[i] = len(self.lora_adapters) - 1
 
+        # Expose attributes for checkpointing logic
+        self.column_parallel = True
+        self.row_parallel = False
+        self.concatenated_weights = base_layer.concatenated_weights
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass with sharded LoRA for concatenated weights.
@@ -262,6 +272,11 @@ class LoRARowParallelLinear(nn.Module):
         self.lora.column_parallel = False
         self.lora.row_parallel = True
         self.lora.concatenated_weights = 1
+
+        # Expose attributes for checkpointing logic
+        self.column_parallel = False
+        self.row_parallel = True
+        self.concatenated_weights = 1
 
     def forward(self, x: torch.Tensor, async_communication: bool = False):
         """
