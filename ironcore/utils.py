@@ -86,13 +86,15 @@ def get_dataset_base_dir() -> Path:
 # parallel utilities
 def is_first_rank():
     """Check whether it's rank 0."""
-    assert dist.is_initialized(), "torch distributed is not initialized."
+    if not (dist.is_available() and dist.is_initialized()):
+        return True
     return dist.get_rank() == 0
 
 
 def is_last_rank():
     """Check whether it's the last rank."""
-    assert dist.is_initialized(), "torch distributed is not initialized."
+    if not (dist.is_available() and dist.is_initialized()):
+        return True
     return dist.get_rank() == dist.get_world_size() - 1
 
 
@@ -111,10 +113,14 @@ def print_last_rank(message: str):
 def get_device():
     """Returns device type"""
     if torch.cuda.is_available():
-        assert torch.distributed.is_initialized(), "torch distributed is not initialized"
-        device = (
-            f"cuda:{dist.get_node_local_rank()}" if hasattr(dist, "get_node_local_rank") else "cuda"
-        )
+        if dist.is_available() and dist.is_initialized():
+            device = (
+                f"cuda:{dist.get_node_local_rank()}"
+                if hasattr(dist, "get_node_local_rank")
+                else "cuda"
+            )
+        else:
+            device = "cuda"
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
