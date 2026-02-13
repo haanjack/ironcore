@@ -35,6 +35,7 @@ class PositionalEmbeddingConfig(BaseConfig):
 class ModelConfig(BaseConfig):
     """model configuration options"""
 
+    name: str = field(default="gpt2", metadata={"help": "model name"})
     d_model: int = field(default=512, metadata={"help": "model hidden dimension size"})
     d_ffn: int = field(default=2048, metadata={"help": "model feed forward dimension size"})
     num_layers: int = field(default=2, metadata={"help": "number of layers"})
