@@ -124,6 +124,10 @@ class LoRAColumnParallelLinear(nn.Module):
             alpha=lora_config.alpha,
             dropout=lora_config.dropout,
         )
+        # Mark for checkpointing logic
+        self.lora.column_parallel = True
+        self.lora.row_parallel = False
+        self.lora.concatenated_weights = 1
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -190,6 +194,10 @@ class LoRAConcatenatedColumnParallel(nn.Module):
                     alpha=lora_config.alpha,
                     dropout=lora_config.dropout,
                 )
+                # Mark for checkpointing logic
+                adapter.column_parallel = True
+                adapter.row_parallel = False
+                adapter.concatenated_weights = 1
                 self.lora_adapters.append(adapter)
                 self.adapter_map[i] = len(self.lora_adapters) - 1
 
@@ -250,18 +258,15 @@ class LoRARowParallelLinear(nn.Module):
             alpha=lora_config.alpha,
             dropout=lora_config.dropout,
         )
+        # Mark for checkpointing logic
+        self.lora.column_parallel = False
+        self.lora.row_parallel = True
+        self.lora.concatenated_weights = 1
 
     def forward(self, x: torch.Tensor, async_communication: bool = False):
         """
         Forward pass with sharded LoRA.
         """
-        # 1. Base forward (returns partial result if async)
-        if async_communication:
-            base_partial, handle = self.base_layer(x, async_communication=True)
-            lora_partial = self.lora(x)
-            return (base_partial, lora_partial), handle
-
-        # Sync path: combine base and lora before all-reduce
         from ironcore.parallel.tensor_parallel import comm
 
         if self.base_layer.input_is_parallel:
@@ -269,6 +274,19 @@ class LoRARowParallelLinear(nn.Module):
         else:
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
 
+        if async_communication:
+            # 1. Base partial computation
+            base_partial = torch.matmul(parallel_x, self.base_layer.weight)
+            # 2. LoRA partial computation
+            lora_partial = self.lora(x)
+
+            # Combine BEFORE all-reduce to save one communication step
+            combined_partial = base_partial + lora_partial
+
+            # Start single async all-reduce
+            return comm.reduce_inputs_from_model_parallel_workers(combined_partial, async_op=True)
+
+        # Sync path: combine base and lora before all-reduce
         base_partial = torch.matmul(parallel_x, self.base_layer.weight)
         lora_partial = self.lora(x)
 
@@ -279,27 +297,19 @@ class LoRARowParallelLinear(nn.Module):
             output = output + self.base_layer.bias
         return output
 
-    def finalize(self, outputs: tuple, handle):
+    def finalize(self, output: torch.Tensor, handle):
         """
-        Complete async operation by waiting for all-reduce and adding components.
+        Complete async operation by waiting for all-reduce and adding bias.
         """
-        base_partial, lora_partial = outputs
-
-        # Wait for base layer's all-reduce to complete (this was for base_partial only)
+        # Wait for the single combined all-reduce to complete
         if handle is not None:
             handle.wait()
 
-        # Add LoRA partial contribution (needs its own reduce if async was separate)
-        from ironcore.parallel.tensor_parallel import comm
-
-        lora_output_reduced = comm.reduce_inputs_from_model_parallel_workers(lora_partial)
-
-        # Add bias to base (base layer doesn't add it in async mode)
+        # Add bias to the final result
         if self.base_layer.bias is not None:
-            base_partial = base_partial + self.base_layer.bias
+            output = output + self.base_layer.bias
 
-        # Add LoRA contribution
-        return base_partial + lora_output_reduced
+        return output
 
     def __repr__(self):
         return f"LoRARowParallelLinear(\n  {self.base_layer}\n  {self.lora}\n)"
