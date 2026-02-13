@@ -63,14 +63,33 @@ class LanguageModel(BaseModule):
         if hasattr(self.embedding.word_embeddings, "init_weight"):
             self.embedding.word_embeddings.init_weight()
 
-    def forward(self, input_ids, labels=None, position_ids=None):
+    def forward(self, input_ids, labels=None, position_ids=None, use_cache=False, past_key_values=None):
+        """
+        Forward pass through language model.
 
+        Args:
+            input_ids: [b, s] Input token IDs
+            labels: [b, s] Target token IDs (for training)
+            position_ids: [b, s] Optional position IDs (for bin-packed sequences)
+            use_cache: Whether to use KV cache
+            past_key_values: List of past (key, value) tuples for each layer
+
+        Returns:
+            If use_cache and labels is None: (logits, new_key_values)
+            Otherwise: outputs (logits or loss)
+        """
         input_ids = input_ids.to(self.device, non_blocking=True)
         if labels is not None:
             labels = labels.to(self.device, non_blocking=True)
 
+        # Determine cache position
+        cache_position = 0
+        if use_cache and past_key_values is not None and len(past_key_values) > 0:
+            # Get cache length from first layer's past key
+            cache_position = past_key_values[0][0].size(1)
+
         attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
-            input_ids, labels
+            input_ids, labels, cache_position=cache_position
         )
         # Use provided position_ids if available (for bin-packed sequences), otherwise use computed ones
         if position_ids is None:
@@ -87,7 +106,19 @@ class LanguageModel(BaseModule):
         # x: [b, s, h]
         x = self.embedding(input_ids, position_ids)
 
-        lm_output = self.model(x, attention_mask, self.rotary_pos_emb)
+        model_out = self.model(
+            x,
+            attention_mask,
+            self.rotary_pos_emb,
+            use_cache=use_cache,
+            past_key_values=past_key_values,
+        )
+
+        # Handle cache output
+        if use_cache:
+            lm_output, new_key_values = model_out
+        else:
+            lm_output = model_out
 
         # layer norm
         lm_output = self.output_layernorm(lm_output)
@@ -103,21 +134,65 @@ class LanguageModel(BaseModule):
         )
 
         # outputs: logits[b, s, v] or loss[b, s]
+        if use_cache and labels is None:
+            return outputs, new_key_values
+        return outputs
+        if use_cache:
+            lm_output, new_key_values = model_out
+        else:
+            lm_output = model_out
+
+        # layer norm
+        lm_output = self.output_layernorm(lm_output)
+
+        # post process
+        # lm_output: [b, s, h]
+        outputs = self.post_lm_processing(
+            lm_output,
+            labels,
+            loss_mask,
+            self.fp16_lm_cross_entropy,
+            padding_start_idx=self.padding_start_idx,
+        )
+
+        # outputs: logits[b, s, v] or loss[b, s]
+        if use_cache and labels is None:
+            return outputs, new_key_values
         return outputs
 
-    def get_masks_and_position_ids(self, input_ids, labels=None):
+    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0):
+        """
+        Get attention masks and position IDs.
 
+        Args:
+            input_ids: [b, s] Input token IDs
+            labels: Optional labels for loss masking
+            cache_position: Starting position for position IDs (for cached generation)
+
+        Returns:
+            Tuple of (attention_mask, position_ids, loss_mask)
+        """
         # attention mask (lower triangular)
         if input_ids.dim() == 2:
             att_mask_batch = input_ids.size(0)  # micro_batch_size
         else:
             att_mask_batch = 1
+
+        seq_len = input_ids.size(1)
+        total_len = cache_position + seq_len  # Total context length including cache
+
+        # Create causal mask for the full context
+        # Mask shape: [batch, 1, new_len, total_len]
+        # New tokens can attend to all cached tokens + themselves (causally)
         attention_mask = torch.tril(
             torch.ones(
-                (att_mask_batch, input_ids.size(1), input_ids.size(1)),
+                (att_mask_batch, total_len, total_len),
                 device=input_ids.device,
             )
-        ).view(att_mask_batch, 1, input_ids.size(1), input_ids.size(1))
+        )
+        # Extract the relevant portion: new tokens attending to [cached + new]
+        attention_mask = attention_mask[:, cache_position:total_len, :total_len]
+        attention_mask = attention_mask.view(att_mask_batch, 1, seq_len, total_len)
 
         # loss mask - CRITICAL: Must be based on labels, not input_ids
         # We're predicting the NEXT token, so mask positions where labels contain EOS/PAD
@@ -128,8 +203,13 @@ class LanguageModel(BaseModule):
             loss_mask[labels == get_tokenizer().eos_token_id] = 0
             loss_mask[labels == get_tokenizer().pad_token_id] = 0
 
-        # position ids
-        position_ids = torch.arange(input_ids.size(1), dtype=torch.long, device=input_ids.device)
+        # position ids (offset by cache_position for cached generation)
+        position_ids = torch.arange(
+            cache_position,
+            cache_position + input_ids.size(1),
+            dtype=torch.long,
+            device=input_ids.device,
+        )
         position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
         if self.reset_position_ids:
             position_ids = position_ids.clone()

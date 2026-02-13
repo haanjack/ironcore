@@ -201,6 +201,8 @@ class Attention(BaseModule):
         key,
         value,
         attention_mask=None,
+        use_cache=False,
+        past_kv=None,
     ):
         """
         Compute attention given pre-projected Q, K, V tensors.
@@ -210,10 +212,23 @@ class Attention(BaseModule):
             key: [b, sk, gn, hd] - Key tensor (already projected and with RoPE if applicable)
             value: [b, sk, gn, hd] - Value tensor (already projected)
             attention_mask: Optional attention mask
+            use_cache: Whether to use KV cache
+            past_kv: Optional tuple of (past_key, past_value) from cache
 
         Returns:
+            If use_cache: (context_output, (key, value))
+            Otherwise: context_output
             context_output: [b, sq, hn * hd]
         """
+        # Handle cached KV
+        if use_cache and past_kv is not None:
+            past_key, past_value = past_kv
+            # Concatenate cached KV with new KV
+            # past_key/value: [b, past_len, gn, hd]
+            # key/value: [b, new_len, gn, hd]
+            key = torch.cat([past_key, key], dim=1)
+            value = torch.cat([past_value, value], dim=1)
+
         seq_len_q = query.size(1)
         seq_len_kv = key.size(1)
 
@@ -240,4 +255,6 @@ class Attention(BaseModule):
             )
 
         # output: [b, sq, hn * hd]
+        if use_cache:
+            return context_output, (key, value)
         return context_output

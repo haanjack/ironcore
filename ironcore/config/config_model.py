@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from .config import BaseConfig
@@ -24,6 +26,30 @@ class PositionalEmbeddingConfig(BaseConfig):
         default=0,
         metadata={"help": "Rotary positional embedding starting position in a sequence"},
     )
+
+
+@dataclass
+class KVCacheConfig(BaseConfig):
+    """KV Cache configuration"""
+
+    enabled: bool = field(default=False, metadata={"help": "Enable KV cache"})
+    max_batch_size: int = field(default=32, metadata={"help": "Maximum batch size for cache"})
+    max_seq_length: int = field(
+        default=2048, metadata={"help": "Maximum sequence length for cache"}
+    )
+
+    # Paged attention (Phase 4)
+    use_paged_attention: bool = field(default=False, metadata={"help": "Use paged attention"})
+    page_size: int = field(default=16, metadata={"help": "Page size in tokens"})
+    max_num_pages: int = field(default=4096, metadata={"help": "Maximum number of pages"})
+
+    # Prefix cache (Phase 5)
+    use_prefix_cache: bool = field(default=False, metadata={"help": "Use prefix cache"})
+    prefix_cache_max_pages: int = field(
+        default=1024, metadata={"help": "Max pages for prefix cache"}
+    )
+    min_prefix_length: int = field(default=32, metadata={"help": "Minimum prefix length to cache"})
+    eviction_policy: str = field(default="lru", metadata={"help": "Eviction policy (lru)"})
 
 
 @dataclass
@@ -59,6 +85,8 @@ class ModelConfig(BaseConfig):
     positional_embedding: PositionalEmbeddingConfig = field(
         default_factory=PositionalEmbeddingConfig
     )
+
+    kv_cache: KVCacheConfig = field(default_factory=KVCacheConfig)
 
     add_pooler: bool = field(default=True, metadata={"help": "add pooler"})
     untie_embed: bool = field(default=False, metadata={"help": "untie lm head"})

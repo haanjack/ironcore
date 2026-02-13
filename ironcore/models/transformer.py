@@ -86,7 +86,9 @@ class TransformerLayer(BaseModule):
 
         self.residual_dropout = nn.Dropout(config.model.dropout_attn)
 
-    def custom_forward(self, hidden_states, attention_mask, rotary_pos_emb):
+    def custom_forward(
+        self, hidden_states, attention_mask, rotary_pos_emb, use_cache=False, past_key_value=None
+    ):
 
         # hidden_states: [b, s, h]
         batch_size = hidden_states.size(0)
@@ -111,13 +113,24 @@ class TransformerLayer(BaseModule):
             query = rotary_pos_emb.forward(query)
             key = rotary_pos_emb.forward(key)
 
+        # Prepare past_kv for attention (will be used for concatenation inside attention)
+        past_kv_for_attn = past_key_value if use_cache else None
+
         # Chunking for Async TP
         chunk_size = self.config.trainer.sequence_chunk_size
 
         if chunk_size is None or chunk_size <= 0 or chunk_size >= seq_len:
             # Standard synchronous execution
             # self attention
-            attention_output = self.self_attention(query, key, value, attention_mask)
+            attn_output = self.self_attention(
+                query, key, value, attention_mask, use_cache=use_cache, past_kv=past_kv_for_attn
+            )
+
+            # Handle cache return
+            if use_cache:
+                attention_output, new_kv = attn_output
+            else:
+                attention_output = attn_output
 
             # output projection
             attention_output = self.attn_output(attention_output)
@@ -146,6 +159,8 @@ class TransformerLayer(BaseModule):
 
             output = residual + mlp_output
 
+            if use_cache:
+                return output, new_kv
             return output
 
         # Use torch.split for splitting
@@ -159,27 +174,41 @@ class TransformerLayer(BaseModule):
 
         attn_partials = []
         attn_handles = []
+        final_new_kv = None  # Will store KV from last chunk if using cache
 
         # 1. Launch Attention Compute & Reduce for all chunks
         current_idx = 0
+        num_chunks = len(query_chunks)
+
         for i, query_chunk in enumerate(query_chunks):
             chunk_len = query_chunk.size(1)
-            kv_end = current_idx + chunk_len
 
-            # Truncate key/value to the causal boundary: positions beyond
-            # kv_end are masked by causal attention anyway. This ensures
-            # correct causal mask alignment with flash attention, which
-            # applies bottom-right aligned masking when seq_len_q != seq_len_kv.
-            key_chunk = key[:, :kv_end]
-            value_chunk = value[:, :kv_end]
-
+            # For chunked async TP, each query chunk must attend to:
+            # 1. All past cached KV (from previous forward passes)
+            # 2. ALL new KV from this forward pass (not just up to current chunk)
+            # The causal mask inside attention will handle the proper masking
+            # to ensure each query position only attends to valid previous tokens.
             mask_chunk = None
             if attention_mask is not None:
-                mask_chunk = attention_mask[:, :, current_idx:kv_end, :kv_end]
+                # Extract the relevant portion of the attention mask
+                # Queries attend to all positions (causal mask handles the rest)
+                mask_chunk = attention_mask[:, :, current_idx : (current_idx + chunk_len), :]
 
-            attention_output_chunk = self.self_attention(
-                query_chunk, key_chunk, value_chunk, mask_chunk
+            # Pass full new KV (not chunked) so each query chunk can attend to all new tokens
+            # The causal mask will ensure proper attention boundaries
+            attn_out = self.self_attention(
+                query_chunk, key, value, mask_chunk, use_cache=use_cache, past_kv=past_kv_for_attn
             )
+
+            # Handle cache in chunked path
+            if use_cache:
+                attention_output_chunk, chunk_kv = attn_out
+                # For chunked execution with cache, we use the last chunk's KV
+                # which contains past_kv + all new KV
+                if i == num_chunks - 1:
+                    final_new_kv = chunk_kv
+            else:
+                attention_output_chunk = attn_out
 
             # output projection (Async)
             partial, handle = self.attn_output(attention_output_chunk, async_communication=True)
@@ -233,10 +262,23 @@ class TransformerLayer(BaseModule):
             output_chunk = mlp_residual_bases[i] + mlp_output
             final_chunks.append(output_chunk)
 
-        return torch.cat(final_chunks, dim=1)
+        output = torch.cat(final_chunks, dim=1)
+        if use_cache:
+            # final_new_kv should be set from the last chunk
+            assert final_new_kv is not None, "Cache enabled but no KV was captured"
+            return output, final_new_kv
+        return output
 
-    def forward(self, hidden_states, attention_mask, rotary_pos_emb):
-        return self.custom_forward(hidden_states, attention_mask, rotary_pos_emb)
+    def forward(
+        self, hidden_states, attention_mask, rotary_pos_emb, use_cache=False, past_key_value=None
+    ):
+        return self.custom_forward(
+            hidden_states,
+            attention_mask,
+            rotary_pos_emb,
+            use_cache=use_cache,
+            past_key_value=past_key_value,
+        )
 
 
 class TransformerModel(BaseModule):
@@ -249,9 +291,35 @@ class TransformerModel(BaseModule):
             [TransformerLayer(config) for _ in range(config.model.num_layers)]
         )
 
-    def forward(self, hidden_states, attention_mask, rotary_pos_emb):
-        for layer in self.layers:
+    def forward(
+        self, hidden_states, attention_mask, rotary_pos_emb, use_cache=False, past_key_values=None
+    ):
+        """
+        Forward pass through all transformer layers.
+
+        Args:
+            hidden_states: [b, s, h]
+            attention_mask: [b, 1, s, s]
+            rotary_pos_emb: Rotary position embedding
+            use_cache: Whether to use KV cache
+            past_key_values: List of past (key, value) tuples for each layer
+
+        Returns:
+            If use_cache: (hidden_states, new_key_values)
+            Otherwise: hidden_states
+        """
+        new_key_values = [] if use_cache else None
+
+        for i, layer in enumerate(self.layers):
+            past_kv = past_key_values[i] if past_key_values is not None else None
+
             if self.config.operation.activation_recompute:
+                # Note: Gradient checkpointing with cache is complex
+                # For now, disable cache with activation recompute
+                if use_cache:
+                    raise NotImplementedError(
+                        "KV cache with activation_recompute not yet supported"
+                    )
                 hidden_states = checkpoint(
                     layer.custom_forward,
                     hidden_states,
@@ -260,5 +328,19 @@ class TransformerModel(BaseModule):
                     use_reentrant=self.use_reentrant,
                 )
             else:
-                hidden_states = layer(hidden_states, attention_mask, rotary_pos_emb)
+                layer_out = layer(
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    use_cache=use_cache,
+                    past_key_value=past_kv,
+                )
+                if use_cache:
+                    hidden_states, new_kv = layer_out
+                    new_key_values.append(new_kv)
+                else:
+                    hidden_states = layer_out
+
+        if use_cache:
+            return hidden_states, new_key_values
         return hidden_states

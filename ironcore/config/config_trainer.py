@@ -72,6 +72,12 @@ class TrainerConfig(BaseConfig):
         default=True, metadata={"help": "use flash attention for the attention layer"}
     )
 
+    # KV Cache for evaluation
+    use_kv_cache_in_eval: bool = field(
+        default=False,
+        metadata={"help": "Use KV cache during evaluation for faster inference"},
+    )
+
     # Async Tensor Parallelism
     sequence_chunk_size: int | None = field(
         default=None,
