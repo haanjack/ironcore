@@ -96,6 +96,29 @@ class UniversalDataConfig:
     # Preprocessing-specific settings
     preprocessing: dict = field(default_factory=dict)
 
+    # FIM (Fill-In-the-Middle) configuration - applied globally to all pretrain datasets
+    # Note: FIM tokens must exist in the tokenizer vocabulary
+    fim_rate: float = field(
+        default=0.0,
+        metadata={"help": "Percentage of sequences to transform with FIM (0.0 = disabled)"},
+    )
+    fim_split_type: Literal["random", "line_aware"] = field(
+        default="random",
+        metadata={"help": "How to split sequences for FIM transformation"},
+    )
+    fim_prefix_token: str = field(
+        default="<fim_prefix>",
+        metadata={"help": "Token marking prefix section start"},
+    )
+    fim_suffix_token: str = field(
+        default="<fim_suffix>",
+        metadata={"help": "Token marking suffix section start"},
+    )
+    fim_middle_token: str = field(
+        default="<fim_middle>",
+        metadata={"help": "Token marking middle (target) section start"},
+    )
+
     def __post_init__(self):
         """Post-initialization validation and setup."""
         # Ensure paths are Path objects
@@ -204,6 +227,12 @@ class UniversalDataConfig:
             cache_dir=Path(config_dict.get("cache_dir", "./data/cache")),
             num_workers=config_dict.get("num_workers", 4),
             preprocessing=config_dict.get("preprocessing", {}),
+            # FIM settings (global for all datasets)
+            fim_rate=config_dict.get("fim_rate", 0.0),
+            fim_split_type=config_dict.get("fim_split_type", "random"),
+            fim_prefix_token=config_dict.get("fim_prefix_token", "<fim_prefix>"),
+            fim_suffix_token=config_dict.get("fim_suffix_token", "<fim_suffix>"),
+            fim_middle_token=config_dict.get("fim_middle_token", "<fim_middle>"),
         )
 
     def get_dataset_output_path(self, dataset: DatasetConfig) -> Path:
