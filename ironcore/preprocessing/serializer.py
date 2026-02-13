@@ -100,10 +100,12 @@ class DataSerializer:
 
         if self.verbose:
             # Handle both streaming and non-streaming datasets
-            if hasattr(dataset, '__len__'):
+            if hasattr(dataset, "__len__"):
                 print(f"  Loaded {len(dataset)} samples")
             else:
-                print(f"  Streaming dataset (max {dataset_config.max_samples or 'unlimited'} samples)")
+                print(
+                    f"  Streaming dataset (max {dataset_config.max_samples or 'unlimited'} samples)"
+                )
 
         # Serialize based on task type
         if dataset_config.task_type == "pretrain":
@@ -196,9 +198,7 @@ class DataSerializer:
             rng = Random(1337)
 
             if self.verbose:
-                print(
-                    f"  FIM enabled: {self.config.fim_rate:.0%} of sequences will be transformed"
-                )
+                print(f"  FIM enabled: {self.config.fim_rate:.0%} of sequences will be transformed")
 
         # Open binary file for writing
         all_tokens = []
@@ -362,9 +362,7 @@ class DataSerializer:
             rng = Random(1337)
 
             if self.verbose:
-                print(
-                    f"  FIM enabled: {self.config.fim_rate:.0%} of DPO pairs will be transformed"
-                )
+                print(f"  FIM enabled: {self.config.fim_rate:.0%} of DPO pairs will be transformed")
 
         all_tokens = []
         metadata = []

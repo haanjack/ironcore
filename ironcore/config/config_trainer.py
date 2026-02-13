@@ -114,7 +114,9 @@ class TrainerConfig(BaseConfig):
     # FIM (Fill-In-the-Middle) training configuration
     fim_rate: float = field(
         default=0.0,
-        metadata={"help": "Percentage of sequences to transform with FIM (0.0 = disabled, 1.0 = all)"},
+        metadata={
+            "help": "Percentage of sequences to transform with FIM (0.0 = disabled, 1.0 = all)"
+        },
     )
     fim_split_type: str = field(
         default="random",

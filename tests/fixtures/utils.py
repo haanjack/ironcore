@@ -180,7 +180,11 @@ def verify_psm_structure(token_ids: list[int], fp_id: int, fs_id: int, fm_id: in
             return False
 
         # Check each special token appears exactly once
-        if token_ids.count(fp_id) != 1 or token_ids.count(fs_id) != 1 or token_ids.count(fm_id) != 1:
+        if (
+            token_ids.count(fp_id) != 1
+            or token_ids.count(fs_id) != 1
+            or token_ids.count(fm_id) != 1
+        ):
             return False
 
         return True
