@@ -17,13 +17,6 @@ precision: bf16
 vocab_name_or_path: ./tokenizers/gpt2-fim
 tokenizer_type: bbpe
 
-# FIM token definitions (must match tokenizer vocabulary)
-# These tokens must exist in the tokenizer for FIM training
-fim_tokens:
-  prefix: "<fim_prefix>"
-  suffix: "<fim_suffix>"
-  middle: "<fim_middle>"
-
 # HuggingFace/vLLM compatibility
 hf_model_type: gpt2
 hf_architecture: GPT2LMHeadModel

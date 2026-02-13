@@ -44,13 +44,6 @@ class DatasetConfig:
     # If not specified, uses tokenizer's default
     chat_template: str | None = None
 
-    # FIM-specific configuration (activates when fim_rate > 0)
-    fim_rate: float = 0.5  # Percentage of sequences to transform with FIM (0.0 = disabled)
-    fim_split_type: Literal["random", "line_aware"] = "random"  # How to split sequences
-    fim_prefix_token: str = "<fim_prefix>"  # Special token for prefix section
-    fim_suffix_token: str = "<fim_suffix>"  # Special token for suffix section
-    fim_middle_token: str = "<fim_middle>"  # Special token for middle section
-
     # Optional: Maximum number of samples to use (for debugging)
     max_samples: int | None = None
 
@@ -189,11 +182,6 @@ class UniversalDataConfig:
                         chosen_column=ds.get("chosen_column", "chosen"),
                         rejected_column=ds.get("rejected_column", "rejected"),
                         chat_template=ds.get("chat_template"),
-                        fim_rate=ds.get("fim_rate", 0.5),
-                        fim_split_type=ds.get("fim_split_type", "random"),
-                        fim_prefix_token=ds.get("fim_prefix_token", "<fim_prefix>"),
-                        fim_suffix_token=ds.get("fim_suffix_token", "<fim_suffix>"),
-                        fim_middle_token=ds.get("fim_middle_token", "<fim_middle>"),
                         max_samples=ds.get("max_samples"),
                     )
                 )

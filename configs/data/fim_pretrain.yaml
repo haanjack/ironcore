@@ -30,7 +30,7 @@ splits: [0.99, 0.01, 0.0]
 # Applied globally to all pretrain datasets
 # =============================================================================
 fim_rate: 0.5  # 50% FIM, 50% normal autoregressive (set to 0.0 to disable)
-fim_split_type: random  # How to split sequences: "random" or "line_aware"
+fim_split_type: line_aware  # How to split sequences: "random" or "line_aware" (better for code)
 fim_prefix_token: "<fim_prefix>"
 fim_suffix_token: "<fim_suffix>"
 fim_middle_token: "<fim_middle>"

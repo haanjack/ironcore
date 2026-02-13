@@ -14,28 +14,6 @@ from .config import BaseConfig
 
 
 @dataclass
-class FIMTokenConfig(BaseConfig):
-    """FIM (Fill-In-the-Middle) token configuration.
-
-    These tokens must be added to the tokenizer's vocabulary before
-    preprocessing and training with FIM.
-    """
-
-    prefix: str = field(
-        default="<fim_prefix>",
-        metadata={"help": "Token marking the start of prefix context"},
-    )
-    suffix: str = field(
-        default="<fim_suffix>",
-        metadata={"help": "Token marking the start of suffix context"},
-    )
-    middle: str = field(
-        default="<fim_middle>",
-        metadata={"help": "Token marking the start of middle (target) section"},
-    )
-
-
-@dataclass
 class PositionalEmbeddingConfig(BaseConfig):
     """positional embedding options"""
 
@@ -126,12 +104,6 @@ class ModelConfig(BaseConfig):
     )
     vocab_name_or_path: str = field(default="gpt2", metadata={"help": "vocab name or path"})
     merge_file_path: str | None = field(default=None, metadata={"help": "merge file path"})
-
-    # FIM tokens (vocabulary-level configuration)
-    fim_tokens: FIMTokenConfig = field(
-        default_factory=FIMTokenConfig,
-        metadata={"help": "FIM special token names (must exist in tokenizer vocabulary)"},
-    )
 
     def __post_init__(self):
         if self.ln_type not in ["layernorm", "rmsnorm"]:
