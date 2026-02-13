@@ -104,7 +104,7 @@ class VocabParallelEmbedding(ParallelLinear):
             self.local_padding_start_idx = (
                 self.padding_start_idx - start_idx if local_padding else end_idx - start_idx
             )
-            
+
             # print(f"[DEBUG] Rank {parallel_states.get_tensor_model_parallel_rank()} local_padding_start_idx: {self.local_padding_start_idx}")
 
             # zero out from local_padding_start_idx to the end
@@ -126,13 +126,13 @@ class VocabParallelEmbedding(ParallelLinear):
 
         start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
         end_idx = self.parallel_input_dim * (parallel_states.get_tensor_model_parallel_rank() + 1)
-        
+
         # set token ids to the corresponding embedding space
         # We need to subtract start_idx because self.weight only contains this rank's partition
         # Tokens not in this rank's range should be masked out (0.0)
         token_mask = (x >= start_idx) & (x < end_idx)
         x_local = (x - start_idx) * token_mask
-        
+
         # Ensure x_local is on the correct device and long type for embedding lookup
         x_local = x_local.to(device=self.weight.device, dtype=torch.long)
         x_partition = F.embedding(x_local, self.weight)

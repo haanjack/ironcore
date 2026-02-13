@@ -8,7 +8,6 @@
 #
 # Full license text is available at LICENSE file.
 
-import os
 from datetime import timedelta
 
 import torch

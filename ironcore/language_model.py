@@ -9,10 +9,8 @@ from ironcore.layers import BaseModule, LanguageModelEmbedding
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.positional_embedding import RotaryPositionalEmbedding
 from ironcore.models import get_model_provider_func
-from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
-    copy_inputs_to_model_parallel_workers,
     vocab_parallel_cross_entropy,
 )
 
@@ -210,7 +208,7 @@ class LanguageModel(BaseModule):
         # If weights are tied, embedding is VocabParallel (RowParallel style: shard rows/vocab)
         # If weights are untied, output_layer is ColumnParallel (shard columns/vocab)
         # In both cases, matmul with lm_output (unsharded) results in vocab-parallel logits.
-        
+
         if self.config.model.untie_embed:
             logits_parallel = torch.matmul(lm_output, self.output_layer.weight)
         else:
@@ -222,9 +220,9 @@ class LanguageModel(BaseModule):
             # Return full logits for inference/evaluation
             # Gather from all TP ranks to get full vocab
             from ironcore.parallel.tensor_parallel import comm
+
             logits = comm.gather_from_model_parallel_workers(
-                logits_parallel,
-                {"column_parallel": True, "concatenated_weights": 1}
+                logits_parallel, {"column_parallel": True, "concatenated_weights": 1}
             )
             return logits
 

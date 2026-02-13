@@ -200,7 +200,7 @@ def print_model_structure(model, layer_idx: int = 0):
 def print_parameter_stats(model):
     """Print parameter counts and ratios."""
     trainable, total, lora = count_parameters(model)
-    print(f"\nParameter counts:")
+    print("\nParameter counts:")
     print(f"  Trainable: {trainable:,}")
     print(f"  Total: {total:,}")
     print(f"  LoRA: {lora:,}")
@@ -337,20 +337,12 @@ def run_training_step(
 
 def get_lora_parameters(model) -> dict[str, torch.Tensor]:
     """Get all LoRA parameters from a model."""
-    return {
-        name: param.clone()
-        for name, param in model.named_parameters()
-        if "lora_" in name
-    }
+    return {name: param.clone() for name, param in model.named_parameters() if "lora_" in name}
 
 
 def get_base_parameters(model) -> dict[str, torch.Tensor]:
     """Get all base (non-LoRA) parameters from a model."""
-    return {
-        name: param.clone()
-        for name, param in model.named_parameters()
-        if "lora_" not in name
-    }
+    return {name: param.clone() for name, param in model.named_parameters() if "lora_" not in name}
 
 
 def compare_lora_parameters(
@@ -374,14 +366,14 @@ def compare_lora_parameters(
     max_diff = 0.0
     all_match = True
 
-    for name in params1:
+    for name, value in params1.items():
         if name not in params2:
             if verbose:
                 print(f"  Missing in params2: {name}")
             all_match = False
             continue
 
-        diff = torch.abs(params1[name] - params2[name]).max().item()
+        diff = torch.abs(value - params2[name]).max().item()
         max_diff = max(max_diff, diff)
 
         if diff > atol:

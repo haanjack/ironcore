@@ -27,9 +27,7 @@ class LoRAConfig(BaseConfig):
     dropout: float = 0.0
     """Dropout probability applied to LoRA activations"""
 
-    target_modules: list[str] = field(
-        default_factory=lambda: ["q_proj", "v_proj"]
-    )
+    target_modules: list[str] = field(default_factory=lambda: ["q_proj", "v_proj"])
     """List of module names to apply LoRA to.
 
     Available modules:

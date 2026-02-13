@@ -19,6 +19,9 @@ import os
 import torch
 import torch.distributed as dist
 
+from ironcore.global_vars import set_global_states
+from ironcore.language_model import LanguageModel
+from ironcore.peft.utils import freeze_base_model
 from lora_test_utils import (
     assert_gradient_correctness,
     cleanup_parallel,
@@ -31,10 +34,6 @@ from lora_test_utils import (
     print_parameter_stats,
     set_seed,
 )
-
-from ironcore.global_vars import set_global_states
-from ironcore.language_model import LanguageModel
-from ironcore.peft.utils import freeze_base_model
 
 
 def save_tp1_model(enable_lora: bool = True):
@@ -73,7 +72,9 @@ def save_tp1_model(enable_lora: bool = True):
 
     # Verify trainable ratio is small
     if enable_lora:
-        assert trainable / total < 0.05, f"Trainable ratio too high: {100.0 * trainable / total:.2f}%"
+        assert trainable / total < 0.05, (
+            f"Trainable ratio too high: {100.0 * trainable / total:.2f}%"
+        )
         print("✓ Trainable parameter ratio < 5%")
 
     # Create test input and run forward pass
@@ -86,7 +87,9 @@ def save_tp1_model(enable_lora: bool = True):
     loss.backward()
 
     # Check gradient flow
-    assert_gradient_correctness(model, expect_lora_grads=enable_lora, expect_base_grads=not enable_lora)
+    assert_gradient_correctness(
+        model, expect_lora_grads=enable_lora, expect_base_grads=not enable_lora
+    )
     if enable_lora:
         print("✓ Only LoRA parameters receive gradients")
     else:
@@ -151,7 +154,9 @@ def load_and_compare_tp2(enable_lora: bool = True):
         print_parameter_stats(model)
 
     # Load TP=1 checkpoint
-    checkpoint = torch.load("test_outputs/lora_tp_test/tp1_model.pt", map_location=device, weights_only=False)
+    checkpoint = torch.load(
+        "test_outputs/lora_tp_test/tp1_model.pt", map_location=device, weights_only=False
+    )
     tp1_output = checkpoint["output"].cpu()
 
     # Zero out all parameters to ensure load_state_dict is actually working
@@ -186,7 +191,10 @@ def load_and_compare_tp2(enable_lora: bool = True):
                     else:
                         parent_module = getattr(parent_module, p)
 
-            if isinstance(parent_module, (LoRAColumnParallelLinear, LoRAConcatenatedColumnParallel, LoRARowParallelLinear)):
+            if isinstance(
+                parent_module,
+                (LoRAColumnParallelLinear, LoRAConcatenatedColumnParallel, LoRARowParallelLinear),
+            ):
                 wrapper = parent_module
                 break
 
@@ -201,7 +209,11 @@ def load_and_compare_tp2(enable_lora: bool = True):
 
                     sharded = comm.split_to_model_parallel_workers(
                         loaded_param,
-                        {"column_parallel": True, "row_parallel": False, "concatenated_weights": concat}
+                        {
+                            "column_parallel": True,
+                            "row_parallel": False,
+                            "concatenated_weights": concat,
+                        },
                     )
                     model_state[name] = sharded.to(device)
                 else:
@@ -212,7 +224,7 @@ def load_and_compare_tp2(enable_lora: bool = True):
                 if "lora_A" in name or (".weight" in name and "lora" not in name):
                     sharded = comm.split_to_model_parallel_workers(
                         loaded_param,
-                        {"column_parallel": False, "row_parallel": True, "concatenated_weights": 1}
+                        {"column_parallel": False, "row_parallel": True, "concatenated_weights": 1},
                     )
                     model_state[name] = sharded.to(device)
                 else:
@@ -243,7 +255,7 @@ def load_and_compare_tp2(enable_lora: bool = True):
                 # RowParallel shards WEIGHT along FIRST dimension
                 sharded = comm.split_to_model_parallel_workers(
                     loaded_param,
-                    {"column_parallel": False, "row_parallel": True, "concatenated_weights": 1}
+                    {"column_parallel": False, "row_parallel": True, "concatenated_weights": 1},
                 )
                 model_state[name] = sharded.to(device)
             else:
@@ -253,7 +265,7 @@ def load_and_compare_tp2(enable_lora: bool = True):
             # VocabParallelEmbedding shards along first dimension
             sharded = comm.split_to_model_parallel_workers(
                 loaded_param,
-                {"column_parallel": False, "row_parallel": True, "concatenated_weights": 1}
+                {"column_parallel": False, "row_parallel": True, "concatenated_weights": 1},
             )
             model_state[name] = sharded.to(device)
         else:
@@ -286,9 +298,11 @@ def load_and_compare_tp2(enable_lora: bool = True):
         # Relaxed tolerance for bfloat16 + TP
         atol, rtol = 1e-1, 1e-1
         matches = compare_tensors(
-            tp1_output, output_tp2_cpu,
+            tp1_output,
+            output_tp2_cpu,
             name="TP=1 vs TP=2 output",
-            atol=atol, rtol=rtol,
+            atol=atol,
+            rtol=rtol,
         )
         assert matches, "Outputs differ between TP=1 and TP=2"
         print(f"✓ Outputs match within tolerance (atol={atol}, rtol={rtol})")

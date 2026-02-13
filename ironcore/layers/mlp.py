@@ -54,13 +54,9 @@ class MLP(BaseModule):
                     self.up_proj, ["up_proj", "gate_proj"], config.peft.lora, concatenated=True
                 )
             else:
-                self.up_proj = wrap_with_lora_if_target(
-                    self.up_proj, "up_proj", config.peft.lora
-                )
+                self.up_proj = wrap_with_lora_if_target(self.up_proj, "up_proj", config.peft.lora)
 
-            self.down_proj = wrap_with_lora_if_target(
-                self.down_proj, "down_proj", config.peft.lora
-            )
+            self.down_proj = wrap_with_lora_if_target(self.down_proj, "down_proj", config.peft.lora)
 
     def forward(self, x, async_communication=False):
         x = self.up_proj(x)
@@ -76,7 +72,7 @@ class MLP(BaseModule):
 
     def finalize(self, x, handle):
         # Handle LoRA-wrapped down_proj
-        if hasattr(self.down_proj, 'finalize'):
+        if hasattr(self.down_proj, "finalize"):
             # LoRA-wrapped layer handles finalization internally
             x = self.down_proj.finalize(x, handle)
         else:

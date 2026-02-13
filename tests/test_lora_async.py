@@ -178,7 +178,7 @@ def test_async_chunking(tp_size=1):
     mean_diff = torch.abs(output_chunked - output_no_chunk).mean().item()
 
     if rank == 0:
-        print(f"\n[3] Comparing chunked vs non-chunked outputs:")
+        print("\n[3] Comparing chunked vs non-chunked outputs:")
         print(f"  Max difference: {diff:.6e}")
         print(f"  Mean difference: {mean_diff:.6e}")
 

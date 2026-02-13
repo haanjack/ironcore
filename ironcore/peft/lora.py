@@ -11,7 +11,7 @@
 import math
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from ironcore.config import LoRAConfig
 
@@ -166,13 +166,11 @@ class LoRAConcatenatedColumnParallel(nn.Module):
         self.base_layer = base_layer
 
         if base_layer.concatenated_weights <= 1:
-            raise ValueError(
-                "LoRAConcatenatedColumnParallel requires concatenated_weights > 1"
-            )
+            raise ValueError("LoRAConcatenatedColumnParallel requires concatenated_weights > 1")
 
         self.num_concatenated = base_layer.concatenated_weights
         self.output_size_per_concat = base_layer.output_size // self.num_concatenated
-        
+
         self.tp_rank = base_layer.tensor_model_parallel_rank
         self.tp_size = base_layer.tensor_model_parallel_size
 
@@ -246,7 +244,7 @@ class LoRARowParallelLinear(nn.Module):
         # LoRA A is sharded (matching input partition)
         # LoRA B is replicated
         self.lora = LoRALinear(
-            in_features=base_layer.input_size, # Already sharded size
+            in_features=base_layer.input_size,  # Already sharded size
             out_features=base_layer.output_size,
             rank=lora_config.r,
             alpha=lora_config.alpha,
@@ -265,17 +263,18 @@ class LoRARowParallelLinear(nn.Module):
 
         # Sync path: combine base and lora before all-reduce
         from ironcore.parallel.tensor_parallel import comm
+
         if self.base_layer.input_is_parallel:
             parallel_x = x
         else:
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
-        
+
         base_partial = torch.matmul(parallel_x, self.base_layer.weight)
         lora_partial = self.lora(x)
-        
+
         combined_partial = base_partial + lora_partial
         output = comm.reduce_inputs_from_model_parallel_workers(combined_partial)
-        
+
         if self.base_layer.bias is not None:
             output = output + self.base_layer.bias
         return output
@@ -292,6 +291,7 @@ class LoRARowParallelLinear(nn.Module):
 
         # Add LoRA partial contribution (needs its own reduce if async was separate)
         from ironcore.parallel.tensor_parallel import comm
+
         lora_output_reduced = comm.reduce_inputs_from_model_parallel_workers(lora_partial)
 
         # Add bias to base (base layer doesn't add it in async mode)

@@ -124,9 +124,10 @@ class BaseModule(torch.nn.Module):
         import random
 
         import numpy as np
+
         rng_state = torch.get_rng_state()
         cuda_rng_state = torch.cuda.get_rng_state() if torch.cuda.is_available() else None
-        
+
         seed = self.config.init.seed
         random.seed(seed)
         np.random.seed(seed)
@@ -145,7 +146,7 @@ class BaseModule(torch.nn.Module):
             torch.nn.init.xavier_uniform_(full_tensor)
         else:
             torch.nn.init.normal_(full_tensor, std=init_std, mean=0.0)
-        
+
         # Restore RNG states
         torch.set_rng_state(rng_state)
         if cuda_rng_state is not None:

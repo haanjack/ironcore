@@ -198,7 +198,9 @@ class _ScatterToModelParallelWorkers(torch.autograd.Function):  # pylint: disabl
 
 class _GatherFromModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
-    def forward(ctx, x: torch.Tensor, column_parallel: bool, row_parallel: bool, concatenated_weights: int):
+    def forward(
+        ctx, x: torch.Tensor, column_parallel: bool, row_parallel: bool, concatenated_weights: int
+    ):
         ctx.column_parallel = column_parallel
         ctx.row_parallel = row_parallel
         ctx.concatenated_weights = concatenated_weights
