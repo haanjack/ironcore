@@ -123,7 +123,9 @@ def test_save_load_tp1():
     # Create model and optimizer
     model = LanguageModel(config)
     model.to(device)
-    optimizer = get_optimizer(config, model, device_type="cuda" if torch.cuda.is_available() else "cpu")
+    optimizer = get_optimizer(
+        config, model, device_type="cuda" if torch.cuda.is_available() else "cpu"
+    )
 
     # Create dummy scheduler
     from torch.optim.lr_scheduler import StepLR
@@ -215,7 +217,9 @@ def test_universal_checkpoint():
 
         model_tp1 = LanguageModel(config_tp1)
         model_tp1.to(device)
-        optimizer_tp1 = get_optimizer(config_tp1, model_tp1, device_type="cuda" if torch.cuda.is_available() else "cpu")
+        optimizer_tp1 = get_optimizer(
+            config_tp1, model_tp1, device_type="cuda" if torch.cuda.is_available() else "cpu"
+        )
 
         from torch.optim.lr_scheduler import StepLR
 
@@ -225,7 +229,9 @@ def test_universal_checkpoint():
 
         # Get LoRA parameter values
         tp1_lora_params = {
-            name: param.clone().cpu() for name, param in model_tp1.named_parameters() if "lora_" in name
+            name: param.clone().cpu()
+            for name, param in model_tp1.named_parameters()
+            if "lora_" in name
         }
 
         parallel_states.destroy_model_parallel()
@@ -258,7 +264,9 @@ def test_universal_checkpoint():
 
     model_tp2 = LanguageModel(config_tp2)
     model_tp2.to(device)
-    optimizer_tp2 = get_optimizer(config_tp2, model_tp2, device_type="cuda" if torch.cuda.is_available() else "cpu")
+    optimizer_tp2 = get_optimizer(
+        config_tp2, model_tp2, device_type="cuda" if torch.cuda.is_available() else "cpu"
+    )
 
     from torch.optim.lr_scheduler import StepLR
 

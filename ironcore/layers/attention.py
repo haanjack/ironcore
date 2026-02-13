@@ -107,9 +107,7 @@ class Attention(BaseModule):
         with profile_context("self attention"):
             attention_score = attention_score / self.scale_factor
             # Use num_heads from input
-            attention_score = attention_score.view(
-                batch_size, num_heads, seq_len_q, seq_len_kv
-            )
+            attention_score = attention_score.view(batch_size, num_heads, seq_len_q, seq_len_kv)
 
             if attention_mask is not None:
                 attention_score = attention_score.masked_fill(attention_mask == 0, self.mask_value)

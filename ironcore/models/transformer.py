@@ -67,9 +67,7 @@ class TransformerLayer(BaseModule):
 
         # Wrap with LoRA if PEFT is enabled
         if config.peft.method == "lora":
-            self.linear_q = wrap_with_lora_if_target(
-                self.linear_q, "q_proj", config.peft.lora
-            )
+            self.linear_q = wrap_with_lora_if_target(self.linear_q, "q_proj", config.peft.lora)
 
             # Handle K and V projections (concatenated layer)
             self.linear_kv = wrap_with_lora_if_target(
@@ -196,7 +194,7 @@ class TransformerLayer(BaseModule):
         for i in range(len(query_chunks)):
             # Finish Attention (handle LoRA if present)
             # Check if attn_output has finalize method (LoRA-wrapped)
-            if hasattr(self.attn_output, 'finalize'):
+            if hasattr(self.attn_output, "finalize"):
                 attention_output = self.attn_output.finalize(attn_partials[i], attn_handles[i])
             else:
                 # Standard path without LoRA

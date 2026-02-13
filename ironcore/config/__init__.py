@@ -24,7 +24,8 @@ from .config_data import DataConfig
 from .config_model import ModelConfig
 from .config_optim import OptimConfig
 from .config_parallel import ParallelConfig
-from .config_peft import LoRAConfig, PEFTConfig
+from .config_peft import LoRAConfig as LoRAConfig
+from .config_peft import PEFTConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
 from .config_utils import UtilsConfig
 
