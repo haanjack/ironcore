@@ -426,10 +426,6 @@ class StreamingDataset(IterableDataset):
         indices_per_dataset = [0] * len(dataset_info)
 
         for global_idx in range(total_samples):
-            # Shard check: only process if this rank owns this index
-            if self.world_size > 1 and global_idx % self.world_size != self.rank:
-                continue
-
             # Check if all datasets are exhausted
             current_weighted_counts_sum = weighted_counts.sum()
             if current_weighted_counts_sum <= 0:
@@ -437,8 +433,17 @@ class StreamingDataset(IterableDataset):
                 break
 
             # Weighted random selection of dataset (only from non-exhausted datasets)
+            # MUST be performed by ALL ranks to keep RNG states synchronized
             dataset_probs = weighted_counts / current_weighted_counts_sum
             selected_ds_idx = rng.choice(len(dataset_info), p=dataset_probs)
+
+            # Shard check: only process if this rank owns this index
+            if self.world_size > 1 and global_idx % self.world_size != self.rank:
+                # Update counters even if we don't yield the sample to stay in sync
+                indices_per_dataset[selected_ds_idx] += 1
+                if indices_per_dataset[selected_ds_idx] >= dataset_info[selected_ds_idx]["num_samples"]:
+                    weighted_counts[selected_ds_idx] = 0
+                continue
 
             info = dataset_info[selected_ds_idx]
 

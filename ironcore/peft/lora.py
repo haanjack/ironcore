@@ -293,7 +293,7 @@ class LoRARowParallelLinear(nn.Module):
             # 1. Base partial computation
             base_partial = torch.matmul(parallel_x, self.base_layer.weight)
             # 2. LoRA partial computation
-            lora_partial = self.lora(x)
+            lora_partial = self.lora(parallel_x)
 
             # Combine BEFORE all-reduce to save one communication step
             combined_partial = base_partial + lora_partial
@@ -303,7 +303,7 @@ class LoRARowParallelLinear(nn.Module):
 
         # Sync path: combine base and lora before all-reduce
         base_partial = torch.matmul(parallel_x, self.base_layer.weight)
-        lora_partial = self.lora(x)
+        lora_partial = self.lora(parallel_x)
 
         combined_partial = base_partial + lora_partial
         output = comm.reduce_inputs_from_model_parallel_workers(combined_partial)
