@@ -45,11 +45,11 @@ class IronCoreLogger:
             console_handler = logging.StreamHandler()
             level_formats = {
                 logging.INFO: "[%(asctime)s] %(message)s",
-                logging.WARNING: "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
-                logging.ERROR: "[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+                logging.WARNING: "[%(asctime)s] [%(levelname)s] [%(origin_filename)s:%(origin_lineno)d] %(message)s",
+                logging.ERROR: "[%(asctime)s] [%(levelname)s] [%(origin_filename)s:%(origin_lineno)d] %(message)s",
             }
             formatter = LevelFormatter(
-                fmt="[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(message)s",
+                fmt="[%(asctime)s] [%(levelname)s] [%(origin_filename)s:%(origin_lineno)d] %(message)s",
                 level_formats=level_formats,
             )
             console_handler.setFormatter(formatter)
@@ -66,7 +66,7 @@ class IronCoreLogger:
         filename = os.path.basename(frame.f_code.co_filename)
         lineno = frame.f_lineno
 
-        extra = {"filename": filename, "lineno": lineno}
+        extra = {"origin_filename": filename, "origin_lineno": lineno}
         self.logger.log(level, message, extra=extra)
 
     def set_log_level(self, level):
