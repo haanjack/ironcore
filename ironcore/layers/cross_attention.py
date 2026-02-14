@@ -288,7 +288,6 @@ class VisionLanguageFusion(BaseModule):
         self.num_layers = num_layers
 
         language_hidden = config.model.d_model
-        vision_hidden = config.vla.vision.hidden_size
         ffn_hidden = config.model.d_ffn
         num_heads = config.model.num_attention_heads
 
@@ -299,7 +298,7 @@ class VisionLanguageFusion(BaseModule):
                     hidden_size=language_hidden,
                     ffn_hidden_size=ffn_hidden,
                     num_heads=num_heads,
-                    kv_hidden_size=vision_hidden,
+                    kv_hidden_size=language_hidden,  # Use language_hidden since projector already converts
                 )
                 for _ in range(num_layers)
             ])
@@ -313,7 +312,7 @@ class VisionLanguageFusion(BaseModule):
                 config,
                 hidden_size=language_hidden,
                 num_heads=num_heads,
-                kv_hidden_size=vision_hidden,
+                kv_hidden_size=language_hidden,  # Use language_hidden since projector already converts
             )
 
         else:
