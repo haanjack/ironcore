@@ -174,14 +174,12 @@ class _CopyToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=a
 
 class _ReduceFromModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
     @staticmethod
-    def forward(
-        ctx, x: torch.Tensor, async_op: bool = False
-    ) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:  # pylint: disable=unused-argument
-        return _reduce(x, async_op)
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        return _reduce(x, async_op=False)  # type: ignore
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor, grad_handle=None) -> tuple[torch.Tensor, None]:  # pylint: disable=unused-argument
-        return grad_output, None
+    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
+        return grad_output
 
 
 class _ScatterToModelParallelWorkers(torch.autograd.Function):  # pylint: disable=abstract-method
@@ -226,10 +224,16 @@ def copy_inputs_to_model_parallel_workers(x) -> torch.Tensor:
     return _CopyToModelParallelWorkers.apply(x)  # type: ignore
 
 
-def reduce_inputs_from_model_parallel_workers(
-    x, async_op=False
-) -> torch.Tensor | tuple[torch.Tensor, dist.Work | None]:
-    return _ReduceFromModelParallelWorkers.apply(x, async_op)  # type: ignore
+def reduce_inputs_from_model_parallel_workers(x) -> torch.Tensor:
+    return _ReduceFromModelParallelWorkers.apply(x)  # type: ignore
+
+
+def reduce_async(x: torch.Tensor) -> tuple[torch.Tensor, dist.Work | None]:
+    """
+    Asynchronous reduction. This is NOT tracked by autograd in the forward pass.
+    Used for Async TP to overlap chunk reductions with next chunk computation.
+    """
+    return _reduce(x, async_op=True)  # type: ignore
 
 
 def scatter_input_to_model_parallel_workers(x) -> torch.Tensor:

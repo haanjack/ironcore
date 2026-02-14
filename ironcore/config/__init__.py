@@ -25,7 +25,7 @@ from .config_model import ModelConfig
 from .config_optim import OptimConfig
 from .config_parallel import ParallelConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
-from .config_utils import UtilsConfig
+from .config_utils import ProfilerConfig, UtilsConfig
 
 load_dotenv()
 
@@ -42,6 +42,7 @@ class MainConfig(BaseConfig):
     trainer: TrainerConfig
     operation: OperationConfig
     utils: UtilsConfig
+    profiler: ProfilerConfig
 
 
 def _config_validation(config: MainConfig):
@@ -123,6 +124,14 @@ def _config_validation(config: MainConfig):
     if not torch.cuda.is_available() and config.trainer.tensor_model_parallel_size > 1:
         raise ValueError("tensor_model_parallel_size should be 1 in non-CUDA environments")
 
+    # Async TP validation
+    if config.trainer.sequence_chunk_size is not None and config.trainer.sequence_chunk_size > 0:
+        if config.trainer.sequence_chunk_size < 64:
+            raise ValueError(
+                f"sequence_chunk_size ({config.trainer.sequence_chunk_size}) is too small. "
+                "Minimum recommended size is 64 to avoid excessive communication overhead."
+            )
+
 
 # arguments utilities
 def parse_args():
@@ -130,11 +139,20 @@ def parse_args():
 
     parser = ArgumentParser(prog="trainer configuration", description="LLM trainer")
 
-    # configuration arguments
-    configs = [config.type for config in fields(MainConfig)]
-    for category in configs:
-        for field_ in fields(category):
-            parser.add_argument(f"--{field_.name}", **field_.metadata)
+    def add_recursive_args(config_cls, prefix=""):
+        for field_ in fields(config_cls):
+            arg_name = f"{prefix}{field_.name}"
+
+            # If the field is another config class, recurse
+            if hasattr(field_.type, "__dataclass_fields__"):
+                add_recursive_args(field_.type, prefix=f"{arg_name}.")
+            else:
+                # Add the leaf-level argument
+                parser.add_argument(f"--{arg_name}", **field_.metadata)
+
+    # configuration categories in MainConfig
+    for group_field in fields(MainConfig):
+        add_recursive_args(group_field.type, prefix="")
 
     parser.add_argument("--config-path", type=str, default=None, help="yaml config file path")
     parser.add_argument(
@@ -155,22 +173,12 @@ def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
 
     output_list = []
     for dataset_name_or_path, dataset_config in datasets.items():
-        # setup dataset config
-        # - [train, eval, test]
-        #   - dataset_name_or_path
-        #     - content_column: text
-        #     - subgroup: dataset subgroup name
-        #     - ratio: 1.0
-
         loaded_config = {}
 
-        # check if dataset_name_or_path is a path or a name
         if Path(dataset_name_or_path).with_suffix(".bin").exists():
-            # if dataset_name_or_path is a path
             loaded_config["name"] = os.path.basename(dataset_name_or_path)
             loaded_config["dataset_path"] = dataset_name_or_path
         else:
-            # if dataset_name_or_path is a name
             if os.environ.get("PROCESSED_DATA_PATH"):
                 base_dir = os.environ.get("PROCESSED_DATA_PATH")
             else:
@@ -192,11 +200,9 @@ def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
     return output_list
 
 
-# data config
 def _update_config_from_yaml(config: dataclass, config_group_key: str, config_group: dict):
     """update config from yaml config file."""
 
-    # get config from yaml
     config_dict_item = asdict(config)[config_group_key]
     for yaml_config_key, yaml_config_value in config_group.items():
         assert yaml_config_key in config_dict_item, (
@@ -204,7 +210,6 @@ def _update_config_from_yaml(config: dataclass, config_group_key: str, config_gr
         )
         config_dict_item[yaml_config_key] = yaml_config_value
 
-    # update config
     getattr(config, config_group_key)(**config_dict_item)
 
 
@@ -214,204 +219,108 @@ def _update_data_config_from_yaml(config: dataclass, config_group_key, config_gr
     for sub_group_key, sub_group_value in config_group.items():
         if sub_group_key in ["train", "eval", "test"]:
             sub_group_key = f"{sub_group_key}_datasets"
-            # config.data.__dict__[sub_group_key
             data_group_config = load_data_config(config, sub_group_value)
             setattr(config.data, sub_group_key, data_group_config)
         else:
             assert sub_group_key in config_group, (
                 f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
             )
-            # config.data.__dict__[sub_group_key] = sub_group_value
             setattr(config.data, sub_group_key, sub_group_value)
 
 
-def _load_config_from_yaml(config: dataclass, args):
-    """
-    load config from yaml config file.
-    """
-    yaml_config = load_yaml_config(args.config_path)
-    config_dict = asdict(config)
-    # load configs from yaml
-    for yaml_config_group_key, yaml_config_group in yaml_config.items():
-        # check if config group is defined
-        assert yaml_config_group_key in config_dict, (
-            f"{yaml_config_group_key} is not defined configuration group"
-        )
-
-        if yaml_config_group is None:
-            getattr(config, yaml_config_group_key).attr_name = "dummy"
-
-        # load configs from subsidary yaml config files
-        if isinstance(yaml_config_group, str):
-            # load sub-config defined in seperated file: model and data config
-            sub_group_config_path = (
-                Path(args.config_path).parent / f"{yaml_config_group_key}/{yaml_config_group}.yaml"
-            )
-            sub_group_config = load_yaml_config(sub_group_config_path)
-
-            if yaml_config_group_key == "data":
-                _update_data_config_from_yaml(config, yaml_config_group_key, sub_group_config)
-            else:
-                _update_config_from_yaml(config, yaml_config_group_key, sub_group_config)
-                getattr(config, yaml_config_group_key).attr_name = yaml_config_group
-        else:
-            # load configs: trainer, optimizer, etc
-            _update_config_from_yaml(config, yaml_config_group_key, yaml_config_group)
-
-
-def _update_config_from_args(config: dataclass, args):
-    """update config from command line."""
-    for group_field in fields(config):
-        for field_ in fields(group_field.type):
-            # get argument and update config if it is defined argument
-            if not hasattr(args, field_.name) or getattr(args, field_.name) is None:
-                continue
-
-            if field_.name == "config_path":
-                # skip config path argument
-                continue
-
-            config_group = getattr(config, group_field.name)
-
-            # load optional type as config defined type_
-            if get_origin(field_.type) is Optional:
-                type_ = get_args(field_.type)[0]
-            elif get_origin(field_.type) is Union:
-                for type_cls in [int, float, str, list]:
-                    if isinstance(getattr(args, field_.name), type_cls):
-                        type_ = type_cls
-                        break
-            else:
-                type_ = field_.type
-
-            value = type_(getattr(args, field_.name))
-            setattr(config_group, field_.name, value)
-
-
-def _update_config_from_yaml(config: dataclass, config_group_key: str, config_group: dict):
-    """update config from yaml config file."""
-
-    # get config from yaml
-    config_dict_item = asdict(config)[config_group_key]
-    for yaml_config_key, yaml_config_value in config_group.items():
-        assert yaml_config_key in config_dict_item, (
-            f"{yaml_config_key} is not defined in {config_group_key} config. Check yaml config file."
-        )
-        config_dict_item[yaml_config_key] = yaml_config_value
-
-    # update config
-    getattr(config, config_group_key)(**config_dict_item)
-
-
-def _update_data_config_from_yaml(config: dataclass, config_group_key, config_group: dict):
-    """update data config from yaml config file."""
-
-    for sub_group_key, sub_group_value in config_group.items():
-        if sub_group_key in ["train", "eval", "test"]:
-            sub_group_key = f"{sub_group_key}_datasets"
-            config.data.__dict__[sub_group_key] = load_data_config(config, sub_group_value)
-        else:
-            # update arguments for DataConfig class
-            assert sub_group_key in config_group, (
-                f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
-            )
-            config.data.__dict__[sub_group_key] = sub_group_value
-
-
 def _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config):
-    """
-    Load subgroup config
-    """
+    """Load subgroup config"""
     if config_group_key == "data":
         _update_data_config_from_yaml(config, config_group_key, sub_group_config)
     else:
-        # load configs: trainer, optimizer, model, etc
         _update_config_from_yaml(config, config_group_key, sub_group_config)
 
 
 def _load_config_from_yaml(config: dataclass, args: Namespace):
-    """
-    Load config from yaml config file.
-
-    yaml config file can accept several pre-defined groups. Those groups are predefined in MainConfig class.
-
-    yaml config file can have two type of format.
-
-    (type 1) - listing arguments in yaml config file
-    [config-group]:
-        [argument 1]: value
-        [argument 2]: value
-
-    (type 2) - external yaml config file
-    [config-group]: config_name
-
-    - when config group is specified with a string, trainer finds external config file as 'configs/[config-group]/config_name.yaml'.
-
-
-    """
-
+    """Load config from yaml config file."""
     yaml_config = load_yaml_config(args.config_path)
     config_dict = asdict(config)
-    # load configs from yaml
+
     for config_group_key, sub_group_config in yaml_config.items():
-        # check if config group is defined
         assert config_group_key in config_dict, (
             f"{config_group_key} is not defined configuration group"
         )
 
-        # load configs from yaml
         if isinstance(sub_group_config, str):
-            # add config name to config group
             getattr(config, config_group_key).name = sub_group_config
-
-            # load sub-config: data, model config
-            # Resolve sub-config path relative to the project's 'configs/' directory
             sub_group_config_path = (
                 Path(args.config_path).parent / f"{config_group_key}/{sub_group_config}.yaml"
             )
-            if sub_group_config in "dummy":
-                # load dummy config if it exists or run with default dummy config
-                # this is usually for dummy model usage
+
+            if sub_group_config == "dummy":
                 if sub_group_config_path.exists():
                     sub_group_config_from_file = load_yaml_config(sub_group_config_path)
+                    _load_subgroup_config_from_yaml(
+                        config, config_group_key, sub_group_config_from_file
+                    )
                 continue
             else:
                 if not sub_group_config_path.exists():
                     raise FileNotFoundError(f"Config file not found: {sub_group_config_path}")
                 sub_group_config_from_file = load_yaml_config(sub_group_config_path)
-
-            _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
+                _load_subgroup_config_from_yaml(
+                    config, config_group_key, sub_group_config_from_file
+                )
         else:
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config)
 
 
 def _update_config_from_args(config: dataclass, args):
-    """update config from command line."""
-    for group_field in fields(config):
-        for field_ in fields(group_field.type):
-            # get argument and update config if it is defined argument
-            if not hasattr(args, field_.name) or getattr(args, field_.name) is None:
-                continue
+    """update config from command line using recursive dot-notation."""
 
-            if field_.name == "config_path":
-                # skip config path argument
-                continue
+    arg_dict = vars(args)
 
-            config_group = getattr(config, group_field.name)
+    def set_recursive_attr(obj, attr_path, value):
+        parts = attr_path.split(".")
+        for part in parts[:-1]:
+            obj = getattr(obj, part)
 
-            # load optional type as config defined type_
-            if get_origin(field_.type) is Optional:
-                type_ = get_args(field_.type)[0]
-            elif get_origin(field_.type) is Union:
-                for type_cls in [int, float, str, list]:
-                    if isinstance(getattr(args, field_.name), type_cls):
-                        type_ = type_cls
-                        break
-            else:
-                type_ = field_.type
+        target_attr = parts[-1]
 
-            value = type_(getattr(args, field_.name))
-            setattr(config_group, field_.name, value)
+        # Find the field type for casting
+        field_info = [f for f in fields(obj) if f.name == target_attr]
+        if not field_info:
+            raise AttributeError(f"Attribute {target_attr} not found")
+
+        field_type = field_info[0].type
+
+        # Handle Optional/Union types
+        if get_origin(field_type) is Optional:
+            type_ = get_args(field_type)[0]
+        elif get_origin(field_type) is Union:
+            # Simple heuristic for common types
+            for type_cls in [int, float, str, list, bool]:
+                if isinstance(value, type_cls):
+                    type_ = type_cls
+                    break
+        else:
+            type_ = field_type
+
+        # Handle Boolean strings from argparse
+        if type_ is bool and isinstance(value, str):
+            value = value.lower() in ("true", "1", "yes")
+
+        setattr(obj, target_attr, type_(value))
+
+    for arg_name, arg_value in arg_dict.items():
+        if arg_value is None or arg_name in ["config_path", "local_rank"]:
+            continue
+
+        try:
+            for group_field in fields(config):
+                group_obj = getattr(config, group_field.name)
+                try:
+                    set_recursive_attr(group_obj, arg_name, arg_value)
+                    break
+                except (AttributeError, IndexError):
+                    continue
+        except Exception:
+            continue
 
 
 def load_trainer_config() -> MainConfig:
@@ -426,19 +335,16 @@ def load_trainer_config() -> MainConfig:
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
     )
 
-    # get config from command line
     args = parse_args()
 
-    # get config from yaml config file
     if hasattr(args, "config_path") and args.config_path is not None:
         _load_config_from_yaml(config, args)
 
-    # update config from command line arguments
     _update_config_from_args(config, args)
 
-    # Args from environment
     config.parallel.rank = int(os.getenv("RANK", "0"))
     config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
     config.parallel.world_size = int(os.getenv("WORLD_SIZE", "1"))
@@ -463,7 +369,6 @@ def load_trainer_config() -> MainConfig:
     delattr(config.trainer, "special_tokens_config_path")
 
     _config_validation(config)
-
     return config
 
 

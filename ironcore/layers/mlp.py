@@ -47,8 +47,7 @@ class MLP(BaseModule):
         x = self.up_proj(x)
         x = self.activation(x)
         if async_communication:
-            x, handle = self.down_proj(x, async_communication=True)
-            return x, handle
+            return self.down_proj(x, async_communication=True)
 
         x = self.down_proj(x)
         if self.config.dropout_mlp > 0.0:

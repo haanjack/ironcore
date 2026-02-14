@@ -11,7 +11,6 @@ from torch.distributed.fsdp import (
     ShardingStrategy,
     StateDictType,
 )
-from torch.distributed.fsdp.wrap import wrap
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from ironcore import get_logger
@@ -80,34 +79,70 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
             broadcast_buffers=False,
         )
     else:
-        # initailize FSDP configs
+        # FSDP Robust implementation for 2D Parallelism
+        import functools
+
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
+        from ironcore.models.transformer import TransformerLayer
+
+        # Layer-wise sharding policy is critical for memory efficiency and AsyncTP overlap
+        auto_wrap_policy = functools.partial(
+            transformer_auto_wrap_policy,
+            transformer_layer_cls={TransformerLayer},
+        )
+
+        # mixed precision
         _mixed_precision_opt = MixedPrecision(
             param_dtype=model.dtype,
             reduce_dtype=model.dtype,
             buffer_dtype=model.dtype,
         )
         if config.parallel.fsdp_mixed_precision == "mixed":
-            _mixed_precision_opt.reduce_dtype = float
+            _mixed_precision_opt.reduce_dtype = torch.float32
 
-        _state_dict_type = {
-            "full": StateDictType.FULL_STATE_DICT,
-            "local": StateDictType.LOCAL_STATE_DICT,
-            "sharded": StateDictType.SHARDED_STATE_DICT,
-        }
         _sharding_strategy = {
             "full": ShardingStrategy.FULL_SHARD,
             "hybrid": ShardingStrategy.HYBRID_SHARD,
             "no_shard": ShardingStrategy.NO_SHARD,
         }
-        fsdp_config = {
-            "cpu_offload": CPUOffload(offload_params=config.parallel.fsdp_offload_params),
-            "forward_prefetch": True,
-            "backward_prefetch": BackwardPrefetch.BACKWARD_PRE,
-            "mixed_precision": _mixed_precision_opt,
-            "device_id": torch.cuda.current_device(),
-            "sharding_strategy": _sharding_strategy[config.parallel.fsdp_sharding_strategy],
-            "state_dict_type": _state_dict_type[config.parallel.fsdp_state_dict_type],
+
+        # Prefetching can cause contention with AsyncTP communication
+        # Disable forward prefetch if TP > 1 for better stability
+        use_forward_prefetch = config.trainer.tensor_model_parallel_size == 1
+
+        model = FSDP(
+            model,
+            process_group=parallel_states.get_data_parallel_group(),
+            auto_wrap_policy=auto_wrap_policy,
+            cpu_offload=CPUOffload(offload_params=config.parallel.fsdp_offload_params),
+            backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
+            mixed_precision=_mixed_precision_opt,
+            device_id=torch.cuda.current_device(),
+            sharding_strategy=_sharding_strategy[config.parallel.fsdp_sharding_strategy],
+            forward_prefetch=use_forward_prefetch,
+        )
+
+        # Set state dict type separately
+        _state_dict_type = {
+            "full": StateDictType.FULL_STATE_DICT,
+            "local": StateDictType.LOCAL_STATE_DICT,
+            "sharded": StateDictType.SHARDED_STATE_DICT,
         }
-        model = wrap(model, **fsdp_config)
+        from torch.distributed.fsdp import (
+            FullStateDictConfig,
+            ShardedStateDictConfig,
+        )
+
+        st_type = _state_dict_type[config.parallel.fsdp_state_dict_type]
+        if st_type == StateDictType.FULL_STATE_DICT:
+            FSDP.set_state_dict_type(
+                model, st_type, FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            )
+        elif st_type == StateDictType.SHARDED_STATE_DICT:
+            FSDP.set_state_dict_type(model, st_type, ShardedStateDictConfig(offload_to_cpu=True))
+        else:
+            FSDP.set_state_dict_type(model, st_type)
 
     return model
