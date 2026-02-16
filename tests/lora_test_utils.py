@@ -74,6 +74,7 @@ def create_lora_test_config(
         lora_target_modules = ["q_proj", "v_proj", "o_proj", "up_proj", "down_proj"]
 
     model_config = ModelConfig(
+        name="gpt2",
         d_model=d_model,
         num_attention_heads=num_attention_heads,
         num_attention_groups=num_attention_heads,

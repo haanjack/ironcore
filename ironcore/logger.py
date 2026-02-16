@@ -10,8 +10,6 @@
 
 import json
 import logging
-import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -61,13 +59,8 @@ class IronCoreLogger:
         if self.rank > 0:
             return
 
-        # collect filename and line number
-        frame = sys._getframe(2)
-        filename = os.path.basename(frame.f_code.co_filename)
-        lineno = frame.f_lineno
-
-        extra = {"filename": filename, "lineno": lineno}
-        self.logger.log(level, message, extra=extra)
+        # Just log without extra - the formatter already uses built-in filename/lineno
+        self.logger.log(level, message)
 
     def set_log_level(self, level):
         """set log level"""

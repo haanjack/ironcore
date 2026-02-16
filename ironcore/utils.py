@@ -85,8 +85,9 @@ def get_dataset_base_dir() -> Path:
 
 # parallel utilities
 def is_first_rank():
-    """Check whether it's rank 0."""
-    assert dist.is_initialized(), "torch distributed is not initialized."
+    """Check whether it's rank 0 (or single process)."""
+    if not dist.is_initialized():
+        return True  # Single process case
     return dist.get_rank() == 0
 
 

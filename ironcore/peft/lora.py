@@ -298,8 +298,9 @@ class LoRARowParallelLinear(nn.Module):
             # Combine BEFORE all-reduce to save one communication step
             combined_partial = base_partial + lora_partial
 
-            # Start single async all-reduce
-            return comm.reduce_inputs_from_model_parallel_workers(combined_partial, async_op=True)
+            # Start single all-reduce (sync for now, async not supported with autograd)
+            output = comm.reduce_inputs_from_model_parallel_workers(combined_partial)
+            return output, None  # Return (output, handle) where handle is None
 
         # Sync path: combine base and lora before all-reduce
         base_partial = torch.matmul(parallel_x, self.base_layer.weight)
