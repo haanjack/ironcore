@@ -242,11 +242,11 @@ class RowParallelLinear(ParallelLinear):
 
         if async_communication:
             # Async path: bias added later in finalize() to avoid race conditions
-            # comm.reduce handles both tp_size=1 and tp_size>1 cases
-            return comm.reduce_inputs_from_model_parallel_workers(output, async_op=True)
+            # comm.reduce_async handles both tp_size=1 and tp_size>1 cases
+            return comm.reduce_async(output)
 
         # Synchronous path: standard TP behavior (used when chunking disabled)
-        output = comm.reduce_inputs_from_model_parallel_workers(output, async_op=False)
+        output = comm.reduce_inputs_from_model_parallel_workers(output)
         if self.bias is not None:
             output = output + self.bias
         return output

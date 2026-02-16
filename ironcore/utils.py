@@ -243,9 +243,11 @@ def profile_function(tag):
     def decorator(func):
         def wrapper(*args, **kwargs):
             with torch.profiler.record_function(tag):
-                torch.cuda.nvtx.range_push(tag)
+                if hasattr(torch.cuda, "nvtx"):
+                    torch.cuda.nvtx.range_push(tag)
                 result = func(*args, **kwargs)
-                torch.cuda.nvtx.range_pop()
+                if hasattr(torch.cuda, "nvtx"):
+                    torch.cuda.nvtx.range_pop()
                 return result
 
         return wrapper
@@ -256,10 +258,12 @@ def profile_function(tag):
 @contextmanager
 def profile_context(tag):
     """Context manager for profiling"""
-    torch.cuda.nvtx.range_push(tag)
+    if hasattr(torch.cuda, "nvtx"):
+        torch.cuda.nvtx.range_push(tag)
     with torch.profiler.record_function(tag):
         yield
-    torch.cuda.nvtx.range_pop()
+    if hasattr(torch.cuda, "nvtx"):
+        torch.cuda.nvtx.range_pop()
 
 
 def clip_grad_norm_tp(

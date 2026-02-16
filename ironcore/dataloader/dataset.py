@@ -128,7 +128,7 @@ class StreamingDataset(IterableDataset):
         self.mode = mode
         self.seed = seed
         self.split = split
-        self.max_seq_len = data_config.max_seq_len
+        self.seq_length = data_config.seq_length
 
         # Select datasets based on split
         source_datasets = []
@@ -279,7 +279,7 @@ class StreamingDataset(IterableDataset):
                 for dataset in self.datasets
                 for start, end in [self.split_ranges[id(dataset)]]
             )
-            num_positions = total_tokens // self.max_seq_len
+            num_positions = total_tokens // self.seq_length
 
             # Auto-tune: 1% of dataset, capped at [1K, 100K]
             self.shuffle_buffer_size = max(1000, min(100000, num_positions // 100))
@@ -327,7 +327,7 @@ class StreamingDataset(IterableDataset):
 
         # Compute total tokens and number of positions
         total_tokens = sum(end - start for _, start, end in token_ranges)
-        num_positions = total_tokens // self.max_seq_len
+        num_positions = total_tokens // self.seq_length
 
         # Infinite loop for continuous pretraining
         epoch = 0
@@ -340,7 +340,7 @@ class StreamingDataset(IterableDataset):
                 block_end = min(block_start + self.shuffle_buffer_size, num_positions)
 
                 # Generate positions for this block only
-                block_positions = np.arange(block_start, block_end) * self.max_seq_len
+                block_positions = np.arange(block_start, block_end) * self.seq_length
 
                 # Shuffle block
                 rng.shuffle(block_positions)
@@ -366,12 +366,12 @@ class StreamingDataset(IterableDataset):
                             local_pos = global_pos - current_offset + start
                             dataset = self.datasets[ds_idx]
 
-                            slice_end = min(local_pos + self.max_seq_len + 1, end)
+                            slice_end = min(local_pos + self.seq_length + 1, end)
                             token_ids = dataset.data[local_pos:slice_end]
 
                             # Handle wrap-around
-                            if len(token_ids) < self.max_seq_len + 1:
-                                needed = (self.max_seq_len + 1) - len(token_ids)
+                            if len(token_ids) < self.seq_length + 1:
+                                needed = (self.seq_length + 1) - len(token_ids)
                                 wrap_tokens = dataset.data[start : start + needed]
                                 token_ids = np.concatenate([token_ids, wrap_tokens])
 

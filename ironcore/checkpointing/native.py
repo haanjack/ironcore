@@ -326,6 +326,17 @@ def save_checkpoint(
     if not ckpt_path.parent.exists():
         ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Handle FSDP state dict gathering
+    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+    if isinstance(model, FSDP):
+        # We need the full state dict (across DP) to perform TP gathering or just to save
+        # FSDP.state_dict_type context ensures rank 0 gets the full data
+        with FSDP.state_dict_type(model, config.parallel.fsdp_state_dict_type):
+            raw_state_dict = model.state_dict()
+    else:
+        raw_state_dict = model.state_dict()
+
     def _is_universal_checkpoint(config: MainConfig):
         """checking requested checkpoint format"""
         return (
@@ -345,10 +356,7 @@ def save_checkpoint(
 
     # model_state_dict
     model_state_dict = {}
-    for name, param in model.state_dict().items():
-        # Sanity check
-        # param = torch.ones_like(param) * get_tensor_model_parallel_rank()
-
+    for name, param in raw_state_dict.items():
         # remove 'weights' or 'bias' from the name
         module_name = ".".join(name.split(".")[:-1])
         output_param = param
@@ -372,7 +380,12 @@ def save_checkpoint(
         model_state_dict[name] = output_param
 
     # optimizer state
-    optimizer_state_dict = optimizer.state_dict()
+    if isinstance(model, FSDP):
+        # FSDP requires special handling for optimizer state gathering
+        optimizer_state_dict = FSDP.optim_state_dict(model, optimizer)
+    else:
+        optimizer_state_dict = optimizer.state_dict()
+
     optimizer_state_dict_by_name = {
         "state": {},
         "param_groups": optimizer_state_dict["param_groups"],

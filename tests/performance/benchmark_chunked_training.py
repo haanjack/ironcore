@@ -47,6 +47,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
@@ -99,6 +100,7 @@ def create_config(seq_len, chunk_size, tp_size, use_flash_attn=False):
         parallel=ParallelConfig(timeout_minute=30),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
     )
 
 

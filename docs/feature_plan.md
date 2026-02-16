@@ -40,6 +40,9 @@
 ## Inference Integration Integration
 - [x] HF checkpoint compatibility
 - [ ] vLLM / SGLang / nano-vllm style implementation
+- [ ] KV-cache, paged attention, and prefix cache support, greedy decoding
+- [ ] Top-k sampling, EOS token handling,
+- [ ] Multi-step Generation with Block Reclamation
 
 ## Distributed Training
 - [x] DDP (Data Parallel)

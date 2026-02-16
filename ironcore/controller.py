@@ -69,6 +69,6 @@ class TrainingControl:
         return (
             not self.do_checkpoint(step)
             and step - last_step > 1
-            and not self.utils.profile_nsys
-            and not self.utils.profile_torch
+            and not self.config.profiler.gpu_profiler
+            and not self.config.profiler.torch_profiler
         )
