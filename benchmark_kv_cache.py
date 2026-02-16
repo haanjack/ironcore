@@ -51,6 +51,7 @@ def force_cleanup_global_states():
     if GLOBAL_STATES is not None:
         GLOBAL_STATES.cleanup()
     import ironcore.global_vars as gv
+
     gv.GLOBAL_STATES = None
 
 
@@ -97,9 +98,14 @@ def create_config(d_model=256, num_layers=2, num_heads=4, seq_len=128, enable_ca
     utils_config = UtilsConfig()
 
     return MainConfig(
-        model=model_config, trainer=trainer_config, init=init_config,
-        optim=optim_config, data=data_config, parallel=parallel_config,
-        operation=operation_config, utils=utils_config,
+        model=model_config,
+        trainer=trainer_config,
+        init=init_config,
+        optim=optim_config,
+        data=data_config,
+        parallel=parallel_config,
+        operation=operation_config,
+        utils=utils_config,
     )
 
 
@@ -160,9 +166,9 @@ def benchmark_generation(model, device, prompt_len=16, gen_len=32, use_cache=Tru
 
 def main():
     """Run comprehensive benchmark."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print(" " * 15 + "KV CACHE PERFORMANCE VALIDATION")
-    print("="*70)
+    print("=" * 70)
 
     # Clean up any existing global states
     force_cleanup_global_states()
@@ -183,9 +189,9 @@ def main():
     print(f"\nDevice: {device}")
 
     for config_desc in configs_to_test:
-        print("\n" + "-"*70)
+        print("\n" + "-" * 70)
         print(f"Model: {config_desc['name']}")
-        print("-"*70)
+        print("-" * 70)
 
         # Create model with cache
         force_cleanup_global_states()
@@ -213,31 +219,38 @@ def main():
         model_without_cache.eval()
         model_without_cache.to(device)
 
-        print(f"{'Test Case':<20} {'With Cache':<12} {'No Cache':<12} {'Speedup':<10} {'Mem Cache':<12} {'Mem No Cache':<12}")
+        print(
+            f"{'Test Case':<20} {'With Cache':<12} {'No Cache':<12} {'Speedup':<10} {'Mem Cache':<12} {'Mem No Cache':<12}"
+        )
         print("-" * 100)
 
         for gen_test in generation_tests:
             # Run benchmark with cache
             time_cache, mem_cache = benchmark_generation(
-                model_with_cache, device,
+                model_with_cache,
+                device,
                 prompt_len=gen_test["prompt"],
                 gen_len=gen_test["gen"],
-                use_cache=True
+                use_cache=True,
             )
 
             # Run benchmark without cache
             time_no_cache, mem_no_cache = benchmark_generation(
-                model_without_cache, device,
+                model_without_cache,
+                device,
                 prompt_len=gen_test["prompt"],
                 gen_len=gen_test["gen"],
-                use_cache=False
+                use_cache=False,
             )
 
             speedup = time_no_cache / time_cache
 
-            print(f"{gen_test['name']:<20} {time_cache:>10.4f}s {time_no_cache:>10.4f}s {speedup:>8.2f}x ", end="")
+            print(
+                f"{gen_test['name']:<20} {time_cache:>10.4f}s {time_no_cache:>10.4f}s {speedup:>8.2f}x ",
+                end="",
+            )
             if torch.cuda.is_available():
-                print(f"{mem_cache/1024**2:>10.1f}MB {mem_no_cache/1024**2:>10.1f}MB")
+                print(f"{mem_cache / 1024**2:>10.1f}MB {mem_no_cache / 1024**2:>10.1f}MB")
             else:
                 print(f"{'N/A':>10} {'N/A':>10}")
 
@@ -247,9 +260,9 @@ def main():
 
     force_cleanup_global_states()
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print(" " * 25 + "VALIDATION COMPLETE")
-    print("="*70)
+    print("=" * 70)
     print("\nKey Findings:")
     print("- KV cache provides significant speedup for autoregressive generation")
     print("- Speedup increases with sequence length (caching more tokens)")
