@@ -20,6 +20,10 @@ class TestFIMConfigFields:
         print(f"DEBUG: config instance: {config}")
         print(f"DEBUG: config fields: {config.__dataclass_fields__.keys()}")
         assert hasattr(config, "fim_rate")
+        assert hasattr(config, "fim_split_type")
+        assert hasattr(config, "fim_prefix_token")
+        assert hasattr(config, "fim_suffix_token")
+        assert hasattr(config, "fim_middle_token")
 
     def test_fim_rate_default(self):
         """Verify fim_rate defaults to 0.0 (disabled)."""

@@ -244,6 +244,35 @@ def _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config):
         _update_config_from_yaml(config, config_group_key, sub_group_config)
 
 
+def _sanitize_path_component(component: str) -> str:
+    """Sanitize a path component to prevent directory traversal."""
+    # Remove any path separators and traversal sequences
+    sanitized = component.replace("/", "").replace("\\", "")
+    sanitized = sanitized.replace("..", "")
+    # Only allow alphanumeric, underscore, hyphen, dot
+    import re
+
+    sanitized = re.sub(r"[^a-zA-Z0-9_.-]", "", sanitized)
+    if sanitized != component:
+        raise ValueError(
+            f"Invalid config name '{component}': contains disallowed characters. "
+            "Only alphanumeric, underscore, hyphen, and dot are allowed."
+        )
+    return sanitized
+
+
+def _validate_path_within_dir(path: Path, base_dir: Path) -> Path:
+    """Validate that resolved path stays within base directory."""
+    try:
+        resolved_path = path.resolve()
+        resolved_base = base_dir.resolve()
+        if not str(resolved_path).startswith(str(resolved_base)):
+            raise ValueError(f"Path traversal detected: '{path}' resolves outside of '{base_dir}'")
+        return resolved_path
+    except Exception as e:
+        raise ValueError(f"Invalid path: {e}")
+
+
 def _load_config_from_yaml(config: dataclass, args: Namespace):
     """Load config from yaml config file."""
     yaml_config = load_yaml_config(args.config_path)
@@ -255,12 +284,17 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
         )
 
         if isinstance(sub_group_config, str):
-            getattr(config, config_group_key).name = sub_group_config
-            sub_group_config_path = (
-                Path(args.config_path).parent / f"{config_group_key}/{sub_group_config}.yaml"
-            )
+            # Sanitize the sub_group_config to prevent path traversal
+            safe_config_name = _sanitize_path_component(sub_group_config)
+            getattr(config, config_group_key).name = safe_config_name
 
-            if sub_group_config == "dummy":
+            base_dir = Path(args.config_path).parent
+            sub_group_config_path = base_dir / f"{config_group_key}/{safe_config_name}.yaml"
+
+            # Validate path stays within base directory
+            _validate_path_within_dir(sub_group_config_path, base_dir)
+
+            if safe_config_name == "dummy":
                 if sub_group_config_path.exists():
                     sub_group_config_from_file = load_yaml_config(sub_group_config_path)
                     _load_subgroup_config_from_yaml(
@@ -364,7 +398,17 @@ def load_trainer_config() -> MainConfig:
             if config.model.vocab_name_or_path
             else config.trainer.model_path
         )
-        special_token_file_path = Path(base_dir) / config.trainer.special_tokens_config_path
+        base_dir = Path(base_dir)
+        # Sanitize path to prevent directory traversal
+        token_path = config.trainer.special_tokens_config_path
+        if ".." in token_path or token_path.startswith("/"):
+            raise ValueError(
+                f"Invalid special_tokens_config_path '{token_path}': "
+                "directory traversal and absolute paths are not allowed"
+            )
+        special_token_file_path = base_dir / token_path
+        # Validate path stays within base directory
+        _validate_path_within_dir(special_token_file_path, base_dir)
         if special_token_file_path.exists():
             with open(special_token_file_path, encoding="utf-8") as f:
                 import json
