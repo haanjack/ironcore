@@ -317,17 +317,17 @@ def test_universal_checkpoint():
         dist.all_gather(gathered, param)
 
         if rank == 0:
-            if "lora_B" in name and "linear_q" in name: # known sharded
+            if "lora_B" in name and "linear_q" in name:  # known sharded
                 # Verify they are DIFFERENT (each rank has its own part)
                 diff = torch.abs(gathered[0] - gathered[1]).max().item()
                 # They might still be both zero initially, but if they were modified they'd differ.
                 # In this test they are zero, so let's just check shape.
                 pass
-            elif "lora_A" in name and "attn_output" in name: # known sharded
+            elif "lora_A" in name and "attn_output" in name:  # known sharded
                 pass
             else:
-                 # Replicated params should be identical
-                 if "lora_A" in name and "linear_q" in name:
+                # Replicated params should be identical
+                if "lora_A" in name and "linear_q" in name:
                     diff = torch.abs(gathered[0] - gathered[1]).max().item()
                     assert diff < 1e-9, f"LoRA parameter {name} differs across ranks: {diff}"
 

@@ -168,11 +168,7 @@ class TestFIMConfigConsistency:
 
         # Empty YAML parsing: uses _parse_config_dict defaults
         config_yaml = UniversalDataConfig._parse_config_dict(
-            {
-                "train_datasets": [
-                    {"name": "test", "dataset_path": "dummy", "task_type": "pretrain"}
-                ]
-            }
+            {"train_datasets": [{"name": "test", "dataset_path": "dummy", "task_type": "pretrain"}]}
         )
         assert config_yaml.fim_rate == 0.0
 

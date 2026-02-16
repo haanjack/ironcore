@@ -441,7 +441,10 @@ class StreamingDataset(IterableDataset):
             if self.world_size > 1 and global_idx % self.world_size != self.rank:
                 # Update counters even if we don't yield the sample to stay in sync
                 indices_per_dataset[selected_ds_idx] += 1
-                if indices_per_dataset[selected_ds_idx] >= dataset_info[selected_ds_idx]["num_samples"]:
+                if (
+                    indices_per_dataset[selected_ds_idx]
+                    >= dataset_info[selected_ds_idx]["num_samples"]
+                ):
                     weighted_counts[selected_ds_idx] = 0
                 continue
 
