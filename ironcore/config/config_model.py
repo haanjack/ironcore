@@ -107,8 +107,8 @@ class ModelConfig(BaseConfig):
     head_dim: int = field(default=128, metadata={"help": "attention head dimension"})
     seq_len_q: int | None = field(default=None, metadata={"help": "query sequence length"})
     seq_len_kv: int | None = field(default=None, metadata={"help": "key/value sequence length"})
-    num_attention_groups: int | None = field(
-        default=None,
+    num_attention_groups: int = field(
+        default=1,
         metadata={"help": "number of key-value groups in grouped query attention"},
     )
     attention_dropout: float = field(default=0.1, metadata={"help": "dropout ratio in attention"})
