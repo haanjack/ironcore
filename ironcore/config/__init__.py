@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from ironcore.utils import load_yaml_config
 
 from .config import BaseConfig
+from .config_alignment import AlignmentConfig
 from .config_data import DataConfig
 from .config_model import ModelConfig
 from .config_optim import OptimConfig
@@ -27,7 +28,7 @@ from .config_parallel import ParallelConfig
 from .config_peft import LoRAConfig as LoRAConfig
 from .config_peft import PEFTConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
-from .config_utils import UtilsConfig
+from .config_utils import ProfilerConfig, UtilsConfig
 
 load_dotenv()
 
@@ -69,6 +70,8 @@ class MainConfig(BaseConfig):
     operation: OperationConfig
     utils: UtilsConfig
     peft: PEFTConfig
+    profiler: ProfilerConfig
+    alignment: AlignmentConfig = None
 
 
 def _config_validation(config: MainConfig):
@@ -442,6 +445,8 @@ def load_trainer_config() -> MainConfig:
         operation=OperationConfig(),
         utils=UtilsConfig(),
         peft=PEFTConfig(),
+        profiler=ProfilerConfig(),
+        alignment=AlignmentConfig(),
     )
 
     # get config from command line

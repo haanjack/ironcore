@@ -1,0 +1,48 @@
+"""Alignment configuration for DPO and other alignment methods."""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+from .config import BaseConfig
+
+
+@dataclass
+class AlignmentConfig(BaseConfig):
+    """Configuration for alignment training (DPO, PPO, etc.)."""
+
+    # DPO specific parameters
+    dpo_beta: float = 0.5
+    dpo_label_smoothing: float = 0.0
+
+    # Reference model handling
+    reference_model_on_cpu: bool = False
+
+    # Optimization flags
+    concat_forward_passes: bool = True
+
+    @classmethod
+    def from_yaml(cls, yaml_path: Path) -> "AlignmentConfig":
+        """Load alignment config from YAML file."""
+        with open(yaml_path) as f:
+            config_dict = yaml.safe_load(f)
+        return cls(**config_dict)
+
+
+def get_alignment_config(config_name: str = "dpo_default") -> AlignmentConfig:
+    """
+    Get alignment configuration by name.
+
+    Args:
+        config_name: Name of alignment config (e.g., 'dpo_default')
+
+    Returns:
+        AlignmentConfig object
+    """
+    config_path = Path("configs/alignment") / f"{config_name}.yaml"
+    if config_path.exists():
+        return AlignmentConfig.from_yaml(config_path)
+    else:
+        # Return default config
+        return AlignmentConfig()

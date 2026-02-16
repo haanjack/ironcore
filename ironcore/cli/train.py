@@ -4,8 +4,9 @@ import sys
 from pathlib import Path
 
 from ironcore.config import MainConfig
+from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
-from ironcore.trainer import Trainer
+from ironcore.trainers import DPOTrainer, LanguageModelTrainer
 from ironcore.training_utils import forward_step, get_loss_func
 
 
@@ -53,6 +54,7 @@ def run_train(args):
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        alignment=AlignmentConfig(),
     )
 
     # Load config from YAML using the proper loader
@@ -75,9 +77,17 @@ def run_train(args):
     loss_fn = get_loss_func(task_type)
     print(f"Task type: {task_type}, using loss function: {loss_fn.__name__}")
 
-    # Initialize trainer
+    # Initialize trainer based on task type
     print("\nInitializing trainer...")
-    trainer = Trainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    if task_type in ("pretrain", "sft"):
+        print("Using LanguageModelTrainer for language modeling")
+        trainer = LanguageModelTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    elif task_type == "dpo":
+        print("Using DPOTrainer for Direct Preference Optimization")
+        trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    else:
+        print(f"Error: Unsupported task type: {task_type}")
+        sys.exit(1)
 
     # Run training
     print("\nStarting training...")
