@@ -15,7 +15,17 @@ import torch
 from torch import distributed as dist
 from torch.optim.lr_scheduler import LRScheduler
 
-from ironcore.config import MainConfig
+from ironcore.config import (
+    DataConfig,
+    LoRAConfig,
+    MainConfig,
+    PEFTConfig,
+)
+from ironcore.config.config_model import ModelConfig, PositionalEmbeddingConfig
+from ironcore.config.config_optim import OptimConfig
+from ironcore.config.config_parallel import ParallelConfig
+from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
+from ironcore.config.config_utils import UtilsConfig
 from ironcore.global_vars import get_logger, get_timer
 from ironcore.language_model import LanguageModel
 from ironcore.optimizer import Optimizer
@@ -139,9 +149,24 @@ def load_checkpoint(
     timer.start("ckpt-load")
     logger.info(f"Loading checkpoint from {init_ckpt_path}")
 
-    # Load checkpoint with weights_only=False for compatibility with optimizer states
-    # and other complex objects in the checkpoint. For security considerations,
-    # only load checkpoints from trusted sources.
+    # Register safe globals for future use with weights_only=True
+    # Note: Currently using weights_only=False to support optimizer states
+    torch.serialization.add_safe_globals(
+        [
+            MainConfig,
+            ModelConfig,
+            InitConfig,
+            OptimConfig,
+            DataConfig,
+            ParallelConfig,
+            TrainerConfig,
+            OperationConfig,
+            UtilsConfig,
+            PositionalEmbeddingConfig,
+            PEFTConfig,
+            LoRAConfig,
+        ]
+    )
     checkpoint = torch.load(
         ckpt_path, weights_only=False, map_location=next(model.parameters()).device
     )
@@ -169,22 +194,23 @@ def load_checkpoint(
     for name, param in model.named_parameters():
         loaded_param = checkpoint["model_state_dict"][name]
         module_name = ".".join(name.split(".")[:-1])
+
         if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
-            # universal checkpoint
-            if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
-                loaded_param = comm.split_to_model_parallel_workers(
-                    loaded_param, model_attribs[module_name]
-                )
-            elif (
-                module_name in model_attribs
-                and model_attribs[module_name]["row_parallel"]
-                and "weight" in name
-            ):
-                loaded_param = comm.split_to_model_parallel_workers(
-                    loaded_param, model_attribs[module_name]
-                )
-            else:
-                pass
+            if module_name in model_attribs:
+                attribs = model_attribs[module_name]
+                should_split = False
+
+                if attribs["column_parallel"]:
+                    # Split if it's base weight/bias or LoRA B
+                    if any(k in name for k in ["weight", "bias", "lora_B"]):
+                        should_split = True
+                elif attribs["row_parallel"]:
+                    # Split if it's base weight or LoRA A
+                    if any(k in name for k in ["weight", "lora_A"]):
+                        should_split = True
+
+                if should_split:
+                    loaded_param = comm.split_to_model_parallel_workers(loaded_param, attribs)
 
         # Sanity check
         assert loaded_param is not None, f"loaded layer [{name}] is None"
@@ -217,6 +243,15 @@ def load_checkpoint(
         loaded_optim_state["param_groups"] = loaded_optim_state_dict["param_groups"]
 
         for name, param in model.named_parameters():
+            # Skip frozen parameters (they don't have optimizer state)
+            if not param.requires_grad:
+                continue
+
+            # Skip if optimizer state doesn't exist for this param (e.g., newly added PEFT params)
+            if name not in loaded_optim_state_dict["state"]:
+                logger.warning(f"Optimizer state for {name} not found in checkpoint, skipping")
+                continue
+
             processed_state = {}
             for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
                 if state_key in ["exp_avg", "exp_avg_sq"]:
@@ -245,33 +280,33 @@ def load_checkpoint(
         # split optimizer state for tensor parallel
         if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
             for name, param in model.named_parameters():
+                if param not in loaded_optim_state["state"]:
+                    continue
+
                 module_name = ".".join(name.split(".")[:-1])
                 # universal checkpoint
                 optimizer_state = loaded_optim_state["state"][param]
                 for state_key in ["exp_avg", "exp_avg_sq"]:
-                    if (
-                        module_name in model_attribs
-                        and model_attribs[module_name]["column_parallel"]
-                    ):
+                    if state_key not in optimizer_state:
+                        continue
+
+                    should_split = False
+                    if module_name in model_attribs:
+                        attribs = model_attribs[module_name]
+                        if attribs["column_parallel"]:
+                            if any(k in name for k in ["weight", "bias", "lora_B"]):
+                                should_split = True
+                        elif attribs["row_parallel"]:
+                            if any(k in name for k in ["weight", "lora_A"]):
+                                should_split = True
+
+                    if should_split:
                         loaded_optim_state["state"][param][state_key] = (
                             comm.split_to_model_parallel_workers(
                                 optimizer_state[state_key],
                                 model_attribs[module_name],
                             )
                         )
-                    elif (
-                        module_name in model_attribs
-                        and model_attribs[module_name]["row_parallel"]
-                        and "weight" in name
-                    ):
-                        loaded_optim_state["state"][param][state_key] = (
-                            comm.split_to_model_parallel_workers(
-                                optimizer_state[state_key],
-                                model_attribs[module_name],
-                            )
-                        )
-                    else:
-                        pass
 
                     loaded_optim_state["state"][param][state_key] = loaded_optim_state["state"][
                         param
@@ -326,17 +361,6 @@ def save_checkpoint(
     if not ckpt_path.parent.exists():
         ckpt_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Handle FSDP state dict gathering
-    from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-
-    if isinstance(model, FSDP):
-        # We need the full state dict (across DP) to perform TP gathering or just to save
-        # FSDP.state_dict_type context ensures rank 0 gets the full data
-        with FSDP.state_dict_type(model, config.parallel.fsdp_state_dict_type):
-            raw_state_dict = model.state_dict()
-    else:
-        raw_state_dict = model.state_dict()
-
     def _is_universal_checkpoint(config: MainConfig):
         """checking requested checkpoint format"""
         return (
@@ -356,36 +380,42 @@ def save_checkpoint(
 
     # model_state_dict
     model_state_dict = {}
-    for name, param in raw_state_dict.items():
+    for name, param in model.state_dict().items():
         # remove 'weights' or 'bias' from the name
         module_name = ".".join(name.split(".")[:-1])
+
         output_param = param
         if _is_universal_checkpoint(config):
-            # if the layer is parallel layer, we need to gather the tensor from all tensor model parallel workers
-            if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
-                output_param = comm.gather_from_model_parallel_workers(
-                    param, model_attribs[module_name]
-                )
-            elif (
-                module_name in model_attribs
-                and model_attribs[module_name]["row_parallel"]
-                and "weight" in name
-            ):
-                output_param = comm.gather_from_model_parallel_workers(
-                    param, model_attribs[module_name]
-                )
+            if module_name in model_attribs:
+                attribs = model_attribs[module_name]
+                should_gather = False
+
+                if attribs["column_parallel"]:
+                    if any(k in name for k in ["weight", "bias", "lora_B"]):
+                        should_gather = True
+                elif attribs["row_parallel"]:
+                    if any(k in name for k in ["weight", "lora_A"]):
+                        should_gather = True
+
+                if should_gather:
+                    output_param = comm.gather_from_model_parallel_workers(param, attribs)
+                else:
+                    # Replicated - only save from rank 0
+                    if parallel_states.get_tensor_model_parallel_rank() == 0:
+                        output_param = param
+                    else:
+                        output_param = param  # Will only be saved from rank 0 anyway
             else:
-                output_param = param
+                # Replicated or unknown - only save from rank 0
+                if parallel_states.get_tensor_model_parallel_rank() == 0:
+                    output_param = param
+                else:
+                    output_param = param
 
         model_state_dict[name] = output_param
 
     # optimizer state
-    if isinstance(model, FSDP):
-        # FSDP requires special handling for optimizer state gathering
-        optimizer_state_dict = FSDP.optim_state_dict(model, optimizer)
-    else:
-        optimizer_state_dict = optimizer.state_dict()
-
+    optimizer_state_dict = optimizer.state_dict()
     optimizer_state_dict_by_name = {
         "state": {},
         "param_groups": optimizer_state_dict["param_groups"],
@@ -403,20 +433,26 @@ def save_checkpoint(
         for i, ((name, param), optim_state_id) in enumerate(
             zip(model.named_parameters(), optimizer.state_dict()["state"], strict=True)
         ):
+            # Skip frozen parameters
+            if not param.requires_grad:
+                continue
+
             module_name = ".".join(name.split(".")[:-1])
             optim_state = optimizer.state_dict()["state"][optim_state_id]
 
             output_optim_state = {}
             for key in ["exp_avg", "exp_avg_sq"]:
-                if module_name in model_attribs and model_attribs[module_name]["column_parallel"]:
-                    output_optim_state[key] = comm.gather_from_model_parallel_workers(
-                        optim_state[key], model_attribs[module_name]
-                    )
-                elif (
-                    module_name in model_attribs
-                    and model_attribs[module_name]["row_parallel"]
-                    and "weight" in name
-                ):
+                should_gather = False
+                if module_name in model_attribs:
+                    attribs = model_attribs[module_name]
+                    if attribs["column_parallel"]:
+                        if any(k in name for k in ["weight", "bias", "lora_B"]):
+                            should_gather = True
+                    elif attribs["row_parallel"]:
+                        if any(k in name for k in ["weight", "lora_A"]):
+                            should_gather = True
+
+                if should_gather:
                     output_optim_state[key] = comm.gather_from_model_parallel_workers(
                         optim_state[key], model_attribs[module_name]
                     )

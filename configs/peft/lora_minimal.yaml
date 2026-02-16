@@ -1,0 +1,15 @@
+# Minimal LoRA Configuration
+#
+# Optimized for:
+# - Fastest training speed
+# - Minimal memory overhead
+# - Simple task-specific fine-tuning
+#
+# ~0.05% trainable parameters
+
+r: 4
+alpha: 8.0
+dropout: 0.0
+target_modules:
+  - q_proj
+  - v_proj
