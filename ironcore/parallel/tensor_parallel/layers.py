@@ -105,8 +105,6 @@ class VocabParallelEmbedding(ParallelLinear):
                 self.padding_start_idx - start_idx if local_padding else end_idx - start_idx
             )
 
-            # print(f"[DEBUG] Rank {parallel_states.get_tensor_model_parallel_rank()} local_padding_start_idx: {self.local_padding_start_idx}")
-
             # zero out from local_padding_start_idx to the end
             with torch.no_grad():
                 self.weight[self.local_padding_start_idx :].zero_()

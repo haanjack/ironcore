@@ -32,6 +32,30 @@ from .config_utils import UtilsConfig
 load_dotenv()
 
 
+def _sanitize_path_component(path_component: str) -> str:
+    """
+    Sanitize a path component to prevent directory traversal attacks.
+
+    Removes any directory components and only keeps the base filename.
+    """
+    return os.path.basename(path_component)
+
+
+def _validate_path_within_dir(path: Path, base_dir: Path) -> bool:
+    """
+    Validate that a path resolves to a location within the base directory.
+
+    This prevents path traversal attacks where malicious input like
+    '../../etc/passwd' could be used to access files outside the intended directory.
+    """
+    try:
+        resolved_path = path.resolve()
+        resolved_base = base_dir.resolve()
+        return str(resolved_path).startswith(str(resolved_base))
+    except (OSError, ValueError):
+        return False
+
+
 @dataclass
 class MainConfig(BaseConfig):
     """trainer configuration."""
@@ -133,11 +157,13 @@ def parse_args():
 
     parser = ArgumentParser(prog="trainer configuration", description="LLM trainer")
 
-    # configuration arguments
-    configs = [config.type for config in fields(MainConfig)]
-    for category in configs:
-        for field_ in fields(category):
-            parser.add_argument(f"--{field_.name}", **field_.metadata)
+    # configuration arguments - use prefixed names to avoid collisions
+    for group_field in fields(MainConfig):
+        group_name = group_field.name
+        for field_ in fields(group_field.type):
+            # Prefix argument with group name (e.g., --model.name, --trainer.batch_size)
+            arg_name = f"--{group_name}.{field_.name}"
+            parser.add_argument(arg_name, **field_.metadata)
 
     parser.add_argument("--config-path", type=str, default=None, help="yaml config file path")
     parser.add_argument(
@@ -265,29 +291,33 @@ def _load_config_from_yaml(config: dataclass, args):
 def _update_config_from_args(config: dataclass, args):
     """update config from command line."""
     for group_field in fields(config):
+        group_name = group_field.name
         for field_ in fields(group_field.type):
+            # Use prefixed argument name (e.g., model.name, trainer.batch_size)
+            arg_name = f"{group_name}.{field_.name}"
+
             # get argument and update config if it is defined argument
-            if not hasattr(args, field_.name) or getattr(args, field_.name) is None:
+            if not hasattr(args, arg_name) or getattr(args, arg_name) is None:
                 continue
 
             if field_.name == "config_path":
                 # skip config path argument
                 continue
 
-            config_group = getattr(config, group_field.name)
+            config_group = getattr(config, group_name)
 
             # load optional type as config defined type_
             if get_origin(field_.type) is Optional:
                 type_ = get_args(field_.type)[0]
             elif get_origin(field_.type) is Union:
                 for type_cls in [int, float, str, list]:
-                    if isinstance(getattr(args, field_.name), type_cls):
+                    if isinstance(getattr(args, arg_name), type_cls):
                         type_ = type_cls
                         break
             else:
                 type_ = field_.type
 
-            value = type_(getattr(args, field_.name))
+            value = type_(getattr(args, arg_name))
             setattr(config_group, field_.name, value)
 
 
@@ -367,12 +397,23 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             # add config name to config group
             getattr(config, config_group_key).name = sub_group_config
 
+            # Sanitize path component to prevent directory traversal
+            sanitized_config_name = _sanitize_path_component(sub_group_config)
+
             # load sub-config: data, model config
             # Resolve sub-config path relative to the project's 'configs/' directory
+            config_base_dir = Path(args.config_path).parent
             sub_group_config_path = (
-                Path(args.config_path).parent / f"{config_group_key}/{sub_group_config}.yaml"
+                config_base_dir / f"{config_group_key}/{sanitized_config_name}.yaml"
             )
-            if sub_group_config in "dummy":
+
+            # Validate path is within expected directory
+            if not _validate_path_within_dir(sub_group_config_path, config_base_dir):
+                raise ValueError(
+                    f"Invalid config path: {sub_group_config} resolves outside the config directory"
+                )
+
+            if sanitized_config_name == "dummy":
                 # load dummy config if it exists or run with default dummy config
                 # this is usually for dummy model usage
                 if sub_group_config_path.exists():
@@ -386,35 +427,6 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
         else:
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config)
-
-
-def _update_config_from_args(config: dataclass, args):
-    """update config from command line."""
-    for group_field in fields(config):
-        for field_ in fields(group_field.type):
-            # get argument and update config if it is defined argument
-            if not hasattr(args, field_.name) or getattr(args, field_.name) is None:
-                continue
-
-            if field_.name == "config_path":
-                # skip config path argument
-                continue
-
-            config_group = getattr(config, group_field.name)
-
-            # load optional type as config defined type_
-            if get_origin(field_.type) is Optional:
-                type_ = get_args(field_.type)[0]
-            elif get_origin(field_.type) is Union:
-                for type_cls in [int, float, str, list]:
-                    if isinstance(getattr(args, field_.name), type_cls):
-                        type_ = type_cls
-                        break
-            else:
-                type_ = field_.type
-
-            value = type_(getattr(args, field_.name))
-            setattr(config_group, field_.name, value)
 
 
 def load_trainer_config() -> MainConfig:
@@ -454,7 +466,16 @@ def load_trainer_config() -> MainConfig:
             if config.model.vocab_name_or_path
             else config.trainer.model_path
         )
-        special_token_file_path = Path(base_dir) / config.trainer.special_tokens_config_path
+        base_dir_path = Path(base_dir)
+
+        # Sanitize path to prevent directory traversal
+        sanitized_path = _sanitize_path_component(config.trainer.special_tokens_config_path)
+        special_token_file_path = base_dir_path / sanitized_path
+
+        # Validate path is within base directory
+        if not _validate_path_within_dir(special_token_file_path, base_dir_path):
+            raise ValueError("Invalid special tokens path: resolves outside the base directory")
+
         if special_token_file_path.exists():
             with open(special_token_file_path, encoding="utf-8") as f:
                 import json

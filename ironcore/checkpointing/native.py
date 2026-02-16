@@ -149,7 +149,8 @@ def load_checkpoint(
     timer.start("ckpt-load")
     logger.info(f"Loading checkpoint from {init_ckpt_path}")
 
-    # Register safe globals for weights_only=True
+    # Register safe globals for future use with weights_only=True
+    # Note: Currently using weights_only=False to support optimizer states
     torch.serialization.add_safe_globals(
         [
             MainConfig,

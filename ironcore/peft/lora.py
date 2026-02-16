@@ -298,7 +298,11 @@ class LoRARowParallelLinear(nn.Module):
             # Combine BEFORE all-reduce to save one communication step
             combined_partial = base_partial + lora_partial
 
-            # Start single all-reduce (sync for now, async not supported with autograd)
+            # NOTE: Unlike the base RowParallelLinear which supports true async communication
+            # overlap, LoRA RowParallel currently uses synchronous all-reduce. This is because
+            # the async reduction function (reduce_async) is not tracked by autograd, which
+            # would break gradient flow for LoRA parameters. Future optimization could
+            # implement an autograd-compatible async reduction for improved performance.
             output = comm.reduce_inputs_from_model_parallel_workers(combined_partial)
             return output, None  # Return (output, handle) where handle is None
 
