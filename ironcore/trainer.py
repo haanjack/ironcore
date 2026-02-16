@@ -9,12 +9,13 @@
 # Full license text is available at LICENSE file.
 
 import math
+import random
 from contextlib import nullcontext
 from typing import Union
 
+import numpy as np
 import torch
 from torch import distributed as dist
-from torch.profiler import ProfilerActivity, profile
 
 from ironcore.checkpointing import load_checkpoint, save_checkpoint
 from ironcore.config import MainConfig
@@ -90,10 +91,14 @@ class Trainer:
             config.operation.eval_samples,
         )
 
+        # Initialize Profile Manager
+        from ironcore.profiler import ProfileManager
+
+        self.profiler = ProfileManager(config)
+
         # contexts contols training process
         self.context: dict[str, Union[nullcontext, torch.autocast]] = {
             "autocast": nullcontext(),
-            "profile": nullcontext(),
         }
 
         # initialize model and optimizer
@@ -123,12 +128,6 @@ class Trainer:
 
     def _build_model_and_optimizer(self):
         """Build model and optimizer."""
-
-        # Set random seed for reproducibility (critical for TP initialization)
-        import random
-
-        import numpy as np
-
         seed = self.config.init.seed
         random.seed(seed)
         np.random.seed(seed)
@@ -148,33 +147,13 @@ class Trainer:
         optimizer = get_optimizer(self.config, model, device_type=device)
         self.logger.info("Created Optimizer")
 
-        if self.config.utils.profile_torch:
-            self.logger.info("Enabled PyTorch profiler")
-            self.context["profile"] = profile(
-                activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU],
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(
-                    self.config.utils.tensorboard_dir
-                ),
-                schedule=torch.profiler.schedule(
-                    skip_first=0,
-                    wait=1,
-                    warmup=self.config.utils.profile_step_start - 1,
-                    active=self.config.utils.profile_step_end
-                    - self.config.utils.profile_step_start,
-                ),
-                record_shapes=True,
-                with_stack=True,
-                profile_memory=True,
-                with_flops=True,
-            )
-            # experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
-            model.register_profile_hooks(profile_torch=True)
+        if device not in ["cpu", "mps"]:
+            model = initialize_parallelism(self.config, model)
+        self.rank = dist.get_rank()
 
-        if self.config.utils.profile_nsys:
-            self.logger.info("Enabled nsys profiler")
-            model.register_profile_hooks(profile_nsys=True)
-
-        # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
+        # Apply torch.compile AFTER parallelism wrapping for FSDP/DDP robustness
+        # For FSDP: Must wrap first, then compile for inductor to see comm hooks
+        # For DDP: Traditionally compile first, but compile(DDP) is now well-supported
         if self.config.trainer.compile_model:
             compile_options = {
                 "backend": self.config.trainer.compile_backend,
@@ -188,10 +167,6 @@ class Trainer:
                 self.logger.info(f"Compiled model with options: {compile_options}")
             except Exception as e:
                 self.logger.warning(f"torch.compile failed: {e}. Running without compilation.")
-
-        if device not in ["cpu", "mps"]:
-            model = initialize_parallelism(self.config, model)
-        self.rank = dist.get_rank()
 
         return model, optimizer
 
@@ -221,31 +196,18 @@ class Trainer:
         step = last_step
 
         # training loop
-        if self.config.utils.profile_torch:
-            self.context["profile"].start()  # pylint: disable=no-member
         self.logger.info(f"Training start from step: {step}")
         while step < self.config.operation.train_steps:
-            if self.config.utils.profile_nsys and step >= self.config.utils.profile_step_start:
-                torch.cuda.profiler.start()
+            # Advance profiler (handles start/stop/oom/torch-step)
+            self.profiler.step(step)
 
             loss, grad_norm, param_norm = self.train_step(step)
-
-            if self.config.utils.profile_nsys and step >= self.config.utils.profile_step_end:
-                torch.cuda.profiler.stop()
-                break
-            if self.config.utils.profile_torch and step >= self.config.utils.profile_step_end:
-                self.context["profile"].stop()  # pylint: disable=no-member
-                break
 
             # update step
             step += 1
 
             # print and log training
             self.log_training(step, loss, grad_norm, param_norm, self.timer)
-
-            # update profiler step
-            if self.config.utils.profile_torch:
-                self.context["profile"].step()  # pylint: disable=no-member
 
             # save checkpoint
             if self.control.do_checkpoint(step):
