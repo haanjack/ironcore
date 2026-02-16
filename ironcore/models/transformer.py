@@ -186,12 +186,24 @@ class TransformerLayer(BaseModule):
             # For chunked async TP, each query chunk must attend to:
             # 1. All past cached KV (from previous forward passes)
             # 2. ALL new KV from this forward pass (not just up to current chunk)
-            # The causal mask inside attention will handle the proper masking
-            # to ensure each query position only attends to valid previous tokens.
+            #
+            # The attention_mask passed in has shape [batch, 1, seq_len, total_len] where:
+            # - seq_len: length of new tokens in this forward pass
+            # - total_len: cache_position + seq_len (full context including cached tokens)
+            #
+            # When we slice the mask for a chunk:
+            # - mask_chunk = attention_mask[:, :, current_idx:(current_idx + chunk_len), :]
+            # - This gives us [batch, 1, chunk_len, total_len]
+            # - The last dimension (total_len) correctly covers all KV positions
+            #
+            # Inside self_attention, when past_kv is provided:
+            # - key/value are concatenated with cached KV: [batch, total_len, gn, hd]
+            # - The mask's last dimension matches this concatenated KV length
+            # - Causal masking ensures each query position only attends to valid previous tokens
             mask_chunk = None
             if attention_mask is not None:
-                # Extract the relevant portion of the attention mask
-                # Queries attend to all positions (causal mask handles the rest)
+                # Extract the relevant portion of the attention mask for this query chunk
+                # Note: This slices the query dimension (dim 2), keeping full KV dimension (dim 3)
                 mask_chunk = attention_mask[:, :, current_idx : (current_idx + chunk_len), :]
 
             # Pass full new KV (not chunked) so each query chunk can attend to all new tokens

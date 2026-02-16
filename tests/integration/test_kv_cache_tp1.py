@@ -30,6 +30,7 @@ from ironcore.config import (
     OptimConfig,
     ParallelConfig,
     PositionalEmbeddingConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
@@ -86,6 +87,7 @@ def tp1_config():
         activation_recompute=False,
     )
     utils_config = UtilsConfig()
+    profiler_config = ProfilerConfig()
 
     config = MainConfig(
         model=model_config,
@@ -96,6 +98,7 @@ def tp1_config():
         parallel=parallel_config,
         operation=operation_config,
         utils=utils_config,
+        profiler=profiler_config,
     )
 
     # Initialize global states

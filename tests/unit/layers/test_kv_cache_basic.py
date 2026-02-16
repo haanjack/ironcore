@@ -31,6 +31,7 @@ from ironcore.config import (
     OptimConfig,
     ParallelConfig,
     PositionalEmbeddingConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
@@ -88,6 +89,7 @@ def global_config():
         activation_recompute=False,
     )
     utils_config = UtilsConfig()
+    profiler_config = ProfilerConfig()
 
     config = MainConfig(
         model=model_config,
@@ -98,6 +100,7 @@ def global_config():
         parallel=parallel_config,
         operation=operation_config,
         utils=utils_config,
+        profiler=profiler_config,
     )
 
     # Initialize global states
@@ -356,6 +359,146 @@ def test_cache_statistics(model, small_config):
     stats = cache_manager.get_statistics()
     expected_utilization = seq_len / small_config.model.kv_cache.max_seq_length
     assert abs(stats["utilization"] - expected_utilization) < 1e-6
+
+
+def test_per_sequence_positions(small_config):
+    """
+    Test: Per-sequence position tracking
+    - Different sequences at different positions
+    - Update with positions tensor
+    - Retrieve per-sequence KV
+    """
+    from ironcore.layers.kv_cache import KVCacheManager
+
+    batch_size = 3
+    seq_len = 5
+    device = torch.device("cpu")
+
+    cache_manager = KVCacheManager(small_config)
+    cache_manager.initialize(
+        batch_size=batch_size,
+        num_layers=small_config.model.num_layers,
+        device=device,
+    )
+
+    num_local_kv_groups = (
+        small_config.model.num_attention_groups // small_config.trainer.tensor_model_parallel_size
+    )
+
+    # Initially all positions should be 0
+    assert cache_manager.get_sequence_position(0) == 0
+    assert cache_manager.get_sequence_position(1) == 0
+    assert cache_manager.get_sequence_position(2) == 0
+
+    # Set different positions for each sequence
+    cache_manager.set_sequence_position(0, 10)
+    cache_manager.set_sequence_position(1, 20)
+    cache_manager.set_sequence_position(2, 5)
+
+    assert cache_manager.get_sequence_position(0) == 10
+    assert cache_manager.get_sequence_position(1) == 20
+    assert cache_manager.get_sequence_position(2) == 5
+
+    # Test per-sequence position update using positions tensor
+    positions = torch.tensor([0, 10, 5], dtype=torch.long, device=device)
+    dummy_kv = torch.randn(
+        batch_size,
+        seq_len,
+        num_local_kv_groups,
+        small_config.model.head_dim,
+        device=device,
+    )
+
+    # Update with per-sequence positions
+    cache_manager.update_layer(0, dummy_kv, dummy_kv, positions=positions)
+
+    # Verify positions were updated correctly
+    assert cache_manager.get_sequence_position(0) == 5  # 0 + seq_len
+    assert cache_manager.get_sequence_position(1) == 15  # 10 + seq_len
+    assert cache_manager.get_sequence_position(2) == 10  # 5 + seq_len
+
+
+def test_position_parameter_validation(small_config):
+    """
+    Test: Validation of position parameters
+    - Both position and positions should raise error
+    """
+    from ironcore.layers.kv_cache import KVCacheManager
+
+    batch_size = 2
+    device = torch.device("cpu")
+
+    cache_manager = KVCacheManager(small_config)
+    cache_manager.initialize(
+        batch_size=batch_size,
+        num_layers=small_config.model.num_layers,
+        device=device,
+    )
+
+    num_local_kv_groups = (
+        small_config.model.num_attention_groups // small_config.trainer.tensor_model_parallel_size
+    )
+
+    dummy_kv = torch.randn(
+        batch_size,
+        1,
+        num_local_kv_groups,
+        small_config.model.head_dim,
+        device=device,
+    )
+
+    positions = torch.tensor([0, 5], dtype=torch.long, device=device)
+
+    # Should raise error when both position and positions are specified
+    with pytest.raises(ValueError, match="Cannot specify both"):
+        cache_manager.update_layer(0, dummy_kv, dummy_kv, position=0, positions=positions)
+
+
+def test_selective_cache_reset(small_config):
+    """
+    Test: Selective cache reset for specific sequences
+    - Reset only specific batch indices
+    - Verify other sequences unaffected
+    """
+    from ironcore.layers.kv_cache import KVCacheManager
+
+    batch_size = 3
+    seq_len = 5
+    device = torch.device("cpu")
+
+    cache_manager = KVCacheManager(small_config)
+    cache_manager.initialize(
+        batch_size=batch_size,
+        num_layers=small_config.model.num_layers,
+        device=device,
+    )
+
+    num_local_kv_groups = (
+        small_config.model.num_attention_groups // small_config.trainer.tensor_model_parallel_size
+    )
+
+    # Fill cache for all sequences
+    dummy_kv = torch.randn(
+        batch_size,
+        seq_len,
+        num_local_kv_groups,
+        small_config.model.head_dim,
+        device=device,
+    )
+    cache_manager.update_layer(0, dummy_kv, dummy_kv, position=0)
+
+    # Verify all positions are at seq_len
+    assert cache_manager.get_sequence_position(0) == seq_len
+    assert cache_manager.get_sequence_position(1) == seq_len
+    assert cache_manager.get_sequence_position(2) == seq_len
+
+    # Reset only sequence 0 and 2
+    cache_manager.reset(batch_indices=torch.tensor([0, 2]))
+
+    # Verify selective reset
+    assert cache_manager.get_sequence_position(0) == 0
+    assert cache_manager.get_sequence_position(1) == seq_len  # Unaffected
+    assert cache_manager.get_sequence_position(2) == 0
 
 
 if __name__ == "__main__":

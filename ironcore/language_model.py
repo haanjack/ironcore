@@ -86,7 +86,24 @@ class LanguageModel(BaseModule):
         cache_position = 0
         if use_cache and past_key_values is not None and len(past_key_values) > 0:
             # Get cache length from first layer's past key
-            cache_position = past_key_values[0][0].size(1)
+            # Validate past_key_values structure before accessing
+            first_layer_kv = past_key_values[0]
+            if (
+                isinstance(first_layer_kv, tuple | list)
+                and len(first_layer_kv) >= 2
+                and first_layer_kv[0] is not None
+            ):
+                past_key = first_layer_kv[0]
+                if past_key.dim() >= 2:
+                    cache_position = past_key.size(1)
+                else:
+                    raise ValueError(
+                        f"Invalid past_key_values shape: expected at least 2D, got {past_key.dim()}D"
+                    )
+            else:
+                raise ValueError(
+                    "Invalid past_key_values structure: expected tuple/list of (key, value) tensors"
+                )
 
         attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
             input_ids, labels, cache_position=cache_position
@@ -180,6 +197,14 @@ class LanguageModel(BaseModule):
 
         seq_len = input_ids.size(1)
         total_len = cache_position + seq_len  # Total context length including cache
+
+        # Safety check: ensure cache_position doesn't exceed valid range
+        # This prevents creating an empty mask when cache_position >= total_len
+        if cache_position > 0:
+            assert cache_position < total_len, (
+                f"cache_position ({cache_position}) must be less than "
+                f"total_len ({total_len}). This usually indicates a bug in cache position tracking."
+            )
 
         # Create causal mask for the full context
         # Mask shape: [batch, 1, new_len, total_len]

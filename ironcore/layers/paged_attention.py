@@ -260,6 +260,9 @@ class PagedKVCache:
             num_layers: Number of transformer layers
             device: Device to allocate cache on
             dtype: Data type for cache (defaults to model dtype)
+
+        Raises:
+            ValueError: If TP configuration is incompatible with KV head count
         """
         from ironcore.utils import get_model_dtype
 
@@ -269,6 +272,21 @@ class PagedKVCache:
         self.device = device
         self.dtype = dtype
         self.num_layers = num_layers
+
+        # Validate TP configuration (only if parallel_states is initialized)
+        from ironcore.parallel import parallel_states
+
+        if parallel_states.is_model_parallel_initialized():
+            tp_size = parallel_states.get_tensor_model_parallel_world_size()
+            global_kv_groups = self.config.model.num_attention_groups
+
+            if global_kv_groups % tp_size != 0:
+                raise ValueError(
+                    f"num_attention_groups ({global_kv_groups}) must be divisible by "
+                    f"tensor_model_parallel_size ({tp_size}). "
+                    f"Each TP rank needs an equal number of KV groups. "
+                    f"Consider adjusting your configuration."
+                )
 
         # Allocate physical page pool for each layer
         self.physical_key_caches = []
@@ -386,39 +404,54 @@ class PagedKVCache:
                 f"Sequence {sequence_id} not allocated. Call allocate_sequence() first."
             )
 
-        # Write new KV to physical pages
-        # We need to figure out which page and offset to write to
-        for i, token_idx in enumerate(range(current_pos, current_pos + seq_len)):
-            page_idx = token_idx // self.page_size
-            page_offset = token_idx % self.page_size
+        # Transpose from [batch, seq_len, num_groups, head_dim] to [batch, num_groups, seq_len, head_dim]
+        key_t = key.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
+        value_t = value.transpose(1, 2)
 
-            if page_idx >= len(block_table):
-                # Need to allocate more pages
-                self.page_table.allocate_sequence(sequence_id, 1)
-                block_table = self.page_table.get_block_table(sequence_id)
+        # Calculate pages needed for this update
+        end_pos = current_pos + seq_len
+        start_page = current_pos // self.page_size
+        end_page = (end_pos - 1) // self.page_size  # Inclusive
+        num_pages_needed = end_page - start_page + 1
 
-            physical_page = block_table[page_idx]
+        # Allocate additional pages if needed
+        current_pages = len(block_table)
+        if num_pages_needed > current_pages - start_page:
+            additional_pages = num_pages_needed - (current_pages - start_page)
+            self.page_table.allocate_sequence(sequence_id, additional_pages)
+            block_table = self.page_table.get_block_table(sequence_id)
+
+        # Vectorized write: handle each page in a single operation
+        for page_offset in range(num_pages_needed):
+            logical_page = start_page + page_offset
+            physical_page = block_table[logical_page]
+
+            # Calculate token range for this page
+            page_start_token = logical_page * self.page_size
+            page_end_token = min((logical_page + 1) * self.page_size, end_pos)
+
+            # Calculate source indices in key_t/value_t
+            src_start = max(0, page_start_token - current_pos)
+            src_end = min(seq_len, page_end_token - current_pos)
+
+            # Calculate destination offset in page
+            dst_offset = current_pos % self.page_size if page_offset == 0 else 0
+            dst_end = dst_offset + (src_end - src_start)
 
             # Write to physical cache
-            # Transpose from [batch, seq_len, num_groups, head_dim] to [batch, num_groups, seq_len, head_dim]
-            key_t = key.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
-            value_t = value.transpose(1, 2)
-
-            self.physical_key_caches[layer_idx][physical_page, :, page_offset, :] = key_t[
-                :, :, i, :
+            self.physical_key_caches[layer_idx][physical_page, :, dst_offset:dst_end, :] = key_t[
+                :, :, src_start:src_end, :
             ]
-            self.physical_value_caches[layer_idx][physical_page, :, page_offset, :] = value_t[
-                :, :, i, :
-            ]
+            self.physical_value_caches[layer_idx][physical_page, :, dst_offset:dst_end, :] = (
+                value_t[:, :, src_start:src_end, :]
+            )
 
         # Update sequence position
-        self.sequence_positions[sequence_id] = current_pos + seq_len
+        self.sequence_positions[sequence_id] = end_pos
 
         # Gather full KV from physical pages
-        full_key = self._gather_kv_from_pages(layer_idx, block_table, current_pos + seq_len)
-        full_value = self._gather_kv_from_pages(
-            layer_idx, block_table, current_pos + seq_len, is_value=True
-        )
+        full_key = self._gather_kv_from_pages(layer_idx, block_table, end_pos)
+        full_value = self._gather_kv_from_pages(layer_idx, block_table, end_pos, is_value=True)
 
         return full_key, full_value, block_table
 
@@ -431,8 +464,8 @@ class PagedKVCache:
     ) -> torch.Tensor:
         """Gather KV from physical pages.
 
-        This is a simple gather-based implementation. For production use,
-        this should be replaced with a custom CUDA kernel.
+        Uses vectorized indexing for efficient gathering. For maximum performance
+        on GPU, consider using the Triton-based gather in triton_paged_attention.py.
 
         Args:
             layer_idx: Index of the transformer layer
@@ -445,35 +478,35 @@ class PagedKVCache:
         """
         cache = self.physical_value_caches if is_value else self.physical_key_caches
         layer_cache = cache[layer_idx]
+        device = layer_cache.device
 
         # Calculate number of pages needed
         num_pages = (seq_len + self.page_size - 1) // self.page_size
 
-        # Gather from each page
-        gathered_pages = []
-        for i in range(num_pages):
-            if i >= len(block_table):
-                break
+        # Pre-allocate output tensor
+        # Output shape: [num_local_kv_groups, seq_len, head_dim]
+        num_groups = layer_cache.shape[1]
+        gathered = torch.zeros(
+            num_groups, seq_len, self.head_dim, device=device, dtype=layer_cache.dtype
+        )
 
+        # Vectorized gather using index operations
+        for i in range(min(num_pages, len(block_table))):
             physical_page = block_table[i]
 
-            # Calculate how many tokens to take from this page
+            # Calculate token range for this page
             start_token = i * self.page_size
             end_token = min((i + 1) * self.page_size, seq_len)
-            tokens_to_take = end_token - start_token
+            tokens_in_page = end_token - start_token
 
-            # Get page data
-            page_data = layer_cache[physical_page, :, :tokens_to_take, :]
-            gathered_pages.append(page_data)
+            # Direct slice assignment (vectorized)
+            gathered[:, start_token:end_token, :] = layer_cache[
+                physical_page, :, :tokens_in_page, :
+            ]
 
-        # Concatenate pages
-        # gathered_pages: list of [num_local_kv_groups, tokens_in_page, head_dim]
-        # After concat: [num_local_kv_groups, seq_len, head_dim]
-        gathered = torch.cat(gathered_pages, dim=1)
-
-        # Add batch dimension and transpose for attention layer compatibility
-        # After transpose: [1, seq_len, num_local_kv_groups, head_dim]
-        gathered = gathered.unsqueeze(0).transpose(1, 2)  # [batch, seq_len, num_groups, head_dim]
+        # Transpose to [seq_len, num_groups, head_dim] then add batch dim
+        # [1, seq_len, num_groups, head_dim]
+        gathered = gathered.transpose(0, 1).unsqueeze(0)
 
         return gathered
 

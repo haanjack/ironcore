@@ -125,9 +125,11 @@ def log_histogram(name: str, values, step: int):
 
 
 def global_states_cleanup():
-    """Clean up global resources like closing loggers."""
+    """Clean up global resources like closing loggers and reset state."""
+    global GLOBAL_STATES  # pylint: disable=global-statement
     if GLOBAL_STATES is not None:
         GLOBAL_STATES.cleanup()
+        GLOBAL_STATES = None
 
 
 def get_timer():

@@ -16,11 +16,9 @@ Tests:
 2. Cross-rank consistency (TP=2 vs TP=1)
 3. GQA with TP=2
 
-Note: These tests require multiple GPUs or MPI to run properly.
-For single-GPU testing, these tests are skipped.
+Note: These tests require at least 2 GPUs. Run in isolation:
+    pytest tests/integration/test_kv_cache_tp2.py -v
 """
-
-import os
 
 import pytest
 import torch
@@ -28,11 +26,9 @@ import torch
 # Check if we have enough GPUs for TP=2 testing
 CUDA_AVAILABLE = torch.cuda.is_available()
 NUM_GPUS = torch.cuda.device_count() if CUDA_AVAILABLE else 0
-CAN_RUN_TP2 = NUM_GPUS >= 2 or os.environ.get("TEST_WITHOUT_CUDA") == "1"
+CAN_RUN_TP2 = NUM_GPUS >= 2
 
-pytestmark = pytest.mark.skipif(
-    not CAN_RUN_TP2, reason="TP=2 tests require at least 2 GPUs or TEST_WITHOUT_CUDA=1"
-)
+pytestmark = pytest.mark.skipif(not CAN_RUN_TP2, reason="TP=2 tests require at least 2 GPUs")
 
 from ironcore.config import (  # noqa: E402
     DataConfig,
@@ -44,6 +40,7 @@ from ironcore.config import (  # noqa: E402
     OptimConfig,
     ParallelConfig,
     PositionalEmbeddingConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
@@ -51,22 +48,20 @@ from ironcore.global_vars import global_states_cleanup, set_global_states  # noq
 from ironcore.language_model import LanguageModel  # noqa: E402
 from ironcore.parallel import parallel_states  # noqa: E402
 
-# Initialize parallel states for testing (TP=2)
-# Note: This will only work properly with multiple GPUs or MPI
-if CAN_RUN_TP2:
-    try:
-        parallel_states.initialize_model_parallel(
-            tensor_model_parallel_size=2, timeout_in_minutes=10.0
-        )
-    except Exception as e:
-        # If initialization fails, mark as unable to run
-        CAN_RUN_TP2 = False
-        pytestmark = pytest.mark.skipif(True, reason=f"TP=2 initialization failed: {e}")
-
 
 @pytest.fixture(scope="module")
 def tp2_config():
     """Create and initialize config for TP=2 testing."""
+    # Clean up any existing parallel states from previous tests
+    if parallel_states.is_model_parallel_initialized():
+        parallel_states.destroy_model_parallel()
+
+    # Clean up any existing global states from previous tests
+    global_states_cleanup()
+
+    # Initialize parallel states for TP=2
+    parallel_states.initialize_model_parallel(tensor_model_parallel_size=2, timeout_in_minutes=10.0)
+
     # Create KV cache config
     kv_cache_config = KVCacheConfig(
         enabled=True,
@@ -110,6 +105,7 @@ def tp2_config():
         activation_recompute=False,
     )
     utils_config = UtilsConfig()
+    profiler_config = ProfilerConfig()
 
     config = MainConfig(
         model=model_config,
@@ -120,13 +116,16 @@ def tp2_config():
         parallel=parallel_config,
         operation=operation_config,
         utils=utils_config,
+        profiler=profiler_config,
     )
 
     # Initialize global states
     set_global_states(config)
     yield config
+
     # Cleanup after all tests
     global_states_cleanup()
+    parallel_states.destroy_model_parallel()
 
 
 @pytest.fixture
@@ -219,17 +218,17 @@ def test_tp2_gqa_cache_shape(tp2_config):
         full_key, full_value = cache_manager.update_layer(layer_idx, dummy_kv, dummy_kv, position=0)
 
         # Verify returned KV has correct shape from cache manager
-        # update_layer returns KV from cache in [batch, num_groups, seq_len, head_dim] format
+        # update_layer returns KV in attention format: [batch, seq_len, num_groups, head_dim]
         assert full_key.shape == (
             batch_size,
-            expected_kv_groups,
             seq_len,
+            expected_kv_groups,
             tp2_config.model.head_dim,
         )
         assert full_value.shape == (
             batch_size,
-            expected_kv_groups,
             seq_len,
+            expected_kv_groups,
             tp2_config.model.head_dim,
         )
 
@@ -278,9 +277,9 @@ def test_tp2_numerical_equivalence(tp2_config):
     # Verify we can retrieve cached KV
     for layer_idx in range(tp2_config.model.num_layers):
         key, value = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=seq_len)
-        # get_layer_kv returns from cache in [batch, num_groups, seq_len, head_dim] format
-        assert key.shape == (batch_size, expected_kv_groups, seq_len, tp2_config.model.head_dim)
-        assert value.shape == (batch_size, expected_kv_groups, seq_len, tp2_config.model.head_dim)
+        # get_layer_kv returns in attention format: [batch, seq_len, num_groups, head_dim]
+        assert key.shape == (batch_size, seq_len, expected_kv_groups, tp2_config.model.head_dim)
+        assert value.shape == (batch_size, seq_len, expected_kv_groups, tp2_config.model.head_dim)
 
 
 @pytest.mark.skipif(

@@ -93,16 +93,28 @@ def initialize_model_parallel(
 
 
 def destroy_model_parallel():
-    """Destroy all parallel groups."""
-    # pylint: disable=global-statement
-    global _DATA_PARALLEL_WORLD_SIZE
-    _DATA_PARALLEL_WORLD_SIZE = None
+    """Clean up parallel groups and reset state.
+
+    This function should be called before reinitializing with different
+    parallel configuration (e.g., when switching from TP=1 to TP=2 in tests).
+
+    Note: Process groups cannot be destroyed in PyTorch, so we only reset
+    our references. The actual groups remain until process exit.
+    """
     global _TENSOR_MODEL_PARALLEL_WORLD_SIZE
-    _TENSOR_MODEL_PARALLEL_WORLD_SIZE = None
-    global _DATA_PARALLEL_GROUP
-    _DATA_PARALLEL_GROUP = None
+    global _DATA_PARALLEL_WORLD_SIZE
     global _TENSOR_MODEL_PARALLEL_GROUP
+    global _DATA_PARALLEL_GROUP
+
+    _TENSOR_MODEL_PARALLEL_WORLD_SIZE = None
+    _DATA_PARALLEL_WORLD_SIZE = None
     _TENSOR_MODEL_PARALLEL_GROUP = None
+    _DATA_PARALLEL_GROUP = None
+
+
+def is_model_parallel_initialized() -> bool:
+    """Check if model parallel has been initialized."""
+    return _TENSOR_MODEL_PARALLEL_WORLD_SIZE is not None
 
 
 def get_data_parallel_world_size():
@@ -156,3 +168,69 @@ def get_data_parallel_group_rank() -> int:
     if dist.is_available() and dist.is_initialized():
         return dist.get_rank(group=get_data_parallel_group())
     return 0
+
+
+def get_local_kv_group_info(num_kv_groups: int) -> tuple[int, int, int]:
+    """
+    Get local KV group info for tensor parallelism.
+
+    This helper function calculates how many KV groups should be stored on
+    the current TP rank when using tensor parallelism with GQA/MQA.
+
+    Args:
+        num_kv_groups: Total number of KV groups (global)
+
+    Returns:
+        tuple: (num_local_kv_groups, tp_rank, tp_size)
+            - num_local_kv_groups: Number of KV groups on this rank
+            - tp_rank: Current tensor parallel rank
+            - tp_size: Tensor model parallel world size
+
+    Raises:
+        AssertionError: If tensor parallel is not initialized
+        ValueError: If num_kv_groups is not divisible by tp_size
+
+    Example:
+        With TP=2 and 4 global KV groups:
+        - Rank 0 gets 2 local KV groups (groups 0-1)
+        - Rank 1 gets 2 local KV groups (groups 2-3)
+    """
+    tp_size = get_tensor_model_parallel_world_size()
+    tp_rank = get_tensor_model_parallel_rank()
+
+    if num_kv_groups % tp_size != 0:
+        raise ValueError(
+            f"num_kv_groups ({num_kv_groups}) must be divisible by "
+            f"tensor_model_parallel_size ({tp_size}). "
+            f"Consider using more KV groups or fewer TP ranks."
+        )
+
+    num_local_kv_groups = num_kv_groups // tp_size
+    return num_local_kv_groups, tp_rank, tp_size
+
+
+def ensure_tp_compatible(num_kv_groups: int) -> None:
+    """
+    Validate that the KV group configuration is compatible with TP.
+
+    Args:
+        num_kv_groups: Total number of KV groups (global)
+
+    Raises:
+        ValueError: If configuration is incompatible with TP
+    """
+    tp_size = get_tensor_model_parallel_world_size()
+
+    if num_kv_groups < tp_size:
+        raise ValueError(
+            f"num_kv_groups ({num_kv_groups}) must be >= "
+            f"tensor_model_parallel_size ({tp_size}). "
+            f"Each TP rank needs at least one KV group. "
+            f"Consider reducing TP size or increasing KV groups."
+        )
+
+    if num_kv_groups % tp_size != 0:
+        raise ValueError(
+            f"num_kv_groups ({num_kv_groups}) must be divisible by "
+            f"tensor_model_parallel_size ({tp_size})."
+        )
