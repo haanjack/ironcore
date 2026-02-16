@@ -77,7 +77,30 @@ def _extract_logps_from_log_probs(
     labels: torch.Tensor,  # [batch, seq_len]
     mask: torch.Tensor | None = None,  # [batch, seq_len]
 ) -> torch.Tensor:
-    """Extract per-token log probabilities for given labels from full log_probs."""
+    """Extract per-token log probabilities for given labels from full log_probs.
+
+    This function handles several edge cases:
+
+    1. **-100 labels**: PyTorch uses -100 as the ignore index for loss computation.
+       These positions are replaced with 0 for gathering, then zeroed out in the
+       output to exclude them from the sum.
+
+    2. **Optional masking**: If a mask is provided, only positions where mask=1
+       contribute to the final sum. This is useful for response-only computation
+       where prompt tokens should be excluded.
+
+    3. **Sum vs Mean**: Uses sum (not mean) to compute sequence-level log probs.
+       This follows the standard DPO formulation which avoids biasing toward
+       shorter sequences.
+
+    Args:
+        log_probs: Full log probabilities [batch, seq_len, vocab_size]
+        labels: Ground truth token IDs [batch, seq_len], -100 for ignored positions
+        mask: Optional mask for valid tokens [batch, seq_len], 1=valid, 0=ignore
+
+    Returns:
+        Sum of per-token log probabilities for each sequence [batch]
+    """
     # Handle -100 labels (PyTorch ignore index)
     # Replace -100 with 0 temporarily for gathering, then mask them out
     labels = labels.clone()

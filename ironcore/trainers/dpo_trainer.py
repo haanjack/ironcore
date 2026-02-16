@@ -13,8 +13,11 @@ Reference:
     https://arxiv.org/abs/2305.18290
 """
 
+from __future__ import annotations
+
 import copy
 from contextlib import nullcontext
+from typing import TYPE_CHECKING
 
 import torch
 from torch import distributed as dist
@@ -25,6 +28,9 @@ from ironcore.global_vars import log_metric
 from ironcore.utils import clip_grad_norm_tp, is_first_rank
 
 from .base_trainer import BaseTrainer
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 class DPOTrainer(BaseTrainer):
@@ -41,8 +47,8 @@ class DPOTrainer(BaseTrainer):
     4. Logs additional DPO-specific metrics
 
     Attributes:
-        dpo_beta: Temperature parameter for preference strength
-        dpo_label_smoothing: Label smoothing factor
+        beta: Temperature parameter for preference strength
+        label_smoothing: Label smoothing factor
         reference_model: Frozen copy of the initial policy
     """
 
@@ -55,8 +61,7 @@ class DPOTrainer(BaseTrainer):
         """Initialize DPO trainer.
 
         Args:
-            config: Training configuration (must have dpo_beta attribute
-                    or default 0.5)
+            config: Training configuration (must have alignment config)
             forward_step_func: Forward step function (not directly used,
                               overridden by train_step)
             loss_fn: Loss function (not directly used, DPO uses dpo_loss)
@@ -64,11 +69,10 @@ class DPOTrainer(BaseTrainer):
         super().__init__(config, forward_step_func, loss_fn)
 
         # DPO-specific hyperparameters from alignment config
-        self.dpo_beta = config.alignment.dpo_beta
-        self.dpo_label_smoothing = config.alignment.dpo_label_smoothing
+        self.beta = config.alignment.dpo_beta
+        self.label_smoothing = config.alignment.dpo_label_smoothing
 
         # Memory optimization: keep reference model on CPU to save GPU memory
-        # Set to True to offload reference model to CPU (slower but uses less GPU memory)
         self.reference_model_on_cpu = config.alignment.reference_model_on_cpu
 
         # Efficiency: concatenate chosen/rejected for fewer forward passes
@@ -78,7 +82,7 @@ class DPOTrainer(BaseTrainer):
         self.reference_model = None
 
         self.logger.info(
-            f"DPOTrainer initialized with beta={self.dpo_beta}, "
+            f"DPOTrainer initialized with beta={self.beta}, "
             f"reference_on_cpu={self.reference_model_on_cpu}, "
             f"concat_passes={self.concat_forward_passes}"
         )
@@ -90,9 +94,6 @@ class DPOTrainer(BaseTrainer):
         the SFT checkpoint weights. It remains frozen throughout training
         and provides baseline log probabilities.
 
-        For large models, the reference model can be kept on CPU to save GPU
-        memory, with the trade-off of slower forward passes due to transfers.
-
         Returns:
             Frozen copy of self.model
         """
@@ -102,7 +103,6 @@ class DPOTrainer(BaseTrainer):
         model_to_copy = self.model.module if hasattr(self.model, "module") else self.model
 
         # Create a deep copy of the model
-        # WARNING: This doubles memory usage temporarily during the copy
         self.logger.info("Creating reference model from policy weights...")
         reference_model = copy.deepcopy(model_to_copy)
         reference_model.eval()
@@ -112,9 +112,8 @@ class DPOTrainer(BaseTrainer):
             param.requires_grad = False
 
         # Memory optimization: optionally keep reference model on CPU
-        # CRITICAL: This is only supported for TP=1. For TP>1, it causes hangs
-        # because collective operations (like all-reduce in RowParallelLinear)
-        # will be called on CPU tensors with NCCL backend.
+        # Note: Only supported for TP=1. For TP>1, collective operations
+        # require GPU tensors with NCCL backend.
         if self.reference_model_on_cpu:
             if get_tensor_model_parallel_world_size() > 1:
                 self.logger.warning(
@@ -122,20 +121,138 @@ class DPOTrainer(BaseTrainer):
                     "Force-disabling to avoid hangs."
                 )
                 self.reference_model_on_cpu = False
-                # Keep on same device as policy model
                 device = next(model_to_copy.parameters()).device
                 reference_model.to(device)
             else:
                 self.logger.info("Moving reference model to CPU to save GPU memory")
                 reference_model = reference_model.cpu()
         else:
-            # Keep on same device as policy model
             device = next(model_to_copy.parameters()).device
             reference_model.to(device)
 
         return reference_model
 
-    def train(self):
+    def _move_batch_to_device(self, batch: dict) -> dict:
+        """Move all tensors in batch to model device.
+
+        Args:
+            batch: Dictionary containing tensor values
+
+        Returns:
+            Dictionary with all tensors moved to model device
+        """
+        device = next(self.model.parameters()).device
+        return {
+            k: v.to(device) if isinstance(v, torch.Tensor) else v
+            for k, v in batch.items()
+        }
+
+    def _compute_dpo_logits(
+        self,
+        chosen_input_ids: torch.Tensor,
+        rejected_input_ids: torch.Tensor,
+        enable_grad: bool = True,
+    ) -> tuple[
+        torch.Tensor,  # chosen_policy_logits
+        torch.Tensor,  # rejected_policy_logits
+        torch.Tensor,  # chosen_ref_logits
+        torch.Tensor,  # rejected_ref_logits
+        torch.Tensor | None,  # policy_concat_logits
+        torch.Tensor | None,  # reference_concat_logits
+    ]:
+        """Compute policy and reference logits for DPO.
+
+        This shared method handles both training (with gradients) and evaluation
+        (without gradients) cases, supporting both concatenated and separate
+        forward pass modes.
+
+        Args:
+            chosen_input_ids: Input IDs for chosen responses [batch, seq_len]
+            rejected_input_ids: Input IDs for rejected responses [batch, seq_len]
+            enable_grad: Whether to enable gradients for policy model
+
+        Returns:
+            Tuple of (chosen_policy_logits, rejected_policy_logits,
+                     chosen_ref_logits, rejected_ref_logits,
+                     policy_concat_logits or None, reference_concat_logits or None)
+        """
+        batch_size = chosen_input_ids.size(0)
+
+        if self.concat_forward_passes:
+            # Optimization: Concatenate chosen and rejected for fewer forward passes
+            concat_input_ids = torch.cat([chosen_input_ids, rejected_input_ids], dim=0)
+
+            # Policy model forward
+            if enable_grad:
+                concat_policy_logits = self.model(concat_input_ids, labels=None)
+            else:
+                with torch.no_grad():
+                    concat_policy_logits = self.model(concat_input_ids, labels=None)
+
+            # Reference model forward (always no_grad)
+            with torch.no_grad():
+                if self.reference_model_on_cpu:
+                    device = concat_input_ids.device
+                    concat_input_ids_cpu = concat_input_ids.cpu()
+                    concat_ref_logits = self.reference_model(
+                        concat_input_ids_cpu, labels=None
+                    ).detach().to(device)
+                    del concat_input_ids_cpu
+                else:
+                    concat_ref_logits = self.reference_model(
+                        concat_input_ids, labels=None
+                    ).detach()
+
+            # Split back into chosen and rejected
+            chosen_policy_logits = concat_policy_logits[:batch_size]
+            rejected_policy_logits = concat_policy_logits[batch_size:]
+            chosen_ref_logits = concat_ref_logits[:batch_size]
+            rejected_ref_logits = concat_ref_logits[batch_size:]
+
+            # Return concatenated logits for efficient TP computation
+            policy_concat_logits = concat_policy_logits
+            reference_concat_logits = concat_ref_logits
+        else:
+            # Standard approach: 4 separate forward passes
+            if enable_grad:
+                chosen_policy_logits = self.model(chosen_input_ids, labels=None)
+                rejected_policy_logits = self.model(rejected_input_ids, labels=None)
+            else:
+                with torch.no_grad():
+                    chosen_policy_logits = self.model(chosen_input_ids, labels=None)
+                    rejected_policy_logits = self.model(rejected_input_ids, labels=None)
+
+            # Reference model forward (always no_grad)
+            with torch.no_grad():
+                if self.reference_model_on_cpu:
+                    device = chosen_input_ids.device
+                    chosen_ref_logits = self.reference_model(
+                        chosen_input_ids.cpu(), labels=None
+                    ).detach().to(device)
+                    rejected_ref_logits = self.reference_model(
+                        rejected_input_ids.cpu(), labels=None
+                    ).detach().to(device)
+                else:
+                    chosen_ref_logits = self.reference_model(
+                        chosen_input_ids, labels=None
+                    ).detach()
+                    rejected_ref_logits = self.reference_model(
+                        rejected_input_ids, labels=None
+                    ).detach()
+
+            policy_concat_logits = None
+            reference_concat_logits = None
+
+        return (
+            chosen_policy_logits,
+            rejected_policy_logits,
+            chosen_ref_logits,
+            rejected_ref_logits,
+            policy_concat_logits,
+            reference_concat_logits,
+        )
+
+    def train(self) -> None:
         """Override train() to create reference model after checkpoint loading.
 
         This ensures the reference model is initialized with the SFT checkpoint
@@ -145,7 +262,7 @@ class DPOTrainer(BaseTrainer):
         if dist.is_initialized():
             dist.barrier()
 
-        # First, load checkpoint (this loads SFT weights into self.model)
+        # Load checkpoint (this loads SFT weights into self.model)
         last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
         if last_step > -1:
             self.logger.info(f"Successfully loaded checkpoint: {self.config.trainer.model_path}")
@@ -157,8 +274,8 @@ class DPOTrainer(BaseTrainer):
         if dist.is_initialized():
             dist.barrier()
 
-        # NOW create reference model from the loaded weights
-        self.logger.info(f"Creating reference model with beta={self.dpo_beta}")
+        # Create reference model from the loaded weights
+        self.logger.info(f"Creating reference model with beta={self.beta}")
         self.reference_model = self._create_reference_model()
 
         # Synchronize ranks after reference model creation
@@ -166,11 +283,8 @@ class DPOTrainer(BaseTrainer):
             dist.barrier()
 
         self.timer.start("total")
-
-        # Set model to training mode
         self.model.train()
 
-        # Start training loop
         step = last_step
 
         if self.config.utils.profile_torch:
@@ -190,21 +304,15 @@ class DPOTrainer(BaseTrainer):
                 self.context["profile"].stop()  # pylint: disable=no-member
                 break
 
-            # Update step
             step += 1
-
-            # Print and log training
             self.log_training(step, loss, grad_norm, param_norm, self.timer)
 
-            # Update profiler step
             if self.config.utils.profile_torch:
                 self.context["profile"].step()  # pylint: disable=no-member
 
-            # Save checkpoint
             if self.control.do_checkpoint(step):
                 save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
-                # Evaluation model
                 if self.control.do_eval(step):
                     self.evaluate(step)
                     self.model.train()
@@ -212,15 +320,13 @@ class DPOTrainer(BaseTrainer):
                     self.evaluate_subtask(step)
                     self.model.train()
 
-                # Check exit condition
                 if self.control.do_exit(step):
                     self.logger.info(
-                        f"Training is stopped by exit interval: {self.config.operation.exit_interval}"
+                        f"Training stopped by exit interval: {self.config.operation.exit_interval}"
                     )
                     break
 
-        # Finish training
-        # Save checkpoint in case of the total train step is not divisible by checkpoint save step
+        # Final checkpoint if needed
         if self.control.do_final_checkpoint(step, last_step):
             save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
@@ -236,11 +342,6 @@ class DPOTrainer(BaseTrainer):
 
         Processes chosen and rejected pairs, computes DPO loss,
         and updates policy.
-
-        The key difference from standard training:
-        1. Batch contains both 'chosen_*' and 'rejected_*' prefixed tensors
-        2. Forward pass through both policy and reference models
-        3. DPO loss computation instead of standard language modeling loss
 
         Args:
             step: Current training step
@@ -263,20 +364,15 @@ class DPOTrainer(BaseTrainer):
 
             with backward_sync_ctx():
                 with self.context["autocast"]:
-                    # Get DPO batch (contains chosen and rejected pairs)
                     batch = next(self.data_iterator["train"])
-
-                    # Compute DPO loss
                     loss, metrics = self._dpo_forward_step(batch)
 
                     total_loss += loss.item()
                     scaled_loss = loss / self.config.trainer.gradient_accumulation_steps
 
-                    # Accumulate metrics
                     for k, v in metrics.items():
                         total_metrics[k] = total_metrics.get(k, 0.0) + v
 
-                # Backward pass
                 self.scaler.scale(scaled_loss).backward()
 
         # Gradient clipping and norm computation
@@ -301,22 +397,16 @@ class DPOTrainer(BaseTrainer):
         self.optimizer.zero_grad()
         self.lr_scheduler.step()
 
-        # Record iteration time
         self.timer.stop(name="iter")
 
         # Average metrics over accumulation steps
         num_steps = self.config.trainer.gradient_accumulation_steps
         avg_metrics = {k: v / num_steps for k, v in total_metrics.items()}
 
-        # Log DPO-specific metrics
         if is_first_rank() and self.control.do_log(step):
             self._log_dpo_metrics(step, avg_metrics)
 
-        return (
-            total_loss / num_steps,
-            grad_norm,
-            param_norm,
-        )
+        return (total_loss / num_steps, grad_norm, param_norm)
 
     def _dpo_forward_step(
         self,
@@ -324,91 +414,36 @@ class DPOTrainer(BaseTrainer):
     ) -> tuple[torch.Tensor, dict[str, float]]:
         """Forward step for DPO training.
 
-        Processes chosen and rejected pairs through both policy
-        and reference models.
-
         Args:
             batch: Dictionary with 'chosen_*' and 'rejected_*' prefixed tensors
 
         Returns:
             Tuple of (loss, metrics_dict)
         """
-        # Extract chosen samples
+        # Move batch to device
+        batch = self._move_batch_to_device(batch)
+
+        # Extract inputs
         chosen_input_ids = batch["chosen_input_ids"]
-        chosen_labels = batch["chosen_labels"]
-
-        # Extract rejected samples
         rejected_input_ids = batch["rejected_input_ids"]
+        chosen_labels = batch["chosen_labels"]
         rejected_labels = batch["rejected_labels"]
-
-        # Get loss masks if available (separate masks for chosen and rejected)
         chosen_loss_mask = batch.get("chosen_loss_mask")
         rejected_loss_mask = batch.get("rejected_loss_mask")
 
-        # Ensure all tensors are on the same device as the model
-        # Get device from model parameters (input_ids may be on CPU from dataloader)
-        device = next(self.model.parameters()).device
-        chosen_input_ids = chosen_input_ids.to(device)
-        rejected_input_ids = rejected_input_ids.to(device)
-        chosen_labels = chosen_labels.to(device)
-        rejected_labels = rejected_labels.to(device)
-        if chosen_loss_mask is not None:
-            chosen_loss_mask = chosen_loss_mask.to(device)
-        if rejected_loss_mask is not None:
-            rejected_loss_mask = rejected_loss_mask.to(device)
-
-        if self.concat_forward_passes:
-            # Optimization: Concatenate chosen and rejected for fewer forward passes
-            # This reduces kernel launch overhead and improves GPU utilization
-            concat_input_ids = torch.cat([chosen_input_ids, rejected_input_ids], dim=0)
-
-            # Forward pass on policy model (single call for both chosen and rejected)
-            concat_policy_logits = self.model(concat_input_ids, labels=None)
-
-            # Split back into chosen and rejected (for compatibility if needed)
-            batch_size = chosen_input_ids.size(0)
-            chosen_policy_logits = concat_policy_logits[:batch_size]
-            rejected_policy_logits = concat_policy_logits[batch_size:]
-
-            # Forward pass on reference model (single call)
-            with torch.no_grad():
-                # Move to GPU if reference model is on CPU
-                if self.reference_model_on_cpu:
-                    device = concat_input_ids.device
-                    concat_input_ids_cpu = concat_input_ids.cpu()
-                    concat_ref_logits = self.reference_model(concat_input_ids_cpu, labels=None).detach()
-                    concat_ref_logits = concat_ref_logits.to(device)
-                    del concat_input_ids_cpu  # Explicit cleanup
-                else:
-                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None).detach()
-
-                # Split back
-                chosen_ref_logits = concat_ref_logits[:batch_size]
-                rejected_ref_logits = concat_ref_logits[batch_size:]
-
-            # Pass concatenated logits to dpo_loss for efficient TP computation
-            policy_concat_logits = concat_policy_logits
-            reference_concat_logits = concat_ref_logits
-        else:
-            # Standard approach: 4 separate forward passes (less efficient)
-            chosen_policy_logits = self.model(chosen_input_ids, labels=None)
-            rejected_policy_logits = self.model(rejected_input_ids, labels=None)
-
-            with torch.no_grad():
-                if self.reference_model_on_cpu:
-                    device = chosen_input_ids.device
-                    chosen_ref_logits = self.reference_model(
-                        chosen_input_ids.cpu(), labels=None
-                    ).detach().to(device)
-                    rejected_ref_logits = self.reference_model(
-                        rejected_input_ids.cpu(), labels=None
-                    ).detach().to(device)
-                else:
-                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None).detach()
-                    rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None).detach()
-
-            policy_concat_logits = None
-            reference_concat_logits = None
+        # Compute logits using shared method
+        (
+            chosen_policy_logits,
+            rejected_policy_logits,
+            chosen_ref_logits,
+            rejected_ref_logits,
+            policy_concat_logits,
+            reference_concat_logits,
+        ) = self._compute_dpo_logits(
+            chosen_input_ids,
+            rejected_input_ids,
+            enable_grad=True,
+        )
 
         # Compute DPO loss
         loss, metrics = dpo_loss(
@@ -420,8 +455,8 @@ class DPOTrainer(BaseTrainer):
             rejected_labels=rejected_labels,
             chosen_loss_mask=chosen_loss_mask,
             rejected_loss_mask=rejected_loss_mask,
-            beta=self.dpo_beta,
-            label_smoothing=self.dpo_label_smoothing,
+            beta=self.beta,
+            label_smoothing=self.label_smoothing,
             policy_concat_logits=policy_concat_logits,
             reference_concat_logits=reference_concat_logits,
         )
@@ -438,17 +473,14 @@ class DPOTrainer(BaseTrainer):
         for name, value in metrics.items():
             log_metric(name, value, step)
 
-        # Also log to console
         self.logger.info(
             f"step: {step}, dpo_loss: {metrics.get('dpo_loss', 0):.4f}, "
             f"margin: {metrics.get('preference_margin', 0):.4f}, "
             f"accuracy: {metrics.get('dpo_accuracy', 0):.4f}"
         )
 
-    def _eval_step(self, data_iterator) -> tuple:
+    def _eval_step(self, data_iterator: Iterator) -> tuple[float, float]:
         """Single evaluation step for DPO.
-
-        Computes DPO loss and metrics on evaluation batch.
 
         Args:
             data_iterator: Evaluation data iterator
@@ -457,70 +489,30 @@ class DPOTrainer(BaseTrainer):
             Tuple of (loss, accuracy)
         """
         batch = next(data_iterator)
+        batch = self._move_batch_to_device(batch)
 
-        # Ensure all tensors are on the same device as the model
-        device = next(self.model.parameters()).device
-        for k, v in batch.items():
-            if isinstance(v, torch.Tensor):
-                batch[k] = v.to(device)
-
-        # Extract batch data
+        # Extract inputs
         chosen_input_ids = batch["chosen_input_ids"]
-        chosen_labels = batch["chosen_labels"]
         rejected_input_ids = batch["rejected_input_ids"]
+        chosen_labels = batch["chosen_labels"]
         rejected_labels = batch["rejected_labels"]
         chosen_loss_mask = batch.get("chosen_loss_mask")
         rejected_loss_mask = batch.get("rejected_loss_mask")
 
-        # Compute DPO loss (without gradient)
+        # Compute logits using shared method (no gradients)
         with torch.no_grad():
-            if self.concat_forward_passes:
-                # Optimization: Concatenate chosen and rejected for fewer forward passes
-                # This is especially important for TP>1 to reduce all-gather operations
-                concat_input_ids = torch.cat([chosen_input_ids, rejected_input_ids], dim=0)
-
-                # Policy model forward (single call)
-                concat_policy_logits = self.model(concat_input_ids, labels=None)
-                batch_size = chosen_input_ids.size(0)
-                chosen_policy_logits = concat_policy_logits[:batch_size]
-                rejected_policy_logits = concat_policy_logits[batch_size:]
-
-                # Reference model forward (single call)
-                if self.reference_model_on_cpu:
-                    device = concat_input_ids.device
-                    concat_input_ids_cpu = concat_input_ids.cpu()
-                    concat_ref_logits = self.reference_model(
-                        concat_input_ids_cpu, labels=None
-                    ).detach().to(device)
-                    del concat_input_ids_cpu  # Explicit cleanup
-                else:
-                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None).detach()
-
-                chosen_ref_logits = concat_ref_logits[:batch_size]
-                rejected_ref_logits = concat_ref_logits[batch_size:]
-
-                # Use optimized concatenated logits
-                policy_concat_logits = concat_policy_logits
-                reference_concat_logits = concat_ref_logits
-            else:
-                # Standard approach: 4 separate forward passes
-                chosen_policy_logits = self.model(chosen_input_ids, labels=None)
-                rejected_policy_logits = self.model(rejected_input_ids, labels=None)
-
-                if self.reference_model_on_cpu:
-                    device = chosen_input_ids.device
-                    chosen_ref_logits = self.reference_model(
-                        chosen_input_ids.cpu(), labels=None
-                    ).detach().to(device)
-                    rejected_ref_logits = self.reference_model(
-                        rejected_input_ids.cpu(), labels=None
-                    ).detach().to(device)
-                else:
-                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None).detach()
-                    rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None).detach()
-
-                policy_concat_logits = None
-                reference_concat_logits = None
+            (
+                chosen_policy_logits,
+                rejected_policy_logits,
+                chosen_ref_logits,
+                rejected_ref_logits,
+                policy_concat_logits,
+                reference_concat_logits,
+            ) = self._compute_dpo_logits(
+                chosen_input_ids,
+                rejected_input_ids,
+                enable_grad=False,
+            )
 
             # Compute DPO loss
             loss, metrics = dpo_loss(
@@ -532,12 +524,11 @@ class DPOTrainer(BaseTrainer):
                 rejected_labels=rejected_labels,
                 chosen_loss_mask=chosen_loss_mask,
                 rejected_loss_mask=rejected_loss_mask,
-                beta=self.dpo_beta,
-                label_smoothing=self.dpo_label_smoothing,
+                beta=self.beta,
+                label_smoothing=self.label_smoothing,
                 policy_concat_logits=policy_concat_logits,
                 reference_concat_logits=reference_concat_logits,
             )
 
-        # Return loss and accuracy (preference accuracy)
         accuracy = metrics.get("dpo_accuracy", 0.0)
         return loss.item(), accuracy
