@@ -14,6 +14,7 @@ from ironcore.config import MainConfig
 from ironcore.layers.activations import GLUActivation, get_activation
 from ironcore.layers.module import BaseModule
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
+from ironcore.peft import wrap_with_lora_if_target
 
 
 class MLP(BaseModule):
@@ -27,13 +28,15 @@ class MLP(BaseModule):
         self.dropout = nn.Dropout(config.model.dropout_mlp)
 
         d_ffn = config.model.d_ffn
-        if isinstance(self.activation, GLUActivation):
+        is_glu = isinstance(self.activation, GLUActivation)
+        if is_glu:
             d_ffn = d_ffn * 2
         self.up_proj = ColumnParallelLinear(
             config,
             self.config.d_model,
             d_ffn,
             bias=not config.model.no_bias,
+            concatenated_weights=2 if is_glu else 1,
         )
         self.down_proj = RowParallelLinear(
             config,
@@ -42,6 +45,18 @@ class MLP(BaseModule):
             bias=not config.model.no_bias,
             input_is_parallel=True,
         )
+
+        # Wrap with LoRA if PEFT is enabled
+        if config.peft.method == "lora":
+            if is_glu:
+                # Up and Gate are concatenated in up_proj
+                self.up_proj = wrap_with_lora_if_target(
+                    self.up_proj, ["up_proj", "gate_proj"], config.peft.lora, concatenated=True
+                )
+            else:
+                self.up_proj = wrap_with_lora_if_target(self.up_proj, "up_proj", config.peft.lora)
+
+            self.down_proj = wrap_with_lora_if_target(self.down_proj, "down_proj", config.peft.lora)
 
     def forward(self, x, async_communication=False):
         x = self.up_proj(x)
@@ -55,11 +70,17 @@ class MLP(BaseModule):
         return x
 
     def finalize(self, x, handle):
-        if handle:
-            handle.wait()
+        # Handle LoRA-wrapped down_proj
+        if hasattr(self.down_proj, "finalize"):
+            # LoRA-wrapped layer handles finalization internally
+            x = self.down_proj.finalize(x, handle)
+        else:
+            # Standard path without LoRA
+            if handle:
+                handle.wait()
 
-        if self.down_proj.bias is not None:
-            x = x + self.down_proj.bias
+            if self.down_proj.bias is not None:
+                x = x + self.down_proj.bias
 
         if self.config.dropout_mlp > 0.0:
             x = self.dropout(x)

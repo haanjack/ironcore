@@ -1,0 +1,115 @@
+# LoRA Fine-tuning Example Configuration
+#
+# This example demonstrates parameter-efficient fine-tuning with LoRA.
+# Only ~0.5-2% of parameters are trainable, making it ideal for:
+# - Fine-tuning large models on limited GPU memory
+# - Quick adaptation to new tasks/domains
+# - Multi-task learning with minimal storage overhead
+#
+# Usage:
+#   torchrun --nproc_per_node=2 ironcore/cli/train.py --config-path configs/train_lora_example.yaml
+#
+# Resume from checkpoint:
+#   torchrun --nproc_per_node=2 ironcore/cli/train.py --config-path configs/train_lora_example.yaml \
+#     trainer.model_path=outputs/lora_sft_step_1000
+
+trainer:
+  # Batch size settings
+  micro_batch_size: 4
+  train_batch_size: 128
+  gradient_accumulation_steps: 32
+
+  # Model parallelism
+  tensor_model_parallel_size: 1
+
+  # Checkpointing - LoRA weights will be saved here
+  save_checkpoint_steps: 500
+  log_interval: 50
+  model_path: outputs/lora_sft  # Change this to your desired path
+
+  # Attention
+  use_flash_attn: true
+  vocab_padding_unit: 128
+
+operation:
+  # Training duration
+  train_steps: 5000
+
+  # Evaluation
+  eval_interval: 500
+  eval_samples: 100
+
+  # Memory optimization
+  activation_recompute: false
+
+  # Checkpointing
+  no_save: false
+  save_dist_ckpt: false  # Universal checkpoint (recommended for LoRA)
+
+# Model: GPT2-small (124M params)
+model: gpt2-small
+
+# Data configuration - SFT example
+data:
+  config_path: configs/data/sft_example.yaml
+  task_type: sft
+
+# PEFT/LoRA configuration
+peft:
+  method: lora
+  lora:
+    # LoRA rank - higher = more capacity but slower
+    # Typical: 4-8 for simple tasks, 8-16 for instruction tuning
+    r: 8
+
+    # Scaling factor - scaling = alpha / r
+    # Rule of thumb: alpha = 2 * r
+    alpha: 16.0
+
+    # Dropout for regularization (usually 0.0 is fine)
+    dropout: 0.0
+
+    # Target modules - which layers to apply LoRA
+    # Available: q_proj, k_proj, v_proj, o_proj, up_proj, gate_proj, down_proj
+    # Recommended: start with [q_proj, v_proj] and expand if needed
+    target_modules:
+      - q_proj
+      - v_proj
+      - o_proj
+      - up_proj
+      - down_proj
+
+# Optimizer settings
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+
+  # Learning rate - LoRA typically uses higher LR than full fine-tuning
+  max_lr: 2.0e-4
+  min_lr: 2.0e-5
+
+  # LR schedule
+  warmup_steps: 200
+  annealing_steps: 5000
+
+  # Regularization
+  # Note: Weight decay is typically NOT applied to LoRA parameters
+  # (handled automatically by the optimizer)
+  weight_decay: 0.01
+
+  # Adam parameters
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+
+  # Gradient clipping
+  clip_grad: 1.0
+
+  # Checkpoint loading options
+  load_checkpoint_optim_state: true   # Resume AdamW moments for LoRA params
+  load_checkpoint_lr_scheduler: true  # Resume scheduler state
+
+# Initialization
+init:
+  seed: 42
+  init_std: 0.02

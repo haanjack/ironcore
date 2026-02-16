@@ -8,7 +8,6 @@
 #
 # Full license text is available at LICENSE file.
 
-import os
 from datetime import timedelta
 
 import torch
@@ -35,7 +34,11 @@ def initialize_model_parallel(
     _TENSOR_MODEL_PARALLEL_WORLD_SIZE = tensor_model_parallel_size
 
     global _DATA_PARALLEL_WORLD_SIZE
-    _DATA_PARALLEL_WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1")) // tensor_model_parallel_size
+    if dist.is_initialized():
+        world_size = dist.get_world_size()
+        _DATA_PARALLEL_WORLD_SIZE = world_size // tensor_model_parallel_size
+    else:
+        _DATA_PARALLEL_WORLD_SIZE = 1
 
     if not dist.is_initialized():
         return
@@ -93,6 +96,19 @@ def initialize_model_parallel(
         # group_desc=f"data parallel group ({dp_group_id})",
         if rank in ranks:
             _DATA_PARALLEL_GROUP = group
+
+
+def destroy_model_parallel():
+    """Destroy all parallel groups."""
+    # pylint: disable=global-statement
+    global _DATA_PARALLEL_WORLD_SIZE
+    _DATA_PARALLEL_WORLD_SIZE = None
+    global _TENSOR_MODEL_PARALLEL_WORLD_SIZE
+    _TENSOR_MODEL_PARALLEL_WORLD_SIZE = None
+    global _DATA_PARALLEL_GROUP
+    _DATA_PARALLEL_GROUP = None
+    global _TENSOR_MODEL_PARALLEL_GROUP
+    _TENSOR_MODEL_PARALLEL_GROUP = None
 
 
 def get_data_parallel_world_size():

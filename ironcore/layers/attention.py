@@ -89,16 +89,15 @@ class Attention(BaseModule):
         key = key.permute(0, 2, 3, 1)
         value = value.transpose(1, 2)
 
+        # derive counts from input shapes
+        num_heads = query.size(1)
+        num_groups = key.size(1)
+
         # GQA/MQA support: replicate key/value groups to match query heads
-        # key: [b, gn, hd, sk], value: [b, gn, sk, hd]
-        if self.num_local_attention_groups != self.num_local_attention_heads:
+        if num_groups != num_heads:
             # replicate key/value to match with query layer
-            key = key.repeat_interleave(
-                self.num_local_attention_heads // self.num_local_attention_groups, dim=1
-            )
-            value = value.repeat_interleave(
-                self.num_local_attention_heads // self.num_local_attention_groups, dim=1
-            )
+            key = key.repeat_interleave(num_heads // num_groups, dim=1)
+            value = value.repeat_interleave(num_heads // num_groups, dim=1)
 
         with profile_context("self attention"):
             # attention operation
@@ -107,9 +106,8 @@ class Attention(BaseModule):
 
         with profile_context("self attention"):
             attention_score = attention_score / self.scale_factor
-            attention_score = attention_score.view(
-                batch_size, self.num_local_attention_heads, seq_len_q, seq_len_kv
-            )
+            # Use num_heads from input
+            attention_score = attention_score.view(batch_size, num_heads, seq_len_q, seq_len_kv)
 
             if attention_mask is not None:
                 attention_score = attention_score.masked_fill(attention_mask == 0, self.mask_value)
