@@ -132,6 +132,14 @@ def _config_validation(config: MainConfig):
                 "Minimum recommended size is 64 to avoid excessive communication overhead."
             )
 
+    # Sequence length validation
+    if config.data.seq_length > config.model.max_seq_len:
+        raise ValueError(
+            f"data.seq_length ({config.data.seq_length}) cannot exceed "
+            f"model.max_seq_len ({config.model.max_seq_len}). "
+            "Training sequence length must be within model's capacity."
+        )
+
 
 # arguments utilities
 def parse_args():

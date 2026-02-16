@@ -38,6 +38,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
@@ -90,6 +91,7 @@ def create_test_config(
     parallel_config = ParallelConfig()
     operation_config = OperationConfig(train_steps=100)
     utils_config = UtilsConfig()
+    profiler_config = ProfilerConfig()
 
     config = MainConfig(
         model=model_config,
@@ -100,6 +102,7 @@ def create_test_config(
         parallel=parallel_config,
         operation=operation_config,
         utils=utils_config,
+        profiler=profiler_config,
     )
     return config
 

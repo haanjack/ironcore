@@ -38,13 +38,14 @@ class ModelConfig(BaseConfig):
     d_model: int = field(default=512, metadata={"help": "model hidden dimension size"})
     d_ffn: int = field(default=2048, metadata={"help": "model feed forward dimension size"})
     num_layers: int = field(default=2, metadata={"help": "number of layers"})
-    max_len: int = field(default=512, metadata={"help": "max sequence length"})
-    max_position_embeddings: int = field(default=512, metadata={"help": "max position embeddings"})
+    max_seq_len: int = field(default=512, metadata={"help": "max sequence length"})
+    max_position_embeddings: int = field(
+        default=None, metadata={"help": "max position embeddings (defaults to max_seq_len)"}
+    )
     dropout_embd: float = field(default=0.1, metadata={"help": "dropout ratio in embedding"})
     dropout_attn: float = field(default=0.1, metadata={"help": "dropout ratio in attention"})
     dropout_mlp: float = field(default=0.1, metadata={"help": "dropout ratio in mlp"})
     attention_head_size: int = field(default=64, metadata={"help": "attention head size"})
-    max_seq_len: int = field(default=512, metadata={"help": "max sequence length"})
     precision: str = field(default="bfloat16", metadata={"help": "model dtype"})
 
     reset_position_ids: bool = field(
@@ -108,3 +109,6 @@ class ModelConfig(BaseConfig):
     def __post_init__(self):
         if self.ln_type not in ["layernorm", "rmsnorm"]:
             raise ValueError(f"Invalid layer norm type: {self.ln_type}")
+        # Default max_position_embeddings to max_seq_len if not set
+        if self.max_position_embeddings is None:
+            self.max_position_embeddings = self.max_seq_len

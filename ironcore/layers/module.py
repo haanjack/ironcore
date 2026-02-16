@@ -38,8 +38,8 @@ class BaseModule(torch.nn.Module):
         self._record_function = None  # for pytorch profiler
         self._nvtx_range = None
         self._hooks_registered = False
-        self._profile_torch = False
-        self._profile_nsys = False
+        self._torch_profiler = False
+        self._gpu_profiler = False
 
     def init_weights(self):
         """Initialize model weights with proper handling for tensor parallel layers."""
@@ -190,10 +190,10 @@ class BaseModule(torch.nn.Module):
 
     def _forward_pre_hook(self, module, input):
         name = f"{self.__class__.__name__}"
-        if self._profile_torch:
+        if self._torch_profiler:
             self._record_function = record_function(f"Forward {name}")
             self._record_function.__enter__()
-        if self._profile_nsys:
+        if self._gpu_profiler:
             self._nvtx_range = nvtx.range_push(f"Forward {name}")
 
     def _forward_post_hook(self, module, input, output):
@@ -206,10 +206,10 @@ class BaseModule(torch.nn.Module):
 
     def _backward_pre_hook(self, module, grad_output):
         name = f"{self.__class__.__name__}"
-        if self._profile_torch:
+        if self._torch_profiler:
             self._record_function = record_function(f"Backward {name}")
             self._record_function.__enter__()
-        if self._profile_nsys:
+        if self._gpu_profiler:
             self._nvtx_range = nvtx.range_push(f"Backward {name}")
 
     def _backward_post_hook(self, module, grad_input, grad_output):
@@ -222,13 +222,13 @@ class BaseModule(torch.nn.Module):
 
     def register_profile_hooks(
         self,
-        profile_torch: bool = False,
-        profile_nsys: bool = False,
+        torch_profiler: bool = False,
+        gpu_profiler: bool = False,
     ):
         if self._hooks_registered:
             return
-        self._profile_torch = profile_torch
-        self._profile_nsys = profile_nsys
+        self._torch_profiler = torch_profiler
+        self._gpu_profiler = gpu_profiler
 
         self.register_forward_pre_hook(self._forward_pre_hook)
         self.register_forward_hook(self._forward_post_hook)
@@ -239,8 +239,8 @@ class BaseModule(torch.nn.Module):
 
         for child in self.children():
             if isinstance(child, BaseModule):
-                child.register_profile_hooks(profile_torch, profile_nsys)
+                child.register_profile_hooks(torch_profiler, gpu_profiler)
             if isinstance(child, torch.nn.ModuleList):
                 for module in child:
                     if isinstance(module, BaseModule):
-                        module.register_profile_hooks(profile_torch, profile_nsys)
+                        module.register_profile_hooks(torch_profiler, gpu_profiler)

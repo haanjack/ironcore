@@ -17,9 +17,7 @@ from .config import BaseConfig
 class ProfilerConfig(BaseConfig):
     """Configuration for profiling and performance monitoring."""
 
-    gpu_profiler: bool = field(
-        default=False, metadata={"help": "Enable hardware-level profiling"}
-    )
+    gpu_profiler: bool = field(default=False, metadata={"help": "Enable hardware-level profiling"})
     torch_profiler: bool = field(default=False, metadata={"help": "Enable torch profiler"})
 
     start: int = field(default=10, metadata={"help": "Profile start step"})

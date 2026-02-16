@@ -165,11 +165,11 @@ Logging and profiling utilities.
 | `tensorboard_dir` | `None` | TensorBoard log directory |
 | `mlflow_tracking_uri` | `None` | MLflow tracking URI |
 | `mlflow_experiment_name` | `None` | MLflow experiment name |
-| `profile_nsys` | `false` | Enable Nsight Systems profiling |
-| `profile_torch` | `false` | Enable PyTorch profiler |
-| `profile_step_start` | `10` | Profile start step |
-| `profile_step_end` | `12` | Profile end step |
-| `profile_ranks` | `[0]` | Ranks to profile |
+| `gpu_profiler` | `false` | Enable GPU/Nsight Systems profiling |
+| `torch_profiler` | `false` | Enable PyTorch profiler |
+| `start` | `10` | Profile start step |
+| `end` | `12` | Profile end step |
+| `ranks` | `[0]` | Ranks to profile |
 | `deterministic` | `false` | Enable deterministic mode |
 | `report_memory_usage` | `true` | Report memory usage |
 

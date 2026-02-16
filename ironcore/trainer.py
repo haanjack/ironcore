@@ -9,11 +9,11 @@
 # Full license text is available at LICENSE file.
 
 import math
+import random
 from contextlib import nullcontext
 from typing import Union
-import random
-import numpy as np
 
+import numpy as np
 import torch
 from torch import distributed as dist
 

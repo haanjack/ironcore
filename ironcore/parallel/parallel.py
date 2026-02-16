@@ -36,7 +36,7 @@ def initialize_process(config: MainConfig):
         torch.backends.cudnn.enabled = True
         torch.cuda.set_device(config.parallel.local_rank)
 
-        if config.utils.profile_nsys:
+        if config.profiler.gpu_profiler:
             torch.backends.cudnn.benchmark = True
 
         if config.utils.deterministic:
