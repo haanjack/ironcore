@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
-from ironcore.parallel.tensor_parallel.comm import gather_along_last_dim
+from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
 
 
 def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
@@ -35,14 +35,15 @@ def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
     # before computing log_softmax to get correct normalization
     tp_size = get_tensor_model_parallel_world_size()
     if tp_size > 1:
-        # Ensure logits are on GPU for all_gather (NCCL)
+        # NCCL all-gather requires GPU tensors
         if logits.device.type == "cpu":
-            # This is a fallback, ideally logits should be on GPU
-            # Using gloo for CPU if initialized, otherwise this might hang if group is NCCL
-            pass
+            raise RuntimeError(
+                "Cannot perform tensor-parallel all-gather on CPU tensors with NCCL backend. "
+                "Ensure logits are on GPU before calling DPO loss with TP > 1."
+            )
 
         # Gather full vocabulary logits across TP group
-        logits = gather_along_last_dim(logits)
+        logits = _gather_tensor_along_last_dim(logits)
 
     # Now compute log_softmax with the full vocabulary
     # Use float32 for softmax stability

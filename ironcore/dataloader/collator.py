@@ -198,23 +198,35 @@ class UniversalCollator:
         Collate DPO batch.
 
         Groups chosen/rejected pairs and returns separate tensors.
+
+        Raises:
+            ValueError: If batch doesn't contain paired chosen/rejected samples
         """
         # Separate chosen and rejected
         chosen_samples = [s for s in batch if s["metadata"]["type"] == "dpo_chosen"]
         rejected_samples = [s for s in batch if s["metadata"]["type"] == "dpo_rejected"]
 
+        # Validation: DPO requires paired data
+        if len(chosen_samples) == 0:
+            raise ValueError("DPO batch contains no chosen samples")
+        if len(rejected_samples) == 0:
+            raise ValueError("DPO batch contains no rejected samples")
+        if len(chosen_samples) != len(rejected_samples):
+            raise ValueError(
+                f"DPO batch has mismatched pairs: {len(chosen_samples)} chosen "
+                f"vs {len(rejected_samples)} rejected"
+            )
+
         # Collate each separately using SFT logic
-        chosen_batch = self._collate_sft(chosen_samples) if chosen_samples else None
-        rejected_batch = self._collate_sft(rejected_samples) if rejected_samples else None
+        chosen_batch = self._collate_sft(chosen_samples)
+        rejected_batch = self._collate_sft(rejected_samples)
 
         # Prefix keys
         output = {}
-        if chosen_batch:
-            for k, v in chosen_batch.items():
-                output[f"chosen_{k}"] = v
-        if rejected_batch:
-            for k, v in rejected_batch.items():
-                output[f"rejected_{k}"] = v
+        for k, v in chosen_batch.items():
+            output[f"chosen_{k}"] = v
+        for k, v in rejected_batch.items():
+            output[f"rejected_{k}"] = v
 
         return output
 

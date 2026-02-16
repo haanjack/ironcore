@@ -141,14 +141,21 @@ class DPOTrainer(BaseTrainer):
         This ensures the reference model is initialized with the SFT checkpoint
         weights rather than random initialization.
         """
-        # First, load checkpoint (this loads SFT weights into self.model)
+        # Synchronize all ranks before checkpoint loading to prevent race conditions
+        if dist.is_initialized():
+            dist.barrier()
 
+        # First, load checkpoint (this loads SFT weights into self.model)
         last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
         if last_step > -1:
             self.logger.info(f"Successfully loaded checkpoint: {self.config.trainer.model_path}")
         else:
             self.logger.info("Training start from scratch")
             last_step = 0
+
+        # Synchronize after checkpoint loading before reference model creation
+        if dist.is_initialized():
+            dist.barrier()
 
         # NOW create reference model from the loaded weights
         self.logger.info(f"Creating reference model with beta={self.dpo_beta}")
@@ -369,10 +376,11 @@ class DPOTrainer(BaseTrainer):
                 if self.reference_model_on_cpu:
                     device = concat_input_ids.device
                     concat_input_ids_cpu = concat_input_ids.cpu()
-                    concat_ref_logits = self.reference_model(concat_input_ids_cpu, labels=None)
+                    concat_ref_logits = self.reference_model(concat_input_ids_cpu, labels=None).detach()
                     concat_ref_logits = concat_ref_logits.to(device)
+                    del concat_input_ids_cpu  # Explicit cleanup
                 else:
-                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None)
+                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None).detach()
 
                 # Split back
                 chosen_ref_logits = concat_ref_logits[:batch_size]
@@ -391,13 +399,13 @@ class DPOTrainer(BaseTrainer):
                     device = chosen_input_ids.device
                     chosen_ref_logits = self.reference_model(
                         chosen_input_ids.cpu(), labels=None
-                    ).to(device)
+                    ).detach().to(device)
                     rejected_ref_logits = self.reference_model(
                         rejected_input_ids.cpu(), labels=None
-                    ).to(device)
+                    ).detach().to(device)
                 else:
-                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None)
-                    rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None)
+                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None).detach()
+                    rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None).detach()
 
             policy_concat_logits = None
             reference_concat_logits = None
@@ -431,7 +439,7 @@ class DPOTrainer(BaseTrainer):
             log_metric(name, value, step)
 
         # Also log to console
-        self.logger.debug(
+        self.logger.info(
             f"step: {step}, dpo_loss: {metrics.get('dpo_loss', 0):.4f}, "
             f"margin: {metrics.get('preference_margin', 0):.4f}, "
             f"accuracy: {metrics.get('dpo_accuracy', 0):.4f}"
@@ -480,11 +488,13 @@ class DPOTrainer(BaseTrainer):
                 # Reference model forward (single call)
                 if self.reference_model_on_cpu:
                     device = concat_input_ids.device
+                    concat_input_ids_cpu = concat_input_ids.cpu()
                     concat_ref_logits = self.reference_model(
-                        concat_input_ids.cpu(), labels=None
-                    ).to(device)
+                        concat_input_ids_cpu, labels=None
+                    ).detach().to(device)
+                    del concat_input_ids_cpu  # Explicit cleanup
                 else:
-                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None)
+                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None).detach()
 
                 chosen_ref_logits = concat_ref_logits[:batch_size]
                 rejected_ref_logits = concat_ref_logits[batch_size:]
@@ -501,13 +511,13 @@ class DPOTrainer(BaseTrainer):
                     device = chosen_input_ids.device
                     chosen_ref_logits = self.reference_model(
                         chosen_input_ids.cpu(), labels=None
-                    ).to(device)
+                    ).detach().to(device)
                     rejected_ref_logits = self.reference_model(
                         rejected_input_ids.cpu(), labels=None
-                    ).to(device)
+                    ).detach().to(device)
                 else:
-                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None)
-                    rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None)
+                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None).detach()
+                    rejected_ref_logits = self.reference_model(rejected_input_ids, labels=None).detach()
 
                 policy_concat_logits = None
                 reference_concat_logits = None
