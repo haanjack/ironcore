@@ -186,3 +186,4 @@ cython_debug/
 
 # train logs
 mlruns/
+test_outputs/
