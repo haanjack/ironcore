@@ -9,13 +9,6 @@
 # Full license text is available at LICENSE file.
 
 from ironcore.config import LoRAConfig
-from ironcore.parallel.tensor_parallel.layers import ColumnParallelLinear, RowParallelLinear
-
-from .lora import (
-    LoRAColumnParallelLinear,
-    LoRAConcatenatedColumnParallel,
-    LoRARowParallelLinear,
-)
 
 # Module name mapping from config to actual layer names
 MODULE_NAME_MAPPING = {
@@ -38,6 +31,18 @@ def wrap_with_lora_if_target(
     """
     Wrap a layer with LoRA if it's in the target modules.
     """
+    # Lazy imports to avoid circular dependency
+    from ironcore.parallel.tensor_parallel.layers import (
+        ColumnParallelLinear,
+        RowParallelLinear,
+    )
+
+    from .lora import (
+        LoRAColumnParallelLinear,
+        LoRAConcatenatedColumnParallel,
+        LoRARowParallelLinear,
+    )
+
     if isinstance(module_names, str):
         module_names = [module_names]
 
