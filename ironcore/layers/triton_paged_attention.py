@@ -65,9 +65,25 @@ def triton_paged_attention(
 
     Returns:
         Output tensor [batch, 1, num_heads, head_dim] or [batch, num_heads, head_dim]
+
+    Raises:
+        RuntimeError: If Triton is not available
+        ValueError: If input validation fails
     """
     if not TRITON_AVAILABLE:
         raise RuntimeError("Triton is not available. Install with: pip install triton")
+
+    # Input validation
+    if num_kv_heads <= 0:
+        raise ValueError(f"num_kv_heads must be positive, got {num_kv_heads}")
+    if num_heads <= 0:
+        raise ValueError(f"num_heads must be positive, got {num_heads}")
+    if num_heads % num_kv_heads != 0:
+        raise ValueError(
+            f"num_heads ({num_heads}) must be divisible by num_kv_heads ({num_kv_heads})"
+        )
+    if context_lens.numel() == 0:
+        raise ValueError("context_lens cannot be empty")
 
     # Handle different input shapes
     squeeze_output = False
@@ -83,6 +99,11 @@ def triton_paged_attention(
 
     # Get max context length for padding
     max_ctx_len = context_lens.max().item()
+
+    # Handle edge case: all context lengths are 0
+    if max_ctx_len == 0:
+        output_shape = (batch_size, num_heads, head_dim) if squeeze_output else (batch_size, 1, num_heads, head_dim)
+        return torch.zeros(output_shape, device=device, dtype=dtype)
 
     # Gather KV from pages using Triton kernel
     gathered_keys, gathered_values = _gather_kv_triton(
@@ -140,10 +161,25 @@ def _gather_kv_triton(
     num_kv_heads: int,
     page_size: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Gather KV from physical pages using Triton kernel."""
+    """Gather KV from physical pages using Triton kernel.
+
+    Raises:
+        ValueError: If input shapes are inconsistent
+    """
+    # Input validation
+    if key_cache.shape[0] != value_cache.shape[0]:
+        raise ValueError(
+            f"key_cache and value_cache must have same number of pages: "
+            f"{key_cache.shape[0]} vs {value_cache.shape[0]}"
+        )
+    if key_cache.shape[1] != num_kv_heads:
+        raise ValueError(
+            f"key_cache num_kv_heads mismatch: expected {num_kv_heads}, got {key_cache.shape[1]}"
+        )
 
     batch_size = block_tables.shape[0]
     head_dim = key_cache.shape[-1]
+    num_pages = key_cache.shape[0]
     device = key_cache.device
     dtype = key_cache.dtype
 
@@ -180,6 +216,7 @@ def _gather_kv_triton(
         max_pages_per_seq: tl.constexpr,
         num_kv_heads: tl.constexpr,
         head_dim: tl.constexpr,
+        num_pages: tl.constexpr,
     ):
         # Each program handles one (batch, head, token) tuple
         pid = tl.program_id(0)
@@ -201,7 +238,9 @@ def _gather_kv_triton(
             return
 
         physical_page = tl.load(block_tables_ptr + batch_idx * max_pages_per_seq + page_idx)
-        if physical_page < 0:
+
+        # Bounds check: physical_page must be valid
+        if physical_page < 0 or physical_page >= num_pages:
             return
 
         # Load K and V vectors
@@ -259,6 +298,7 @@ def _gather_kv_triton(
         max_pages_per_seq=max_pages_per_seq,
         num_kv_heads=num_kv_heads,
         head_dim=head_dim,
+        num_pages=num_pages,
     )
 
     return gathered_keys, gathered_values
@@ -279,7 +319,20 @@ def python_paged_attention(
 
     This is the baseline implementation for comparison.
     Uses gather + standard attention computation.
+
+    Raises:
+        ValueError: If input validation fails
     """
+    # Input validation
+    if num_kv_heads <= 0:
+        raise ValueError(f"num_kv_heads must be positive, got {num_kv_heads}")
+    if num_heads <= 0:
+        raise ValueError(f"num_heads must be positive, got {num_heads}")
+    if num_heads % num_kv_heads != 0:
+        raise ValueError(
+            f"num_heads ({num_heads}) must be divisible by num_kv_heads ({num_kv_heads})"
+        )
+
     # Handle different input shapes
     squeeze_output = False
     if query.dim() == 3:
@@ -368,7 +421,20 @@ def python_paged_attention_batched(
     Batched Python implementation using gather and flash attention.
 
     More efficient than the loop version but still Python-based.
+
+    Raises:
+        ValueError: If input validation fails
     """
+    # Input validation
+    if num_kv_heads <= 0:
+        raise ValueError(f"num_kv_heads must be positive, got {num_kv_heads}")
+    if num_heads <= 0:
+        raise ValueError(f"num_heads must be positive, got {num_heads}")
+    if num_heads % num_kv_heads != 0:
+        raise ValueError(
+            f"num_heads ({num_heads}) must be divisible by num_kv_heads ({num_kv_heads})"
+        )
+
     squeeze_output = False
     if query.dim() == 3:
         query = query.unsqueeze(1)
