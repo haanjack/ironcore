@@ -346,6 +346,69 @@ class TestConcurrentSequenceUpdates:
         stats = paged_cache.get_statistics()
         assert stats["total_allocated"] == 2
 
+    def test_sequence_extension_preserves_data(self):
+        """
+        Test: Sequence extension preserves existing KV data.
+
+        This tests the fix for the page allocation bug where calling
+        allocate_sequence() on an already-allocated sequence would
+        overwrite the block table and lose cached data.
+        """
+        config = create_test_config(use_paged=True, max_num_pages=16, page_size=16)
+        device = torch.device("cpu")
+
+        paged_cache = PagedKVCache(config)
+        paged_cache.initialize(num_layers=1, device=device)
+
+        num_local_kv_groups = paged_cache.num_local_kv_groups
+
+        # Allocate sequence with initial size (1 page = 16 tokens)
+        paged_cache.allocate_sequence(sequence_id=0, num_tokens=16)
+
+        # Write initial KV data (10 tokens)
+        initial_kv = torch.ones(1, 10, num_local_kv_groups, paged_cache.head_dim, device=device)
+        key1, value1, _ = paged_cache.update_sequence(
+            sequence_id=0, layer_idx=0, key=initial_kv, value=initial_kv
+        )
+
+        # Verify initial data is stored (convert to same dtype for comparison)
+        assert key1.shape[1] == 10
+        assert torch.allclose(key1[0, :10, :, :].float(), initial_kv[0, :, :, :].float())
+
+        # Add 1 more token
+        one_token = torch.zeros(1, 1, num_local_kv_groups, paged_cache.head_dim, device=device)
+        key2, value2, _ = paged_cache.update_sequence(
+            sequence_id=0, layer_idx=0, key=one_token, value=one_token
+        )
+
+        # The first 10 tokens should still be ones (from initial_kv)
+        assert key2.shape[1] == 11  # 10 initial + 1 new
+        assert torch.allclose(key2[0, :10, :, :].float(), initial_kv[0, :, :, :].float())
+
+        # Now extend beyond initial allocation (need more pages)
+        # Add 20 more tokens (total 31, needs 2 pages)
+        extension_kv = torch.full(
+            (1, 20, num_local_kv_groups, paged_cache.head_dim), 2.0, device=device
+        )
+        key3, value3, block_table = paged_cache.update_sequence(
+            sequence_id=0, layer_idx=0, key=extension_kv, value=extension_kv
+        )
+
+        # Verify total sequence length and data preservation
+        assert key3.shape[1] == 31  # 11 + 20
+
+        # First 10 should still be 1.0, 11th should be 0.0, last 20 should be 2.0
+        assert torch.allclose(key3[0, :10, :, :].float(), initial_kv[0, :, :, :].float())
+        assert torch.allclose(
+            key3[0, 10, :, :].float(), torch.zeros_like(key3[0, 10, :, :]).float()
+        )
+        assert torch.allclose(key3[0, 11:, :, :].float(), extension_kv[0, :, :, :].float())
+
+        # Verify that pages were extended (not reallocated from scratch)
+        # If bug existed, block_table would be a new list with only 2 pages
+        # With fix, it should be the original list extended
+        assert len(block_table) == 2  # 2 pages needed for 31 tokens with page_size=16
+
 
 class TestChunkedAttentionWithCache:
     """Test chunked attention with KV cache edge cases."""

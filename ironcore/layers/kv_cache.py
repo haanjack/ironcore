@@ -193,6 +193,13 @@ class KVCacheManager:
 
         batch_size, seq_len, num_groups, head_dim = key.shape
 
+        # Validate batch size matches cache allocation
+        if self.cache_positions.shape[0] != batch_size:
+            raise ValueError(
+                f"Batch size mismatch: key has batch_size={batch_size}, "
+                f"but cache was initialized with batch_size={self.cache_positions.shape[0]}"
+            )
+
         # Determine write positions
         if positions is not None:
             # Per-sequence positions (continuous batching scenario)

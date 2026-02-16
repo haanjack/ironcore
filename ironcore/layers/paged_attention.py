@@ -129,6 +129,43 @@ class PageTable:
         # Remove from block table
         del self.block_tables[sequence_id]
 
+    def extend_sequence(
+        self,
+        sequence_id: int,
+        num_additional_pages: int,
+    ) -> list[int]:
+        """Extend allocation for an existing sequence.
+
+        This method adds more pages to an already-allocated sequence without
+        creating a new block table entry (which would lose existing data).
+
+        Args:
+            sequence_id: Unique identifier for the sequence
+            num_additional_pages: Number of additional pages to allocate
+
+        Returns:
+            Updated list of physical page indices for the sequence
+
+        Raises:
+            RuntimeError: If sequence not found or not enough free pages
+        """
+        if sequence_id not in self.block_tables:
+            raise RuntimeError(f"Sequence {sequence_id} not found")
+
+        if len(self.free_pages) < num_additional_pages:
+            raise RuntimeError(
+                f"Not enough free pages: requested {num_additional_pages}, "
+                f"available {len(self.free_pages)}"
+            )
+
+        # Allocate additional pages and append to existing block table
+        for _ in range(num_additional_pages):
+            page_idx = self.free_pages.pop()
+            self.block_tables[sequence_id].append(page_idx)
+            self.refcounts[page_idx] = 1
+
+        return self.block_tables[sequence_id]
+
     def get_block_table(self, sequence_id: int) -> list[int] | None:
         """Get the block table (list of physical pages) for a sequence.
 
@@ -418,7 +455,7 @@ class PagedKVCache:
         current_pages = len(block_table)
         if num_pages_needed > current_pages - start_page:
             additional_pages = num_pages_needed - (current_pages - start_page)
-            self.page_table.allocate_sequence(sequence_id, additional_pages)
+            self.page_table.extend_sequence(sequence_id, additional_pages)
             block_table = self.page_table.get_block_table(sequence_id)
 
         # Vectorized write: handle each page in a single operation
