@@ -361,8 +361,8 @@ def _update_config_from_args(config: dataclass, args):
                     break
                 except (AttributeError, IndexError):
                     continue
-        except Exception:
-            continue
+        except Exception as e:
+            raise ValueError(f"Error processing argument '{arg_name}': {e}")
 
 
 def load_trainer_config() -> MainConfig:
