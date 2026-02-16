@@ -1,6 +1,6 @@
 # Training Configuration
 
-IronCore uses a hierarchical YAML configuration system. Configuration is organized into groups that can be defined inline or reference external files.
+Hierarchical YAML configuration. Groups can be defined inline or reference external files.
 
 ## Config Structure
 
