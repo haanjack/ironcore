@@ -22,6 +22,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
@@ -119,7 +120,7 @@ def create_test_config(
     operation_config = OperationConfig()
     utils_config = UtilsConfig()
     profiler_config = ProfilerConfig()
-
+    peft_config = PEFTConfig()
     return MainConfig(
         model=model_config,
         trainer=trainer_config,
@@ -130,6 +131,7 @@ def create_test_config(
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=peft_config,
     )
 
 
