@@ -69,6 +69,7 @@ class MainConfig(BaseConfig):
     trainer: TrainerConfig
     operation: OperationConfig
     utils: UtilsConfig
+    profiler: ProfilerConfig
     peft: PEFTConfig
     profiler: ProfilerConfig
     alignment: AlignmentConfig = None
@@ -444,6 +445,7 @@ def load_trainer_config() -> MainConfig:
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=PEFTConfig(),
         profiler=ProfilerConfig(),
         alignment=AlignmentConfig(),
