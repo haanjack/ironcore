@@ -27,7 +27,7 @@ from .config_parallel import ParallelConfig
 from .config_peft import LoRAConfig as LoRAConfig
 from .config_peft import PEFTConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
-from .config_utils import UtilsConfig
+from .config_utils import ProfilerConfig, UtilsConfig
 
 load_dotenv()
 
@@ -68,6 +68,7 @@ class MainConfig(BaseConfig):
     trainer: TrainerConfig
     operation: OperationConfig
     utils: UtilsConfig
+    profiler: ProfilerConfig
     peft: PEFTConfig
 
 
@@ -441,6 +442,7 @@ def load_trainer_config() -> MainConfig:
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=PEFTConfig(),
     )
 
