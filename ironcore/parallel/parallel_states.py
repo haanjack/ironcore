@@ -113,27 +113,35 @@ def destroy_model_parallel():
 
 def get_data_parallel_world_size():
     """Get data parallel world size."""
-    assert _DATA_PARALLEL_WORLD_SIZE is not None, "data parallel world size should not be None"
+    if _DATA_PARALLEL_WORLD_SIZE is None:
+        raise RuntimeError("Data parallel not initialized. Call initialize_model_parallel() first.")
     return _DATA_PARALLEL_WORLD_SIZE
 
 
 def get_tensor_model_parallel_world_size():
     """Get tensor model parallel world size."""
-    assert _TENSOR_MODEL_PARALLEL_WORLD_SIZE is not None, (
-        "tensor model parallel world size should not be None"
-    )
+    if _TENSOR_MODEL_PARALLEL_WORLD_SIZE is None:
+        raise RuntimeError(
+            "Tensor model parallel not initialized. Call initialize_model_parallel() first."
+        )
     return _TENSOR_MODEL_PARALLEL_WORLD_SIZE
 
 
 def get_tensor_model_parallel_group() -> dist.ProcessGroup:
     """Get model parallel group that the caller rank belongs to."""
-    assert _TENSOR_MODEL_PARALLEL_GROUP is not None, "model parallel group should not be None"
+    if _TENSOR_MODEL_PARALLEL_GROUP is None:
+        raise RuntimeError(
+            "Tensor model parallel group not initialized. Call initialize_model_parallel() first."
+        )
     return _TENSOR_MODEL_PARALLEL_GROUP
 
 
 def get_data_parallel_group() -> dist.ProcessGroup:
     """Get data parallel group that the caller rank belongs to."""
-    assert _DATA_PARALLEL_GROUP is not None, "data parallel group should not be None"
+    if _DATA_PARALLEL_GROUP is None:
+        raise RuntimeError(
+            "Data parallel group not initialized. Call initialize_model_parallel() first."
+        )
     return _DATA_PARALLEL_GROUP
 
 
