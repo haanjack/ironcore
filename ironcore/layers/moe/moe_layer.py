@@ -438,8 +438,6 @@ class MoEMLP(BaseModule):
         num_tokens_per_expert = dispatch_output.num_tokens_per_expert
 
         # Allocate output tensor
-        tokens.shape[0]
-        tokens.shape[1]
         outputs = torch.zeros_like(tokens)
 
         # Check for edge case: no tokens dispatched to any expert

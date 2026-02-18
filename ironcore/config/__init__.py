@@ -329,15 +329,15 @@ def _update_config_from_args(config: dataclass, args):
     for arg_name, arg_value in arg_dict.items():
         if arg_value is None or arg_name in ["config_path", "local_rank"]:
             continue
-
         try:
-            for group_field in fields(config):
-                group_obj = getattr(config, group_field.name)
-                try:
-                    set_recursive_attr(group_obj, arg_name, arg_value)
-                    break
-                except (AttributeError, IndexError):
-                    continue
+            # The attribute path from argparse already contains the group,
+            # so we should start from the top-level `config` object.
+            set_recursive_attr(config, arg_name, arg_value)
+        except (AttributeError, IndexError):
+            # This can happen if an argument from argparse doesn't map to a config path.
+            # We can either warn or ignore. For now, we'll ignore to match the
+            # previous behavior of trying the next group.
+            continue
         except Exception as e:
             raise ValueError(f"Error processing argument '{arg_name}': {e}")
 

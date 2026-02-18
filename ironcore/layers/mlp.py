@@ -34,7 +34,6 @@ from torch import distributed as dist
 from ironcore.config import MainConfig
 from ironcore.layers.activations import GLUActivation, get_activation
 from ironcore.layers.parallel_mlp import ParallelMLP
-from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 from ironcore.peft import wrap_with_lora_if_target
 
 
@@ -54,44 +53,26 @@ class MLP(ParallelMLP):
     def __init__(self, config: MainConfig):
         model_config = config.model
 
-        # Initialize base ParallelMLP
+        # Store config reference for LoRA
+        self.config = config
+        self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
+
+        # Determine if GLU activation for concatenated weights
+        activation = get_activation(model_config.activation_type, model_config.d_model)
+        is_glu = isinstance(activation, GLUActivation)
+        concatenated_weights = 2 if is_glu else 1
+
+        # Initialize base ParallelMLP with concatenated_weights for GLU
         super().__init__(
             config=config,
             hidden_size=model_config.d_model,
             intermediate_size=model_config.d_ffn,
             gather_output=False,
             name="mlp",
+            concatenated_weights=concatenated_weights,
         )
 
-        # Store additional references for LoRA
-        self.config = config
-        self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
-
-        # Re-get activation to determine if GLU (for LoRA wrapping)
-        self.activation = get_activation(model_config.activation_type, model_config.d_model)
-
-        # Recalculate d_ffn for GLU
-        is_glu = isinstance(self.activation, GLUActivation)
-        d_ffn = model_config.d_ffn
-        if is_glu:
-            d_ffn = d_ffn * 2
-
-        # Re-create up_proj and down_proj with correct settings
-        # (needed because we need to wrap with LoRA after creation)
-        self.up_proj = ColumnParallelLinear(
-            config,
-            model_config.d_model,
-            d_ffn,
-            bias=not model_config.no_bias,
-            concatenated_weights=2 if is_glu else 1,
-        )
-        self.down_proj = RowParallelLinear(
-            config,
-            model_config.d_ffn,
-            model_config.d_model,
-            bias=not model_config.no_bias,
-            input_is_parallel=True,
-        )
+        # Store dropout rate for forward method
         self.dropout_mlp = model_config.dropout_mlp
 
         # Wrap with LoRA if PEFT is enabled

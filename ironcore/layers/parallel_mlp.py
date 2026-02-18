@@ -67,6 +67,7 @@ class ParallelMLP(BaseModule):
         intermediate_size: FFN intermediate dimension
         gather_output: Whether to gather output (default: False for TP compatibility)
         name: Optional name for debugging (default: None)
+        concatenated_weights: Number of concatenated weights in up_proj for GLU (default: 1)
     """
 
     def __init__(
@@ -76,6 +77,7 @@ class ParallelMLP(BaseModule):
         intermediate_size: int,
         gather_output: bool = False,
         name: str | None = None,
+        concatenated_weights: int = 1,
     ):
         super().__init__(config)
 
@@ -101,6 +103,7 @@ class ParallelMLP(BaseModule):
             d_ffn,
             bias=not model_config.no_bias,
             gather_output=gather_output,
+            concatenated_weights=concatenated_weights,
         )
 
         # Down projection: intermediate -> hidden (RowParallel for TP)
