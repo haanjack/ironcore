@@ -8,6 +8,71 @@ import torch.distributed as dist
 from ironcore.parallel import parallel_states
 
 
+def _has_moe_layers(model: torch.nn.Module) -> bool:
+    """Check if model has any MoE layers.
+
+    Uses cached result if available.
+    """
+    # Use cached result if available
+    if hasattr(model, "_has_moe_layers"):
+        return model._has_moe_layers
+
+    # Check for MoE layers
+    for module in model.modules():
+        if hasattr(module, "get_aux_loss") and callable(module.get_aux_loss):
+            model._has_moe_layers = True
+            return True
+
+    model._has_moe_layers = False
+    return False
+
+
+def get_moe_aux_loss(model: torch.nn.Module) -> torch.Tensor | None:
+    """Accumulate auxiliary losses from all MoE modules in the model.
+
+    Iterates through all modules and collects get_aux_loss() from MoE layers.
+
+    Args:
+        model: The model potentially containing MoE layers
+
+    Returns:
+        Sum of all auxiliary losses, or None if no MoE layers
+    """
+    # Early exit for non-MoE models
+    if not _has_moe_layers(model):
+        return None
+
+    aux_losses = []
+
+    for module in model.modules():
+        if hasattr(module, "get_aux_loss") and callable(module.get_aux_loss):
+            loss = module.get_aux_loss()
+            if loss is not None:
+                aux_losses.append(loss)
+
+    if aux_losses:
+        return sum(aux_losses)
+
+    return None
+
+
+def clear_moe_aux_loss(model: torch.nn.Module) -> None:
+    """Clear stored auxiliary losses from all MoE modules.
+
+    Should be called after backward pass to reset for next iteration.
+
+    Args:
+        model: The model potentially containing MoE layers
+    """
+    # Early exit for non-MoE models
+    if not _has_moe_layers(model):
+        return
+
+    for module in model.modules():
+        if hasattr(module, "clear_aux_loss") and callable(module.clear_aux_loss):
+            module.clear_aux_loss()
+
+
 def loss_func_sft(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch.Tensor:
     """Per-sample loss averaging for SFT.
 
@@ -131,9 +196,22 @@ def get_batch(
 
 
 def forward_step(model, data_iterator) -> torch.Tensor:
-    """Forward step."""
+    """Forward step with MoE auxiliary loss accumulation.
+
+    Computes the language model loss and adds any MoE auxiliary losses.
+    Clears aux loss after accumulation to prevent memory leaks.
+    For non-MoE models, this is essentially a no-op overhead.
+    """
     input_ids, labels = get_batch(data_iterator=data_iterator)
     loss = model(input_ids, labels)
+
+    # Add MoE auxiliary loss if present (no-op for non-MoE models)
+    aux_loss = get_moe_aux_loss(model)
+    if aux_loss is not None:
+        loss = loss + aux_loss
+        # Clear aux loss after accumulation to prevent memory leak
+        clear_moe_aux_loss(model)
+
     return loss
 
 

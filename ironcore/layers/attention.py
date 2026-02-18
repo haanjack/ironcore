@@ -117,6 +117,9 @@ class Attention(BaseModule):
             max_scores = attention_score.max(dim=-1, keepdim=True)[0]
             attention_score = attention_score - max_scores
 
+            # Clamp to prevent overflow in bf16/fp16
+            attention_score = torch.clamp(attention_score, min=-100.0, max=100.0)
+
             attention_probs = self.softmax(attention_score)
 
         # dropout

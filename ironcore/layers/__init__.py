@@ -12,10 +12,12 @@ from .attention import Attention
 from .embedding import LanguageModelEmbedding
 from .mlp import MLP
 from .module import BaseModule
+from .parallel_mlp import ParallelMLP
 
 __all__ = [
     "BaseModule",
     "LanguageModelEmbedding",
     "Attention",
     "MLP",
+    "ParallelMLP",
 ]

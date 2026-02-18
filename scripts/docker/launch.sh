@@ -3,9 +3,9 @@
 source .env
 
 # Default to cuda if not set
-VENDOR=${VENDOR:-"cuda"}
+ARCH=${ARCH:-"cuda"}
 
-if [ "$VENDOR" == "rocm" ]; then
+if [ "$ARCH" == "rocm" ]; then
     GPU_FLAGS="--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined --group-add video"
     IMAGE="ironcore:rocm"
 else
@@ -13,7 +13,7 @@ else
     IMAGE="ironcore:cuda"
 fi
 
-echo "Launching $VENDOR container..."
+echo "Launching $ARCH container..."
 
 docker run --rm -ti -u $(id -u):$(id -g) \
     --name=ironcore \
