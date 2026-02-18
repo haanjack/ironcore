@@ -65,6 +65,11 @@ class DatasetConfig(BaseConfig):
 class DataConfig(BaseConfig):
     """Unified data configuration for training."""
 
+    # Task type - determines training mode and data handling
+    task_type: Literal["pretrain", "sft", "dpo"] = field(
+        default="pretrain", metadata={"help": "Task type: pretrain, sft, or dpo"}
+    )
+
     # Dataset Configuration
     datasets: list[DatasetConfig] = field(
         default_factory=list, metadata={"help": "List of training datasets"}
@@ -137,6 +142,8 @@ class DataConfig(BaseConfig):
             self.cache_dir = Path(self.cache_dir)
         if self.splits and abs(sum(self.splits) - 1.0) > 1e-6:
             raise ValueError(f"Splits must sum to 1.0, got {sum(self.splits)}")
+        if self.task_type not in ["pretrain", "sft", "dpo"]:
+            raise ValueError(f"Invalid task_type '{self.task_type}'. Must be one of: pretrain, sft, dpo")
 
     @classmethod
     def from_yaml(cls, filename: Union[str, Path]) -> "DataConfig":
@@ -180,6 +187,7 @@ class DataConfig(BaseConfig):
             logging.warning("No datasets specified in config")
 
         return DataConfig(
+            task_type=d.get("task_type", "pretrain"),
             datasets=datasets,
             eval_datasets=eval_datasets,
             test_datasets=test_datasets,

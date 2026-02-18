@@ -8,10 +8,78 @@
 #
 # Full license text is available at LICENSE file.
 
+"""Tensor parallel communication utilities with buffer pooling optimization."""
+
 import torch
 import torch.distributed as dist
 
 from ironcore.parallel import parallel_states
+
+
+class BufferPool:
+    """Thread-safe buffer pool for tensor parallel communication.
+
+    Caches tensor buffers by shape, dtype, and device to avoid repeated
+    allocation overhead during all-gather operations.
+
+    Usage:
+        pool = BufferPool()
+        slices = pool.get_buffers(shape, dtype, device, count)
+        # Use slices for all_gather...
+        # No need to return - next call reuses or creates as needed
+    """
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._buffers = {}  # (shape, dtype, device) -> list of tensors
+            cls._instance._max_pool_size = 32  # Max buffers per (shape, dtype, device)
+        return cls._instance
+
+    def get_buffers(
+        self,
+        shape: tuple,
+        dtype: torch.dtype,
+        device: torch.device,
+        count: int,
+    ) -> list[torch.Tensor]:
+        """Get or create buffer tensors for all-gather.
+
+        Args:
+            shape: Shape of each buffer tensor
+            dtype: Data type
+            device: Device to create tensors on
+            count: Number of buffers needed
+
+        Returns:
+            List of buffer tensors
+        """
+        key = (tuple(shape), dtype, device)
+
+        if key not in self._buffers:
+            self._buffers[key] = []
+
+        pool = self._buffers[key]
+
+        # Create new buffers if needed
+        while len(pool) < count:
+            if len(pool) >= self._max_pool_size:
+                # Pool full, create temporary buffer
+                return [torch.empty(shape, dtype=dtype, device=device) for _ in range(count)]
+            pool.append(torch.empty(shape, dtype=dtype, device=device))
+
+        return pool[:count]
+
+    def clear(self):
+        """Clear all cached buffers (call before model changes)."""
+        self._buffers.clear()
+
+
+def get_buffer_pool() -> BufferPool:
+    """Get the global buffer pool instance."""
+    return BufferPool()
 
 
 def _reduce(
@@ -99,11 +167,10 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     if world_size == 1:
         return x
 
-    # gather along last dimension
-    dim_size = list(x.size())
-    dim_size[-1] = x.shape[-1] * world_size
+    # Use buffer pool to avoid repeated allocation
+    pool = get_buffer_pool()
+    slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
-    slices = [torch.empty_like(x, device=x.device) for _ in range(world_size)]
     dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
     # Concatenate slices along the last dimension
@@ -117,19 +184,16 @@ def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> t
     if world_size == 1:
         return x
 
-    # gather along last dimension
-    dim_size = list(x.size())
-    last_dim = x.shape[-1] // num_types
-    dim_size[-1] = last_dim * world_size
+    # Use buffer pool to avoid repeated allocation
+    pool = get_buffer_pool()
 
     # split input tensors along with the last_dim size
+    last_dim = x.shape[-1] // num_types
     weight_splits = torch.split(x, last_dim, dim=-1)
 
     outputs = []
     for weight_split in weight_splits:
-        slices = [
-            torch.empty_like(weight_split, device=weight_split.device) for _ in range(world_size)
-        ]
+        slices = pool.get_buffers(weight_split.shape, weight_split.dtype, weight_split.device, world_size)
         dist.all_gather(
             slices,
             weight_split.contiguous(),
@@ -148,12 +212,10 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
     if world_size == 1:
         return x
 
-    # gather along first dimension
-    dim_size = list(x.size())
-    dim_size[0] *= world_size
+    # Use buffer pool to avoid repeated allocation
+    pool = get_buffer_pool()
+    slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
-    # Gather all slices into the output tensor
-    slices = [torch.empty_like(x) for _ in range(world_size)]
     dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
     # Concatenate slices along the first dimension

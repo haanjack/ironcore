@@ -16,16 +16,14 @@ Reference:
 from __future__ import annotations
 
 import copy
-from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import torch
 from torch import distributed as dist
 
 from ironcore.alignment.loss import dpo_loss
-from ironcore.checkpointing import load_checkpoint, save_checkpoint
 from ironcore.global_vars import log_metric
-from ironcore.utils import clip_grad_norm_tp, is_first_rank
+from ironcore.utils import is_first_rank
 
 from .base_trainer import BaseTrainer
 
@@ -78,13 +76,17 @@ class DPOTrainer(BaseTrainer):
         # Efficiency: concatenate chosen/rejected for fewer forward passes
         self.concat_forward_passes = config.alignment.concat_forward_passes
 
-        # Reference model will be created after checkpoint loading in train()
+        # Performance: compute metrics only every N steps (0 = every step)
+        self.metrics_interval = config.alignment.metrics_interval
+
+        # Reference model will be created after checkpoint loading in _post_checkpoint_load()
         self.reference_model = None
 
         self.logger.info(
             f"DPOTrainer initialized with beta={self.beta}, "
             f"reference_on_cpu={self.reference_model_on_cpu}, "
-            f"concat_passes={self.concat_forward_passes}"
+            f"concat_passes={self.concat_forward_passes}, "
+            f"metrics_interval={self.metrics_interval}"
         )
 
     def _create_reference_model(self) -> torch.nn.Module:
@@ -252,24 +254,15 @@ class DPOTrainer(BaseTrainer):
             reference_concat_logits,
         )
 
-    def train(self) -> None:
-        """Override train() to create reference model after checkpoint loading.
+    def _post_checkpoint_load(self, last_step: int) -> None:
+        """Create reference model after checkpoint loading.
 
         This ensures the reference model is initialized with the SFT checkpoint
         weights rather than random initialization.
+
+        Args:
+            last_step: The step loaded from checkpoint (0 if fresh start)
         """
-        # Synchronize all ranks before checkpoint loading to prevent race conditions
-        if dist.is_initialized():
-            dist.barrier()
-
-        # Load checkpoint (this loads SFT weights into self.model)
-        last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
-        if last_step > -1:
-            self.logger.info(f"Successfully loaded checkpoint: {self.config.trainer.model_path}")
-        else:
-            self.logger.info("Training start from scratch")
-            last_step = 0
-
         # Synchronize after checkpoint loading before reference model creation
         if dist.is_initialized():
             dist.barrier()
@@ -282,66 +275,32 @@ class DPOTrainer(BaseTrainer):
         if dist.is_initialized():
             dist.barrier()
 
-        self.timer.start("total")
-        self.model.train()
+    def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
+        """Forward pass for a single micro-batch in DPO training.
 
-        step = last_step
+        Overrides base class to use DPO-specific forward logic.
 
-        if self.config.utils.profile_torch:
-            self.context["profile"].start()  # pylint: disable=no-member
+        Args:
+            step: Current training step
 
-        self.logger.info(f"Training start from step: {step}")
-        while step < self.config.operation.train_steps:
-            if self.config.utils.profile_nsys and step >= self.config.utils.profile_step_start:
-                torch.cuda.profiler.start()
+        Returns:
+            Tuple of (loss_tensor, metrics_dict)
+        """
+        batch = next(self.data_iterator["train"])
 
-            loss, grad_norm, param_norm = self.train_step(step)
+        # Determine if we should compute metrics this step
+        compute_metrics = (
+            self.metrics_interval == 0 or  # Always compute
+            step % self.metrics_interval == 0  # Compute on interval
+        )
 
-            if self.config.utils.profile_nsys and step >= self.config.utils.profile_step_end:
-                torch.cuda.profiler.stop()
-                break
-            if self.config.utils.profile_torch and step >= self.config.utils.profile_step_end:
-                self.context["profile"].stop()  # pylint: disable=no-member
-                break
-
-            step += 1
-            self.log_training(step, loss, grad_norm, param_norm, self.timer)
-
-            if self.config.utils.profile_torch:
-                self.context["profile"].step()  # pylint: disable=no-member
-
-            if self.control.do_checkpoint(step):
-                save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
-
-                if self.control.do_eval(step):
-                    self.evaluate(step)
-                    self.model.train()
-                if self.control.do_eval_subtask(step):
-                    self.evaluate_subtask(step)
-                    self.model.train()
-
-                if self.control.do_exit(step):
-                    self.logger.info(
-                        f"Training stopped by exit interval: {self.config.operation.exit_interval}"
-                    )
-                    break
-
-        # Final checkpoint if needed
-        if self.control.do_final_checkpoint(step, last_step):
-            save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
-
-        if self.config.trainer.do_test:
-            self.test()
-
-        self.logger.info(f"Total training time: {(self.timer.get('total') / 3600):.2f} hours")
-        self.logger.info("Finishing training")
-        self._finialize_process()
+        return self._dpo_forward_step(batch, compute_metrics=compute_metrics)
 
     def train_step(self, step: int) -> tuple[float, float, float]:
         """DPO training step.
 
-        Processes chosen and rejected pairs, computes DPO loss,
-        and updates policy.
+        Uses the base class gradient accumulation loop with DPO-specific
+        forward pass.
 
         Args:
             step: Current training step
@@ -350,72 +309,41 @@ class DPOTrainer(BaseTrainer):
             Tuple of (average_loss, grad_norm, param_norm)
         """
         self.timer.start(name="iter")
-        total_loss = 0.0
-        total_metrics: dict[str, float] = {}
 
-        for i in range(self.config.trainer.gradient_accumulation_steps):
-            is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
+        # Use base class gradient accumulation (calls _forward_micro_batch)
+        total_loss, total_metrics = self._run_gradient_accumulation(step)
 
-            backward_sync_ctx = (
-                self.model.no_sync
-                if not is_last_accum_step and hasattr(self.model, "no_sync")
-                else nullcontext
-            )
+        # Compute gradient and parameter norms
+        grad_norm, param_norm = self._compute_grad_and_param_norms(step)
 
-            with backward_sync_ctx():
-                with self.context["autocast"]:
-                    batch = next(self.data_iterator["train"])
-                    loss, metrics = self._dpo_forward_step(batch)
-
-                    total_loss += loss.item()
-                    scaled_loss = loss / self.config.trainer.gradient_accumulation_steps
-
-                    for k, v in metrics.items():
-                        total_metrics[k] = total_metrics.get(k, 0.0) + v
-
-                self.scaler.scale(scaled_loss).backward()
-
-        # Gradient clipping and norm computation
-        self.scaler.unscale_(self.optimizer)
-
-        grad_norm = 0.0
-        if self.config.optim.clip_grad > 0.0:
-            grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
-        elif self.control.do_grad_norm(step):
-            grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
-
-        param_norm = 0.0
-        if self.control.do_param_norm(step):
-            for p in self.model.parameters():
-                if p.data is not None:
-                    param_norm += p.data.norm() ** 2
-            param_norm = param_norm**0.5
-
-        # Update model
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad()
-        self.lr_scheduler.step()
+        # Optimizer step
+        self._optimizer_step()
 
         self.timer.stop(name="iter")
 
         # Average metrics over accumulation steps
         num_steps = self.config.trainer.gradient_accumulation_steps
         avg_metrics = {k: v / num_steps for k, v in total_metrics.items()}
+        avg_loss = total_loss / num_steps
+
+        # Check for NaN/Inf loss
+        self._check_loss_for_nan(avg_loss, step)
 
         if is_first_rank() and self.control.do_log(step):
             self._log_dpo_metrics(step, avg_metrics)
 
-        return (total_loss / num_steps, grad_norm, param_norm)
+        return (avg_loss, grad_norm, param_norm)
 
     def _dpo_forward_step(
         self,
         batch: dict[str, torch.Tensor],
+        compute_metrics: bool = True,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         """Forward step for DPO training.
 
         Args:
             batch: Dictionary with 'chosen_*' and 'rejected_*' prefixed tensors
+            compute_metrics: Whether to compute additional metrics
 
         Returns:
             Tuple of (loss, metrics_dict)
@@ -459,6 +387,7 @@ class DPOTrainer(BaseTrainer):
             label_smoothing=self.label_smoothing,
             policy_concat_logits=policy_concat_logits,
             reference_concat_logits=reference_concat_logits,
+            compute_metrics=compute_metrics,
         )
 
         return loss, metrics

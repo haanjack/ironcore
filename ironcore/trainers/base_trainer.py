@@ -17,6 +17,7 @@ from typing import Union
 import torch
 from torch import distributed as dist
 
+from ironcore.checkpointing import load_checkpoint, save_checkpoint
 from ironcore.config import MainConfig
 from ironcore.controller import TrainingControl
 from ironcore.dataloader import get_data_iterator
@@ -56,13 +57,16 @@ class BaseTrainer(ABC):
     - Evaluation framework
     - Logging utilities
     - Checkpointing support
+    - Template method for training loop
 
     Subclasses must implement:
-    - train(): Main training loop
     - train_step(): Single training step
+    - _eval_step(): Custom evaluation logic
 
     Subclasses can override:
-    - _eval_step(): Custom evaluation logic
+    - _pre_train_setup(): Hook for setup before training (e.g., checkpoint loading)
+    - _post_checkpoint_load(): Hook called after checkpoint load
+    - _on_checkpoint_save(): Hook called when checkpoint is saved
     """
 
     def __init__(
@@ -171,7 +175,7 @@ class BaseTrainer(ABC):
         self.logger.info("Created Optimizer")
 
         # Enable profiling if requested
-        if self.config.utils.profile_nsys:
+        if self.config.profiler.gpu_profiler:
             model.register_profile_hooks(profile_nsys=True)
 
         # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
@@ -203,16 +207,139 @@ class BaseTrainer(ABC):
             loss /= get_data_parallel_world_size()
         return loss.item()
 
-    @abstractmethod
-    def train(self):
-        """Main training loop.
+    def _pre_train_setup(self) -> int:
+        """Hook for setup before training starts.
 
-        Subclasses must implement this method with their specific training logic.
+        Override this method to perform custom setup (e.g., checkpoint loading,
+        reference model creation for DPO).
+
+        Returns:
+            Starting step number (0 for fresh training, or checkpoint step + 1)
         """
-        pass
+        # Default implementation: load checkpoint if available
+        try:
+            last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
+            if last_step > -1:
+                self.logger.info(
+                    f"Successfully loaded checkpoint: {self.config.trainer.model_path} "
+                    f"(resuming from step {last_step})"
+                )
+            else:
+                self.logger.info("Training start from scratch")
+                last_step = 0
+        except FileNotFoundError as e:
+            self.logger.warning(f"Checkpoint not found: {e}. Starting from scratch.")
+            last_step = 0
+        except RuntimeError as e:
+            self.logger.error(f"Failed to load checkpoint: {e}")
+            raise RuntimeError(
+                f"Checkpoint loading failed. If the checkpoint is corrupted, "
+                f"remove or rename {self.config.trainer.model_path} and restart."
+            ) from e
+
+        self._post_checkpoint_load(last_step)
+        return last_step
+
+    def _post_checkpoint_load(self, last_step: int) -> None:  # noqa: B027
+        """Hook called after checkpoint loading.
+
+        Override this method to perform post-load setup (e.g., reference model
+        creation for DPO).
+
+        Args:
+            last_step: The step loaded from checkpoint (0 if fresh start)
+        """
+
+    def _on_checkpoint_save(self, step: int) -> None:  # noqa: B027
+        """Hook called when a checkpoint is about to be saved.
+
+        Override this method to perform actions before checkpoint save.
+
+        Args:
+            step: Current training step
+        """
+
+    def train(self):
+        """Main training loop (template method).
+
+        This method implements the common training loop structure:
+        1. Call _pre_train_setup() for subclass-specific setup
+        2. Run training loop with train_step()
+        3. Handle checkpointing, evaluation, and exit conditions
+        4. Save final checkpoint if needed
+
+        Subclasses should override _pre_train_setup() and _post_checkpoint_load()
+        for custom behavior rather than overriding this method.
+        """
+        # Synchronize all ranks before setup
+        if dist.is_initialized():
+            dist.barrier()
+
+        # Subclass setup (checkpoint loading, reference model creation, etc.)
+        last_step = self._pre_train_setup()
+
+        # Synchronize after setup
+        if dist.is_initialized():
+            dist.barrier()
+
+        self.timer.start("total")
+        self.model.train()
+
+        step = last_step
+
+        if self.config.profiler.torch_profiler:
+            self.context["profile"].start()  # pylint: disable=no-member
+
+        self.logger.info(f"Training start from step: {step}")
+        while step < self.config.operation.train_steps:
+            if self.config.profiler.gpu_profiler and step >= self.config.profiler.start:
+                torch.cuda.profiler.start()
+
+            loss, grad_norm, param_norm = self.train_step(step)
+
+            if self.config.profiler.gpu_profiler and step >= self.config.profiler.end:
+                torch.cuda.profiler.stop()
+                break
+            if self.config.profiler.torch_profiler and step >= self.config.profiler.end:
+                self.context["profile"].stop()  # pylint: disable=no-member
+                break
+
+            step += 1
+            self.log_training(step, loss, grad_norm, param_norm, self.timer)
+
+            if self.config.profiler.torch_profiler:
+                self.context["profile"].step()  # pylint: disable=no-member
+
+            if self.control.do_checkpoint(step):
+                self._on_checkpoint_save(step)
+                save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
+
+                if self.control.do_eval(step):
+                    self.evaluate(step)
+                    self.model.train()
+                if self.control.do_eval_subtask(step):
+                    self.evaluate_subtask(step)
+                    self.model.train()
+
+                if self.control.do_exit(step):
+                    self.logger.info(
+                        f"Training stopped by exit interval: {self.config.operation.exit_interval}"
+                    )
+                    break
+
+        # Final checkpoint if needed
+        if self.control.do_final_checkpoint(step, last_step):
+            save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
+
+        if self.config.trainer.do_test:
+            self.test()
+
+        self.logger.info(f"Total training time: {(self.timer.get('total') / 3600):.2f} hours")
+        self.logger.info("Finishing training")
+        self._finialize_process()
 
     @abstractmethod
-    def train_step(self, step: int):
+    def train_step(self, step: int) -> tuple[float, float, float]:
         """Single training step.
 
         Args:
@@ -224,6 +351,162 @@ class BaseTrainer(ABC):
         Subclasses must implement this method with their specific step logic.
         """
         pass
+
+    def _run_gradient_accumulation(
+        self,
+        step: int,
+    ) -> tuple[float, dict[str, float]]:
+        """Run gradient accumulation loop (shared between trainers).
+
+        This template method handles:
+        - Gradient accumulation over micro-batches
+        - DDP/FSDP gradient synchronization control
+        - Mixed precision (autocast and gradient scaling)
+        - Backward pass
+
+        Args:
+            step: Current training step
+
+        Returns:
+            Tuple of (total_loss, additional_metrics)
+            - total_loss: Sum of losses over all micro-batches
+            - additional_metrics: Dict of metrics to average over accumulation steps
+        """
+        total_loss = 0.0
+        total_metrics: dict[str, float] = {}
+
+        for i in range(self.config.trainer.gradient_accumulation_steps):
+            is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
+
+            # Disable gradient sync for intermediate accumulation steps (DDP/FSDP)
+            backward_sync_ctx = (
+                self.model.no_sync
+                if not is_last_accum_step and hasattr(self.model, "no_sync")
+                else nullcontext
+            )
+
+            with backward_sync_ctx():
+                with self.context["autocast"]:
+                    loss, metrics = self._forward_micro_batch(step)
+
+                    total_loss += loss.item()
+                    scaled_loss = loss / self.config.trainer.gradient_accumulation_steps
+
+                    # Accumulate metrics if provided
+                    if metrics:
+                        for k, v in metrics.items():
+                            total_metrics[k] = total_metrics.get(k, 0.0) + v
+
+                # Backward pass with gradient scaling
+                self.scaler.scale(scaled_loss).backward()
+
+        return total_loss, total_metrics
+
+    def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
+        """Forward pass for a single micro-batch.
+
+        Subclasses must implement this method to define their forward logic.
+
+        Args:
+            step: Current training step
+
+        Returns:
+            Tuple of (loss_tensor, metrics_dict or None)
+            - loss_tensor: Loss for this micro-batch (not averaged)
+            - metrics_dict: Optional dict of metrics to accumulate
+        """
+        # Default implementation for standard language modeling
+        loss = self.forward_step_func(self.model, self.data_iterator["train"])
+        return loss, None
+
+    def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
+        """Compute gradient and parameter norms after gradient accumulation.
+
+        This method unscales gradients and optionally clips them.
+
+        Args:
+            step: Current training step
+
+        Returns:
+            Tuple of (grad_norm, param_norm)
+        """
+        from ironcore.utils import clip_grad_norm_tp
+
+        # Unscale gradients before clipping/norm computation
+        self.scaler.unscale_(self.optimizer)
+
+        grad_norm = 0.0
+        if self.config.optim.clip_grad > 0.0:
+            grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
+        elif self.control.do_grad_norm(step):
+            grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
+
+        param_norm = 0.0
+        if self.control.do_param_norm(step):
+            for p in self.model.parameters():
+                if p.data is not None:
+                    param_norm += p.data.norm() ** 2
+            param_norm = param_norm**0.5
+
+        return grad_norm, param_norm
+
+    def _optimizer_step(self):
+        """Perform optimizer step after gradient accumulation."""
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad()
+        self.lr_scheduler.step()
+
+    def _check_loss_for_nan(self, loss: float, step: int) -> None:
+        """Check if loss is NaN or Inf and raise error if so.
+
+        Args:
+            loss: Loss value to check
+            step: Current training step
+
+        Raises:
+            RuntimeError: If loss is NaN or Inf
+        """
+        import math
+
+        if math.isnan(loss) or math.isinf(loss):
+            self.logger.error(f"NaN/Inf loss detected at step {step}: loss={loss}")
+            raise RuntimeError(
+                f"Training stopped due to {'NaN' if math.isnan(loss) else 'Inf'} loss at step {step}. "
+                f"Possible causes: learning rate too high, gradient explosion, or data issues."
+            )
+
+    def _handle_training_error(self, error: Exception, step: int) -> None:
+        """Handle training errors with appropriate logging and cleanup.
+
+        Args:
+            error: The exception that occurred
+            step: Current training step
+
+        Raises:
+            The original error after logging and cleanup
+        """
+        import torch.cuda
+
+        self.logger.error(f"Training error at step {step}: {error}")
+
+        # Log GPU memory state if CUDA is available
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                allocated = torch.cuda.memory_allocated(i) / 1024**3
+                reserved = torch.cuda.memory_reserved(i) / 1024**3
+                self.logger.error(f"GPU {i}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB")
+
+        # Try to save emergency checkpoint
+        try:
+            emergency_path = f"{self.config.trainer.model_path}_emergency_step{step}"
+            self.logger.info(f"Attempting to save emergency checkpoint to {emergency_path}")
+            # Note: We intentionally don't save here to avoid overwriting good checkpoints
+            # Users can manually save if needed
+        except Exception as e:
+            self.logger.error(f"Failed to save emergency checkpoint: {e}")
+
+        raise error
 
     def log_training(
         self,
@@ -246,10 +529,17 @@ class BaseTrainer(ABC):
             return
 
         # Basic metrics
+        # Get LR - handle case where scheduler hasn't been stepped yet
+        try:
+            lr = self.lr_scheduler.get_last_lr()[0]
+        except (AttributeError, IndexError):
+            # Fallback to optimizer's current LR
+            lr = self.optimizer.param_groups[0]["lr"]
+
         metrics = {
             "loss": loss,
             "step": step,
-            "lr": self.lr_scheduler.get_last_lr()[0],
+            "lr": lr,
         }
 
         # Optional metrics

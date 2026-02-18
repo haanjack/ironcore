@@ -190,9 +190,24 @@ def load_checkpoint(
         if hasattr(layer, "column_parallel") or hasattr(layer, "row_parallel")
     }
 
+    # Normalize checkpoint state dict to match model's parameter namespace.
+    # Handles the case where the checkpoint was saved from a DDP-wrapped model
+    # (keys have "module." prefix) but is being loaded into a non-DDP model
+    # (or vice versa).
+    raw_ckpt_state = checkpoint["model_state_dict"]
+    model_param_names = {n for n, _ in model.named_parameters()}
+    ckpt_keys = set(raw_ckpt_state.keys())
+    if not ckpt_keys.issubset(model_param_names | set(model.state_dict())):
+        model_has_module = any(n.startswith("module.") for n in model_param_names)
+        ckpt_has_module = any(k.startswith("module.") for k in ckpt_keys)
+        if ckpt_has_module and not model_has_module:
+            raw_ckpt_state = {k[len("module.") :]: v for k, v in raw_ckpt_state.items()}
+        elif not ckpt_has_module and model_has_module:
+            raw_ckpt_state = {f"module.{k}": v for k, v in raw_ckpt_state.items()}
+
     loaded_checkpoint = {}
     for name, param in model.named_parameters():
-        loaded_param = checkpoint["model_state_dict"][name]
+        loaded_param = raw_ckpt_state[name]
         module_name = ".".join(name.split(".")[:-1])
 
         if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
@@ -225,7 +240,7 @@ def load_checkpoint(
     for name, param in model.state_dict().items():
         if name in dict(model.named_parameters()):
             continue
-        loaded_checkpoint[name] = checkpoint["model_state_dict"][name].reshape_as(param)
+        loaded_checkpoint[name] = raw_ckpt_state[name].reshape_as(param)
 
     model.load_state_dict(loaded_checkpoint)
 

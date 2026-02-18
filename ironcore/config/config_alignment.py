@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union
 
 import yaml
 
@@ -22,10 +23,25 @@ class AlignmentConfig(BaseConfig):
     # Optimization flags
     concat_forward_passes: bool = True
 
+    # Metrics computation interval (0 = compute every step)
+    # Set to higher value (e.g., 10-50) to reduce overhead
+    metrics_interval: int = 0
+
+    def __post_init__(self):
+        """Validate alignment configuration parameters."""
+        if self.dpo_beta <= 0:
+            raise ValueError(f"dpo_beta must be positive, got {self.dpo_beta}")
+        if not (0.0 <= self.dpo_label_smoothing < 1.0):
+            raise ValueError(
+                f"dpo_label_smoothing must be in [0, 1), got {self.dpo_label_smoothing}"
+            )
+        if self.metrics_interval < 0:
+            raise ValueError(f"metrics_interval must be >= 0, got {self.metrics_interval}")
+
     @classmethod
-    def from_yaml(cls, yaml_path: Path) -> "AlignmentConfig":
+    def from_yaml(cls, filename: Union[str, Path]) -> "AlignmentConfig":
         """Load alignment config from YAML file."""
-        with open(yaml_path) as f:
+        with open(filename) as f:
             config_dict = yaml.safe_load(f)
         return cls(**config_dict)
 

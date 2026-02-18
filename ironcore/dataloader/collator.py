@@ -149,6 +149,14 @@ class UniversalCollator:
                 sample_len = len(token_ids)
                 mask_ranges = metadata.get("mask_ranges", [])
 
+                # Truncate if sample exceeds remaining space in this row.
+                # position_ids needs sample_len slots; input_ids/labels need sample_len-1.
+                # So the binding constraint is sample_len <= max_seq_len - current_pos.
+                available = self.max_seq_len - current_pos
+                if sample_len > available:
+                    token_ids = token_ids[:available]
+                    sample_len = available
+
                 # Copy tokens
                 input_ids[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[:-1]
                 labels[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[1:]

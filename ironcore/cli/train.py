@@ -6,6 +6,8 @@ from pathlib import Path
 from ironcore.config import MainConfig
 from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
+from ironcore.config.config_peft import PEFTConfig
+from ironcore.config.config_utils import ProfilerConfig
 from ironcore.trainers import DPOTrainer, LanguageModelTrainer
 from ironcore.training_utils import forward_step, get_loss_func
 
@@ -54,6 +56,8 @@ def run_train(args):
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        peft=PEFTConfig(),
+        profiler=ProfilerConfig(),
         alignment=AlignmentConfig(),
     )
 
@@ -72,8 +76,8 @@ def run_train(args):
 
     _config_validation(config)
 
-    # Select loss function based on task type
-    task_type = getattr(config.data, "task_type", "pretrain")
+    # Select loss function based on task type (now a declared field in DataConfig)
+    task_type = config.data.task_type
     loss_fn = get_loss_func(task_type)
     print(f"Task type: {task_type}, using loss function: {loss_fn.__name__}")
 
@@ -83,7 +87,27 @@ def run_train(args):
         print("Using LanguageModelTrainer for language modeling")
         trainer = LanguageModelTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     elif task_type == "dpo":
+        # Validate alignment config for DPO
+        if config.alignment is None:
+            print("Error: DPO requires 'alignment' configuration section in config file")
+            sys.exit(1)
+
+        # Validate DPO-specific parameters
+        if config.alignment.dpo_beta <= 0:
+            print(f"Error: alignment.dpo_beta must be positive, got {config.alignment.dpo_beta}")
+            sys.exit(1)
+
+        if not (0.0 <= config.alignment.dpo_label_smoothing < 1.0):
+            print(
+                f"Error: alignment.dpo_label_smoothing must be in [0, 1), "
+                f"got {config.alignment.dpo_label_smoothing}"
+            )
+            sys.exit(1)
+
         print("Using DPOTrainer for Direct Preference Optimization")
+        print(f"  - beta: {config.alignment.dpo_beta}")
+        print(f"  - label_smoothing: {config.alignment.dpo_label_smoothing}")
+        print(f"  - reference_on_cpu: {config.alignment.reference_model_on_cpu}")
         trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     else:
         print(f"Error: Unsupported task type: {task_type}")

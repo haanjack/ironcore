@@ -13,9 +13,6 @@ Reference:
 import torch
 import torch.nn.functional as F
 
-from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
-from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
-
 
 def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
     """Compute log_softmax that works correctly with tensor parallelism.
@@ -31,10 +28,23 @@ def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
     Returns:
         Log probabilities [batch, seq_len, full_vocab_size]
     """
-    # If using tensor parallelism, we need to gather logits from all ranks
-    # before computing log_softmax to get correct normalization
-    tp_size = get_tensor_model_parallel_world_size()
+    # Lazy import of parallel_states only (no circular import risk).
+    # Importing tensor_parallel.comm is deferred until needed because it
+    # triggers tensor_parallel/__init__ → layers → embedding → tensor_parallel
+    # (circular). At runtime in distributed training, all modules are already
+    # loaded so the deferred import is safe.
+    from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
+
+    # Fall back to 1 if parallel state not yet initialized (e.g. unit tests).
+    try:
+        tp_size = get_tensor_model_parallel_world_size()
+    except AssertionError:
+        tp_size = 1
+
     if tp_size > 1:
+        # Deferred import: only when TP > 1 to avoid circular import at module load.
+        from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
+
         # NCCL all-gather requires GPU tensors
         if logits.device.type == "cpu":
             raise RuntimeError(
@@ -82,8 +92,7 @@ def _extract_logps_from_log_probs(
     This function handles several edge cases:
 
     1. **-100 labels**: PyTorch uses -100 as the ignore index for loss computation.
-       These positions are replaced with 0 for gathering, then zeroed out in the
-       output to exclude them from the sum.
+       These positions are handled using masked operations without cloning.
 
     2. **Optional masking**: If a mask is provided, only positions where mask=1
        contribute to the final sum. This is useful for response-only computation
@@ -102,24 +111,24 @@ def _extract_logps_from_log_probs(
         Sum of per-token log probabilities for each sequence [batch]
     """
     # Handle -100 labels (PyTorch ignore index)
-    # Replace -100 with 0 temporarily for gathering, then mask them out
-    labels = labels.clone()
+    # Use masked operations instead of clone + index assignment
     ignore_mask = labels == -100
-    labels[ignore_mask] = 0
+
+    # Clamp labels to valid range for gathering (0 is safe since we'll mask it out)
+    safe_labels = torch.where(ignore_mask, torch.zeros_like(labels), labels)
 
     # Select log probabilities for ground truth labels
     # [batch, seq_len]
-    selected_log_probs = torch.gather(log_probs, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+    selected_log_probs = torch.gather(log_probs, dim=-1, index=safe_labels.unsqueeze(-1)).squeeze(-1)
 
-    # Zero out ignored positions
+    # Zero out ignored positions using masked fill
     if ignore_mask.any():
-        selected_log_probs = selected_log_probs * (~ignore_mask).float()
+        selected_log_probs = torch.where(ignore_mask, torch.zeros_like(selected_log_probs), selected_log_probs)
 
     # Apply mask and sum (standard DPO uses sum, not average)
     # This avoids biasing toward shorter sequences
     if mask is not None:
-        mask = mask.float()
-        selected_log_probs = selected_log_probs * mask
+        selected_log_probs = selected_log_probs * mask.float()
 
     sequence_log_probs = selected_log_probs.sum(dim=-1)
 
@@ -140,6 +149,8 @@ def dpo_loss(
     # Optimization: if already concatenated, we can pass them directly to avoid re-concatenating
     policy_concat_logits: torch.Tensor | None = None,
     reference_concat_logits: torch.Tensor | None = None,
+    # Performance: skip metrics computation when not needed
+    compute_metrics: bool = True,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute DPO (Direct Preference Optimization) loss.
 
@@ -164,6 +175,7 @@ def dpo_loss(
         label_smoothing: Label smoothing factor (0.0 = no smoothing)
         policy_concat_logits: Optional concatenated policy logits [2*batch, seq, vocab]
         reference_concat_logits: Optional concatenated reference logits [2*batch, seq, vocab]
+        compute_metrics: Whether to compute additional metrics (default True for compatibility)
 
     Returns:
         Tuple of (loss_tensor, metrics_dict)
@@ -234,28 +246,35 @@ def dpo_loss(
             preference_logits, torch.ones_like(preference_logits), reduction="mean"
         )
 
-    # 5. Compute metrics
-    with torch.no_grad():
-        # Average log probabilities
-        avg_chosen_policy_logps = chosen_policy_logps.mean().item()
-        avg_rejected_policy_logps = rejected_policy_logps.mean().item()
-        avg_chosen_ref_logps = chosen_ref_logps.mean().item()
-        avg_rejected_ref_logps = rejected_ref_logps.mean().item()
+    # 5. Compute metrics (conditionally for performance)
+    if compute_metrics:
+        with torch.no_grad():
+            # Average log probabilities
+            avg_chosen_policy_logps = chosen_policy_logps.mean().item()
+            avg_rejected_policy_logps = rejected_policy_logps.mean().item()
+            avg_chosen_ref_logps = chosen_ref_logps.mean().item()
+            avg_rejected_ref_logps = rejected_ref_logps.mean().item()
 
-        # Preference margin (how much policy prefers chosen over rejected)
-        preference_margin = (chosen_policy_logps - rejected_policy_logps).mean().item()
+            # Preference margin (how much policy prefers chosen over rejected)
+            preference_margin = (chosen_policy_logps - rejected_policy_logps).mean().item()
 
-        # Accuracy: what percentage of pairs have correct preference?
-        accuracy = (preference_logits > 0).float().mean().item()
+            # Accuracy: what percentage of pairs have correct preference?
+            accuracy = (preference_logits > 0).float().mean().item()
 
+            metrics = {
+                "dpo_loss": dpo_loss_val.item(),
+                "chosen_policy_logps": avg_chosen_policy_logps,
+                "rejected_policy_logps": avg_rejected_policy_logps,
+                "chosen_ref_logps": avg_chosen_ref_logps,
+                "rejected_ref_logps": avg_rejected_ref_logps,
+                "preference_margin": preference_margin,
+                "dpo_accuracy": accuracy,
+            }
+    else:
+        # Return minimal metrics when not computing
         metrics = {
             "dpo_loss": dpo_loss_val.item(),
-            "chosen_policy_logps": avg_chosen_policy_logps,
-            "rejected_policy_logps": avg_rejected_policy_logps,
-            "chosen_ref_logps": avg_chosen_ref_logps,
-            "rejected_ref_logps": avg_rejected_ref_logps,
-            "preference_margin": preference_margin,
-            "dpo_accuracy": accuracy,
+            "dpo_accuracy": 0.0,  # Placeholder
         }
 
     return dpo_loss_val, metrics
