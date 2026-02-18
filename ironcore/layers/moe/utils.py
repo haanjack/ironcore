@@ -10,7 +10,6 @@
 
 """Utility functions for MoE layers."""
 
-
 import torch
 
 
@@ -78,7 +77,21 @@ def validate_moe_input(
         )
 
     if torch.isnan(x).any():
-        raise ValueError(f"{name} input contains NaN values")
+        nan_count = torch.isnan(x).sum().item()
+        total_count = x.numel()
+        raise ValueError(
+            f"{name} input contains NaN values: {nan_count}/{total_count} elements are NaN "
+            f"(shape={x.shape}, dtype={x.dtype}). "
+            f"This typically indicates numerical instability in attention layer. "
+            f"Try: 1) reducing learning rate, 2) using smaller weight init, "
+            f"3) gradient clipping."
+        )
 
     if torch.isinf(x).any():
-        raise ValueError(f"{name} input contains Inf values")
+        inf_count = torch.isinf(x).sum().item()
+        total_count = x.numel()
+        raise ValueError(
+            f"{name} input contains Inf values: {inf_count}/{total_count} elements are Inf "
+            f"(shape={x.shape}, dtype={x.dtype}). "
+            f"This indicates gradient explosion. Try gradient clipping or lower learning rate."
+        )

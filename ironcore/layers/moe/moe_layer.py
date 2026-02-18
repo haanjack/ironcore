@@ -179,6 +179,14 @@ class MoEMLP(BaseModule):
         # Store auxiliary loss for accumulation
         self._aux_loss = None
 
+        # Track expert selection counts for analysis
+        self._expert_selection_counts = torch.zeros(self.num_routed_experts, dtype=torch.long)
+        self._total_selections = 0
+
+        # Store router info for logging (detached, on CPU)
+        self._router_probs = None  # [batch*seq, num_experts] average probs per token
+        self._selected_indices = None  # [batch*seq*top_k] flattened selected indices
+
         # Reusable CUDA stream for shared expert overlap (lazy init)
         self._shared_stream = None
 
@@ -227,6 +235,35 @@ class MoEMLP(BaseModule):
 
         # 2. Routed experts - top-k routing
         router_output: RouterOutput = self.router(x, self.training)
+
+        # Track expert selections for analysis (vectorized)
+        if self.training:
+            with torch.no_grad():
+                flat_indices = router_output.topk_indices.flatten()
+                valid_mask = (flat_indices >= 0) & (flat_indices < self.num_routed_experts)
+                valid_indices = flat_indices[valid_mask]
+                if valid_indices.numel() > 0:
+                    # Use bincount for fast histogram
+                    counts = torch.bincount(valid_indices.long(), minlength=self.num_routed_experts)
+                    # Move tracking tensor to same device as counts if needed
+                    if self._expert_selection_counts.device != counts.device:
+                        self._expert_selection_counts = self._expert_selection_counts.to(
+                            counts.device
+                        )
+                    self._expert_selection_counts += counts.long()
+                self._total_selections += flat_indices.numel()
+
+                # Store router info for TensorBoard logging (detach and move to CPU)
+                # Router probs: softmax over all experts
+                router_probs = torch.softmax(
+                    router_output.router_logits, dim=-1
+                )  # [batch, seq, num_experts]
+                self._router_probs = router_probs.detach().cpu()  # Store for logging
+
+                # Selected indices: flatten the top-k indices
+                self._selected_indices = (
+                    router_output.topk_indices.flatten().detach().cpu()
+                )  # [batch*seq*top_k]
 
         # Compute and store auxiliary loss for training
         if self.training:
@@ -411,7 +448,8 @@ class MoEMLP(BaseModule):
             warnings.warn(
                 "No tokens were dispatched to any local expert. "
                 "This may indicate a routing issue or extreme load imbalance.",
-                UserWarning, stacklevel=2,
+                UserWarning,
+                stacklevel=2,
             )
             return outputs
 
@@ -463,6 +501,42 @@ class MoEMLP(BaseModule):
             [num_experts] utilization fractions
         """
         return get_expert_utilization(topk_indices, self.num_routed_experts)
+
+    def get_expert_stats(self) -> dict:
+        """Get expert selection statistics for analysis.
+
+        Returns:
+            Dict with:
+                - expert_counts: List of selection counts per expert
+                - total_selections: Total number of selections
+        """
+        return {
+            "expert_counts": self._expert_selection_counts.tolist(),
+            "total_selections": self._total_selections,
+        }
+
+    def get_router_probs(self) -> torch.Tensor | None:
+        """Get router probabilities for all experts.
+
+        Returns:
+            [batch*seq, num_experts] tensor of average probabilities per token, or None
+        """
+        return self._router_probs
+
+    def get_selected_indices(self) -> torch.Tensor | None:
+        """Get flattened selected expert indices.
+
+        Returns:
+            [batch*seq*top_k] tensor of selected expert indices, or None
+        """
+        return self._selected_indices
+
+    def reset_expert_stats(self):
+        """Reset expert selection statistics."""
+        self._expert_selection_counts.zero_()
+        self._total_selections = 0
+        self._router_probs = None
+        self._selected_indices = None
 
     def finalize(
         self,

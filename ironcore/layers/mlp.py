@@ -64,7 +64,7 @@ class MLP(ParallelMLP):
         )
 
         # Store additional references for LoRA
-        self.config = model_config
+        self.config = config
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
 
         # Re-get activation to determine if GLU (for LoRA wrapping)
@@ -92,6 +92,7 @@ class MLP(ParallelMLP):
             bias=not model_config.no_bias,
             input_is_parallel=True,
         )
+        self.dropout_mlp = model_config.dropout_mlp
 
         # Wrap with LoRA if PEFT is enabled
         if config.peft.method == "lora":
@@ -128,7 +129,7 @@ class MLP(ParallelMLP):
             return self.down_proj(x, async_communication=True)
 
         x = self.down_proj(x)
-        if self.config.dropout_mlp > 0.0:
+        if self.dropout_mlp > 0.0:
             x = self.dropout(x)
         return x
 
@@ -161,6 +162,6 @@ class MLP(ParallelMLP):
             if self.down_proj.bias is not None:
                 x = x + self.down_proj.bias
 
-        if self.config.dropout_mlp > 0.0:
+        if self.dropout_mlp > 0.0:
             x = self.dropout(x)
         return x

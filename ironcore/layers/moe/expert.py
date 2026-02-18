@@ -18,8 +18,6 @@ Each expert is a feed-forward network with:
 This inherits from ParallelMLP and adds expert-specific functionality.
 """
 
-
-
 from ironcore.config import MainConfig
 from ironcore.layers.parallel_mlp import ParallelMLP
 
