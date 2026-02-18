@@ -25,12 +25,14 @@ from ironcore.eval import get_evaluators
 from ironcore.global_vars import (
     get_logger,
     get_timer,
+    get_tokenizer,
     global_states_cleanup,
     log_metric,
     log_metrics,
     set_global_states,
 )
 from ironcore.language_model import LanguageModel
+from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
@@ -112,6 +114,9 @@ class Trainer:
 
         self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(config) == torch.float16))
 
+        # Initialize MFU calculator
+        self._init_mfu_calculator()
+
     def __enter__(self):
         return self
 
@@ -125,6 +130,17 @@ class Trainer:
         if dist.is_initialized():
             dist.barrier()
             dist.destroy_process_group()
+
+    def _init_mfu_calculator(self):
+        """Initialize MFU calculator for TFLOPS/s/GPU reporting."""
+        try:
+            tokenizer = get_tokenizer()
+            self.mfu_calculator = MFUCalculator.from_config(
+                self.config.model,
+                vocab_size=tokenizer.padded_vocab_size,
+            )
+        except Exception:
+            self.mfu_calculator = None
 
     def _build_model_and_optimizer(self):
         """Build model and optimizer."""
@@ -330,18 +346,43 @@ class Trainer:
             log_metrics(mem_report, step)
             self.config.utils.report_memory_usage = False
 
-        # log training progress
-        self.logger.info(
-            f"step: {step:6d}/{self.config.operation.train_steps}, train loss: {loss:.4f}, "
-            f"grad norm: {grad_norm:.4f}, param norm: {param_norm:.4f}, "
-            f"iteration time: {iteration_time:.3f}s, lr: {self.optimizer.param_groups[0]['lr']:.6f}"
-        )
         log_metric("lm_loss", loss, step)
         if self.control.do_grad_norm(step):
             log_metric("grad_norm", grad_norm, step)
         if self.control.do_param_norm(step):
             log_metric("param_norm", param_norm, step)
         log_metric("lr", self.optimizer.param_groups[0]["lr"], step)
+
+        log_message = f"step: {step:6d}/{self.config.operation.train_steps}, train loss: {loss:.4f}, "
+        log_message += f"grad norm: {grad_norm:.4f}, param norm: {param_norm:.4f}, iteration time: {iteration_time:.3f}s, "
+        log_message += f"lr: {self.optimizer.param_groups[0]['lr']:.6f}"
+
+        # compute TFLOPS/s/GPU
+        tflops_str = ""
+        if self.mfu_calculator is not None and iteration_time > 0:
+            # Calculate global batch size
+            micro_batch_size = self.config.trainer.micro_batch_size or 1
+            seq_len = self.config.model.max_seq_len
+            dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
+            gradient_accumulation_steps = self.config.trainer.gradient_accumulation_steps or 1
+
+            # Global batch = micro_batch * grad_accum * dp_world_size
+            global_batch_size = (
+                micro_batch_size
+                * gradient_accumulation_steps
+                * dp_world_size
+            ) # pylint: ignore=invalid-name
+
+            tflops = self.mfu_calculator.compute_tflops(
+                batch_size=global_batch_size,
+                seq_len=seq_len,
+                step_time_seconds=iteration_time,
+                num_gpus=dp_world_size,
+            )
+            log_metric("tflops_per_gpu", tflops, step)
+            log_message += f", TFLOPS/s/GPU: {tflops:.2f}"
+
+        self.logger.info(log_message)
 
     @torch.no_grad()
     def evaluate(self, global_step: int):
