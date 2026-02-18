@@ -33,7 +33,7 @@ from ironcore.config.config_moe import MoEConfig
 from ironcore.config.config_optim import OptimConfig
 from ironcore.config.config_parallel import ParallelConfig
 from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
-from ironcore.config.config_utils import UtilsConfig
+from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
 from ironcore.layers.mlp import MLP
 from ironcore.layers.moe import MoEMLP
 from ironcore.parallel.parallel_states import initialize_model_parallel
@@ -83,6 +83,7 @@ def create_test_config(
         trainer=TrainerConfig(),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=PEFTConfig(),
     )
 

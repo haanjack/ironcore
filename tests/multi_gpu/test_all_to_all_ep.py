@@ -29,7 +29,7 @@ from ironcore.config.config_moe import MoEConfig
 from ironcore.config.config_optim import OptimConfig
 from ironcore.config.config_parallel import ParallelConfig
 from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
-from ironcore.config.config_utils import UtilsConfig
+from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
 from ironcore.layers.moe import CommunicationMode, MoEMLP
 from ironcore.parallel.expert_parallel import (
     destroy_expert_parallel,
@@ -97,6 +97,7 @@ def test_all_to_all_mode():
         trainer=TrainerConfig(tensor_model_parallel_size=1),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=PEFTConfig(),
     )
 
@@ -184,6 +185,7 @@ def test_compare_modes():
         trainer=TrainerConfig(tensor_model_parallel_size=1),
         operation=OperationConfig(),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=PEFTConfig(),
     )
 
