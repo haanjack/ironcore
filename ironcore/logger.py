@@ -190,3 +190,45 @@ class MLFlowLogger:
     def close(self):
         if self.mlflow:
             self.mlflow.end_run()
+
+
+class WandbLogger:
+    """Weights & Biases logger."""
+
+    def __init__(self, config):
+        if config.parallel.rank > 0:
+            return
+
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError("WandbLogger requires wandb package")
+
+        self.wandb = wandb
+
+        run_name = config.utils.wandb_name or config.trainer.model_name
+        wandb.init(
+            project=config.utils.wandb_project,
+            name=run_name,
+            entity=config.utils.wandb_entity,
+            config=config.__dict__,
+        )
+
+    def log(self, metrics: dict, step: int):
+        """Log metrics to wandb."""
+        if self.wandb:
+            self.wandb.log(metrics, step=step)
+
+    def log_metric(self, key: str, value: float, step: int):
+        """Log a single metric."""
+        if self.wandb:
+            self.wandb.log({key: value}, step=step)
+
+    def log_artifact(self, path: str):
+        """Log an artifact."""
+        if self.wandb:
+            self.wandb.save(path)
+
+    def close(self):
+        if self.wandb:
+            self.wandb.finish()

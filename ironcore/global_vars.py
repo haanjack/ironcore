@@ -9,7 +9,7 @@
 # Full license text is available at LICENSE file.
 
 
-from ironcore.logger import IronCoreLogger, MLFlowLogger, TensorboardLogger
+from ironcore.logger import IronCoreLogger, MLFlowLogger, TensorboardLogger, WandbLogger
 from ironcore.tokenizer import Tokenizer, build_tokenizer
 from ironcore.utils import Timer
 
@@ -26,6 +26,8 @@ class GlobalStates:
             self.tensorboard_logger = TensorboardLogger(config)
         if config.utils.mlflow_experiment_name:
             self.mlflow_logger = MLFlowLogger(config)
+        if config.utils.wandb_project:
+            self.wandb_logger = WandbLogger(config)
 
         self.timer = Timer()
 
@@ -50,6 +52,8 @@ class GlobalStates:
             self.tensorboard_logger.close()
         if hasattr(self, "mlflow_logger"):
             self.mlflow_logger.close()
+        if hasattr(self, "wandb_logger"):
+            self.wandb_logger.close()
 
 
 def set_global_states(config):
@@ -92,23 +96,29 @@ def log_metric(name: str, value: float, step: int):
     assert GLOBAL_STATES is not None, "global states should not be None"
     tensorboard_logger = getattr(GLOBAL_STATES, "tensorboard_logger", None)
     mlflow_logger = getattr(GLOBAL_STATES, "mlflow_logger", None)
+    wandb_logger = getattr(GLOBAL_STATES, "wandb_logger", None)
 
     if tensorboard_logger:
         tensorboard_logger.add_scalar(name, value, step)
     if mlflow_logger:
         mlflow_logger.log_metric(name, value, step)
+    if wandb_logger:
+        wandb_logger.log_metric(name, value, step)
 
 
 def log_metrics(metrics: dict[str, float], step: int):
     assert GLOBAL_STATES is not None, "global states should not be None"
     tensorboard_logger = getattr(GLOBAL_STATES, "tensorboard_logger", None)
     mlflow_logger = getattr(GLOBAL_STATES, "mlflow_logger", None)
+    wandb_logger = getattr(GLOBAL_STATES, "wandb_logger", None)
 
     for k, v in metrics.items():
         if tensorboard_logger:
             tensorboard_logger.add_scalar(k, v, step)
         if mlflow_logger:
             mlflow_logger.log_metric(k, v, step)
+    if wandb_logger:
+        wandb_logger.log(metrics, step)
 
 
 def log_histogram(name: str, values, step: int):

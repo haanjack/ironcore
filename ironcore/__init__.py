@@ -9,7 +9,7 @@
 # Full license text is available at LICENSE file.
 
 from .global_vars import get_config, get_logger, get_timer, get_tokenizer, set_global_states
- from .mfu import MFUCalculator, MFUResult, compute_tflops
+from .mfu import MFUCalculator, MFUResult, compute_tflops
 
 __all__ = [
     "get_config",
