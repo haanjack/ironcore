@@ -36,6 +36,7 @@ from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
+from ironcore.parallel.expert_parallel import initialize_expert_parallel
 from ironcore.parallel.parallel_states import (
     get_data_parallel_group,
     get_data_parallel_world_size,
@@ -83,6 +84,13 @@ class Trainer:
             if config.parallel.timeout_minute is not None
             else 10.0,
         )
+
+        # Initialize expert parallelism if MoE is enabled with EP > 1
+        if config.model.moe.use_moe and config.model.moe.expert_model_parallel_size > 1:
+            initialize_expert_parallel(
+                expert_model_parallel_size=config.model.moe.expert_model_parallel_size,
+                tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
+            )
 
         # initialize data loader
         self.data_iterator = get_data_iterator(config)

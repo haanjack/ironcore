@@ -81,7 +81,14 @@ class TransformerLayer(BaseModule):
         self.input_layernorm = get_norm(config)
         self.self_attention = Attention(config)
         self.post_attn_layernorm = get_norm(config)
-        self.mlp = MLP(config)
+
+        # Conditional MoE/MLP selection
+        if config.model.moe.use_moe:
+            from ironcore.layers.moe import MoEMLP
+
+            self.mlp = MoEMLP(config)
+        else:
+            self.mlp = MLP(config)
 
         self.residual_dropout = nn.Dropout(config.model.dropout_attn)
 

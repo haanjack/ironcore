@@ -11,6 +11,7 @@
 from dataclasses import dataclass, field
 
 from .config import BaseConfig
+from .config_moe import MoEConfig
 
 
 @dataclass
@@ -107,9 +108,29 @@ class ModelConfig(BaseConfig):
     vocab_name_or_path: str = field(default="gpt2", metadata={"help": "vocab name or path"})
     merge_file_path: str | None = field(default=None, metadata={"help": "merge file path"})
 
+    # Mixture of Experts
+    moe: MoEConfig = field(default_factory=MoEConfig)
+
     def __post_init__(self):
         if self.ln_type not in ["layernorm", "rmsnorm"]:
             raise ValueError(f"Invalid layer norm type: {self.ln_type}")
         # Default max_position_embeddings to max_seq_len if not set
         if self.max_position_embeddings is None:
             self.max_position_embeddings = self.max_seq_len
+
+        assert all(
+            getattr(self, k) > 0
+            for k in [
+                "d_model",
+                "d_ffn",
+                "num_layers",
+                "max_seq_len",
+                "attention_head_size",
+                "num_attention_heads",
+                "head_dim",
+            ]
+        ), "Configs must be positive"
+        assert all(
+            0 <= getattr(self, k) <= 1
+            for k in ["dropout_embd", "dropout_attn", "dropout_mlp", "attention_dropout"]
+        ), "Dropouts must be [0, 1]"

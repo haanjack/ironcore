@@ -290,36 +290,56 @@ def _load_config_from_yaml(config: dataclass, args):
 
 
 def _update_config_from_args(config: dataclass, args):
-    """update config from command line."""
-    for group_field in fields(config):
-        group_name = group_field.name
-        for field_ in fields(group_field.type):
-            # Use prefixed argument name (e.g., model.name, trainer.batch_size)
-            arg_name = f"{group_name}.{field_.name}"
+    """update config from command line using recursive dot-notation."""
 
-            # get argument and update config if it is defined argument
-            if not hasattr(args, arg_name) or getattr(args, arg_name) is None:
-                continue
+    arg_dict = vars(args)
 
-            if field_.name == "config_path":
-                # skip config path argument
-                continue
+    def set_recursive_attr(obj, attr_path, value):
+        parts = attr_path.split(".")
+        for part in parts[:-1]:
+            obj = getattr(obj, part)
 
-            config_group = getattr(config, group_name)
+        target_attr = parts[-1]
 
-            # load optional type as config defined type_
-            if get_origin(field_.type) is Optional:
-                type_ = get_args(field_.type)[0]
-            elif get_origin(field_.type) is Union:
-                for type_cls in [int, float, str, list]:
-                    if isinstance(getattr(args, arg_name), type_cls):
-                        type_ = type_cls
-                        break
-            else:
-                type_ = field_.type
+        # Find the field type for casting
+        field_info = [f for f in fields(obj) if f.name == target_attr]
+        if not field_info:
+            raise AttributeError(f"Attribute {target_attr} not found")
 
-            value = type_(getattr(args, arg_name))
-            setattr(config_group, field_.name, value)
+        field_type = field_info[0].type
+
+        # Handle Optional/Union types
+        if get_origin(field_type) is Optional:
+            type_ = get_args(field_type)[0]
+        elif get_origin(field_type) is Union:
+            # Simple heuristic for common types
+            for type_cls in [int, float, str, list, bool]:
+                if isinstance(value, type_cls):
+                    type_ = type_cls
+                    break
+        else:
+            type_ = field_type
+
+        # Handle Boolean strings from argparse
+        if type_ is bool and isinstance(value, str):
+            value = value.lower() in ("true", "1", "yes")
+
+        setattr(obj, target_attr, type_(value))
+
+    for arg_name, arg_value in arg_dict.items():
+        if arg_value is None or arg_name in ["config_path", "local_rank"]:
+            continue
+        try:
+            # The attribute path from argparse already contains the group,
+            # so we should start from the top-level `config` object.
+            set_recursive_attr(config, arg_name, arg_value)
+        except (AttributeError, IndexError):
+            # This can happen if an argument from argparse doesn't map to a config path.
+            # We can either warn or ignore. For now, we'll ignore to match the
+            # previous behavior of trying the next group.
+            continue
+        except Exception as e:
+            raise ValueError(f"Error processing argument '{arg_name}': {e}")
 
 
 def _update_config_from_yaml(config: dataclass, config_group_key: str, config_group: dict):
