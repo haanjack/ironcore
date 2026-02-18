@@ -63,3 +63,6 @@ class UtilsConfig(BaseConfig):
     mlflow_experiment_name: str | None = field(
         default=None, metadata={"help": "mlflow experiment name"}
     )
+    wandb_project: str | None = field(default=None, metadata={"help": "wandb project name"})
+    wandb_name: str | None = field(default=None, metadata={"help": "wandb run name"})
+    wandb_entity: str | None = field(default=None, metadata={"help": "wandb entity/username"})
