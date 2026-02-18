@@ -471,7 +471,6 @@ def load_trainer_config() -> MainConfig:
         utils=UtilsConfig(),
         profiler=ProfilerConfig(),
         peft=PEFTConfig(),
-        profiler=ProfilerConfig(),
         alignment=AlignmentConfig(),
     )
 
