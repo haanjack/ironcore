@@ -56,7 +56,7 @@ class MFUCalculator:
         self._result: MFUResult | None = None
 
     @classmethod
-    def from_config(cls, config: ModelConfig, vocab_size: int) -> "MFUCalculator":
+    def from_config(cls, config: ModelConfig, vocab_size: int) -> MFUCalculator:
         """Create MFU calculator from ModelConfig."""
         return cls(
             num_layers=config.num_layers,

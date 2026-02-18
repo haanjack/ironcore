@@ -353,12 +353,13 @@ class Trainer:
             log_metric("param_norm", param_norm, step)
         log_metric("lr", self.optimizer.param_groups[0]["lr"], step)
 
-        log_message = f"step: {step:6d}/{self.config.operation.train_steps}, train loss: {loss:.4f}, "
+        log_message = (
+            f"step: {step:6d}/{self.config.operation.train_steps}, train loss: {loss:.4f}, "
+        )
         log_message += f"grad norm: {grad_norm:.4f}, param norm: {param_norm:.4f}, iteration time: {iteration_time:.3f}s, "
         log_message += f"lr: {self.optimizer.param_groups[0]['lr']:.6f}"
 
         # compute TFLOPS/s/GPU
-        tflops_str = ""
         if self.mfu_calculator is not None and iteration_time > 0:
             # Calculate global batch size
             micro_batch_size = self.config.trainer.micro_batch_size or 1
@@ -367,11 +368,7 @@ class Trainer:
             gradient_accumulation_steps = self.config.trainer.gradient_accumulation_steps or 1
 
             # Global batch = micro_batch * grad_accum * dp_world_size
-            global_batch_size = (
-                micro_batch_size
-                * gradient_accumulation_steps
-                * dp_world_size
-            ) # pylint: ignore=invalid-name
+            global_batch_size = micro_batch_size * gradient_accumulation_steps * dp_world_size  # pylint: ignore=invalid-name
 
             tflops = self.mfu_calculator.compute_tflops(
                 batch_size=global_batch_size,
