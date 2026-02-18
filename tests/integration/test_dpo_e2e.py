@@ -36,7 +36,7 @@ from pathlib import Path
 
 import pytest
 import torch
-import torch.nn as nn
+from torch import nn
 
 # =============================================================================
 # Test Fixtures
@@ -233,7 +233,7 @@ class TestReferenceModel:
 
         # Check parameters are equal initially
         for (name1, p1), (name2, p2) in zip(
-            tiny_transformer.named_parameters(), ref_model.named_parameters()
+            tiny_transformer.named_parameters(), ref_model.named_parameters(), strict=False
         ):
             assert name1 == name2
             assert torch.allclose(p1, p2), f"Parameters {name1} differ"
@@ -320,11 +320,20 @@ class TestGradientAccumulation:
             ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
 
         loss1, _ = dpo_loss(
-            chosen_logits, rejected_logits, ref_chosen, ref_rejected,
-            batch["chosen_labels"], batch["rejected_labels"], beta=0.1
+            chosen_logits,
+            rejected_logits,
+            ref_chosen,
+            ref_rejected,
+            batch["chosen_labels"],
+            batch["rejected_labels"],
+            beta=0.1,
         )
         loss1.backward()
-        grads1 = {name: p.grad.clone() for name, p in tiny_transformer.named_parameters() if p.grad is not None}
+        grads1 = {
+            name: p.grad.clone()
+            for name, p in tiny_transformer.named_parameters()
+            if p.grad is not None
+        }
 
         # Method 2: Two accumulation steps (simulated with same batch)
         optimizer.zero_grad()
@@ -336,19 +345,29 @@ class TestGradientAccumulation:
                 ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
 
             loss2, _ = dpo_loss(
-                chosen_logits, rejected_logits, ref_chosen, ref_rejected,
-                batch["chosen_labels"], batch["rejected_labels"], beta=0.1
+                chosen_logits,
+                rejected_logits,
+                ref_chosen,
+                ref_rejected,
+                batch["chosen_labels"],
+                batch["rejected_labels"],
+                beta=0.1,
             )
             (loss2 / 2).backward()  # Scale by accumulation steps
 
-        grads2 = {name: p.grad.clone() for name, p in tiny_transformer.named_parameters() if p.grad is not None}
+        grads2 = {
+            name: p.grad.clone()
+            for name, p in tiny_transformer.named_parameters()
+            if p.grad is not None
+        }
 
         # Gradients should be similar (same data, just accumulated differently)
-        for name in grads1:
+        for name, grad1 in grads1.items():
             if name in grads2:
                 # Allow some numerical tolerance
-                assert torch.allclose(grads1[name], grads2[name], atol=1e-5, rtol=1e-3), \
+                assert torch.allclose(grad1, grads2[name], atol=1e-5, rtol=1e-3), (
                     f"Gradient mismatch for {name}"
+                )
 
 
 # =============================================================================
@@ -393,10 +412,9 @@ class TestDPOCheckpoint:
 
             # Verify weights are restored
             for name, p in tiny_transformer.named_parameters():
-                original = modified_weights[name]
                 # Weights should be different from modified (restored from checkpoint)
-                # Actually, we want to verify they're NOT equal to modified
-                pass  # Just check no crash for now
+                # Just check no crash for now; modified_weights[name] holds the pre-restore value
+                _ = modified_weights[name]  # referenced to confirm key exists
 
     @pytest.mark.integration
     def test_reference_model_recreation_after_load(self, tiny_model_config):
@@ -423,7 +441,7 @@ class TestDPOCheckpoint:
         ref_model.eval()
 
         # Verify reference has same weights as policy
-        for (n1, p1), (n2, p2) in zip(model.named_parameters(), ref_model.named_parameters()):
+        for (n1, p1), (n2, p2) in zip(model.named_parameters(), ref_model.named_parameters(), strict=False):
             assert torch.allclose(p1, p2), f"Weight mismatch: {n1} vs {n2}"
 
 
@@ -467,8 +485,12 @@ class TestDPOTrainingLoop:
                 ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
 
             loss, metrics = dpo_loss(
-                chosen_logits, rejected_logits, ref_chosen, ref_rejected,
-                batch["chosen_labels"], batch["rejected_labels"],
+                chosen_logits,
+                rejected_logits,
+                ref_chosen,
+                ref_rejected,
+                batch["chosen_labels"],
+                batch["rejected_labels"],
                 beta=0.1,
             )
 
@@ -478,16 +500,15 @@ class TestDPOTrainingLoop:
             losses.append(loss.item())
 
         # All losses should be finite
-        assert all(l == l for l in losses), "Loss should not be NaN"  # NaN check
-        assert all(abs(l) < 100 for l in losses), "Loss should be reasonable"
+        import math
+        assert all(math.isfinite(loss) for loss in losses), "Loss should not be NaN"
+        assert all(abs(loss) < 100 for loss in losses), "Loss should be reasonable"
 
     @pytest.mark.integration
     def test_training_with_different_betas(self, tiny_model_config, mock_dpo_batch):
         """Test training with different beta values."""
         from ironcore.alignment.loss import dpo_loss
         from ironcore.language_model import LanguageModel
-
-        batch_size = mock_dpo_batch["chosen_input_ids"].shape[0]
 
         for beta in [0.05, 0.1, 0.5, 1.0]:
             model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
@@ -509,8 +530,12 @@ class TestDPOTrainingLoop:
                 ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
 
             loss, metrics = dpo_loss(
-                chosen_logits, rejected_logits, ref_chosen, ref_rejected,
-                batch["chosen_labels"], batch["rejected_labels"],
+                chosen_logits,
+                rejected_logits,
+                ref_chosen,
+                ref_rejected,
+                batch["chosen_labels"],
+                batch["rejected_labels"],
                 beta=beta,
             )
 
@@ -544,13 +569,17 @@ class TestConcatForwardPassOptimization:
             ref_rejected = tiny_transformer(batch["rejected_input_ids"], labels=None)
 
         loss1, metrics1 = dpo_loss(
-            chosen_logits, rejected_logits, ref_chosen, ref_rejected,
-            batch["chosen_labels"], batch["rejected_labels"],
-            beta=0.1, compute_metrics=True,
+            chosen_logits,
+            rejected_logits,
+            ref_chosen,
+            ref_rejected,
+            batch["chosen_labels"],
+            batch["rejected_labels"],
+            beta=0.1,
+            compute_metrics=True,
         )
 
         # Method 2: Concatenated forward passes
-        batch_size = batch["chosen_input_ids"].shape[0]
         concat_input = torch.cat([batch["chosen_input_ids"], batch["rejected_input_ids"]], dim=0)
 
         with torch.no_grad():
@@ -560,8 +589,12 @@ class TestConcatForwardPassOptimization:
         ref_concat = concat_logits.clone()
 
         loss2, metrics2 = dpo_loss(
-            chosen_logits, rejected_logits, ref_chosen, ref_rejected,
-            batch["chosen_labels"], batch["rejected_labels"],
+            chosen_logits,
+            rejected_logits,
+            ref_chosen,
+            ref_rejected,
+            batch["chosen_labels"],
+            batch["rejected_labels"],
             beta=0.1,
             policy_concat_logits=policy_concat,
             reference_concat_logits=ref_concat,
@@ -569,8 +602,9 @@ class TestConcatForwardPassOptimization:
         )
 
         # Results should be identical
-        assert torch.allclose(loss1, loss2, atol=1e-5), \
+        assert torch.allclose(loss1, loss2, atol=1e-5), (
             f"Loss mismatch: {loss1.item()} vs {loss2.item()}"
+        )
 
 
 # =============================================================================
@@ -627,16 +661,26 @@ class TestDPOMetrics:
 
         # With compute_metrics=True
         _, metrics_full = dpo_loss(
-            chosen_logits, rejected_logits, chosen_logits.clone(), rejected_logits.clone(),
-            batch["chosen_labels"], batch["rejected_labels"],
-            beta=0.1, compute_metrics=True,
+            chosen_logits,
+            rejected_logits,
+            chosen_logits.clone(),
+            rejected_logits.clone(),
+            batch["chosen_labels"],
+            batch["rejected_labels"],
+            beta=0.1,
+            compute_metrics=True,
         )
 
         # With compute_metrics=False
         _, metrics_minimal = dpo_loss(
-            chosen_logits, rejected_logits, chosen_logits.clone(), rejected_logits.clone(),
-            batch["chosen_labels"], batch["rejected_labels"],
-            beta=0.1, compute_metrics=False,
+            chosen_logits,
+            rejected_logits,
+            chosen_logits.clone(),
+            rejected_logits.clone(),
+            batch["chosen_labels"],
+            batch["rejected_labels"],
+            beta=0.1,
+            compute_metrics=False,
         )
 
         # Full metrics should have more keys

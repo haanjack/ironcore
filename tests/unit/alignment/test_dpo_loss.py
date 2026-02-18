@@ -219,12 +219,12 @@ class TestDpoLoss:
         loss1, metrics1 = dpo_loss(**sample_data, compute_metrics=True)
 
         # With concat (simulate by passing concat tensors)
-        batch_size = sample_data["chosen_labels"].shape[0]
         policy_concat = torch.cat(
             [sample_data["policy_chosen_logits"], sample_data["policy_rejected_logits"]], dim=0
         )
         ref_concat = torch.cat(
-            [sample_data["reference_chosen_logits"], sample_data["reference_rejected_logits"]], dim=0
+            [sample_data["reference_chosen_logits"], sample_data["reference_rejected_logits"]],
+            dim=0,
         )
 
         loss2, metrics2 = dpo_loss(
