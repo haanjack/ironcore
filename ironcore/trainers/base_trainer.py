@@ -495,7 +495,9 @@ class BaseTrainer(ABC):
             for i in range(torch.cuda.device_count()):
                 allocated = torch.cuda.memory_allocated(i) / 1024**3
                 reserved = torch.cuda.memory_reserved(i) / 1024**3
-                self.logger.error(f"GPU {i}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB")
+                self.logger.error(
+                    f"GPU {i}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB"
+                )
 
         # Try to save emergency checkpoint
         try:

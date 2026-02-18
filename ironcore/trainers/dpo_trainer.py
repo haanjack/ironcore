@@ -144,10 +144,7 @@ class DPOTrainer(BaseTrainer):
             Dictionary with all tensors moved to model device
         """
         device = next(self.model.parameters()).device
-        return {
-            k: v.to(device) if isinstance(v, torch.Tensor) else v
-            for k, v in batch.items()
-        }
+        return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
     def _compute_dpo_logits(
         self,
@@ -196,14 +193,12 @@ class DPOTrainer(BaseTrainer):
                 if self.reference_model_on_cpu:
                     device = concat_input_ids.device
                     concat_input_ids_cpu = concat_input_ids.cpu()
-                    concat_ref_logits = self.reference_model(
-                        concat_input_ids_cpu, labels=None
-                    ).detach().to(device)
+                    concat_ref_logits = (
+                        self.reference_model(concat_input_ids_cpu, labels=None).detach().to(device)
+                    )
                     del concat_input_ids_cpu
                 else:
-                    concat_ref_logits = self.reference_model(
-                        concat_input_ids, labels=None
-                    ).detach()
+                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None).detach()
 
             # Split back into chosen and rejected
             chosen_policy_logits = concat_policy_logits[:batch_size]
@@ -228,16 +223,18 @@ class DPOTrainer(BaseTrainer):
             with torch.no_grad():
                 if self.reference_model_on_cpu:
                     device = chosen_input_ids.device
-                    chosen_ref_logits = self.reference_model(
-                        chosen_input_ids.cpu(), labels=None
-                    ).detach().to(device)
-                    rejected_ref_logits = self.reference_model(
-                        rejected_input_ids.cpu(), labels=None
-                    ).detach().to(device)
+                    chosen_ref_logits = (
+                        self.reference_model(chosen_input_ids.cpu(), labels=None)
+                        .detach()
+                        .to(device)
+                    )
+                    rejected_ref_logits = (
+                        self.reference_model(rejected_input_ids.cpu(), labels=None)
+                        .detach()
+                        .to(device)
+                    )
                 else:
-                    chosen_ref_logits = self.reference_model(
-                        chosen_input_ids, labels=None
-                    ).detach()
+                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None).detach()
                     rejected_ref_logits = self.reference_model(
                         rejected_input_ids, labels=None
                     ).detach()
@@ -290,8 +287,8 @@ class DPOTrainer(BaseTrainer):
 
         # Determine if we should compute metrics this step
         compute_metrics = (
-            self.metrics_interval == 0 or  # Always compute
-            step % self.metrics_interval == 0  # Compute on interval
+            self.metrics_interval == 0  # Always compute
+            or step % self.metrics_interval == 0  # Compute on interval
         )
 
         return self._dpo_forward_step(batch, compute_metrics=compute_metrics)

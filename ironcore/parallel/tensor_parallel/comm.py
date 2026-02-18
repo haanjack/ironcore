@@ -193,7 +193,9 @@ def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> t
 
     outputs = []
     for weight_split in weight_splits:
-        slices = pool.get_buffers(weight_split.shape, weight_split.dtype, weight_split.device, world_size)
+        slices = pool.get_buffers(
+            weight_split.shape, weight_split.dtype, weight_split.device, world_size
+        )
         dist.all_gather(
             slices,
             weight_split.contiguous(),

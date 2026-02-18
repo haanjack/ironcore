@@ -119,11 +119,15 @@ def _extract_logps_from_log_probs(
 
     # Select log probabilities for ground truth labels
     # [batch, seq_len]
-    selected_log_probs = torch.gather(log_probs, dim=-1, index=safe_labels.unsqueeze(-1)).squeeze(-1)
+    selected_log_probs = torch.gather(log_probs, dim=-1, index=safe_labels.unsqueeze(-1)).squeeze(
+        -1
+    )
 
     # Zero out ignored positions using masked fill
     if ignore_mask.any():
-        selected_log_probs = torch.where(ignore_mask, torch.zeros_like(selected_log_probs), selected_log_probs)
+        selected_log_probs = torch.where(
+            ignore_mask, torch.zeros_like(selected_log_probs), selected_log_probs
+        )
 
     # Apply mask and sum (standard DPO uses sum, not average)
     # This avoids biasing toward shorter sequences

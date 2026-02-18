@@ -143,7 +143,9 @@ class DataConfig(BaseConfig):
         if self.splits and abs(sum(self.splits) - 1.0) > 1e-6:
             raise ValueError(f"Splits must sum to 1.0, got {sum(self.splits)}")
         if self.task_type not in ["pretrain", "sft", "dpo"]:
-            raise ValueError(f"Invalid task_type '{self.task_type}'. Must be one of: pretrain, sft, dpo")
+            raise ValueError(
+                f"Invalid task_type '{self.task_type}'. Must be one of: pretrain, sft, dpo"
+            )
 
     @classmethod
     def from_yaml(cls, filename: Union[str, Path]) -> "DataConfig":

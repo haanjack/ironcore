@@ -87,6 +87,7 @@ def main():
     hf_config_src = sft_dir / "config.json"
     if hf_config_src.exists():
         import shutil
+
         shutil.copy(hf_config_src, dpo_dir / "config.json")
         print("  Copied config.json")
 
