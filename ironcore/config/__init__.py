@@ -10,7 +10,7 @@
 
 import os
 from argparse import ArgumentParser, Namespace
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Optional, Union, get_args, get_origin
 
@@ -71,8 +71,7 @@ class MainConfig(BaseConfig):
     utils: UtilsConfig
     profiler: ProfilerConfig
     peft: PEFTConfig
-    profiler: ProfilerConfig
-    alignment: AlignmentConfig = None
+    alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
 
 
 def _config_validation(config: MainConfig):
@@ -225,74 +224,6 @@ def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
         output_list.append(loaded_config)
 
     return output_list
-
-
-# data config
-def _update_config_from_yaml(config: dataclass, config_group_key: str, config_group: dict):
-    """update config from yaml config file."""
-
-    # get config from yaml
-    config_dict_item = asdict(config)[config_group_key]
-    for yaml_config_key, yaml_config_value in config_group.items():
-        if yaml_config_key not in config_dict_item:
-            raise ValueError(
-                f"{yaml_config_key} is not defined in {config_group_key}. Check yaml config file."
-            )
-        config_dict_item[yaml_config_key] = yaml_config_value
-
-    # update config
-    getattr(config, config_group_key)(**config_dict_item)
-
-
-def _update_data_config_from_yaml(config: dataclass, config_group_key, config_group: dict):
-    """update data config from yaml config file."""
-
-    for sub_group_key, sub_group_value in config_group.items():
-        if sub_group_key in ["train", "eval", "test"]:
-            sub_group_key = f"{sub_group_key}_datasets"
-            # config.data.__dict__[sub_group_key
-            data_group_config = load_data_config(config, sub_group_value)
-            setattr(config.data, sub_group_key, data_group_config)
-        else:
-            if sub_group_key not in config_group:
-                raise ValueError(
-                    f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
-                )
-            # config.data.__dict__[sub_group_key] = sub_group_value
-            setattr(config.data, sub_group_key, sub_group_value)
-
-
-def _load_config_from_yaml(config: dataclass, args):
-    """
-    load config from yaml config file.
-    """
-    yaml_config = load_yaml_config(args.config_path)
-    config_dict = asdict(config)
-    # load configs from yaml
-    for yaml_config_group_key, yaml_config_group in yaml_config.items():
-        # check if config group is defined
-        if yaml_config_group_key not in config_dict:
-            raise ValueError(f"{yaml_config_group_key} is not defined configuration group")
-
-        if yaml_config_group is None:
-            getattr(config, yaml_config_group_key).attr_name = "dummy"
-
-        # load configs from subsidary yaml config files
-        if isinstance(yaml_config_group, str):
-            # load sub-config defined in seperated file: model and data config
-            sub_group_config_path = (
-                Path(args.config_path).parent / f"{yaml_config_group_key}/{yaml_config_group}.yaml"
-            )
-            sub_group_config = load_yaml_config(sub_group_config_path)
-
-            if yaml_config_group_key == "data":
-                _update_data_config_from_yaml(config, yaml_config_group_key, sub_group_config)
-            else:
-                _update_config_from_yaml(config, yaml_config_group_key, sub_group_config)
-                getattr(config, yaml_config_group_key).attr_name = yaml_config_group
-        else:
-            # load configs: trainer, optimizer, etc
-            _update_config_from_yaml(config, yaml_config_group_key, yaml_config_group)
 
 
 def _update_config_from_args(config: dataclass, args):

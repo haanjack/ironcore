@@ -133,9 +133,9 @@ class BaseTrainer(ABC):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self._finialize_process()
+        self._finalize_process()
 
-    def _finialize_process(self):
+    def _finalize_process(self):
         """Cleanup resources."""
         # Close loggers before exiting
         global_states_cleanup()
@@ -336,7 +336,6 @@ class BaseTrainer(ABC):
 
         self.logger.info(f"Total training time: {(self.timer.get('total') / 3600):.2f} hours")
         self.logger.info("Finishing training")
-        self._finialize_process()
 
     @abstractmethod
     def train_step(self, step: int) -> tuple[float, float, float]:
@@ -430,6 +429,7 @@ class BaseTrainer(ABC):
         Returns:
             Tuple of (grad_norm, param_norm)
         """
+        from ironcore.parallel import parallel_states
         from ironcore.utils import clip_grad_norm_tp
 
         # Unscale gradients before clipping/norm computation
@@ -443,10 +443,21 @@ class BaseTrainer(ABC):
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
+            # Compute local squared norm
+            param_norm_sq = 0.0
             for p in self.model.parameters():
                 if p.data is not None:
-                    param_norm += p.data.norm() ** 2
-            param_norm = param_norm**0.5
+                    param_norm_sq += p.data.norm() ** 2
+            # All-reduce across TP group for correct full-model norm
+            if parallel_states.get_tensor_model_parallel_world_size() > 1:
+                param_norm_tensor = torch.tensor(param_norm_sq, device=get_device())
+                dist.all_reduce(
+                    param_norm_tensor,
+                    op=dist.ReduceOp.SUM,
+                    group=parallel_states.get_tensor_model_parallel_group(),
+                )
+                param_norm_sq = param_norm_tensor.item()
+            param_norm = param_norm_sq**0.5
 
         return grad_norm, param_norm
 

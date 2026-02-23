@@ -98,6 +98,9 @@ class UniversalCollator:
         # Sort by length (descending) for better packing
         samples.sort(key=lambda x: len(x[0]), reverse=True)
 
+        # Pre-create range tensor for position_ids (avoids torch.arange in loop)
+        position_range = torch.arange(self.max_seq_len, dtype=torch.long)
+
         # Bin-packing: First-Fit Decreasing
         bins = []  # Each bin: [(token_ids, metadata), ...]
         bin_lengths = []  # Current length of each bin
@@ -169,9 +172,9 @@ class UniversalCollator:
                     labels[batch_idx, mask_start:mask_end] = -100
 
                 # Position IDs reset for each sample
-                position_ids[batch_idx, current_pos : current_pos + sample_len] = torch.arange(
-                    sample_len
-                )
+                position_ids[batch_idx, current_pos : current_pos + sample_len] = position_range[
+                    :sample_len
+                ]
 
                 # Block-diagonal attention mask
                 if self.return_full_attention_mask:

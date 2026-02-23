@@ -23,9 +23,11 @@ from ironcore.config import (
     OptimConfig,
     ParallelConfig,
     PEFTConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_alignment import AlignmentConfig
 
 # =============================================================================
 # Configuration Presets
@@ -130,6 +132,8 @@ def create_test_config(
         operation=operation_config,
         utils=utils_config,
         peft=peft_config,
+        profiler=ProfilerConfig(),
+        alignment=AlignmentConfig(),
     )
 
 

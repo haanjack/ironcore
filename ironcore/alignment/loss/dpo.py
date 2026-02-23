@@ -45,13 +45,6 @@ def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
         # Deferred import: only when TP > 1 to avoid circular import at module load.
         from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
 
-        # NCCL all-gather requires GPU tensors
-        if logits.device.type == "cpu":
-            raise RuntimeError(
-                "Cannot perform tensor-parallel all-gather on CPU tensors with NCCL backend. "
-                "Ensure logits are on GPU before calling DPO loss with TP > 1."
-            )
-
         # Gather full vocabulary logits across TP group
         logits = _gather_tensor_along_last_dim(logits)
 
@@ -186,16 +179,19 @@ def dpo_loss(
     """
     batch_size = chosen_labels.size(0)
 
+    # Pre-compute concatenated labels/mask for the concat-forward optimization
+    # This avoids duplicating this logic in both policy and reference branches
+    concat_labels = torch.cat([chosen_labels, rejected_labels], dim=0)
+    concat_mask = (
+        torch.cat([chosen_loss_mask, rejected_loss_mask], dim=0)
+        if chosen_loss_mask is not None
+        else None
+    )
+
     # 1. Compute per-token log probabilities for policy model
     if policy_concat_logits is not None:
         # Optimization: compute logps for both chosen and rejected in one pass (single all-gather)
         concat_log_probs = _compute_log_softmax_tp_safe(policy_concat_logits)
-        concat_labels = torch.cat([chosen_labels, rejected_labels], dim=0)
-        concat_mask = (
-            torch.cat([chosen_loss_mask, rejected_loss_mask], dim=0)
-            if chosen_loss_mask is not None
-            else None
-        )
         concat_logps = _extract_logps_from_log_probs(concat_log_probs, concat_labels, concat_mask)
         chosen_policy_logps = concat_logps[:batch_size]
         rejected_policy_logps = concat_logps[batch_size:]
@@ -211,12 +207,6 @@ def dpo_loss(
         if reference_concat_logits is not None:
             # Optimization: single pass for reference model
             concat_log_probs = _compute_log_softmax_tp_safe(reference_concat_logits)
-            concat_labels = torch.cat([chosen_labels, rejected_labels], dim=0)
-            concat_mask = (
-                torch.cat([chosen_loss_mask, rejected_loss_mask], dim=0)
-                if chosen_loss_mask is not None
-                else None
-            )
             concat_logps = _extract_logps_from_log_probs(
                 concat_log_probs, concat_labels, concat_mask
             )

@@ -17,10 +17,12 @@ class AlignmentConfig(BaseConfig):
     dpo_beta: float = 0.5
     dpo_label_smoothing: float = 0.0
 
-    # Reference model handling
-    reference_model_on_cpu: bool = False
-
     # Optimization flags
+    # concat_forward_passes=True batches chosen+rejected into a single forward pass
+    # for both policy and reference models (2 passes total).
+    # When False, uses 4 separate passes (chosen policy, rejected policy,
+    # chosen ref, rejected ref) which is ~2× slower but useful for debugging
+    # or when memory is extremely constrained.
     concat_forward_passes: bool = True
 
     # Metrics computation interval (0 = compute every step)

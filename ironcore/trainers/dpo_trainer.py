@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 import torch
 from torch import distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from ironcore.alignment.loss import dpo_loss
 from ironcore.global_vars import log_metric
@@ -70,9 +71,6 @@ class DPOTrainer(BaseTrainer):
         self.beta = config.alignment.dpo_beta
         self.label_smoothing = config.alignment.dpo_label_smoothing
 
-        # Memory optimization: keep reference model on CPU to save GPU memory
-        self.reference_model_on_cpu = config.alignment.reference_model_on_cpu
-
         # Efficiency: concatenate chosen/rejected for fewer forward passes
         self.concat_forward_passes = config.alignment.concat_forward_passes
 
@@ -84,7 +82,6 @@ class DPOTrainer(BaseTrainer):
 
         self.logger.info(
             f"DPOTrainer initialized with beta={self.beta}, "
-            f"reference_on_cpu={self.reference_model_on_cpu}, "
             f"concat_passes={self.concat_forward_passes}, "
             f"metrics_interval={self.metrics_interval}"
         )
@@ -96,46 +93,74 @@ class DPOTrainer(BaseTrainer):
         the SFT checkpoint weights. It remains frozen throughout training
         and provides baseline log probabilities.
 
+        For FSDP-wrapped models, we use state dict approach since deepcopy
+        doesn't work with FSDP internal tensors.
+
         Returns:
-            Frozen copy of self.model
+            Frozen copy of self.model (unwrapped, on GPU)
         """
-        from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
-
-        # Handle distributed training: get the underlying model
-        model_to_copy = self.model.module if hasattr(self.model, "module") else self.model
-
-        # Create a deep copy of the model
         self.logger.info("Creating reference model from policy weights...")
-        reference_model = copy.deepcopy(model_to_copy)
+
+        # Check if policy model is FSDP-wrapped
+        if isinstance(self.model, FSDP):
+            # FSDP model: use state dict approach
+            # Get full state dict from FSDP model (rank 0 gathers all)
+            from torch.distributed.fsdp import StateDictType
+
+            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
+                full_state_dict = self.model.state_dict()
+
+            # Get the underlying model class to create a new instance
+            unwrapped_model = self.model.module
+
+            # Create a new model instance with same config
+            # Use __class__ to get the model class dynamically
+            model_class = unwrapped_model.__class__
+            reference_model = model_class(unwrapped_model.config)
+
+            # Load the state dict
+            reference_model.load_state_dict(full_state_dict, strict=False)
+        else:
+            # Non-FSDP model: use deepcopy approach
+            model_to_copy = self.model.module if hasattr(self.model, "module") else self.model
+            reference_model = copy.deepcopy(model_to_copy)
+
         reference_model.eval()
 
         # Freeze all parameters
         for param in reference_model.parameters():
             param.requires_grad = False
 
-        # Memory optimization: optionally keep reference model on CPU
-        # Note: Only supported for TP=1. For TP>1, collective operations
-        # require GPU tensors with NCCL backend.
-        if self.reference_model_on_cpu:
-            if get_tensor_model_parallel_world_size() > 1:
-                self.logger.warning(
-                    "reference_model_on_cpu is NOT supported with tensor parallelism > 1. "
-                    "Force-disabling to avoid hangs."
-                )
-                self.reference_model_on_cpu = False
-                device = next(model_to_copy.parameters()).device
-                reference_model.to(device)
-            else:
-                self.logger.info("Moving reference model to CPU to save GPU memory")
-                reference_model = reference_model.cpu()
+        # Place on compute device (GPU) with same dtype as policy model
+        device = self._get_compute_device()
+        # For FSDP, get dtype from mixed_precision or fall back to param dtype
+        if isinstance(self.model, FSDP) and hasattr(self.model, "mixed_precision"):
+            dtype = self.model.mixed_precision.param_dtype
         else:
-            device = next(model_to_copy.parameters()).device
-            reference_model.to(device)
+            dtype = next(self.model.parameters()).dtype
+        reference_model.to(device=device, dtype=dtype)
 
         return reference_model
 
+    def _get_compute_device(self) -> torch.device:
+        """Get the device where computation should happen.
+
+        For FSDP with CPU offload, parameters are stored on CPU but computation
+        happens on GPU. This method returns the correct compute device.
+
+        Returns:
+            torch.device: The device for computation (GPU for FSDP, otherwise param device)
+        """
+        if isinstance(self.model, FSDP):
+            # FSDP models compute on GPU even with CPU offload
+            return torch.device(f"cuda:{torch.cuda.current_device()}")
+        return next(self.model.parameters()).device
+
     def _move_batch_to_device(self, batch: dict) -> dict:
         """Move all tensors in batch to model device.
+
+        Note: Only top-level tensors are moved. Nested structures (e.g., lists
+        of tensors like cu_seqlens) are passed through unchanged.
 
         Args:
             batch: Dictionary containing tensor values
@@ -143,13 +168,15 @@ class DPOTrainer(BaseTrainer):
         Returns:
             Dictionary with all tensors moved to model device
         """
-        device = next(self.model.parameters()).device
+        device = self._get_compute_device()
         return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
     def _compute_dpo_logits(
         self,
         chosen_input_ids: torch.Tensor,
         rejected_input_ids: torch.Tensor,
+        chosen_position_ids: torch.Tensor | None = None,
+        rejected_position_ids: torch.Tensor | None = None,
         enable_grad: bool = True,
     ) -> tuple[
         torch.Tensor,  # chosen_policy_logits
@@ -168,6 +195,8 @@ class DPOTrainer(BaseTrainer):
         Args:
             chosen_input_ids: Input IDs for chosen responses [batch, seq_len]
             rejected_input_ids: Input IDs for rejected responses [batch, seq_len]
+            chosen_position_ids: Optional position IDs for chosen responses [batch, seq_len]
+            rejected_position_ids: Optional position IDs for rejected responses [batch, seq_len]
             enable_grad: Whether to enable gradients for policy model
 
         Returns:
@@ -181,24 +210,21 @@ class DPOTrainer(BaseTrainer):
             # Optimization: Concatenate chosen and rejected for fewer forward passes
             concat_input_ids = torch.cat([chosen_input_ids, rejected_input_ids], dim=0)
 
+            # Concatenate position_ids if provided
+            concat_position_ids = None
+            if chosen_position_ids is not None and rejected_position_ids is not None:
+                concat_position_ids = torch.cat([chosen_position_ids, rejected_position_ids], dim=0)
+
             # Policy model forward
             if enable_grad:
-                concat_policy_logits = self.model(concat_input_ids, labels=None)
+                concat_policy_logits = self.model(concat_input_ids, labels=None, position_ids=concat_position_ids)
             else:
                 with torch.no_grad():
-                    concat_policy_logits = self.model(concat_input_ids, labels=None)
+                    concat_policy_logits = self.model(concat_input_ids, labels=None, position_ids=concat_position_ids)
 
             # Reference model forward (always no_grad)
             with torch.no_grad():
-                if self.reference_model_on_cpu:
-                    device = concat_input_ids.device
-                    concat_input_ids_cpu = concat_input_ids.cpu()
-                    concat_ref_logits = (
-                        self.reference_model(concat_input_ids_cpu, labels=None).detach().to(device)
-                    )
-                    del concat_input_ids_cpu
-                else:
-                    concat_ref_logits = self.reference_model(concat_input_ids, labels=None).detach()
+                concat_ref_logits = self.reference_model(concat_input_ids, labels=None, position_ids=concat_position_ids).detach()
 
             # Split back into chosen and rejected
             chosen_policy_logits = concat_policy_logits[:batch_size]
@@ -212,32 +238,19 @@ class DPOTrainer(BaseTrainer):
         else:
             # Standard approach: 4 separate forward passes
             if enable_grad:
-                chosen_policy_logits = self.model(chosen_input_ids, labels=None)
-                rejected_policy_logits = self.model(rejected_input_ids, labels=None)
+                chosen_policy_logits = self.model(chosen_input_ids, labels=None, position_ids=chosen_position_ids)
+                rejected_policy_logits = self.model(rejected_input_ids, labels=None, position_ids=rejected_position_ids)
             else:
                 with torch.no_grad():
-                    chosen_policy_logits = self.model(chosen_input_ids, labels=None)
-                    rejected_policy_logits = self.model(rejected_input_ids, labels=None)
+                    chosen_policy_logits = self.model(chosen_input_ids, labels=None, position_ids=chosen_position_ids)
+                    rejected_policy_logits = self.model(rejected_input_ids, labels=None, position_ids=rejected_position_ids)
 
             # Reference model forward (always no_grad)
             with torch.no_grad():
-                if self.reference_model_on_cpu:
-                    device = chosen_input_ids.device
-                    chosen_ref_logits = (
-                        self.reference_model(chosen_input_ids.cpu(), labels=None)
-                        .detach()
-                        .to(device)
-                    )
-                    rejected_ref_logits = (
-                        self.reference_model(rejected_input_ids.cpu(), labels=None)
-                        .detach()
-                        .to(device)
-                    )
-                else:
-                    chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None).detach()
-                    rejected_ref_logits = self.reference_model(
-                        rejected_input_ids, labels=None
-                    ).detach()
+                chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None, position_ids=chosen_position_ids).detach()
+                rejected_ref_logits = self.reference_model(
+                    rejected_input_ids, labels=None, position_ids=rejected_position_ids
+                ).detach()
 
             policy_concat_logits = None
             reference_concat_logits = None
@@ -355,6 +368,9 @@ class DPOTrainer(BaseTrainer):
         rejected_labels = batch["rejected_labels"]
         chosen_loss_mask = batch.get("chosen_loss_mask")
         rejected_loss_mask = batch.get("rejected_loss_mask")
+        # Extract position_ids for bin-packed sequences
+        chosen_position_ids = batch.get("chosen_position_ids")
+        rejected_position_ids = batch.get("rejected_position_ids")
 
         # Compute logits using shared method
         (
@@ -367,6 +383,8 @@ class DPOTrainer(BaseTrainer):
         ) = self._compute_dpo_logits(
             chosen_input_ids,
             rejected_input_ids,
+            chosen_position_ids=chosen_position_ids,
+            rejected_position_ids=rejected_position_ids,
             enable_grad=True,
         )
 
@@ -424,6 +442,9 @@ class DPOTrainer(BaseTrainer):
         rejected_labels = batch["rejected_labels"]
         chosen_loss_mask = batch.get("chosen_loss_mask")
         rejected_loss_mask = batch.get("rejected_loss_mask")
+        # Extract position_ids for bin-packed sequences
+        chosen_position_ids = batch.get("chosen_position_ids")
+        rejected_position_ids = batch.get("rejected_position_ids")
 
         # Compute logits using shared method (no gradients)
         with torch.no_grad():
@@ -437,6 +458,8 @@ class DPOTrainer(BaseTrainer):
             ) = self._compute_dpo_logits(
                 chosen_input_ids,
                 rejected_input_ids,
+                chosen_position_ids=chosen_position_ids,
+                rejected_position_ids=rejected_position_ids,
                 enable_grad=False,
             )
 

@@ -88,7 +88,6 @@ def tiny_model_config():
     alignment_config = AlignmentConfig(
         dpo_beta=0.1,
         dpo_label_smoothing=0.0,
-        reference_model_on_cpu=False,
         concat_forward_passes=True,
         metrics_interval=0,
     )
@@ -117,9 +116,11 @@ def mock_dpo_batch():
         "chosen_input_ids": torch.randint(0, vocab_size, (batch_size, seq_len)),
         "chosen_labels": torch.randint(0, vocab_size, (batch_size, seq_len)),
         "chosen_loss_mask": torch.ones(batch_size, seq_len),
+        "chosen_position_ids": torch.arange(seq_len).unsqueeze(0).expand(batch_size, -1),
         "rejected_input_ids": torch.randint(0, vocab_size, (batch_size, seq_len)),
         "rejected_labels": torch.randint(0, vocab_size, (batch_size, seq_len)),
         "rejected_loss_mask": torch.ones(batch_size, seq_len),
+        "rejected_position_ids": torch.arange(seq_len).unsqueeze(0).expand(batch_size, -1),
     }
 
 
@@ -210,6 +211,60 @@ class TestDpoLossIntegration:
             if param.requires_grad:
                 assert param.grad is not None, f"Parameter {name} has no gradient"
                 assert torch.isfinite(param.grad).all(), f"Parameter {name} has non-finite gradient"
+
+    @pytest.mark.unit
+    def test_dpo_with_bin_packed_position_ids(self, tiny_transformer):
+        """Test DPO forward pass with non-sequential position_ids (bin-packed sequences)."""
+        from ironcore.alignment.loss import dpo_loss
+
+        batch_size, seq_len, vocab_size = 2, 16, 100
+        device = next(tiny_transformer.parameters()).device
+
+        # Simulate bin-packed sequences where position_ids reset mid-sequence
+        # This tests that the model correctly uses provided position_ids
+        chosen_input_ids = torch.randint(0, vocab_size, (batch_size, seq_len)).to(device)
+        rejected_input_ids = torch.randint(0, vocab_size, (batch_size, seq_len)).to(device)
+        chosen_labels = torch.randint(0, vocab_size, (batch_size, seq_len)).to(device)
+        rejected_labels = torch.randint(0, vocab_size, (batch_size, seq_len)).to(device)
+
+        # Create non-sequential position_ids (simulating bin-packing)
+        # First half: positions 0-7, Second half: positions 0-7 (reset)
+        chosen_position_ids = torch.cat([
+            torch.arange(8).unsqueeze(0).expand(batch_size, -1),
+            torch.arange(8).unsqueeze(0).expand(batch_size, -1),
+        ], dim=1).to(device)
+        rejected_position_ids = chosen_position_ids.clone()
+
+        tiny_transformer.train()
+
+        # Forward pass WITH position_ids
+        chosen_logits = tiny_transformer(
+            chosen_input_ids, labels=None, position_ids=chosen_position_ids
+        )
+        rejected_logits = tiny_transformer(
+            rejected_input_ids, labels=None, position_ids=rejected_position_ids
+        )
+
+        with torch.no_grad():
+            ref_chosen_logits = tiny_transformer(
+                chosen_input_ids, labels=None, position_ids=chosen_position_ids
+            )
+            ref_rejected_logits = tiny_transformer(
+                rejected_input_ids, labels=None, position_ids=rejected_position_ids
+            )
+
+        loss, metrics = dpo_loss(
+            policy_chosen_logits=chosen_logits,
+            policy_rejected_logits=rejected_logits,
+            reference_chosen_logits=ref_chosen_logits,
+            reference_rejected_logits=ref_rejected_logits,
+            chosen_labels=chosen_labels,
+            rejected_labels=rejected_labels,
+            beta=0.1,
+        )
+
+        assert torch.isfinite(loss), "Loss should be finite with bin-packed position_ids"
+        assert loss.dim() == 0, "Loss should be scalar"
 
 
 # =============================================================================
@@ -395,6 +450,9 @@ class TestDPOCheckpoint:
             optimizer = torch.optim.Adam(tiny_transformer.parameters(), lr=1e-4)
             lr_scheduler = StepLR(optimizer, step_size=100, gamma=0.9)
 
+            # Store original weights before saving
+            original_weights = {name: p.clone() for name, p in tiny_transformer.named_parameters()}
+
             # Save checkpoint
             save_checkpoint(tiny_model_config, tiny_transformer, optimizer, lr_scheduler, step=5)
 
@@ -402,19 +460,22 @@ class TestDPOCheckpoint:
             for p in tiny_transformer.parameters():
                 p.data.add_(torch.randn_like(p) * 0.01)
 
-            # Store modified weights
-            modified_weights = {name: p.clone() for name, p in tiny_transformer.named_parameters()}
+            # Verify weights are now different from original
+            for name, p in tiny_transformer.named_parameters():
+                assert not torch.allclose(p, original_weights[name], atol=1e-6), (
+                    f"Weight {name} should have been modified"
+                )
 
             # Load checkpoint
             step = load_checkpoint(tiny_model_config, tiny_transformer, optimizer, lr_scheduler)
 
             assert step == 5, f"Expected step 5, got {step}"
 
-            # Verify weights are restored
+            # Verify weights are restored to original values
             for name, p in tiny_transformer.named_parameters():
-                # Weights should be different from modified (restored from checkpoint)
-                # Just check no crash for now; modified_weights[name] holds the pre-restore value
-                _ = modified_weights[name]  # referenced to confirm key exists
+                assert torch.allclose(p, original_weights[name], atol=1e-6), (
+                    f"Weight {name} was not restored correctly from checkpoint"
+                )
 
     @pytest.mark.integration
     def test_reference_model_recreation_after_load(self, tiny_model_config):
@@ -689,3 +750,71 @@ class TestDPOMetrics:
 
         # Minimal should still have basic metrics
         assert "dpo_loss" in metrics_minimal
+
+
+# =============================================================================
+# Collator Tests
+# =============================================================================
+
+
+class TestCollatorTruncation:
+    """Tests for collator truncation of oversized samples."""
+
+    @pytest.mark.unit
+    def test_sft_collator_truncates_oversized_samples(self):
+        """Test that SFT collator truncates samples exceeding max_seq_len."""
+        from ironcore.dataloader.collator import UniversalCollator
+
+        max_seq_len = 32
+        collator = UniversalCollator(
+            mode="sft",
+            max_seq_len=max_seq_len,
+            pad_token_id=0,
+            use_flash_attention=False,
+            return_full_attention_mask=False,
+        )
+
+        # Create a sample that exceeds max_seq_len
+        oversized_sample = {
+            "token_ids": torch.randint(0, 100, (50,)),  # 50 tokens > 32 max
+            "metadata": {"mask_ranges": []},
+        }
+
+        # Should not raise, should truncate
+        result = collator([oversized_sample])
+
+        assert result["input_ids"].shape == (1, max_seq_len)
+        assert result["labels"].shape == (1, max_seq_len)
+        assert result["position_ids"].shape == (1, max_seq_len)
+
+    @pytest.mark.unit
+    def test_dpo_collator_truncates_oversized_samples(self):
+        """Test that DPO collator truncates samples exceeding max_seq_len."""
+        from ironcore.dataloader.collator import UniversalCollator
+
+        max_seq_len = 32
+        collator = UniversalCollator(
+            mode="dpo",
+            max_seq_len=max_seq_len,
+            pad_token_id=0,
+            use_flash_attention=False,
+            return_full_attention_mask=False,
+        )
+
+        # Create DPO pair where chosen exceeds max_seq_len
+        chosen_sample = {
+            "token_ids": torch.randint(0, 100, (50,)),  # 50 tokens > 32 max
+            "metadata": {"type": "dpo_chosen", "mask_ranges": []},
+        }
+        rejected_sample = {
+            "token_ids": torch.randint(0, 100, (50,)),
+            "metadata": {"type": "dpo_rejected", "mask_ranges": []},
+        }
+
+        # Should not raise, should truncate both
+        result = collator([chosen_sample, rejected_sample])
+
+        assert result["chosen_input_ids"].shape == (1, max_seq_len)
+        assert result["rejected_input_ids"].shape == (1, max_seq_len)
+        assert result["chosen_position_ids"].shape == (1, max_seq_len)
+        assert result["rejected_position_ids"].shape == (1, max_seq_len)

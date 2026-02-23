@@ -19,6 +19,10 @@ from ironcore.config import MainConfig
 if TYPE_CHECKING:
     from ironcore.language_model import LanguageModel
 
+# NOTE: FSDP2 (torch.distributed._composable.fsdp) provides additional optimizations
+# for CPU offload including pinned memory (CPUOffloadPolicy(pin_memory=True)).
+# Current implementation uses FSDP1. FSDP2 support can be added in the future.
+
 
 def initialize_process(config: MainConfig):
 
@@ -71,6 +75,7 @@ def initialize_process(config: MainConfig):
 def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn.Module:
     """Initialize DDP or FSDP"""
     from ironcore.parallel import parallel_states
+    logger = get_logger()
 
     if not config.parallel.use_fsdp and config.parallel.world_size >= 1:
         model = DDP(
@@ -79,7 +84,7 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
             broadcast_buffers=False,
         )
     else:
-        # FSDP Robust implementation for 2D Parallelism
+        # FSDP implementation with optimization options
         import functools
 
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -102,15 +107,26 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
         if config.parallel.fsdp_mixed_precision == "mixed":
             _mixed_precision_opt.reduce_dtype = torch.float32
 
+        # Sharding strategy map including SHARD_GRAD_OP for better CPU offload performance
         _sharding_strategy = {
             "full": ShardingStrategy.FULL_SHARD,
             "hybrid": ShardingStrategy.HYBRID_SHARD,
             "no_shard": ShardingStrategy.NO_SHARD,
+            "shard_grad_op": ShardingStrategy.SHARD_GRAD_OP,
         }
 
         # Prefetching can cause contention with AsyncTP communication
         # Disable forward prefetch if TP > 1 for better stability
         use_forward_prefetch = config.trainer.tensor_model_parallel_size == 1
+
+        # Log FSDP configuration for debugging
+        if config.parallel.rank == 0:
+            logger.info(
+                f"FSDP config: sharding={config.parallel.fsdp_sharding_strategy}, "
+                f"offload={config.parallel.fsdp_offload_params}, "
+                f"use_orig_params={config.parallel.fsdp_use_orig_params}, "
+                f"forward_prefetch={use_forward_prefetch}"
+            )
 
         model = FSDP(
             model,
@@ -122,6 +138,7 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
             device_id=torch.cuda.current_device(),
             sharding_strategy=_sharding_strategy[config.parallel.fsdp_sharding_strategy],
             forward_prefetch=use_forward_prefetch,
+            use_orig_params=config.parallel.fsdp_use_orig_params,
         )
 
         # Set state dict type separately

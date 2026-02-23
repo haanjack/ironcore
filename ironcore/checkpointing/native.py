@@ -244,96 +244,98 @@ def load_checkpoint(
 
     model.load_state_dict(loaded_checkpoint)
 
+    # Extract step early so we can return it even if optimizer state is missing
+    last_step = checkpoint["step"]
+
     if config.optim.load_checkpoint_optim_state and optimizer is not None:
         loaded_optim_state_dict = checkpoint.get("optimizer_state_dict", None)
 
         if loaded_optim_state_dict is None:
-            logger.warning("Checkpoint does not contain optimizer state dict.")
-            return -1
+            logger.warning(
+                "Checkpoint does not contain optimizer state dict. "
+                "Model weights loaded; optimizer will start fresh."
+            )
         else:
             logger.info("Loading optimizer state dict.")
 
-        loaded_optim_state = {}
-        loaded_optim_state["state"] = {}
-        loaded_optim_state["param_groups"] = loaded_optim_state_dict["param_groups"]
+            loaded_optim_state = {}
+            loaded_optim_state["state"] = {}
+            loaded_optim_state["param_groups"] = loaded_optim_state_dict["param_groups"]
 
-        for name, param in model.named_parameters():
-            # Skip frozen parameters (they don't have optimizer state)
-            if not param.requires_grad:
-                continue
-
-            # Skip if optimizer state doesn't exist for this param (e.g., newly added PEFT params)
-            if name not in loaded_optim_state_dict["state"]:
-                logger.warning(f"Optimizer state for {name} not found in checkpoint, skipping")
-                continue
-
-            processed_state = {}
-            for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
-                if state_key in ["exp_avg", "exp_avg_sq"]:
-                    # ensure device matches
-                    if state_tensor.device != param.device:
-                        state_tensor = state_tensor.to(param.device)
-
-                    # ensure param shape
-                    if state_tensor.shape != param.shape:
-                        try:
-                            if state_tensor.shape != param.shape:
-                                state_tensor = state_tensor.reshape(param.shape).contiguous()
-                        except RuntimeError as reshape_err:
-                            logger.warning(
-                                f"Failed to reshape {name} from {state_tensor.shape} to {param.shape}: {reshape_err}"
-                            )
-                            state_tensor = None
-
-                    if state_tensor is not None:
-                        processed_state[state_key] = state_tensor
-                else:
-                    processed_state[state_key] = state_tensor
-
-            loaded_optim_state["state"][param] = processed_state
-
-        # split optimizer state for tensor parallel
-        if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
             for name, param in model.named_parameters():
-                if param not in loaded_optim_state["state"]:
+                # Skip frozen parameters (they don't have optimizer state)
+                if not param.requires_grad:
                     continue
 
-                module_name = ".".join(name.split(".")[:-1])
-                # universal checkpoint
-                optimizer_state = loaded_optim_state["state"][param]
-                for state_key in ["exp_avg", "exp_avg_sq"]:
-                    if state_key not in optimizer_state:
+                # Skip if optimizer state doesn't exist for this param (e.g., newly added PEFT params)
+                if name not in loaded_optim_state_dict["state"]:
+                    logger.warning(f"Optimizer state for {name} not found in checkpoint, skipping")
+                    continue
+
+                processed_state = {}
+                for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
+                    if state_key in ["exp_avg", "exp_avg_sq"]:
+                        # ensure device matches
+                        if state_tensor.device != param.device:
+                            state_tensor = state_tensor.to(param.device)
+
+                        # ensure param shape
+                        if state_tensor.shape != param.shape:
+                            try:
+                                if state_tensor.shape != param.shape:
+                                    state_tensor = state_tensor.reshape(param.shape).contiguous()
+                            except RuntimeError as reshape_err:
+                                logger.warning(
+                                    f"Failed to reshape {name} from {state_tensor.shape} to {param.shape}: {reshape_err}"
+                                )
+                                state_tensor = None
+
+                        if state_tensor is not None:
+                            processed_state[state_key] = state_tensor
+                    else:
+                        processed_state[state_key] = state_tensor
+
+                loaded_optim_state["state"][param] = processed_state
+
+            # split optimizer state for tensor parallel
+            if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
+                for name, param in model.named_parameters():
+                    if param not in loaded_optim_state["state"]:
                         continue
 
-                    should_split = False
-                    if module_name in model_attribs:
-                        attribs = model_attribs[module_name]
-                        if attribs["column_parallel"]:
-                            if any(k in name for k in ["weight", "bias", "lora_B"]):
-                                should_split = True
-                        elif attribs["row_parallel"]:
-                            if any(k in name for k in ["weight", "lora_A"]):
-                                should_split = True
+                    module_name = ".".join(name.split(".")[:-1])
+                    # universal checkpoint
+                    optimizer_state = loaded_optim_state["state"][param]
+                    for state_key in ["exp_avg", "exp_avg_sq"]:
+                        if state_key not in optimizer_state:
+                            continue
 
-                    if should_split:
-                        loaded_optim_state["state"][param][state_key] = (
-                            comm.split_to_model_parallel_workers(
-                                optimizer_state[state_key],
-                                model_attribs[module_name],
+                        should_split = False
+                        if module_name in model_attribs:
+                            attribs = model_attribs[module_name]
+                            if attribs["column_parallel"]:
+                                if any(k in name for k in ["weight", "bias", "lora_B"]):
+                                    should_split = True
+                            elif attribs["row_parallel"]:
+                                if any(k in name for k in ["weight", "lora_A"]):
+                                    should_split = True
+
+                        if should_split:
+                            loaded_optim_state["state"][param][state_key] = (
+                                comm.split_to_model_parallel_workers(
+                                    optimizer_state[state_key],
+                                    model_attribs[module_name],
+                                )
                             )
-                        )
 
-                    loaded_optim_state["state"][param][state_key] = loaded_optim_state["state"][
-                        param
-                    ][state_key].reshape(param.shape)
+                        loaded_optim_state["state"][param][state_key] = loaded_optim_state["state"][
+                            param
+                        ][state_key].reshape(param.shape)
 
-        optimizer.load_state_dict(loaded_optim_state)
+            optimizer.load_state_dict(loaded_optim_state)
 
     if config.optim.load_checkpoint_lr_scheduler and lr_scheduler is not None:
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
-
-    # get checkpoint step from checkpoint
-    last_step = checkpoint["step"]
 
     timer.stop("ckpt-load")
     logger.info(
@@ -429,23 +431,23 @@ def save_checkpoint(
 
         model_state_dict[name] = output_param
 
-    # optimizer state
-    optimizer_state_dict = optimizer.state_dict()
+    # optimizer state - build dict keyed by parameter name (not integer index)
     optimizer_state_dict_by_name = {
         "state": {},
-        "param_groups": optimizer_state_dict["param_groups"],
+        "param_groups": optimizer.state_dict()["param_groups"],
     }
-    for i, (name, param) in enumerate(model.named_parameters()):
+    for _i, (name, param) in enumerate(model.named_parameters()):
         optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
 
+    # For universal checkpoints, gather TP-sharded optimizer states
+    final_optimizer_state = optimizer_state_dict_by_name
     if _is_universal_checkpoint(config):
-        # merge optimizer states
         merged_optimizer_state = {
             "state": {},
             "param_groups": optimizer.state_dict()["param_groups"],
         }
 
-        for i, ((name, param), optim_state_id) in enumerate(
+        for _i, ((name, param), optim_state_id) in enumerate(
             zip(model.named_parameters(), optimizer.state_dict()["state"], strict=True)
         ):
             # Skip frozen parameters
@@ -475,9 +477,10 @@ def save_checkpoint(
                     output_optim_state[key] = optim_state[key]
             output_optim_state["step"] = step
 
-            merged_optimizer_state["state"][i] = output_optim_state
+            # Use parameter name as key (not integer index) for consistent load format
+            merged_optimizer_state["state"][name] = output_optim_state
 
-        optimizer_state_dict = merged_optimizer_state
+        final_optimizer_state = merged_optimizer_state
 
     # HuggingFace compatible config
     hf_config = HFConfigManager.get_hf_config(config)
@@ -485,7 +488,7 @@ def save_checkpoint(
     logger.info(f"Saving checkpoint to {str(init_ckpt_path)}")
     checkpoint = {
         "model_state_dict": model_state_dict,
-        "optimizer_state_dict": optimizer_state_dict_by_name,
+        "optimizer_state_dict": final_optimizer_state,
         "lr_scheduler": lr_scheduler.state_dict(),
         "step": step,
         "config": model.config if hasattr(model, "config") else None,

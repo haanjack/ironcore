@@ -107,7 +107,6 @@ def run_train(args):
         print("Using DPOTrainer for Direct Preference Optimization")
         print(f"  - beta: {config.alignment.dpo_beta}")
         print(f"  - label_smoothing: {config.alignment.dpo_label_smoothing}")
-        print(f"  - reference_on_cpu: {config.alignment.reference_model_on_cpu}")
         trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     else:
         print(f"Error: Unsupported task type: {task_type}")
