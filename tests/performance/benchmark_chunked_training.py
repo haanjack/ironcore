@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 Training benchmark for chunked tensor parallelism with TP=1 and TP=2.
 

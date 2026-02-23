@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 Test TP=1 vs TP=2 with SAME weights (properly sharded).
 This is the correct approach for validating tensor parallelism.
