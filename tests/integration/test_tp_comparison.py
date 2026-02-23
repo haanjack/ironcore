@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 Direct comparison of TP=1 vs TP=2 at the same step.
 Both start with the same seed and should produce identical results if TP is correct.

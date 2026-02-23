@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """Prepare DPO init checkpoint from a trained SFT checkpoint.
 
 Copies only the model weights (no optimizer state, no LR scheduler) from

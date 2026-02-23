@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 Simple script to compare TP=1 vs TP=2 attention behavior.
 Tests that the attention layer produces consistent results across different tensor parallel sizes.

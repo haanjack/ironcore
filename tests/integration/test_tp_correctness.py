@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 TP=1 vs TP=2 Correctness Validation for Chunked Tensor Parallelism
 
