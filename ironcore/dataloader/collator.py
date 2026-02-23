@@ -217,15 +217,31 @@ class UniversalCollator:
         chosen_samples = [s for s in batch if s["metadata"]["type"] == "dpo_chosen"]
         rejected_samples = [s for s in batch if s["metadata"]["type"] == "dpo_rejected"]
 
+        # Extract metadata for better error messages
+        all_sample_types = [s["metadata"].get("type", "unknown") for s in batch]
+        type_counts = {}
+        for sample_type in all_sample_types:
+            type_counts[sample_type] = type_counts.get(sample_type, 0) + 1
+
         # Validation: DPO requires paired data
         if len(chosen_samples) == 0:
-            raise ValueError("DPO batch contains no chosen samples")
+            raise ValueError(
+                f"DPO batch contains no chosen samples (dpo_chosen). "
+                f"Batch contains {len(batch)} total samples with types: {type_counts}. "
+                f"Check data pipeline: all pairs must have 'dpo_chosen' type."
+            )
         if len(rejected_samples) == 0:
-            raise ValueError("DPO batch contains no rejected samples")
+            raise ValueError(
+                f"DPO batch contains no rejected samples (dpo_rejected). "
+                f"Batch contains {len(batch)} total samples with types: {type_counts}. "
+                f"Check data pipeline: all pairs must have 'dpo_rejected' type."
+            )
         if len(chosen_samples) != len(rejected_samples):
             raise ValueError(
-                f"DPO batch has mismatched pairs: {len(chosen_samples)} chosen "
-                f"vs {len(rejected_samples)} rejected"
+                f"DPO batch has mismatched pairs: {len(chosen_samples)} chosen vs {len(rejected_samples)} rejected. "
+                f"Batch composition: {type_counts}. "
+                f"Each chosen sample must have a corresponding rejected pair. "
+                f"Total samples in batch: {len(batch)}"
             )
 
         # Collate each separately using SFT logic

@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from ironcore.config import MainConfig
+from ironcore.config import MainConfig, config
 from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
 from ironcore.config.config_peft import PEFTConfig
@@ -88,8 +88,11 @@ def run_train(args):
         trainer = LanguageModelTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     elif task_type == "dpo":
         # Validate alignment config for DPO
-        if config.alignment is None:
-            print("Error: DPO requires 'alignment' configuration section in config file")
+        if config.alignment is None or config.alignment == AlignmentConfig():
+            print(
+                "Error: DPO requires 'alignment' configuration section in config file. "
+                "Please define alignment hyperparameters (e.g., beta, label_smoothing)."
+            )
             sys.exit(1)
 
         # Validate DPO-specific parameters

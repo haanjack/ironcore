@@ -8,6 +8,7 @@
 #
 # Full license text is available at LICENSE file.
 
+import dataclasses
 from pathlib import Path
 from typing import Union
 
@@ -168,7 +169,7 @@ def load_checkpoint(
         ]
     )
     checkpoint = torch.load(
-        ckpt_path, weights_only=False, map_location=next(model.parameters()).device
+        ckpt_path, weights_only=True, map_location=next(model.parameters()).device
     )
 
     # Load config
@@ -339,7 +340,7 @@ def load_checkpoint(
 
     timer.stop("ckpt-load")
     logger.info(
-        f"Checkpoint loaded successfully. Resuming training at step {step}. Total time: {timer.get('ckpt-load'):.2f}s"
+        f"Checkpoint loaded successfully. Resuming training at step {last_step}. Total time: {timer.get('ckpt-load'):.2f}s"
     )
 
     return last_step
@@ -485,14 +486,29 @@ def save_checkpoint(
     # HuggingFace compatible config
     hf_config = HFConfigManager.get_hf_config(config)
 
+    # Convert dataclass configs to dicts for safe serialization (weights_only=True compatible)
+    model_config_dict = None
+    if hasattr(model, "config"):
+        if dataclasses.is_dataclass(model.config):
+            model_config_dict = dataclasses.asdict(model.config)
+        else:
+            model_config_dict = model.config
+
+    hf_config_dict = None
+    if hf_config is not None:
+        if dataclasses.is_dataclass(hf_config):
+            hf_config_dict = dataclasses.asdict(hf_config)
+        else:
+            hf_config_dict = hf_config
+
     logger.info(f"Saving checkpoint to {str(init_ckpt_path)}")
     checkpoint = {
         "model_state_dict": model_state_dict,
         "optimizer_state_dict": final_optimizer_state,
         "lr_scheduler": lr_scheduler.state_dict(),
         "step": step,
-        "config": model.config if hasattr(model, "config") else None,
-        "hf_config": hf_config,  # HuggingFace compatible config
+        "config": model_config_dict,
+        "hf_config": hf_config_dict,
     }
 
     # save checkpoint

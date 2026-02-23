@@ -1,3 +1,7 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: MIT
+
 """Alignment configuration for DPO and other alignment methods."""
 
 from dataclasses import dataclass

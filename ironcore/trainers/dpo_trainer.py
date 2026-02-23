@@ -1,6 +1,12 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: MIT
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the above copyright notice,
+# this list of conditions, and the following disclaimer are retained.
+#
+# Full license text is available at LICENSE file.
 
 """DPO (Direct Preference Optimization) Trainer.
 
@@ -111,7 +117,7 @@ class DPOTrainer(BaseTrainer):
                 full_state_dict = self.model.state_dict()
 
             # Get the underlying model class to create a new instance
-            unwrapped_model = self.model.module
+            unwrapped_model = self.model.module if hasattr(self.model, "module") else self.model
 
             # Create a new model instance with same config
             # Use __class__ to get the model class dynamically
@@ -128,8 +134,10 @@ class DPOTrainer(BaseTrainer):
         reference_model.eval()
 
         # Freeze all parameters
-        for param in reference_model.parameters():
-            param.requires_grad = False
+        if isinstance(self.model, FSDP):
+            dtype = getattr(self.model.mixed_precision, "param_dtype", next(self.model.parameters()).dtype)
+        else:
+            dtype = next(self.model.parameters()).dtype
 
         # Place on compute device (GPU) with same dtype as policy model
         device = self._get_compute_device()
@@ -214,6 +222,9 @@ class DPOTrainer(BaseTrainer):
             concat_position_ids = None
             if chosen_position_ids is not None and rejected_position_ids is not None:
                 concat_position_ids = torch.cat([chosen_position_ids, rejected_position_ids], dim=0)
+            elif chosen_position_ids is not None or rejected_position_ids is not None:
+                # Handle cases where only one is provided, or raise an error if they must be paired
+                self.logger.warning("Mismatched position_ids for chosen/rejected samples. Proceeding with caution.")
 
             # Policy model forward
             if enable_grad:

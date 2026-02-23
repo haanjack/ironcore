@@ -1,6 +1,12 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: MIT
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the above copyright notice,
+# this list of conditions, and the following disclaimer are retained.
+#
+# Full license text is available at LICENSE file.
 
 """DPO (Direct Preference Optimization) loss function.
 
@@ -12,6 +18,7 @@ Reference:
 
 import torch
 import torch.nn.functional as F
+import torch.distributed as dist
 
 
 def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
@@ -36,10 +43,13 @@ def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
     from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
 
     # Fall back to 1 if parallel state not yet initialized (e.g. unit tests).
-    try:
-        tp_size = get_tensor_model_parallel_world_size()
-    except AssertionError:
+        if not dist.is_initialized():
         tp_size = 1
+    else:
+        try:
+            tp_size = get_tensor_model_parallel_world_size()
+        except AssertionError:
+            tp_size = 1
 
     if tp_size > 1:
         # Deferred import: only when TP > 1 to avoid circular import at module load.

@@ -100,7 +100,7 @@ class BaseTrainer(ABC):
             config.trainer.tensor_model_parallel_size,
             timeout_in_minutes=int(config.parallel.timeout_minute)
             if config.parallel.timeout_minute is not None
-            else 10.0,
+            else 10,
         )
 
         # initialize data loader
@@ -233,8 +233,9 @@ class BaseTrainer(ABC):
         except RuntimeError as e:
             self.logger.error(f"Failed to load checkpoint: {e}")
             raise RuntimeError(
-                f"Checkpoint loading failed. If the checkpoint is corrupted, "
-                f"remove or rename {self.config.trainer.model_path} and restart."
+                f"Checkpoint loading failed due to a runtime error: {e}. "
+                f"Please check the integrity of the checkpoint file or the storage medium. "
+                f"If the checkpoint is corrupted, remove or rename {self.config.trainer.model_path} and restart."
             ) from e
 
         self._post_checkpoint_load(last_step)
@@ -484,7 +485,8 @@ class BaseTrainer(ABC):
             self.logger.error(f"NaN/Inf loss detected at step {step}: loss={loss}")
             raise RuntimeError(
                 f"Training stopped due to {'NaN' if math.isnan(loss) else 'Inf'} loss at step {step}. "
-                f"Possible causes: learning rate too high, gradient explosion, or data issues."
+                f"Possible causes: learning rate too high, gradient explosion, or data issues. "
+                f"Consider enabling `torch.autograd.set_detect_anomaly(True)` for more debugging information."
             )
 
     def _handle_training_error(self, error: Exception, step: int) -> None:

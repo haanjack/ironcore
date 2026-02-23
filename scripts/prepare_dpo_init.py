@@ -59,7 +59,7 @@ def main():
         raise FileNotFoundError(f"SFT checkpoint not found: {sft_ckpt_path}")
 
     print(f"Loading SFT checkpoint from: {sft_ckpt_path}")
-    checkpoint = torch.load(sft_ckpt_path, weights_only=False, map_location="cpu")
+    checkpoint = torch.load(sft_ckpt_path, weights_only=True, map_location="cpu")
 
     model_state_dict = checkpoint["model_state_dict"]
     print(f"  Loaded {len(model_state_dict)} parameter tensors")
