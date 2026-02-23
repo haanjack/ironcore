@@ -30,7 +30,9 @@ class ParallelConfig(BaseConfig):
     )
     fsdp_use_orig_params: bool = field(
         default=False,
-        metadata={"help": "Use original parameters (better optimizer compatibility, e.g., for torch.compile)"},
+        metadata={
+            "help": "Use original parameters (better optimizer compatibility, e.g., for torch.compile)"
+        },
     )
     fsdp_mixed_precision: Literal[
         "fp16", "float16", "bf16", "bfloat16", "fp32", "float32", "mixed"

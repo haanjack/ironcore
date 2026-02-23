@@ -17,8 +17,8 @@ Reference:
 """
 
 import torch
-import torch.nn.functional as F
 import torch.distributed as dist
+import torch.nn.functional as F
 
 
 def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
@@ -43,7 +43,7 @@ def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
     from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
 
     # Fall back to 1 if parallel state not yet initialized (e.g. unit tests).
-        if not dist.is_initialized():
+    if not dist.is_initialized():
         tp_size = 1
     else:
         try:
@@ -194,7 +194,7 @@ def dpo_loss(
     concat_labels = torch.cat([chosen_labels, rejected_labels], dim=0)
     concat_mask = (
         torch.cat([chosen_loss_mask, rejected_loss_mask], dim=0)
-        if chosen_loss_mask is not None
+        if chosen_loss_mask is not None and rejected_loss_mask is not None
         else None
     )
 

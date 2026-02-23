@@ -229,10 +229,13 @@ class TestDpoLossIntegration:
 
         # Create non-sequential position_ids (simulating bin-packing)
         # First half: positions 0-7, Second half: positions 0-7 (reset)
-        chosen_position_ids = torch.cat([
-            torch.arange(8).unsqueeze(0).expand(batch_size, -1),
-            torch.arange(8).unsqueeze(0).expand(batch_size, -1),
-        ], dim=1).to(device)
+        chosen_position_ids = torch.cat(
+            [
+                torch.arange(8).unsqueeze(0).expand(batch_size, -1),
+                torch.arange(8).unsqueeze(0).expand(batch_size, -1),
+            ],
+            dim=1,
+        ).to(device)
         rejected_position_ids = chosen_position_ids.clone()
 
         tiny_transformer.train()
@@ -502,7 +505,9 @@ class TestDPOCheckpoint:
         ref_model.eval()
 
         # Verify reference has same weights as policy
-        for (n1, p1), (n2, p2) in zip(model.named_parameters(), ref_model.named_parameters(), strict=False):
+        for (n1, p1), (n2, p2) in zip(
+            model.named_parameters(), ref_model.named_parameters(), strict=False
+        ):
             assert torch.allclose(p1, p2), f"Weight mismatch: {n1} vs {n2}"
 
 
@@ -562,6 +567,7 @@ class TestDPOTrainingLoop:
 
         # All losses should be finite
         import math
+
         assert all(math.isfinite(loss) for loss in losses), "Loss should not be NaN"
         assert all(abs(loss) < 100 for loss in losses), "Loss should be reasonable"
 

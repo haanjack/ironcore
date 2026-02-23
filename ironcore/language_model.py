@@ -66,7 +66,9 @@ class LanguageModel(BaseModule):
         if labels is not None:
             labels = labels.to(self.device, non_blocking=True)
 
-        attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(input_ids, labels)
+        attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
+            input_ids, labels
+        )
         # Use provided position_ids if available (for bin-packed sequences), otherwise use computed ones
         if position_ids is None:
             position_ids = computed_position_ids

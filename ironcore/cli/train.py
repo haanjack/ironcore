@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from ironcore.config import MainConfig, config
+from ironcore.config import MainConfig
 from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
 from ironcore.config.config_peft import PEFTConfig

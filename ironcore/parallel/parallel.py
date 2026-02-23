@@ -75,6 +75,7 @@ def initialize_process(config: MainConfig):
 def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn.Module:
     """Initialize DDP or FSDP"""
     from ironcore.parallel import parallel_states
+
     logger = get_logger()
 
     if not config.parallel.use_fsdp and config.parallel.world_size >= 1:

@@ -135,7 +135,9 @@ class DPOTrainer(BaseTrainer):
 
         # Freeze all parameters
         if isinstance(self.model, FSDP):
-            dtype = getattr(self.model.mixed_precision, "param_dtype", next(self.model.parameters()).dtype)
+            dtype = getattr(
+                self.model.mixed_precision, "param_dtype", next(self.model.parameters()).dtype
+            )
         else:
             dtype = next(self.model.parameters()).dtype
 
@@ -224,18 +226,26 @@ class DPOTrainer(BaseTrainer):
                 concat_position_ids = torch.cat([chosen_position_ids, rejected_position_ids], dim=0)
             elif chosen_position_ids is not None or rejected_position_ids is not None:
                 # Handle cases where only one is provided, or raise an error if they must be paired
-                self.logger.warning("Mismatched position_ids for chosen/rejected samples. Proceeding with caution.")
+                self.logger.warning(
+                    "Mismatched position_ids for chosen/rejected samples. Proceeding with caution."
+                )
 
             # Policy model forward
             if enable_grad:
-                concat_policy_logits = self.model(concat_input_ids, labels=None, position_ids=concat_position_ids)
+                concat_policy_logits = self.model(
+                    concat_input_ids, labels=None, position_ids=concat_position_ids
+                )
             else:
                 with torch.no_grad():
-                    concat_policy_logits = self.model(concat_input_ids, labels=None, position_ids=concat_position_ids)
+                    concat_policy_logits = self.model(
+                        concat_input_ids, labels=None, position_ids=concat_position_ids
+                    )
 
             # Reference model forward (always no_grad)
             with torch.no_grad():
-                concat_ref_logits = self.reference_model(concat_input_ids, labels=None, position_ids=concat_position_ids).detach()
+                concat_ref_logits = self.reference_model(
+                    concat_input_ids, labels=None, position_ids=concat_position_ids
+                ).detach()
 
             # Split back into chosen and rejected
             chosen_policy_logits = concat_policy_logits[:batch_size]
@@ -249,16 +259,26 @@ class DPOTrainer(BaseTrainer):
         else:
             # Standard approach: 4 separate forward passes
             if enable_grad:
-                chosen_policy_logits = self.model(chosen_input_ids, labels=None, position_ids=chosen_position_ids)
-                rejected_policy_logits = self.model(rejected_input_ids, labels=None, position_ids=rejected_position_ids)
+                chosen_policy_logits = self.model(
+                    chosen_input_ids, labels=None, position_ids=chosen_position_ids
+                )
+                rejected_policy_logits = self.model(
+                    rejected_input_ids, labels=None, position_ids=rejected_position_ids
+                )
             else:
                 with torch.no_grad():
-                    chosen_policy_logits = self.model(chosen_input_ids, labels=None, position_ids=chosen_position_ids)
-                    rejected_policy_logits = self.model(rejected_input_ids, labels=None, position_ids=rejected_position_ids)
+                    chosen_policy_logits = self.model(
+                        chosen_input_ids, labels=None, position_ids=chosen_position_ids
+                    )
+                    rejected_policy_logits = self.model(
+                        rejected_input_ids, labels=None, position_ids=rejected_position_ids
+                    )
 
             # Reference model forward (always no_grad)
             with torch.no_grad():
-                chosen_ref_logits = self.reference_model(chosen_input_ids, labels=None, position_ids=chosen_position_ids).detach()
+                chosen_ref_logits = self.reference_model(
+                    chosen_input_ids, labels=None, position_ids=chosen_position_ids
+                ).detach()
                 rejected_ref_logits = self.reference_model(
                     rejected_input_ids, labels=None, position_ids=rejected_position_ids
                 ).detach()
