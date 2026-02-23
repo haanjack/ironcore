@@ -7,6 +7,45 @@
 # this list of conditions, and the following disclaimer are retained.
 #
 # Full license text is available at LICENSE file.
+# ruff: noqa: E402  # imports after warnings.warn() call for deprecation notice
+
+"""
+Legacy Trainer module.
+
+.. deprecated::
+    This module is deprecated. Use `ironcore.trainers.LanguageModelTrainer` or
+    `ironcore.trainers.DPOTrainer` instead. The new trainers provide:
+    - Better code organization with separate classes for different training modes
+    - Template method pattern for easier customization
+    - Improved error handling and NaN detection
+    - Better support for DPO and other alignment methods
+
+    Migration guide:
+        # Old (deprecated)
+        from ironcore.trainer import Trainer
+        trainer = Trainer(config, forward_step_func, loss_fn)
+
+        # New (recommended)
+        from ironcore.trainers import LanguageModelTrainer, DPOTrainer
+        if task_type in ("pretrain", "sft"):
+            trainer = LanguageModelTrainer(config, forward_step_func, loss_fn)
+        elif task_type == "dpo":
+            trainer = DPOTrainer(config, forward_step_func, loss_fn)
+
+    This module will be removed in a future version.
+"""
+
+import warnings
+
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "The 'ironcore.trainer.Trainer' class is deprecated. "
+    "Use 'ironcore.trainers.LanguageModelTrainer' for pretraining/SFT or "
+    "'ironcore.trainers.DPOTrainer' for DPO training instead. "
+    "See the module docstring for migration guide.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import math
 import random
@@ -54,7 +93,12 @@ from ironcore.utils import (
 
 
 class Trainer:
-    """Trainer for given language model."""
+    """Trainer for given language model.
+
+    .. deprecated::
+        Use `ironcore.trainers.LanguageModelTrainer` or `ironcore.trainers.DPOTrainer`
+        instead. This class is maintained for backward compatibility only.
+    """
 
     def __init__(
         self,
@@ -62,7 +106,11 @@ class Trainer:
         forward_step_func,
         loss_fn,
     ):
-        """Create Trainer"""
+        """Create Trainer
+
+        .. deprecated::
+            Use LanguageModelTrainer or DPOTrainer instead.
+        """
 
         self.config = config
 

@@ -512,11 +512,13 @@ def get_streaming_data_iterator(config):
 
         # For IterableDataset, num_workers > 0 can cause issues with seeding
         # Set num_workers=0 for deterministic behavior
+        # pin_memory=True enables faster async H2D transfers for GPU training
         dataloader = DataLoader(
             dataset,
             batch_size=batch_size,
             collate_fn=collator,
             num_workers=0,  # Important for reproducibility with IterableDataset
+            pin_memory=True,
         )
 
         # For train: already infinite, so just create iterator

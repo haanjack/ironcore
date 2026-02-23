@@ -98,6 +98,9 @@ class UniversalCollator:
         # Sort by length (descending) for better packing
         samples.sort(key=lambda x: len(x[0]), reverse=True)
 
+        # Pre-create range tensor for position_ids (avoids torch.arange in loop)
+        position_range = torch.arange(self.max_seq_len, dtype=torch.long)
+
         # Bin-packing: First-Fit Decreasing
         bins = []  # Each bin: [(token_ids, metadata), ...]
         bin_lengths = []  # Current length of each bin
@@ -149,6 +152,14 @@ class UniversalCollator:
                 sample_len = len(token_ids)
                 mask_ranges = metadata.get("mask_ranges", [])
 
+                # Truncate if sample exceeds remaining space in this row.
+                # position_ids needs sample_len slots; input_ids/labels need sample_len-1.
+                # So the binding constraint is sample_len <= max_seq_len - current_pos.
+                available = self.max_seq_len - current_pos
+                if sample_len > available:
+                    token_ids = token_ids[:available]
+                    sample_len = available
+
                 # Copy tokens
                 input_ids[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[:-1]
                 labels[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[1:]
@@ -161,9 +172,9 @@ class UniversalCollator:
                     labels[batch_idx, mask_start:mask_end] = -100
 
                 # Position IDs reset for each sample
-                position_ids[batch_idx, current_pos : current_pos + sample_len] = torch.arange(
-                    sample_len
-                )
+                position_ids[batch_idx, current_pos : current_pos + sample_len] = position_range[
+                    :sample_len
+                ]
 
                 # Block-diagonal attention mask
                 if self.return_full_attention_mask:
@@ -198,23 +209,51 @@ class UniversalCollator:
         Collate DPO batch.
 
         Groups chosen/rejected pairs and returns separate tensors.
+
+        Raises:
+            ValueError: If batch doesn't contain paired chosen/rejected samples
         """
         # Separate chosen and rejected
         chosen_samples = [s for s in batch if s["metadata"]["type"] == "dpo_chosen"]
         rejected_samples = [s for s in batch if s["metadata"]["type"] == "dpo_rejected"]
 
+        # Extract metadata for better error messages
+        all_sample_types = [s["metadata"].get("type", "unknown") for s in batch]
+        type_counts = {}
+        for sample_type in all_sample_types:
+            type_counts[sample_type] = type_counts.get(sample_type, 0) + 1
+
+        # Validation: DPO requires paired data
+        if len(chosen_samples) == 0:
+            raise ValueError(
+                f"DPO batch contains no chosen samples (dpo_chosen). "
+                f"Batch contains {len(batch)} total samples with types: {type_counts}. "
+                f"Check data pipeline: all pairs must have 'dpo_chosen' type."
+            )
+        if len(rejected_samples) == 0:
+            raise ValueError(
+                f"DPO batch contains no rejected samples (dpo_rejected). "
+                f"Batch contains {len(batch)} total samples with types: {type_counts}. "
+                f"Check data pipeline: all pairs must have 'dpo_rejected' type."
+            )
+        if len(chosen_samples) != len(rejected_samples):
+            raise ValueError(
+                f"DPO batch has mismatched pairs: {len(chosen_samples)} chosen vs {len(rejected_samples)} rejected. "
+                f"Batch composition: {type_counts}. "
+                f"Each chosen sample must have a corresponding rejected pair. "
+                f"Total samples in batch: {len(batch)}"
+            )
+
         # Collate each separately using SFT logic
-        chosen_batch = self._collate_sft(chosen_samples) if chosen_samples else None
-        rejected_batch = self._collate_sft(rejected_samples) if rejected_samples else None
+        chosen_batch = self._collate_sft(chosen_samples)
+        rejected_batch = self._collate_sft(rejected_samples)
 
         # Prefix keys
         output = {}
-        if chosen_batch:
-            for k, v in chosen_batch.items():
-                output[f"chosen_{k}"] = v
-        if rejected_batch:
-            for k, v in rejected_batch.items():
-                output[f"rejected_{k}"] = v
+        for k, v in chosen_batch.items():
+            output[f"chosen_{k}"] = v
+        for k, v in rejected_batch.items():
+            output[f"rejected_{k}"] = v
 
         return output
 

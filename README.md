@@ -2,16 +2,17 @@
 
 **Personal LLM Training Framework for Learning & Experimentation**
 
-IronCore is a personal project for practicing AI development and testing training algorithms. Built from scratch to understand the internals of LLM training:
-- **Learning by Building**: Hands-on implementation of distributed training, parallelism strategies, and optimization techniques
-- **Algorithm Testing**: Playground for experimenting with training methods and model architectures
-- **Unified Data Pipeline**: Single preprocessing system for pretrain, SFT, and DPO tasks
-- **Consumer Hardware**: Developed on Dual RTX 3090 (with NVLINK!!)
-- **RL Integration**: Bridge training and inference for RLHF/RLAIF experiments - not yet
-- **Inference Engine**: Integrate rollout and evaluation capabilities - not yet
-- **DSL Experimentation**: Testing Triton kernels and low-level optimizations (with or without agent) - not yet
+A personal project for practicing AI development and testing training algorithms. I built this from scratch to understand LLM training internals:
 
-This project inspired by NVIDIA Megatron-LM and HuggingFace's Transformers.
+- Learning by building: distributed training, parallelism, optimization
+- Algorithm playground for training methods and model architectures
+- Unified preprocessing for pretrain, SFT, and DPO tasks
+- Runs on dual RTX 3090 (with NVLINK)
+- RL integration for RLHF/RLAIF - planned
+- Inference engine for rollout/evaluation - planned
+- Triton kernels and low-level optimizations - planned
+
+Inspired by NVIDIA Megatron-LM and HuggingFace Transformers.
 
 
 ## Installation
@@ -92,7 +93,7 @@ torchrun --nproc_per_node 8 --nnodes 2 --node_rank 0 \
 
 ## Configuration
 
-IronCore uses a hierarchical YAML configuration system with the following groups:
+Configuration groups:
 
 | Group | Description |
 |-------|-------------|
@@ -106,7 +107,7 @@ IronCore uses a hierarchical YAML configuration system with the following groups
 
 ### Supported Model Architectures
 
-IronCore uses a unified `TransformerModel` that supports multiple architectures through configuration. Model-specific components (normalization, activation functions, attention patterns) are configured via YAML files.
+A unified `TransformerModel` supports multiple architectures. Model-specific components (normalization, activation, attention) are configured via YAML.
 
 **Supported Models:**
 - **GPT**: `gpt2-small`, `gpt2-medium`, `gpt2-large`, `gpt2-xl`, `gpt3`

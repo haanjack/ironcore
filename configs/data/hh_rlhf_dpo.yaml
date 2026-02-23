@@ -1,0 +1,26 @@
+# Data config for DPO on Anthropic HH-RLHF (local processed version)
+
+train_datasets:
+  - name: hh_rlhf_dpo_train
+    source: data/local/hh_rlhf/dpo_train.jsonl
+    task_type: dpo
+    ratio: 1.0
+    split: train
+    chosen_column: chosen
+    rejected_column: rejected
+    chat_template: "{% for message in messages %}{% if message['role'] == 'user' %}\n\nHuman: {{ message['content'] }}{% elif message['role'] == 'assistant' %}\n\nAssistant: {{ message['content'] }}{% endif %}{% endfor %}{% if add_generation_prompt %}\n\nAssistant:{% endif %}"
+
+eval_datasets:
+  - name: hh_rlhf_dpo_test
+    source: data/local/hh_rlhf/dpo_test.jsonl
+    task_type: dpo
+    ratio: 1.0
+    split: train
+    chosen_column: chosen
+    rejected_column: rejected
+    chat_template: "{% for message in messages %}{% if message['role'] == 'user' %}\n\nHuman: {{ message['content'] }}{% elif message['role'] == 'assistant' %}\n\nAssistant: {{ message['content'] }}{% endif %}{% endfor %}{% if add_generation_prompt %}\n\nAssistant:{% endif %}"
+
+# Use GPT2 tokenizer
+vocab_name_or_path: gpt2-medium
+tokenizer_type: bbpe
+seq_length: 1024

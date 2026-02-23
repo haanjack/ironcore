@@ -10,7 +10,7 @@
 
 import os
 from argparse import ArgumentParser, Namespace
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Optional, Union, get_args, get_origin
 
@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from ironcore.utils import load_yaml_config
 
 from .config import BaseConfig
+from .config_alignment import AlignmentConfig
 from .config_data import DataConfig
 from .config_model import ModelConfig
 from .config_optim import OptimConfig
@@ -70,6 +71,7 @@ class MainConfig(BaseConfig):
     utils: UtilsConfig
     profiler: ProfilerConfig
     peft: PEFTConfig
+    alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
 
 
 def _config_validation(config: MainConfig):
@@ -82,9 +84,10 @@ def _config_validation(config: MainConfig):
         config.trainer.tensor_model_parallel_size * config.trainer.pipeline_model_parallel_size
     )
     dp_world_size = config.parallel.world_size // dp_group_size
-    assert dp_world_size > 0, (
-        f"World size ({config.parallel.world_size}) is smaller than single data parallelism group size ({dp_group_size})"
-    )
+    if dp_world_size <= 0:
+        raise ValueError(
+            f"World size ({config.parallel.world_size}) is smaller than single data parallelism group size ({dp_group_size})"
+        )
 
     # batch size validation
     if [
@@ -109,9 +112,10 @@ def _config_validation(config: MainConfig):
                 // dp_world_size
             )
 
-        assert (
-            config.trainer.train_batch_size % (config.trainer.micro_batch_size * dp_world_size) == 0
-        ), "train_batch_size should be divisible by micro_batch_size * data parallelism group size"
+        if config.trainer.train_batch_size % (config.trainer.micro_batch_size * dp_world_size) != 0:
+            raise ValueError(
+                "train_batch_size should be divisible by micro_batch_size * data parallelism group size"
+            )
     elif [
         config.trainer.micro_batch_size,
         config.trainer.train_batch_size,
@@ -222,73 +226,6 @@ def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
     return output_list
 
 
-# data config
-def _update_config_from_yaml(config: dataclass, config_group_key: str, config_group: dict):
-    """update config from yaml config file."""
-
-    # get config from yaml
-    config_dict_item = asdict(config)[config_group_key]
-    for yaml_config_key, yaml_config_value in config_group.items():
-        assert yaml_config_key in config_dict_item, (
-            f"{yaml_config_key} is not defined in {config_group_key}. Check yaml config file."
-        )
-        config_dict_item[yaml_config_key] = yaml_config_value
-
-    # update config
-    getattr(config, config_group_key)(**config_dict_item)
-
-
-def _update_data_config_from_yaml(config: dataclass, config_group_key, config_group: dict):
-    """update data config from yaml config file."""
-
-    for sub_group_key, sub_group_value in config_group.items():
-        if sub_group_key in ["train", "eval", "test"]:
-            sub_group_key = f"{sub_group_key}_datasets"
-            # config.data.__dict__[sub_group_key
-            data_group_config = load_data_config(config, sub_group_value)
-            setattr(config.data, sub_group_key, data_group_config)
-        else:
-            assert sub_group_key in config_group, (
-                f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
-            )
-            # config.data.__dict__[sub_group_key] = sub_group_value
-            setattr(config.data, sub_group_key, sub_group_value)
-
-
-def _load_config_from_yaml(config: dataclass, args):
-    """
-    load config from yaml config file.
-    """
-    yaml_config = load_yaml_config(args.config_path)
-    config_dict = asdict(config)
-    # load configs from yaml
-    for yaml_config_group_key, yaml_config_group in yaml_config.items():
-        # check if config group is defined
-        assert yaml_config_group_key in config_dict, (
-            f"{yaml_config_group_key} is not defined configuration group"
-        )
-
-        if yaml_config_group is None:
-            getattr(config, yaml_config_group_key).attr_name = "dummy"
-
-        # load configs from subsidary yaml config files
-        if isinstance(yaml_config_group, str):
-            # load sub-config defined in seperated file: model and data config
-            sub_group_config_path = (
-                Path(args.config_path).parent / f"{yaml_config_group_key}/{yaml_config_group}.yaml"
-            )
-            sub_group_config = load_yaml_config(sub_group_config_path)
-
-            if yaml_config_group_key == "data":
-                _update_data_config_from_yaml(config, yaml_config_group_key, sub_group_config)
-            else:
-                _update_config_from_yaml(config, yaml_config_group_key, sub_group_config)
-                getattr(config, yaml_config_group_key).attr_name = yaml_config_group
-        else:
-            # load configs: trainer, optimizer, etc
-            _update_config_from_yaml(config, yaml_config_group_key, yaml_config_group)
-
-
 def _update_config_from_args(config: dataclass, args):
     """update config from command line using recursive dot-notation."""
 
@@ -348,9 +285,10 @@ def _update_config_from_yaml(config: dataclass, config_group_key: str, config_gr
     # get config from yaml
     config_dict_item = asdict(config)[config_group_key]
     for yaml_config_key, yaml_config_value in config_group.items():
-        assert yaml_config_key in config_dict_item, (
-            f"{yaml_config_key} is not defined in {config_group_key} config. Check yaml config file."
-        )
+        if yaml_config_key not in config_dict_item:
+            raise ValueError(
+                f"{yaml_config_key} is not defined in {config_group_key} config. Check yaml config file."
+            )
         config_dict_item[yaml_config_key] = yaml_config_value
 
     # update config
@@ -363,13 +301,14 @@ def _update_data_config_from_yaml(config: dataclass, config_group_key, config_gr
     for sub_group_key, sub_group_value in config_group.items():
         if sub_group_key in ["train", "eval", "test"]:
             sub_group_key = f"{sub_group_key}_datasets"
-            config.data.__dict__[sub_group_key] = load_data_config(config, sub_group_value)
+            setattr(config.data, sub_group_key, load_data_config(config, sub_group_value))
         else:
             # update arguments for DataConfig class
-            assert sub_group_key in config_group, (
-                f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
-            )
-            config.data.__dict__[sub_group_key] = sub_group_value
+            if sub_group_key not in config_group:
+                raise ValueError(
+                    f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
+                )
+            setattr(config.data, sub_group_key, sub_group_value)
 
 
 def _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config):
@@ -409,9 +348,8 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
     # load configs from yaml
     for config_group_key, sub_group_config in yaml_config.items():
         # check if config group is defined
-        assert config_group_key in config_dict, (
-            f"{config_group_key} is not defined configuration group"
-        )
+        if config_group_key not in config_dict:
+            raise ValueError(f"{config_group_key} is not defined configuration group")
 
         # load configs from yaml
         if isinstance(sub_group_config, str):
@@ -464,6 +402,7 @@ def load_trainer_config() -> MainConfig:
         utils=UtilsConfig(),
         profiler=ProfilerConfig(),
         peft=PEFTConfig(),
+        alignment=AlignmentConfig(),
     )
 
     # get config from command line

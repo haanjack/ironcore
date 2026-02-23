@@ -1,0 +1,11 @@
+# DPO (Direct Preference Optimization) Configuration
+# This config should be referenced in your main training config with:
+# alignment: dpo_default
+
+# DPO hyperparameters
+dpo_beta: 0.5  # Temperature parameter (higher = more conservative preference learning)
+dpo_label_smoothing: 0.0  # Label smoothing factor (0.0 = hard targets, >0 = soft targets)
+
+# Performance optimization
+concat_forward_passes: true  # Concatenate chosen/rejected for fewer forward passes
+                            # Recommended: true (provides ~2x speedup)

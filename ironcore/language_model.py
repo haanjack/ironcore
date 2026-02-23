@@ -60,13 +60,20 @@ class LanguageModel(BaseModule):
         if hasattr(self.embedding.word_embeddings, "init_weight"):
             self.embedding.word_embeddings.init_weight()
 
-    def forward(self, input_ids, labels=None):
+    def forward(self, input_ids, labels=None, position_ids=None):
 
         input_ids = input_ids.to(self.device, non_blocking=True)
         if labels is not None:
             labels = labels.to(self.device, non_blocking=True)
 
-        attention_mask, position_ids, loss_mask = self.get_masks_and_position_ids(input_ids, labels)
+        attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
+            input_ids, labels
+        )
+        # Use provided position_ids if available (for bin-packed sequences), otherwise use computed ones
+        if position_ids is None:
+            position_ids = computed_position_ids
+        else:
+            position_ids = position_ids.to(self.device, non_blocking=True)
 
         # input_ids: [b s]
         # attention_mask: [b, 1, s, s]
