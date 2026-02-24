@@ -94,6 +94,120 @@ class HFConfigManager:
         return hf_config
 
 
+def _is_distributed_optimizer(optimizer):
+    """Check if optimizer is a DistributedOptimizer wrapper."""
+    return hasattr(optimizer, "optimizer") and hasattr(optimizer, "local_param_indices")
+
+
+def _gather_distributed_optimizer_states(optimizer, model, dp_group):
+    """Gather partitioned optimizer states from all DP ranks for universal checkpoint.
+
+    Args:
+        optimizer: DistributedOptimizer instance
+        model: The model (for parameter mapping)
+        dp_group: Data parallel process group
+
+    Returns:
+        dict: Full optimizer state dict with all parameters
+    """
+    dp_size = dist.get_world_size(group=dp_group)
+    dp_rank = dist.get_rank(group=dp_group)
+
+    # Get parameter list in same order as DistributedOptimizer
+    all_params = []
+    for group in optimizer.optimizer.param_groups:
+        for p in group["params"]:
+            all_params.append(p)
+
+    # Build full state dict by gathering from all ranks
+    full_state = {"state": {}, "param_groups": optimizer.optimizer.state_dict()["param_groups"]}
+
+    for param_idx, param in enumerate(all_params):
+        owner_rank = param_idx % dp_size
+
+        # Get param name for the state dict key
+        param_name = None
+        for name, p in model.named_parameters():
+            if p is param:
+                param_name = name
+                break
+
+        if param_name is None:
+            continue
+
+        if dp_rank == owner_rank:
+            # This rank owns the state - get it
+            local_state = optimizer.optimizer.state.get(param, {})
+            # Serialize state for broadcast
+            state_dict = {}
+            for k, v in local_state.items():
+                if isinstance(v, torch.Tensor):
+                    state_dict[k] = v.cpu()
+                else:
+                    state_dict[k] = v
+        else:
+            state_dict = None
+
+        # Broadcast state from owner to all ranks
+        state_list = [state_dict]
+        dist.broadcast_object_list(state_list, src=owner_rank, group=dp_group)
+        full_state["state"][param_name] = state_list[0]
+
+    return full_state
+
+
+def _partition_optimizer_states_for_load(optimizer, full_state_dict, model):
+    """Partition full optimizer state dict for DistributedOptimizer.
+
+    Takes a complete optimizer state dict and filters it to only include
+    states for parameters owned by this DP rank.
+
+    Args:
+        optimizer: DistributedOptimizer instance
+        full_state_dict: Complete optimizer state dict
+        model: The model (for parameter mapping)
+
+    Returns:
+        dict: Partitioned optimizer state dict
+    """
+    # Get parameter list in same order as DistributedOptimizer
+    all_params = []
+    for group in optimizer.optimizer.param_groups:
+        for p in group["params"]:
+            all_params.append(p)
+
+    # Build partitioned state
+    partitioned_state = {
+        "state": {},
+        "param_groups": full_state_dict["param_groups"],
+    }
+
+    for param_idx, param in enumerate(all_params):
+        if param_idx not in optimizer.local_param_indices:
+            continue  # Skip params not owned by this rank
+
+        # Find param name
+        param_name = None
+        for name, p in model.named_parameters():
+            if p is param:
+                param_name = name
+                break
+
+        if param_name is None or param_name not in full_state_dict["state"]:
+            continue
+
+        # Copy state for this parameter
+        state = full_state_dict["state"][param_name]
+        partitioned_state["state"][param] = {}
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                partitioned_state["state"][param][k] = v.to(param.device)
+            else:
+                partitioned_state["state"][param][k] = v
+
+    return partitioned_state
+
+
 def load_checkpoint(
     config: MainConfig,
     model: torch.nn.Module,
@@ -327,7 +441,19 @@ def load_checkpoint(
                             param
                         ][state_key].reshape(param.shape)
 
-            optimizer.load_state_dict(loaded_optim_state)
+            # Handle DistributedOptimizer: partition state for local rank
+            is_dist_opt = _is_distributed_optimizer(optimizer)
+            if is_dist_opt and not load_dist_ckpt:
+                # Universal checkpoint: partition full state for this DP rank
+                loaded_optim_state = _partition_optimizer_states_for_load(
+                    optimizer, loaded_optim_state, model
+                )
+                optimizer.optimizer.load_state_dict(loaded_optim_state)
+            elif is_dist_opt and load_dist_ckpt:
+                # Distributed checkpoint: load local partition directly
+                optimizer.optimizer.load_state_dict(loaded_optim_state)
+            else:
+                optimizer.load_state_dict(loaded_optim_state)
 
     if config.optim.load_checkpoint_lr_scheduler and lr_scheduler is not None:
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
@@ -427,12 +553,22 @@ def save_checkpoint(
         model_state_dict[name] = output_param
 
     # optimizer state - build dict keyed by parameter name (not integer index)
-    optimizer_state_dict_by_name = {
-        "state": {},
-        "param_groups": optimizer.state_dict()["param_groups"],
-    }
-    for _i, (name, param) in enumerate(model.named_parameters()):
-        optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
+    is_dist_opt = _is_distributed_optimizer(optimizer)
+
+    if is_dist_opt and not config.operation.save_dist_ckpt:
+        # DistributedOptimizer with universal checkpoint: gather from all DP ranks
+        dp_group = parallel_states.get_data_parallel_group()
+        optimizer_state_dict_by_name = _gather_distributed_optimizer_states(
+            optimizer, model, dp_group
+        )
+    else:
+        # Standard optimizer or distributed checkpoint: use local state
+        optimizer_state_dict_by_name = {
+            "state": {},
+            "param_groups": optimizer.state_dict()["param_groups"],
+        }
+        for _i, (name, param) in enumerate(model.named_parameters()):
+            optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
 
     # For universal checkpoints, gather TP-sharded optimizer states
     final_optimizer_state = optimizer_state_dict_by_name

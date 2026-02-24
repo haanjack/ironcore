@@ -149,6 +149,21 @@ def _config_validation(config: MainConfig):
     if not torch.cuda.is_available() and config.trainer.tensor_model_parallel_size > 1:
         raise ValueError("tensor_model_parallel_size should be 1 in non-CUDA environments")
 
+    # DistributedOptimizer validation
+    if config.parallel.use_distributed_optimizer:
+        if config.parallel.use_fsdp:
+            raise ValueError(
+                "use_distributed_optimizer is incompatible with FSDP. "
+                "Use FSDP's built-in sharding (fsdp_sharding_strategy) instead."
+            )
+        if dp_world_size <= 1:
+            import warnings
+            warnings.warn(
+                "use_distributed_optimizer is enabled but DP world size is 1. "
+                "No optimizer state partitioning will occur. "
+                "Increase world_size or decrease tensor_model_parallel_size to enable partitioning."
+            )
+
 
 # arguments utilities
 def parse_args():

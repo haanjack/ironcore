@@ -9,6 +9,7 @@ from torch.optim import AdamW, Optimizer
 
 from ironcore.config import MainConfig
 from ironcore.global_vars import get_logger
+from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 from ironcore.optimizer.optimizer import AdamWOptimizer
 from ironcore.peft.utils import freeze_base_model
 
