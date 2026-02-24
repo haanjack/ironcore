@@ -168,6 +168,16 @@ class BaseTrainer(ABC):
         optimizer = get_optimizer(self.config, model, device_type=device)
         self.logger.info("Created Optimizer")
 
+        # Wrap with DistributedOptimizer if requested (after optimizer creation, before parallelism)
+        if self.config.parallel.use_distributed_optimizer:
+            from ironcore.optimizer import DistributedOptimizer
+
+            optimizer = DistributedOptimizer(
+                optimizer,
+                process_group=get_data_parallel_group(),
+            )
+            self.logger.info("Wrapped optimizer with DistributedOptimizer for state partitioning")
+
         # Enable profiling if requested
         if self.config.profiler.gpu_profiler:
             model.register_profile_hooks(profile_nsys=True)
