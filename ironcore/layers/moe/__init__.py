@@ -29,7 +29,7 @@ Add a `moe` section to your model config YAML:
 
 Then use with the trainer:
 
-    python -m ironcore.trainer --config configs/train.yaml
+    python -m ironcore train --config configs/train.yaml
 
 Key Parameters:
     - num_shared_experts: Always active, process all tokens (e.g., 2)
