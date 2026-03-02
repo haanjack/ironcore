@@ -4,7 +4,7 @@
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the above copyright notice,
-# this list of conditions and and the following disclaimer are retained.
+# this list of conditions and the following disclaimer are retained.
 #
 # Full license text is available at LICENSE file.
 
@@ -18,7 +18,7 @@ Tests:
 1. KV cache shape comparison (TP=1 vs TP=2 configurations)
 2. Head distribution validation
 3. Simulated TP sharding correctness
-4. Full inference comparison (requires multi-GPU)
+4. Stateful cache integration
 """
 
 import pytest
@@ -38,16 +38,13 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
-from ironcore.layers.paged_attention import PagedKVCache
+from ironcore.layers.kv_cache import KVCacheManager
 from ironcore.parallel import parallel_states
 
 # Check CUDA availability
 CUDA_AVAILABLE = torch.cuda.is_available()
 NUM_GPUS = torch.cuda.device_count() if CUDA_AVAILABLE else 0
 CAN_RUN_MULTI_GPU = NUM_GPUS >= 2
-
-# Initialize parallel states for testing (TP=1)
-parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
 
 
 def create_config(tp_size: int, num_kv_groups: int = 4) -> MainConfig:
@@ -56,9 +53,6 @@ def create_config(tp_size: int, num_kv_groups: int = 4) -> MainConfig:
         enabled=True,
         max_batch_size=4,
         max_seq_length=256,
-        use_paged_attention=True,
-        page_size=16,
-        max_num_pages=128,
     )
 
     pos_emb_config = PositionalEmbeddingConfig(type="rope")
@@ -141,11 +135,11 @@ class TestKVCacheShapeComparison:
         assert expected_local_tp1 == 4
         assert expected_local_tp2 == 2
 
-    def test_paged_cache_shape_tp_comparison(self):
+    def test_cache_manager_shape_tp_comparison(self):
         """
-        Test: Compare paged KV cache shapes between TP configurations.
+        Test: Compare KVCacheManager shapes between TP configurations.
 
-        Physical cache shape: [pages, num_local_kv_groups, page_size, head_dim]
+        Cache shape: [batch, num_local_kv_groups, max_seq_len, head_dim]
         """
         num_kv_groups = 4
         num_layers = 2
@@ -153,11 +147,16 @@ class TestKVCacheShapeComparison:
 
         # TP=1 cache
         config_tp1 = create_config(tp_size=1, num_kv_groups=num_kv_groups)
-        cache_tp1 = PagedKVCache(config_tp1)
-        cache_tp1.initialize(num_layers=num_layers, device=device)
+        cache_tp1 = KVCacheManager(config_tp1)
+        cache_tp1.initialize(
+            batch_size=2,
+            num_layers=num_layers,
+            device=device,
+        )
 
         # Verify TP=1 cache shape
-        for key_cache in cache_tp1.physical_key_caches:
+        for key_cache in cache_tp1.key_caches:
+            # Shape: [batch, num_local_kv_groups, max_seq_len, head_dim]
             assert key_cache.shape[1] == 4  # num_local_kv_groups for TP=1
 
         # Note: TP=2 cache would need parallel_states to be initialized with TP=2
@@ -250,137 +249,91 @@ class TestTPShardingSimulation:
         assert rank1_kv.shape == (batch_size, seq_len, 2, head_dim)
 
 
-class TestTPNumericalEquivalence:
-    """Test numerical equivalence between TP configurations."""
+class TestStatefulCacheIntegration:
+    """Test stateful cache integration with transformer layers."""
 
-    @pytest.mark.skipif(not CUDA_AVAILABLE, reason="Requires CUDA")
-    def test_paged_attention_tp1_vs_tp2_simulation(self):
-        """
-        Test: Simulate TP=1 vs TP=2 paged attention comparison.
-
-        This test simulates what TP=2 would compute by manually sharding
-        the attention computation and comparing results.
-        """
-        from ironcore.layers.triton_paged_attention import (
-            TRITON_AVAILABLE,
-            python_paged_attention,
-        )
-
-        if not TRITON_AVAILABLE:
-            pytest.skip("Triton not available")
-
-        device = torch.device("cuda")
-        torch.manual_seed(42)
-
-        # Setup
-        batch_size = 1
-        num_heads = 8
-        num_kv_heads = 4
-        head_dim = 64
-        page_size = 4
-
-        # Create test data
-        query = torch.randn(batch_size, 1, num_heads, head_dim, device=device)
-        key_cache = torch.randn(4, num_kv_heads, page_size, head_dim, device=device)
-        value_cache = torch.randn(4, num_kv_heads, page_size, head_dim, device=device)
-        block_tables = torch.tensor([[0, 1]], dtype=torch.long, device=device)
-        context_lens = torch.tensor([6], dtype=torch.long, device=device)
-
-        # Compute full attention (TP=1 style)
-        full_output = python_paged_attention(
-            query=query,
-            key_cache=key_cache,
-            value_cache=value_cache,
-            block_tables=block_tables,
-            context_lens=context_lens,
-            num_heads=num_heads,
-            num_kv_heads=num_kv_heads,
-            page_size=page_size,
-        )
-
-        # Simulate TP=2: shard query and KV
-        tp_size = 2
-        local_heads = num_heads // tp_size
-        local_kv_heads = num_kv_heads // tp_size
-
-        # Rank 0 computation
-        rank0_query = query[:, :, :local_heads, :]
-        rank0_key_cache = key_cache[:, :local_kv_heads, :, :]
-        rank0_value_cache = value_cache[:, :local_kv_heads, :, :]
-
-        rank0_output = python_paged_attention(
-            query=rank0_query,
-            key_cache=rank0_key_cache,
-            value_cache=rank0_value_cache,
-            block_tables=block_tables,
-            context_lens=context_lens,
-            num_heads=local_heads,
-            num_kv_heads=local_kv_heads,
-            page_size=page_size,
-        )
-
-        # Rank 1 computation
-        rank1_query = query[:, :, local_heads:, :]
-        rank1_key_cache = key_cache[:, local_kv_heads:, :, :]
-        rank1_value_cache = value_cache[:, local_kv_heads:, :, :]
-
-        rank1_output = python_paged_attention(
-            query=rank1_query,
-            key_cache=rank1_key_cache,
-            value_cache=rank1_value_cache,
-            block_tables=block_tables,
-            context_lens=context_lens,
-            num_heads=local_heads,
-            num_kv_heads=local_kv_heads,
-            page_size=page_size,
-        )
-
-        # Concatenate outputs (simulating all-gather/reduce)
-        tp2_simulated_output = torch.cat([rank0_output, rank1_output], dim=2)
-
-        # Compare - should be numerically equivalent
-        torch.testing.assert_close(
-            full_output,
-            tp2_simulated_output,
-            rtol=1e-4,
-            atol=1e-5,
-        )
-
-
-class TestTPCacheValidation:
-    """Test TP configuration validation."""
-
-    def test_valid_tp_config_passes(self):
-        """Test that valid TP configurations pass validation."""
-        from ironcore.layers.triton_paged_attention import validate_tp_config
-
-        # Valid configurations
-        validate_tp_config(num_kv_heads=4, tp_size=1)
-        validate_tp_config(num_kv_heads=4, tp_size=2)
-        validate_tp_config(num_kv_heads=4, tp_size=4)
-        validate_tp_config(num_kv_heads=8, tp_size=2)
-
-    def test_invalid_tp_config_fails(self):
-        """Test that invalid TP configurations fail validation."""
-        from ironcore.layers.triton_paged_attention import validate_tp_config
-
-        # num_kv_heads < tp_size
-        with pytest.raises(ValueError, match="must be >="):
-            validate_tp_config(num_kv_heads=2, tp_size=4)
-
-        # num_kv_heads not divisible by tp_size
-        with pytest.raises(ValueError, match="must be divisible"):
-            validate_tp_config(num_kv_heads=3, tp_size=2)
-
-    def test_paged_cache_validation_on_initialize(self):
-        """Test that PagedKVCache validates TP config on initialize."""
-        # This config has 4 KV groups and TP=1, which is valid
+    def test_cache_manager_lifecycle(self):
+        """Test KVCacheManager lifecycle: initialize, update, reset."""
         config = create_config(tp_size=1, num_kv_groups=4)
-        cache = PagedKVCache(config)
+        cache = KVCacheManager(config)
 
-        # Should not raise
-        cache.initialize(num_layers=2, device=torch.device("cpu"))
+        # Initially not initialized
+        assert not cache.is_initialized
+
+        # Initialize
+        cache.initialize(
+            batch_size=2,
+            num_layers=2,
+            device=torch.device("cpu"),
+        )
         assert cache.is_initialized
+        assert len(cache.key_caches) == 2
+        assert len(cache.value_caches) == 2
+
+        # Update layer
+        key = torch.randn(2, 5, 4, 64)  # [batch, seq_len, num_kv_groups, head_dim]
+        value = torch.randn(2, 5, 4, 64)
+        full_key, full_value = cache.update_layer(
+            layer_idx=0,
+            key=key,
+            value=value,
+            position=0,
+        )
+        assert full_key.shape == (2, 5, 4, 64)
+        assert cache.get_cache_position(0) == 5
+
+        # Reset
+        cache.reset()
+        assert cache.get_cache_position(0) == 0
+
+    def test_cache_statistics(self):
+        """Test cache statistics reporting."""
+        config = create_config(tp_size=1, num_kv_groups=4)
+        cache = KVCacheManager(config)
+
+        # Before initialization
+        stats = cache.get_statistics()
+        assert stats["initialized"] is False
+
+        # After initialization
+        cache.initialize(
+            batch_size=2,
+            num_layers=2,
+            device=torch.device("cpu"),
+        )
+        stats = cache.get_statistics()
+        assert stats["initialized"] is True
+        assert stats["num_layers"] == 2
+        assert stats["batch_size"] == 2
+        assert stats["num_local_kv_groups"] == 4
+
+    def test_selective_reset(self):
+        """Test selective cache reset for continuous batching."""
+        config = create_config(tp_size=1, num_kv_groups=4)
+        cache = KVCacheManager(config)
+        cache.initialize(
+            batch_size=4,
+            num_layers=2,
+            device=torch.device("cpu"),
+        )
+
+        # Update all sequences
+        key = torch.randn(4, 5, 4, 64)
+        value = torch.randn(4, 5, 4, 64)
+        cache.update_layer(layer_idx=0, key=key, value=value, position=0)
+
+        # All positions should be at 5
+        assert cache.get_cache_position(0) == 5
+        assert cache.get_cache_position(2) == 5
+
+        # Reset only sequences 1 and 3
+        cache.reset(batch_indices=torch.tensor([1, 3]))
+
+        # Verify selective reset
+        assert cache.get_cache_position(0) == 5  # Not reset
+        assert cache.get_cache_position(1) == 0  # Reset
+        assert cache.get_cache_position(2) == 5  # Not reset
+        assert cache.get_cache_position(3) == 0  # Reset
 
 
 class TestMultiGPUInference:
