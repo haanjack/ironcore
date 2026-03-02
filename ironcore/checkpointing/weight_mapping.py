@@ -242,8 +242,8 @@ class WeightMapper:
                 kv = torch.cat([k, v], dim=0)  # ironcore uses fused KV
                 return (
                     (
-                        f"model.layers.{layer_idx}.self_attention.linear_q.weight",
-                        f"model.layers.{layer_idx}.self_attention.linear_kv.weight",
+                        f"model.layers.{layer_idx}.linear_q.weight",
+                        f"model.layers.{layer_idx}.linear_kv.weight",
                     ),
                     (q, kv),
                 )
@@ -253,8 +253,8 @@ class WeightMapper:
                 kv = torch.cat([k, v], dim=0)
                 return (
                     (
-                        f"model.layers.{layer_idx}.self_attention.linear_q.bias",
-                        f"model.layers.{layer_idx}.self_attention.linear_kv.bias",
+                        f"model.layers.{layer_idx}.linear_q.bias",
+                        f"model.layers.{layer_idx}.linear_kv.bias",
                     ),
                     (q, kv),
                 )
@@ -262,15 +262,15 @@ class WeightMapper:
             # Layer mappings that require transformation
             transform_mappings = {
                 "attn.c_proj.weight": (
-                    f"model.layers.{layer_idx}.self_attention.output.weight",
+                    f"model.layers.{layer_idx}.attn_output.weight",
                     lambda t: t.t(),
                 ),
                 "mlp.c_fc.weight": (
-                    f"model.layers.{layer_idx}.mlp.up_proj.weight",
+                    f"model.layers.{layer_idx}.mlp.linear_in.weight",
                     lambda t: t.t(),
                 ),
                 "mlp.c_proj.weight": (
-                    f"model.layers.{layer_idx}.mlp.down_proj.weight",
+                    f"model.layers.{layer_idx}.mlp.linear_out.weight",
                     lambda t: t.t(),
                 ),
             }
@@ -283,11 +283,11 @@ class WeightMapper:
             layer_simple_mappings = {
                 "ln_1.weight": f"model.layers.{layer_idx}.input_layernorm.weight",
                 "ln_1.bias": f"model.layers.{layer_idx}.input_layernorm.bias",
-                "attn.c_proj.bias": f"model.layers.{layer_idx}.self_attention.output.bias",
+                "attn.c_proj.bias": f"model.layers.{layer_idx}.attn_output.bias",
                 "ln_2.weight": f"model.layers.{layer_idx}.post_attn_layernorm.weight",
                 "ln_2.bias": f"model.layers.{layer_idx}.post_attn_layernorm.bias",
-                "mlp.c_fc.bias": f"model.layers.{layer_idx}.mlp.up_proj.bias",
-                "mlp.c_proj.bias": f"model.layers.{layer_idx}.mlp.down_proj.bias",
+                "mlp.c_fc.bias": f"model.layers.{layer_idx}.mlp.linear_in.bias",
+                "mlp.c_proj.bias": f"model.layers.{layer_idx}.mlp.linear_out.bias",
             }
 
             if layer_key in layer_simple_mappings:

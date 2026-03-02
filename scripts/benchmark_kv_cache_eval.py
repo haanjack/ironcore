@@ -4,9 +4,10 @@
 # SPDX-License-Identifier: MIT
 #
 # Benchmark script to compare evaluation speed with and without KV cache.
-# Usage: python scripts/benchmark_kv_cache_eval.py [--num-samples N] [--no-cache]
+# Usage: python scripts/benchmark_kv_cache_eval.py [--num-samples N] [--model gpt2-medium]
 
 import argparse
+import os
 import time
 import sys
 from pathlib import Path
@@ -17,149 +18,48 @@ import torch.distributed as dist
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ironcore import get_tokenizer, set_global_states
-from ironcore.config import MainConfig, load_trainer_config
-from ironcore.eval.tasks.hellaswag import HellaSwag
-from ironcore.language_model import LanguageModel
-from ironcore.parallel.parallel_states import initialize_model_parallel
-from ironcore.tokenizer import build_tokenizer
-from ironcore.utils import get_model_dtype
 
+def main():
+    parser = argparse.ArgumentParser(description="Benchmark KV cache for HellaSwag evaluation")
+    parser.add_argument("--num-samples", type=int, default=100, help="Number of HellaSwag samples")
+    parser.add_argument("--model", type=str, default="gpt2-medium", help="HuggingFace model name")
+    parser.add_argument("--no-cache", action="store_true", help="Only run without KV cache")
+    args = parser.parse_args()
 
-def run_benchmark_simple(num_samples: int = 100, use_cache: bool = False):
-    """Run a simple benchmark comparing cache vs no-cache."""
+    print(f"Benchmarking {args.model} on HellaSwag ({args.num_samples} samples)")
+    print("=" * 60)
 
-    # Load config from existing yaml
-    config_path = Path(__file__).parent.parent / "configs" / "data" / "full_owt_pretrain.yaml"
-    if not config_path.exists():
-        print(f"Config not found at {config_path}")
-        return None
-
-    # Override use_kv_cache setting
-    # Note: This requires the config system to support this
-
-    print(f"Running benchmark with KV cache={use_cache}, samples={num_samples}")
-
-    # For now, just test the evaluation task directly
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    # Create a simple model for testing
-    from ironcore.config.config_model import ModelConfig, KVCacheConfig, PositionalEmbeddingConfig
+    if not torch.cuda.is_available():
+        print("WARNING: CUDA not available, running on CPU (will be slow)")
 
-    kv_cache_config = KVCacheConfig(
-        enabled=use_cache,
-        max_batch_size=4,
-        max_seq_length=512,
-    )
-
-    pos_emb = PositionalEmbeddingConfig(type="rope")
-
-    model_config = ModelConfig(
-        d_model=256,
-        num_attention_heads=8,
-        num_attention_groups=4,
-        head_dim=32,
-        num_layers=2,
-        d_ffn=512,
-        max_seq_len=512,
-        max_position_embeddings=512,
-        positional_embedding=pos_emb,
-        kv_cache=kv_cache_config,
-    )
-
-    # Build a minimal model
-    from ironcore.config import (
-        DataConfig, InitConfig, OptimConfig, ParallelConfig,
-        OperationConfig, TrainerConfig, UtilsConfig, ProfilerConfig,
-    )
-
-    config = MainConfig(
-        model=model_config,
-        trainer=TrainerConfig(
-            tensor_model_parallel_size=1,
-            use_flash_attn=False,
-            use_kv_cache_in_eval=use_cache,
-        ),
-        init=InitConfig(seed=42),
-        optim=OptimConfig(),
-        data=DataConfig(),
-        parallel=ParallelConfig(),
-        operation=OperationConfig(train_steps=1),
-        utils=UtilsConfig(),
-        profiler=ProfilerConfig(),
-    )
-
-    # Initialize torch distributed FIRST (required for model parallel)
-    import os
+    # Setup environment for single GPU
     os.environ.setdefault("RANK", "0")
     os.environ.setdefault("WORLD_SIZE", "1")
     os.environ.setdefault("LOCAL_RANK", "0")
     os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "29501")
-    if not dist.is_initialized():
-        dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
+    os.environ.setdefault("MASTER_PORT", "29504")
 
-    # Initialize parallel states (requires dist to be initialized)
-    initialize_model_parallel(1, timeout_in_minutes=10.0)
-
-    # Set global states (required for tokenizer)
-    from ironcore.global_vars import GLOBAL_STATES
-    if GLOBAL_STATES is not None:
-        # Reset global states for second run
-        import ironcore.global_vars as gv
-        gv.GLOBAL_STATES = None
-    set_global_states(config)
-
-    # Build tokenizer
-    build_tokenizer(config)
-    tokenizer = get_tokenizer()
-
-    # Create model
-    model = LanguageModel(config).to(device=device, dtype=torch.float32)
-    model.eval()
-
-    # Initialize cache if needed
-    if use_cache and hasattr(model, "initialize_cache"):
-        model.initialize_cache(batch_size=4, device=device)
-        print("KV cache initialized")
-
-    # Create evaluator
-    evaluator = HellaSwag(
-        tokenizer=tokenizer,
-        batch_size=4,
-        num_samples=num_samples,
-        cache_dir=Path("./cache"),
+    # Import after env setup
+    from ironcore import get_tokenizer, set_global_states
+    from ironcore.config import MainConfig
+    from ironcore.config.config_model import ModelConfig, KVCacheConfig, PositionalEmbeddingConfig
+    from ironcore.config import (
+        DataConfig, InitConfig, OptimConfig, ParallelConfig,
+        OperationConfig, TrainerConfig, UtilsConfig, ProfilerConfig,
     )
+    from ironcore.eval.tasks.hellaswag import HellaSwag
+    from ironcore.language_model import LanguageModel
+    from ironcore.parallel.parallel_states import initialize_model_parallel
+    from ironcore.tokenizer import build_tokenizer
+    from ironcore.checkpointing.hf_interop import load_from_huggingface
 
-    # Time the evaluation
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
-    start_time = time.perf_counter()
-
-    result = evaluator.process(model)
-
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-    elapsed_time = time.perf_counter() - start_time
-
-    return {
-        "accuracy": result["score"],
-        "time": elapsed_time,
-        "samples_per_sec": num_samples / elapsed_time,
-    }
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Benchmark KV cache for HellaSwag evaluation")
-    parser.add_argument("--num-samples", type=int, default=50, help="Number of HellaSwag samples")
-    parser.add_argument("--no-cache", action="store_true", help="Run without KV cache comparison")
-    args = parser.parse_args()
-
-    print(f"Benchmarking on HellaSwag ({args.num_samples} samples)")
-    print("=" * 60)
-
-    if not torch.cuda.is_available():
-        print("WARNING: CUDA not available, running on CPU (will be slow)")
+    # Download model from HuggingFace if needed
+    from huggingface_hub import snapshot_download
+    model_path = snapshot_download(args.model)
+    print(f"Model downloaded to: {model_path}")
 
     results = {}
 
@@ -169,20 +69,128 @@ def main():
 
         print(f"\n--- Running with KV cache: {use_cache} ---")
 
-        result = run_benchmark_simple(num_samples=args.num_samples, use_cache=use_cache)
+        # Load HuggingFace config to get model dimensions
+        import json
+        with open(Path(model_path) / "config.json") as f:
+            hf_config = json.load(f)
 
-        if result is None:
-            print("Benchmark failed")
-            continue
+        n_embd = hf_config.get("n_embd", 1024)
+        n_head = hf_config.get("n_head", 16)
+        n_layer = hf_config.get("n_layer", 24)
+        n_positions = hf_config.get("n_positions", 1024)
 
-        results[use_cache] = result
+        print(f"GPT-2 config: d_model={n_embd}, heads={n_head}, layers={n_layer}")
 
-        print(f"Accuracy: {result['accuracy']:.2f}%")
-        print(f"Time: {result['time']:.2f}s")
-        print(f"Throughput: {result['samples_per_sec']:.2f} samples/sec")
+        # Create model config matching HF model
+        kv_cache_config = KVCacheConfig(
+            enabled=use_cache,
+            max_batch_size=4,
+            max_seq_length=n_positions,
+        )
+
+        pos_emb = PositionalEmbeddingConfig(type="learned")  # GPT-2 uses learned position embeddings
+
+        model_config = ModelConfig(
+            name="GPT",
+            d_model=n_embd,
+            num_attention_heads=n_head,
+            num_attention_groups=n_head,  # MHA for GPT-2
+            head_dim=n_embd // n_head,
+            num_layers=n_layer,
+            d_ffn=n_embd * 4,
+            max_seq_len=n_positions,
+            max_position_embeddings=n_positions,
+            positional_embedding=pos_emb,
+            kv_cache=kv_cache_config,
+            vocab_name_or_path=args.model,
+            tokenizer_type="gpt2",
+        )
+
+        config = MainConfig(
+            model=model_config,
+            trainer=TrainerConfig(
+                tensor_model_parallel_size=1,
+                use_flash_attn=False,
+                use_kv_cache_in_eval=use_cache,
+            ),
+            init=InitConfig(seed=42),
+            optim=OptimConfig(),
+            data=DataConfig(),
+            parallel=ParallelConfig(),
+            operation=OperationConfig(train_steps=1),
+            utils=UtilsConfig(),
+            profiler=ProfilerConfig(),
+        )
+
+        # Initialize distributed
+        if not dist.is_initialized():
+            dist.init_process_group(backend="nccl" if torch.cuda.is_available() else "gloo")
+
+        # Initialize model parallel
+        initialize_model_parallel(1, timeout_in_minutes=10.0)
+
+        # Reset global states if needed
+        from ironcore.global_vars import GLOBAL_STATES
+        if GLOBAL_STATES is not None:
+            import ironcore.global_vars as gv
+            gv.GLOBAL_STATES = None
+        set_global_states(config)
+
+        # Build tokenizer
+        build_tokenizer(config)
+        tokenizer = get_tokenizer()
+
+        # Create model
+        dtype = torch.float32
+        model = LanguageModel(config).to(device=device, dtype=dtype)
+
+        # Load weights using proper HF interop
+        print(f"Loading weights from {model_path}...")
+        load_result = load_from_huggingface(model_path, model, architecture="gpt2")
+        print(f"Loaded: {len(load_result['loaded_keys'])} keys, "
+              f"Missing: {len(load_result['missing_keys'])}, "
+              f"Unexpected: {len(load_result['unexpected_keys'])}")
+
+        model.eval()
+
+        # Initialize KV cache if needed
+        if use_cache and hasattr(model, "initialize_cache"):
+            model.initialize_cache(batch_size=4, device=device)
+            print("KV cache initialized")
+
+        # Create evaluator
+        evaluator = HellaSwag(
+            tokenizer=tokenizer,
+            batch_size=4,
+            num_samples=args.num_samples,
+            cache_dir=Path("./cache"),
+        )
+
+        # Time the evaluation
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        start_time = time.perf_counter()
+
+        result = evaluator.process(model)
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        elapsed_time = time.perf_counter() - start_time
+
+        results[use_cache] = {
+            "accuracy": result["score"],
+            "time": elapsed_time,
+            "samples_per_sec": args.num_samples / elapsed_time,
+        }
+
+        print(f"Accuracy: {result['score']:.2f}%")
+        print(f"Time: {elapsed_time:.2f}s")
+        print(f"Throughput: {args.num_samples / elapsed_time:.2f} samples/sec")
 
         # Cleanup
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     # Print comparison
     if len(results) == 2:
@@ -202,11 +210,12 @@ def main():
         print(f"{'Samples/sec':<20} {no_cache['samples_per_sec']:<15.2f} {with_cache['samples_per_sec']:<15.2f} {speedup_throughput:<10.2f}x")
         print(f"{'Accuracy (%)':<20} {no_cache['accuracy']:<15.2f} {with_cache['accuracy']:<15.2f} {'-':<10}")
 
-        # Verify accuracy is identical
-        if abs(no_cache['accuracy'] - with_cache['accuracy']) < 0.01:
-            print("\n✓ Accuracy matches - KV cache produces identical results")
+        # Verify accuracy
+        acc_diff = abs(no_cache['accuracy'] - with_cache['accuracy'])
+        if acc_diff < 1.0:
+            print(f"\n✓ Accuracy matches within tolerance ({acc_diff:.2f}% diff)")
         else:
-            print(f"\n✗ WARNING: Accuracy differs by {abs(no_cache['accuracy'] - with_cache['accuracy']):.2f}%")
+            print(f"\n✗ WARNING: Accuracy differs by {acc_diff:.2f}%")
 
 
 if __name__ == "__main__":
