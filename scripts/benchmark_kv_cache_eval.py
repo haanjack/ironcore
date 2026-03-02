@@ -88,7 +88,7 @@ def main():
             max_seq_length=n_positions,
         )
 
-        pos_emb = PositionalEmbeddingConfig(type="learned")  # GPT-2 uses learned position embeddings
+        pos_emb = PositionalEmbeddingConfig(type="absolute")  # GPT-2 uses absolute position embeddings
 
         model_config = ModelConfig(
             name="GPT",
@@ -150,6 +150,12 @@ def main():
         print(f"Loaded: {len(load_result['loaded_keys'])} keys, "
               f"Missing: {len(load_result['missing_keys'])}, "
               f"Unexpected: {len(load_result['unexpected_keys'])}")
+
+        # Debug: show some missing and unexpected keys
+        if load_result['missing_keys']:
+            print(f"Sample missing keys: {load_result['missing_keys'][:5]}")
+        if load_result['unexpected_keys']:
+            print(f"Sample unexpected keys: {load_result['unexpected_keys'][:5]}")
 
         model.eval()
 
