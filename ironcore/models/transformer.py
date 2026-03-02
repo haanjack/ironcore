@@ -292,6 +292,89 @@ class TransformerLayer(BaseModule):
             past_key_value=past_key_value,
         )
 
+    def forward_with_cache(
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        kv_cache_manager,
+        layer_idx,
+        cache_position,
+    ):
+        """Forward pass using stateful KVCacheManager.
+
+        Args:
+            hidden_states: [b, s, h]
+            attention_mask: [b, 1, s, s]
+            rotary_pos_emb: Rotary position embedding
+            kv_cache_manager: KVCacheManager instance for stateful caching
+            layer_idx: Layer index (0-indexed)
+            cache_position: Starting position in cache
+
+        Returns:
+            Output tensor [b, s, h]
+        """
+        batch_size, seq_len = hidden_states.shape[:2]
+
+        norm_output = self.input_layernorm(hidden_states)
+
+        # QKV projection
+        query = self.linear_q(norm_output)
+        key_value = self.linear_kv(norm_output)
+        key, value = torch.chunk(key_value, 2, dim=-1)
+
+        # Reshape for attention
+        query = query.view(batch_size, seq_len, self.num_local_attention_heads, self.head_dimension)
+        key = key.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
+        value = value.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
+
+        # Apply RoPE
+        if rotary_pos_emb:
+            query = rotary_pos_emb.forward(query)
+            key = rotary_pos_emb.forward(key)
+
+        # Update cache and get full KV
+        full_key, full_value = kv_cache_manager.update_layer(
+            layer_idx=layer_idx,
+            key=key,
+            value=value,
+            position=cache_position,
+        )
+
+        # Attention with full cached KV
+        attention_output = self.self_attention(
+            query, full_key, full_value, attention_mask, use_cache=False, past_kv=None
+        )
+
+        # Output projection
+        attention_output = self.attn_output(attention_output)
+
+        # Dropout
+        if self.config.model.dropout_attn > 0.0:
+            attention_output = self.residual_dropout(attention_output)
+
+        # Residual connection
+        if self.model_config.post_ln:
+            residual = norm_output
+        else:
+            residual = hidden_states
+        norm_input = residual + attention_output
+
+        # Layer norm after attention
+        norm_output = self.post_attn_layernorm(norm_input)
+
+        # MLP
+        mlp_output = self.mlp(norm_output)
+
+        if self.model_config.post_ln:
+            residual = norm_output
+        else:
+            residual = norm_input
+
+        output = residual + mlp_output
+
+        return output
+
 
 class TransformerModel(BaseModule):
     def __init__(self, config: MainConfig):

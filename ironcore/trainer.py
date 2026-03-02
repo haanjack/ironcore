@@ -439,25 +439,21 @@ class Trainer:
         self.model.eval()
 
         # Check if KV cache should be enabled for evaluation
-        use_cache = getattr(self.config.trainer, "use_kv_cache_in_eval", False)
-        if use_cache and hasattr(self.model, "embedding"):
-            # Initialize KV cache manager if model supports it
-            try:
-                from ironcore.layers.kv_cache import KVCacheManager
+        use_cache = (
+            getattr(self.config.trainer, "use_kv_cache_in_eval", False)
+            and self.config.model.kv_cache.enabled
+        )
+        if use_cache:
+            # Get the unwrapped model for DDP/FSDP
+            model = self.model.module if hasattr(self.model, "module") else self.model
 
-                if not hasattr(self.model, "kv_cache_manager"):
-                    # Create and initialize KV cache manager
-                    self.model.kv_cache_manager = KVCacheManager(self.config)
-                    self.model.kv_cache_manager.initialize(
-                        batch_size=self.config.trainer.micro_batch_size or 1,
-                        num_layers=self.config.model.num_layers,
-                        device=next(self.model.parameters()).device,
-                        dtype=get_model_dtype(self.config),
-                    )
+            # Initialize cache using the model's method
+            if hasattr(model, "initialize_cache"):
+                model.initialize_cache(
+                    batch_size=self.config.trainer.micro_batch_size or 1,
+                    device=next(model.parameters()).device,
+                )
                 self.logger.info("KV cache enabled for evaluation")
-            except Exception as e:
-                self.logger.warning(f"Failed to initialize KV cache: {e}")
-                use_cache = False
 
         if "eval" in self.data_iterator and self.data_iterator["eval"] is not None:
             # evaluation with splitted dataset

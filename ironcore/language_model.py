@@ -59,6 +59,13 @@ class LanguageModel(BaseModule):
         self.loss_fn = loss_fn
         self.padding_start_idx = tokenizer.vocab_size
 
+        # Initialize KV cache manager for inference
+        self.kv_cache_manager = None
+        if config.model.kv_cache.enabled:
+            from ironcore.layers.kv_cache import KVCacheManager
+
+            self.kv_cache_manager = KVCacheManager(config)
+
         self.init_weights()
 
         # Initialize VocabParallelEmbedding (zeros padding, registers hooks)
@@ -469,3 +476,48 @@ class LanguageModel(BaseModule):
 
         probs = logits.softmax(dim=-1)
         return torch.multinomial(probs, num_samples=1)
+
+    def _should_use_stateful_cache(self) -> bool:
+        """Check if stateful cache should be used.
+        Returns:
+            True if not in training mode and kv_cache_manager exists and and is initialized
+        """
+        return (
+            not self.training
+            and self.kv_cache_manager is not None
+            and self.kv_cache_manager.is_initialized
+        )
+
+    def initialize_cache(self, batch_size: int, device: torch.device, dtype: torch.dtype | None = None):
+        """Initialize KV cache for inference.
+        Args:
+            batch_size: Number of sequences in batch
+            device: Device to allocate cache on
+            dtype: Data type for cache (defaults to model dtype)
+        """
+        if self.kv_cache_manager is None:
+            return
+        self.kv_cache_manager.initialize(
+            batch_size=batch_size,
+            num_layers=self.config.model.num_layers,
+            device=device,
+            dtype=dtype,
+        )
+
+    def reset_cache(self, batch_indices: list[int] | None = None):
+        """Reset KV cache for specified sequences.
+        Args:
+            batch_indices: Indices of sequences to reset. If None, reset all.
+        """
+        if self.kv_cache_manager is None:
+            return
+        self.kv_cache_manager.reset(batch_indices)
+
+    def get_cache_statistics(self) -> dict:
+        """Get cache statistics for monitoring.
+        Returns:
+            Dictionary with cache statistics
+        """
+        if self.kv_cache_manager is None:
+            return {"initialized": False}
+        return self.kv_cache_manager.get_statistics()

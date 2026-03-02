@@ -32,7 +32,7 @@ class PositionalEmbeddingConfig(BaseConfig):
 class KVCacheConfig(BaseConfig):
     """KV Cache configuration"""
 
-    enabled: bool = field(default=False, metadata={"help": "Enable KV cache"})
+    enabled: bool = field(default=True, metadata={"help": "Enable KV cache"})
     max_batch_size: int = field(default=32, metadata={"help": "Maximum batch size for cache"})
     max_seq_length: int = field(
         default=2048, metadata={"help": "Maximum sequence length for cache"}

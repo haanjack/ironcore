@@ -74,7 +74,7 @@ class TrainerConfig(BaseConfig):
 
     # KV Cache for evaluation
     use_kv_cache_in_eval: bool = field(
-        default=False,
+        default=True,
         metadata={"help": "Use KV cache during evaluation for faster inference"},
     )
 
