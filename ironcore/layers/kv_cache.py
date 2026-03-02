@@ -27,6 +27,7 @@ Limitations:
 import torch
 
 from ironcore.config import MainConfig
+from ironcore.layers.kv_cache_utils import compute_memory_mb, compute_utilization
 from ironcore.utils import get_model_dtype
 
 
@@ -145,8 +146,11 @@ class KVCacheManager:
             # Reset specific sequences
             self.cache_positions[batch_indices] = 0
             for key_cache, value_cache in zip(self.key_caches, self.value_caches, strict=False):
-                key_cache[batch_indices].zero_()
-                value_cache[batch_indices].zero_()
+                # Use assignment instead of zero_() to avoid creating a copy
+                # Advanced indexing like key_cache[batch_indices] creates a view,
+                # but calling .zero_() on it zeros the copy, not the original tensor.
+                key_cache[batch_indices] = 0
+                value_cache[batch_indices] = 0
 
     def update_layer(
         self,
@@ -248,7 +252,18 @@ class KVCacheManager:
         else:
             # Uniform position for all sequences
             if position is None:
-                start_pos = self.cache_positions[0].item()  # Assumes uniform position
+                # Check if positions have diverged (e.g., after selective reset)
+                # This could indicate a bug in continuous batching logic
+                positions_min = self.cache_positions.min().item()
+                positions_max = self.cache_positions.max().item()
+                if positions_min != positions_max:
+                    raise RuntimeError(
+                        f"Position divergence detected: positions range from {positions_min} to "
+                        f"{positions_max}, but uniform position was assumed. "
+                        f"Use the 'positions' parameter for per-sequence positions in continuous "
+                        f"batching scenarios, or ensure all sequences are at the same position."
+                    )
+                start_pos = positions_min
             else:
                 start_pos = position
 
@@ -314,7 +329,16 @@ class KVCacheManager:
             raise RuntimeError("Cache not initialized. Call initialize() first.")
 
         if end_pos is None:
-            end_pos = self.cache_positions[0].item()
+            # Check for position divergence
+            positions_min = self.cache_positions.min().item()
+            positions_max = self.cache_positions.max().item()
+            if positions_min != positions_max:
+                raise RuntimeError(
+                    f"Position divergence detected in get_layer_kv: positions range from "
+                    f"{positions_min} to {positions_max}, but uniform position was assumed. "
+                    f"Specify end_pos explicitly or use per-sequence retrieval."
+                )
+            end_pos = positions_max
 
         if batch_idx is not None:
             # Retrieve for specific sequence(s)
@@ -399,18 +423,14 @@ class KVCacheManager:
                 "utilization": 0.0,
             }
 
-        # Calculate memory usage
-        total_elements = 0
-        for key_cache, value_cache in zip(self.key_caches, self.value_caches, strict=False):
-            total_elements += key_cache.numel() + value_cache.numel()
+        # Calculate memory usage using shared helper
+        all_caches = self.key_caches + self.value_caches
+        memory_mb = compute_memory_mb(all_caches, self.dtype)
 
-        bytes_per_element = torch.finfo(self.dtype).bits // 8 if self.dtype.is_floating_point else 2
-        memory_mb = (total_elements * bytes_per_element) / (1024 * 1024)
-
-        # Calculate utilization
+        # Calculate utilization using shared helper
         current_pos = self.cache_positions.max().item()
         max_pos = self.cache_config.max_seq_length
-        utilization = current_pos / max_pos if max_pos > 0 else 0.0
+        utilization = compute_utilization(current_pos, max_pos)
 
         return {
             "initialized": True,

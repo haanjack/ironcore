@@ -501,5 +501,118 @@ def test_selective_cache_reset(small_config):
     assert cache_manager.get_sequence_position(2) == 0
 
 
+def test_selective_cache_reset_zeros_tensor_contents(small_config):
+    """
+    Test: Selective cache reset actually zeros the tensor contents.
+
+    This test catches the bug where `key_cache[batch_indices].zero_()`
+    creates a copy and zeros the copy, not the original tensor.
+    The fix uses `key_cache[batch_indices] = 0` instead.
+    """
+    from ironcore.layers.kv_cache import KVCacheManager
+
+    batch_size = 3
+    seq_len = 5
+    device = torch.device("cpu")
+
+    cache_manager = KVCacheManager(small_config)
+    cache_manager.initialize(
+        batch_size=batch_size,
+        num_layers=small_config.model.num_layers,
+        device=device,
+    )
+
+    num_local_kv_groups = (
+        small_config.model.num_attention_groups // small_config.trainer.tensor_model_parallel_size
+    )
+
+    # Fill cache with non-zero data for all sequences
+    dummy_kv = torch.ones(
+        batch_size,
+        seq_len,
+        num_local_kv_groups,
+        small_config.model.head_dim,
+        device=device,
+    ) * 42.0  # Distinctive non-zero value
+
+    cache_manager.update_layer(0, dummy_kv, dummy_kv, position=0)
+
+    # Verify cache has the non-zero data
+    key, value = cache_manager.get_layer_kv(0, start_pos=0, end_pos=seq_len)
+    assert torch.all(key == 42.0), "Cache should contain the test value before reset"
+    assert torch.all(value == 42.0), "Cache should contain the test value before reset"
+
+    # Reset only sequence 0
+    cache_manager.reset(batch_indices=torch.tensor([0]))
+
+    # Verify sequence 0's cache is ACTUALLY zeroed (not just positions)
+    key_0, value_0 = cache_manager.get_layer_kv(0, start_pos=0, end_pos=seq_len, batch_idx=0)
+    assert torch.all(key_0 == 0), "Sequence 0 key cache should be zeroed"
+    assert torch.all(value_0 == 0), "Sequence 0 value cache should be zeroed"
+
+    # Verify other sequences are unaffected
+    key_1, value_1 = cache_manager.get_layer_kv(0, start_pos=0, end_pos=seq_len, batch_idx=1)
+    assert torch.all(key_1 == 42.0), "Sequence 1 key cache should NOT be zeroed"
+    assert torch.all(value_1 == 42.0), "Sequence 1 value cache should NOT be zeroed"
+
+    key_2, value_2 = cache_manager.get_layer_kv(0, start_pos=0, end_pos=seq_len, batch_idx=2)
+    assert torch.all(key_2 == 42.0), "Sequence 2 key cache should NOT be zeroed"
+    assert torch.all(value_2 == 42.0), "Sequence 2 value cache should NOT be zeroed"
+
+
+def test_position_divergence_detection(small_config):
+    """
+    Test: Position divergence detection raises error.
+
+    After selective reset, positions diverge. Using the cache without
+    explicit position should raise an error.
+    """
+    from ironcore.layers.kv_cache import KVCacheManager
+
+    batch_size = 3
+    seq_len = 5
+    device = torch.device("cpu")
+
+    cache_manager = KVCacheManager(small_config)
+    cache_manager.initialize(
+        batch_size=batch_size,
+        num_layers=small_config.model.num_layers,
+        device=device,
+    )
+
+    num_local_kv_groups = (
+        small_config.model.num_attention_groups // small_config.trainer.tensor_model_parallel_size
+    )
+
+    # Fill cache for all sequences
+    dummy_kv = torch.randn(
+        batch_size,
+        seq_len,
+        num_local_kv_groups,
+        small_config.model.head_dim,
+        device=device,
+    )
+    cache_manager.update_layer(0, dummy_kv, dummy_kv, position=0)
+
+    # Reset only sequence 0 to create position divergence
+    cache_manager.reset(batch_indices=torch.tensor([0]))
+
+    # Now positions are: [0, 5, 5] - diverged!
+    assert cache_manager.get_sequence_position(0) == 0
+    assert cache_manager.get_sequence_position(1) == seq_len
+    assert cache_manager.get_sequence_position(2) == seq_len
+
+    # Trying to update without explicit position should raise error
+    with pytest.raises(RuntimeError, match="Position divergence detected"):
+        cache_manager.update_layer(0, dummy_kv, dummy_kv)
+
+    # Using explicit position should work
+    cache_manager.update_layer(0, dummy_kv, dummy_kv, position=0)
+
+    # Using per-sequence positions should also work
+    positions = torch.tensor([0, seq_len, seq_len], dtype=torch.long, device=device)
+    cache_manager.update_layer(0, dummy_kv, dummy_kv, positions=positions)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

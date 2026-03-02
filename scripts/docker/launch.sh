@@ -2,6 +2,8 @@
 
 source .env
 
+COMMAND="$@"
+
 # Default to cuda if not set
 ARCH=${ARCH:-"cuda"}
 
@@ -24,4 +26,4 @@ docker run --rm -ti -u $(id -u):$(id -g) \
     -v /etc/passwd:/etc/passwd:ro \
     -v $DATASET_DIR:$DATASET_DIR \
     -v $MODEL_DIR:$MODEL_DIR \
-    $IMAGE
+    $IMAGE "$COMMAND"

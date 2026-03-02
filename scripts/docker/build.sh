@@ -7,11 +7,11 @@ fi
 set +a
 
 # Default to cuda if not set
-VENDOR=${VENDOR:-"cuda"}
+ARCH=${ARCH:-"cuda"}
 github_access_token=${github_access_token:-""}
 
-if [ "$VENDOR" == "rocm" ]; then
-    BASE_IMAGE="rocm/pytorch:rocm6.2.4_ubuntu22.04_py3.10_pytorch_release_2.3.0"
+if [ "$ARCH" == "rocm" ]; then
+    BASE_IMAGE="rocm/pytorch:rocm7.2_ubuntu24.04_py3.12_pytorch_release_2.8.0"
     TAG="ironcore:rocm"
 else
     NGC_VERSION=${NGC_VERSION:-"25.12"}
@@ -19,7 +19,7 @@ else
     TAG="ironcore:cuda"
 fi
 
-echo "Building for $VENDOR using $BASE_IMAGE..."
+echo "Building for $ARCH using $BASE_IMAGE..."
 
 docker build . -t "$TAG" \
     --build-arg BASE_IMAGE="$BASE_IMAGE"

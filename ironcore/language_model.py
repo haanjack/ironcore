@@ -4,6 +4,7 @@
 # configure language model sequential
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 
 from ironcore import get_tokenizer
@@ -16,6 +17,7 @@ from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
     vocab_parallel_cross_entropy,
 )
+from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
 
 
 class LanguageModel(BaseModule):
@@ -348,3 +350,122 @@ class LanguageModel(BaseModule):
         )
 
         return losses
+
+    @torch.no_grad()
+    def generate(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 128,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        top_k: int = 0,
+        do_sample: bool = False,
+        eos_token_id: int | None = None,
+    ) -> torch.Tensor:
+        """
+        Autoregressive generation with KV cache.
+
+        Prefills the prompt in a single forward pass, then decodes one token
+        at a time using cached K/V. Works under tensor parallelism.
+
+        Args:
+            input_ids: [batch, prompt_len] prompt token IDs
+            max_new_tokens: Maximum number of tokens to generate
+            temperature: Softmax temperature (<1.0 = sharper, >1.0 = flatter)
+            top_p: Nucleus sampling threshold (1.0 = disabled)
+            top_k: Top-k cutoff (0 = disabled)
+            do_sample: If False, use greedy decoding
+            eos_token_id: Stop when all sequences produce this token
+
+        Returns:
+            [batch, prompt_len + generated_len] full token IDs including prompt
+        """
+        batch_size = input_ids.size(0)
+        generated = input_ids.clone()
+        past_key_values = None
+        done = torch.zeros(batch_size, dtype=torch.bool, device=input_ids.device)
+        next_token = input_ids  # placeholder; overwritten before decode step uses it
+
+        for step in range(max_new_tokens):
+            # Prefill on step 0, decode one token at a time afterwards
+            cur_input = input_ids if step == 0 else next_token
+
+            logits, past_key_values = self.forward(
+                cur_input,
+                labels=None,
+                use_cache=True,
+                past_key_values=past_key_values,
+            )
+
+            # Extract logits at the last position: [batch, vocab(/tp)]
+            next_logits = logits[:, -1, :]
+
+            # Under TP, vocab dim is sharded — gather to full vocab on all ranks
+            if parallel_states.get_tensor_model_parallel_world_size() > 1:
+                next_logits = _gather_tensor_along_last_dim(next_logits)
+
+            next_token = self._sample(next_logits, temperature, top_p, top_k, do_sample)
+
+            # Under TP with stochastic sampling, synchronize token from rank 0
+            # (greedy is deterministic so all ranks agree without communication)
+            if do_sample and parallel_states.get_tensor_model_parallel_world_size() > 1:
+                dist.broadcast(
+                    next_token,
+                    src=0,
+                    group=parallel_states.get_tensor_model_parallel_group(),
+                )
+
+            generated = torch.cat([generated, next_token], dim=1)
+
+            if eos_token_id is not None:
+                done = done | (next_token.squeeze(-1) == eos_token_id)
+                if done.all():
+                    break
+
+        return generated
+
+    def _sample(
+        self,
+        logits: torch.Tensor,
+        temperature: float,
+        top_p: float,
+        top_k: int,
+        do_sample: bool,
+    ) -> torch.Tensor:
+        """
+        Sample next token from logits.
+
+        Args:
+            logits: [batch, vocab] unnormalized logits
+            temperature: Sampling temperature
+            top_p: Nucleus sampling threshold
+            top_k: Top-k cutoff
+            do_sample: If False, return argmax
+
+        Returns:
+            [batch, 1] next token IDs
+        """
+        if not do_sample:
+            return logits.argmax(dim=-1, keepdim=True)
+
+        if temperature != 1.0:
+            logits = logits / temperature
+
+        # Top-k: zero out all but the top-k logits
+        if top_k > 0:
+            top_k = min(top_k, logits.size(-1))
+            kth_vals = logits.topk(top_k, dim=-1).values[:, -1, None]
+            logits = logits.masked_fill(logits < kth_vals, float("-inf"))
+
+        # Top-p (nucleus): zero out tokens outside the nucleus
+        if top_p < 1.0:
+            sorted_logits, sorted_idx = logits.sort(dim=-1, descending=True)
+            cumprobs = sorted_logits.softmax(dim=-1).cumsum(dim=-1)
+            # Remove tokens whose cumulative probability exceeds top_p,
+            # but keep the token that first pushes over the threshold
+            remove = (cumprobs - sorted_logits.softmax(dim=-1)) > top_p
+            sorted_logits = sorted_logits.masked_fill(remove, float("-inf"))
+            logits = torch.full_like(logits, float("-inf")).scatter_(1, sorted_idx, sorted_logits)
+
+        probs = logits.softmax(dim=-1)
+        return torch.multinomial(probs, num_samples=1)
