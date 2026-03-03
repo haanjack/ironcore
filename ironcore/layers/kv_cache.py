@@ -146,9 +146,8 @@ class KVCacheManager:
             # Reset specific sequences
             self.cache_positions[batch_indices] = 0
             for key_cache, value_cache in zip(self.key_caches, self.value_caches, strict=False):
-                # Use assignment instead of zero_() to avoid creating a copy
-                # Advanced indexing like key_cache[batch_indices] creates a view,
-                # but calling .zero_() on it zeros the copy, not the original tensor.
+                # Use in-place assignment to the indexed region.
+                # Note: key_cache[batch_indices].zero_() would zero a temporary copy.
                 key_cache[batch_indices] = 0
                 value_cache[batch_indices] = 0
 
@@ -345,18 +344,18 @@ class KVCacheManager:
             #
             # SHAPE TRANSFORMATION:
             # Cache:  key_cache[batch_idx, :, start_pos:end_pos, :] [num_groups, seq_len, head_dim] <- Storage format
-            # Output: key [seq_len, num_groups, head_dim] <- After transpose(0,1)
+            # Output: key [seq_len, num_groups, head_dim] or [selected, seq_len, num_groups, head_dim]
             # Note: For single sequence, we need to add batch dim back
-            key = self.key_caches[layer_idx][batch_idx, :, start_pos:end_pos, :].transpose(
-                0, 1
-            )  # [seq_len, num_groups, head_dim] or [selected, seq_len, num_groups, head_dim]
-            value = self.value_caches[layer_idx][batch_idx, :, start_pos:end_pos, :].transpose(
-                0, 1
-            )  # [seq_len, num_groups, head_dim]
+            key = self.key_caches[layer_idx][batch_idx, :, start_pos:end_pos, :]
+            value = self.value_caches[layer_idx][batch_idx, :, start_pos:end_pos, :]
             if key.dim() == 3:
-                # Single sequence selected, add batch dimension
-                key = key.unsqueeze(0)  # [1, seq_len, num_groups, head_dim]
-                value = value.unsqueeze(0)  # [1, seq_len, num_groups, head_dim]
+                # Single sequence selected (int index)
+                key = key.transpose(0, 1).unsqueeze(0)  # [1, seq_len, num_groups, head_dim]
+                value = value.transpose(0, 1).unsqueeze(0)  # [1, seq_len, num_groups, head_dim]
+            else:
+                # Multiple sequences selected (tensor/list of indices)
+                key = key.transpose(1, 2)  # [selected, seq_len, num_groups, head_dim]
+                value = value.transpose(1, 2)  # [selected, seq_len, num_groups, head_dim]
         else:
             # Retrieve for all sequences in batch
             #

@@ -186,7 +186,7 @@ class LanguageModel(BaseModule):
             return outputs, new_key_values
         return outputs
 
-    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0):
+    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position: int | torch.Tensor = 0):
         """
         Get attention masks and position IDs.
 

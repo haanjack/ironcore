@@ -20,7 +20,7 @@ class PositionalEmbeddingConfig(BaseConfig):
     )
     scaling_factor: float = field(
         default=1.0,
-        metadata={"help": "Rotary sscaling factor for the rotary embeddings."},
+        metadata={"help": "Rotary scaling factor for the rotary embeddings."},
     )
     offset: int = field(
         default=0,
@@ -63,11 +63,11 @@ class ModelConfig(BaseConfig):
 
     reset_position_ids: bool = field(
         default=True,
-        metadata={"help": "Reset posistion ids after end-of-document token."},
+        metadata={"help": "Reset position ids after end-of-document token."},
     )
     reset_attention_mask: bool = field(
         default=True,
-        metadata={"help": "Reset self attention maske after end-of-document token."},
+        metadata={"help": "Reset self attention mask after end-of-document token."},
     )
     eod_mask_loss: bool = field(
         default=False, metadata={"help": "Mask loss for the end of document tokens."}
