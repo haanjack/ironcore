@@ -15,7 +15,7 @@ class RmsNorm(BaseModule):
         super().__init__(config)
 
         self.layernorm = nn.RMSNorm(
-            config.model.d_model, eps=config.model.ln_eps, bias=not config.model.no_bias
+            config.model.d_model, eps=config.model.ln_eps
         )
 
     def forward(self, x):

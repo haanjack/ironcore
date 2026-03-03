@@ -3,8 +3,8 @@
 #
 # SPDX-License-Identifier: MIT
 #
-# Benchmark script to compare evaluation speed with and without KV cache.
-# Usage: python scripts/benchmark_kv_cache_eval.py [--num-samples N] [--model gpt2-medium]
+# Benchmark script to compare evaluation speed with and without KV cache for LLaMA3.
+# Usage: python scripts/benchmark_llama3_kvcache.py [--num-samples N] [--model MODEL]
 
 import argparse
 import os
@@ -20,9 +20,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark KV cache for HellaSwag evaluation")
-    parser.add_argument("--num-samples", type=int, default=100, help="Number of HellaSwag samples")
-    parser.add_argument("--model", type=str, default="gpt2-medium", help="HuggingFace model name")
+    parser = argparse.ArgumentParser(description="Benchmark KV cache for LLaMA3 evaluation")
+    parser.add_argument("--num-samples", type=int, default=50, help="Number of HellaSwag samples")
+    parser.add_argument("--model", type=str, default="meta-llama/Meta-Llama-3-8B", help="HuggingFace model name")
     parser.add_argument("--no-cache", action="store_true", help="Only run without KV cache")
     args = parser.parse_args()
 
@@ -33,14 +33,15 @@ def main():
     print(f"Device: {device}")
 
     if not torch.cuda.is_available():
-        print("WARNING: CUDA not available, running on CPU (will be slow)")
+        print("WARNING: CUDA not available, running on CPU (will be very slow)")
+        return
 
     # Setup environment for single GPU
     os.environ.setdefault("RANK", "0")
     os.environ.setdefault("WORLD_SIZE", "1")
     os.environ.setdefault("LOCAL_RANK", "0")
     os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "29504")
+    os.environ.setdefault("MASTER_PORT", "29525")
 
     # Import after env setup
     from ironcore import get_tokenizer, set_global_states
@@ -53,13 +54,35 @@ def main():
     from ironcore.eval.tasks.hellaswag import HellaSwag
     from ironcore.language_model import LanguageModel
     from ironcore.parallel.parallel_states import initialize_model_parallel
-    from ironcore.tokenizer import build_tokenizer
     from ironcore.checkpointing.hf_interop import load_from_huggingface
 
     # Download model from HuggingFace if needed
     from huggingface_hub import snapshot_download
     model_path = snapshot_download(args.model)
     print(f"Model downloaded to: {model_path}")
+
+    # Load HuggingFace config to get model dimensions
+    import json
+    with open(Path(model_path) / "config.json") as f:
+        hf_config = json.load(f)
+
+    # LLaMA3-8B config
+    hidden_size = hf_config.get("hidden_size", 4096)
+    intermediate_size = hf_config.get("intermediate_size", 14336)
+    num_attention_heads = hf_config.get("num_attention_heads", 32)
+    num_key_value_heads = hf_config.get("num_key_value_heads", 8)
+    num_layers = hf_config.get("num_hidden_layers", 32)
+    rms_norm_eps = hf_config.get("rms_norm_eps", 1e-5)
+    max_position_embeddings = hf_config.get("max_position_embeddings", 8192)
+    vocab_size = hf_config.get("vocab_size", 128256)
+    head_dim = hf_config.get("head_dim", hidden_size // num_attention_heads)
+
+    # Get RoPE theta
+    rope_params = hf_config.get("rope_parameters", {})
+    rope_theta = rope_params.get("rope_theta", 500000.0) if isinstance(rope_params, dict) else 500000.0
+
+    print(f"LLaMA3 config: d_model={hidden_size}, d_ffn={intermediate_size}, heads={num_attention_heads}, "
+          f"kv_heads={num_key_value_heads}, layers={num_layers}")
 
     results = {}
 
@@ -69,42 +92,35 @@ def main():
 
         print(f"\n--- Running with KV cache: {use_cache} ---")
 
-        # Load HuggingFace config to get model dimensions
-        import json
-        with open(Path(model_path) / "config.json") as f:
-            hf_config = json.load(f)
-
-        n_embd = hf_config.get("n_embd", 1024)
-        n_head = hf_config.get("n_head", 16)
-        n_layer = hf_config.get("n_layer", 24)
-        n_positions = hf_config.get("n_positions", 1024)
-
-        print(f"GPT-2 config: d_model={n_embd}, heads={n_head}, layers={n_layer}")
-
-        # Create model config matching HF model
         kv_cache_config = KVCacheConfig(
             enabled=use_cache,
             max_batch_size=4,
-            max_seq_length=n_positions,
+            max_seq_length=max_position_embeddings,
         )
 
-        pos_emb = PositionalEmbeddingConfig(type="absolute")  # GPT-2 uses absolute position embeddings
+        pos_emb = PositionalEmbeddingConfig(
+            type="rope",
+            base=rope_theta,
+        )
 
         model_config = ModelConfig(
-            name="GPT",
-            d_model=n_embd,
-            num_attention_heads=n_head,
-            num_attention_groups=n_head,  # MHA for GPT-2
-            head_dim=n_embd // n_head,
-            num_layers=n_layer,
-            d_ffn=n_embd * 4,
-            max_seq_len=n_positions,
-            max_position_embeddings=n_positions,
+            name="LLAMA",
+            d_model=hidden_size,
+            num_attention_heads=num_attention_heads,
+            num_attention_groups=num_key_value_heads,  # GQA
+            head_dim=head_dim,
+            num_layers=num_layers,
+            d_ffn=intermediate_size,
+            max_seq_len=max_position_embeddings,
+            max_position_embeddings=max_position_embeddings,
             positional_embedding=pos_emb,
             kv_cache=kv_cache_config,
             vocab_name_or_path=args.model,
-            tokenizer_type="gpt2",
-            activation_type="gelu_new",  # GPT-2 uses gelu_new (HuggingFace convention)
+            tokenizer_type="cl100k_base",  # LLaMA3 uses cl100k_base encoding
+            activation_type="swiglu",
+            ln_type="rmsnorm",
+            ln_eps=rms_norm_eps,
+            no_bias=True,  # LLaMA has no bias
         )
 
         config = MainConfig(
@@ -138,21 +154,26 @@ def main():
         set_global_states(config)
 
         # Build tokenizer
+        from ironcore.tokenizer import build_tokenizer
         build_tokenizer(config)
         tokenizer = get_tokenizer()
 
         # Create model
-        dtype = torch.float32
-        model = LanguageModel(config).to(device=device, dtype=dtype)
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        model = LanguageModel(config)
 
-        # Load weights using proper HF interop
+        # Clear GPU memory before loading
+        torch.cuda.empty_cache()
+
+        # Load weights with memory efficiency
         print(f"Loading weights from {model_path}...")
-        load_result = load_from_huggingface(model_path, model, architecture="gpt2")
+        # Load directly to GPU with correct dtype
+        load_result = load_from_huggingface(model_path, model, architecture="llama", device="cpu")
+        model = model.to(device=device, dtype=dtype)
         print(f"Loaded: {len(load_result['loaded_keys'])} keys, "
               f"Missing: {len(load_result['missing_keys'])}, "
               f"Unexpected: {len(load_result['unexpected_keys'])}")
 
-        # Debug: show some missing and unexpected keys
         if load_result['missing_keys']:
             print(f"Sample missing keys: {load_result['missing_keys'][:5]}")
         if load_result['unexpected_keys']:
@@ -162,7 +183,7 @@ def main():
 
         # Initialize KV cache if needed
         if use_cache and hasattr(model, "initialize_cache"):
-            model.initialize_cache(batch_size=4, device=device)
+            model.initialize_cache(batch_size=4, device=device, dtype=dtype)
             print("KV cache initialized")
 
         # Create evaluator
@@ -174,14 +195,12 @@ def main():
         )
 
         # Time the evaluation
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        torch.cuda.synchronize()
         start_time = time.perf_counter()
 
         result = evaluator.process(model)
 
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        torch.cuda.synchronize()
         elapsed_time = time.perf_counter() - start_time
 
         results[use_cache] = {
@@ -196,8 +215,7 @@ def main():
 
         # Cleanup
         del model
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     # Print comparison
     if len(results) == 2:
