@@ -20,7 +20,7 @@ Communication pattern:
   2. Backward pass: DDP all-reduces gradients
   3. Optimizer step:
      a. Each rank updates only its partition of parameters
-     b. All-gather updated parameters from all ranks
+     b. Broadcast updated parameters from owner ranks to all other ranks
 
 Critical distinction from FSDP:
   FSDP shards parameters during forward - all-gather on every layer access.
@@ -30,19 +30,23 @@ When to use:
   - Use DistributedOptimizer when optimizer states are the memory bottleneck
   - Use FSDP with shard_grad_op when both optimizer states and gradients are bottlenecks
   - Use FSDP with full_shard when even parameters don't fit
-
-Compatibility:
-  - Wraps an existing AdamWOptimizer (or any Optimizer with .param_groups)
-  - Requires model wrapped in DDP (use_fsdp=False)
-  - Compatible with Tensor Parallelism and Expert Parallelism
-  - Incompatible with FSDP (use FSDP's built-in sharding instead)
 """
+
+import logging
+from typing import Any, Dict, List, Optional, Set
 
 import torch
 from torch import distributed as dist
+from torch.optim import Optimizer
+
+try:
+    from ironcore.global_vars import get_logger
+    logger = get_logger()
+except (ImportError, AssertionError):
+    logger = logging.getLogger(__name__)
 
 
-class DistributedOptimizer:
+class DistributedOptimizer(Optimizer):
     """Distributed optimizer that partitions optimizer states across DP ranks.
 
     Wraps an existing optimizer and partitions optimizer states across
@@ -55,25 +59,28 @@ class DistributedOptimizer:
     Args:
         optimizer: The inner optimizer to wrap (e.g., AdamWOptimizer)
         process_group: Data-parallel process group. Defaults to get_data_parallel_group().
-
-    Example:
-        >>> optimizer = AdamWOptimizer(model.parameters(), lr=1e-4)
-        >>> optimizer = DistributedOptimizer(optimizer)
-        >>> # Use normally with DDP-wrapped model
+        bucket_cap_mb: Maximum bucket size in megabytes for parameter broadcasting.
     """
 
-    def __init__(self, optimizer, process_group=None):
+    def __init__(
+        self,
+        optimizer: Optimizer,
+        process_group: Optional[dist.ProcessGroup] = None,
+        bucket_cap_mb: float = 25.0,
+    ):
+        # We don't call super().__init__ because we want to delegate everything
+        # to the inner optimizer, but we must inherit from Optimizer to pass
+        # isinstance checks.
         self.optimizer = optimizer
         self.process_group = process_group
+        self.bucket_cap_mb = bucket_cap_mb
 
         if process_group is None:
-            # Try to get the DP group, but don't fail if not initialized
             try:
                 from ironcore.parallel.parallel_states import get_data_parallel_group
 
                 self.process_group = get_data_parallel_group()
             except RuntimeError:
-                # Parallel states not initialized - use default (single process)
                 self.process_group = None
 
         if dist.is_available() and dist.is_initialized() and self.process_group is not None:
@@ -84,32 +91,28 @@ class DistributedOptimizer:
             self.dp_rank = 0
 
         # Collect all parameters in a deterministic flat list across all param groups
-        self.all_params: list[torch.nn.Parameter] = []
-        for group in optimizer.param_groups:
+        self.all_params: List[torch.nn.Parameter] = []
+        for group in self.optimizer.param_groups:
             for p in group["params"]:
                 self.all_params.append(p)
 
-        # Assign parameters to ranks by round-robin on parameter index
-        self.local_param_indices: set[int] = {
+        # Round-robin assignment: param i owned by rank (i % dp_size)
+        self.local_param_indices: Set[int] = {
             i for i in range(len(self.all_params)) if i % self.dp_size == self.dp_rank
         }
 
-        self._log_memory_breakdown()
+        # Create buckets for efficient broadcasting
+        self._buckets = self._create_buckets()
 
-    def _log_memory_breakdown(self):
-        """Log optimizer state memory breakdown across DP ranks."""
-        try:
-            from ironcore.global_vars import get_logger
-
-            logger = get_logger()
-        except Exception:
-            return
-
+        # Log memory savings
         total_params = sum(p.numel() for p in self.all_params)
-        local_params = sum(self.all_params[i].numel() for i in self.local_param_indices)
+        local_params = sum(
+            self.all_params[i].numel() for i in range(len(self.all_params))
+            if i in self.local_param_indices
+        )
 
-        # Optimizer state memory: 2 moments (fp32) per parameter = 8 bytes each
-        bytes_per_element = 4  # float32
+        # Optimizer states (Adam moments) are typically always float32
+        bytes_per_element = 4
         total_opt_bytes = total_params * 2 * bytes_per_element
         local_opt_bytes = local_params * 2 * bytes_per_element
 
@@ -120,18 +123,57 @@ class DistributedOptimizer:
                 f"total_params={total_params:,}, "
                 f"local_params={local_params:,} ({100.0 * local_params / max(total_params, 1):.1f}%), "
                 f"total_opt_state={total_opt_bytes / 1024**2:.1f} MiB, "
-                f"local_opt_state={local_opt_bytes / 1024**2:.1f} MiB "
-                f"(~{100.0 * local_opt_bytes / max(total_opt_bytes, 1):.1f}% of baseline)"
+                f"local_opt_state={local_opt_bytes / 1024**2:.1f} MiB, "
+                f"buckets={len(self._buckets)}"
             )
+
+    def _create_buckets(self) -> List[Dict[str, Any]]:
+        """Group parameters into buckets by owner rank for efficient broadcasting."""
+        if self.dp_size <= 1:
+            return []
+
+        # Group parameters by their owner rank
+        rank_to_params = {r: [] for r in range(self.dp_size)}
+        for i, p in enumerate(self.all_params):
+            owner_rank = i % self.dp_size
+            rank_to_params[owner_rank].append(p)
+
+        buckets = []
+        bucket_cap_bytes = self.bucket_cap_mb * 1024 * 1024
+
+        for rank, params in rank_to_params.items():
+            current_bucket = []
+            current_size = 0
+            
+            for p in params:
+                param_size = p.numel() * p.element_size()
+                if current_bucket and (current_size + param_size > bucket_cap_bytes):
+                    buckets.append({"rank": rank, "params": current_bucket})
+                    current_bucket = []
+                    current_size = 0
+                
+                current_bucket.append(p)
+                current_size += param_size
+            
+            if current_bucket:
+                buckets.append({"rank": rank, "params": current_bucket})
+                
+        return buckets
 
     @property
     def param_groups(self):
-        """Delegate to inner optimizer for GradScaler compatibility."""
         return self.optimizer.param_groups
+
+    @param_groups.setter
+    def param_groups(self, value):
+        self.optimizer.param_groups = value
+
+    @property
+    def state(self):
+        return self.optimizer.state
 
     def __getattr__(self, name):
         """Delegate unknown attribute access to inner optimizer."""
-        # Avoid infinite recursion for attributes that exist on this object
         if name in (
             "optimizer",
             "zero_stage",
@@ -140,6 +182,8 @@ class DistributedOptimizer:
             "dp_rank",
             "all_params",
             "local_param_indices",
+            "_buckets",
+            "bucket_cap_mb",
         ):
             raise AttributeError(name)
         return getattr(self.optimizer, name)
@@ -154,61 +198,50 @@ class DistributedOptimizer:
         """
         # DDP has already all-reduced gradients (happens in last backward step).
         # Temporarily null out non-local param grads so the inner optimizer skips them.
-        saved_grads: dict[int, torch.Tensor] = {}
+        saved_grads: Dict[int, torch.Tensor] = {}
         if self.dp_size > 1:
             for i, p in enumerate(self.all_params):
                 if i not in self.local_param_indices and p.grad is not None:
                     saved_grads[i] = p.grad
                     p.grad = None
 
-        # Run inner optimizer on local partition only
-        result = self.optimizer.step(closure)
+        # Step 1: inner optimizer updates ONLY parameters owned by this rank
+        loss = self.optimizer.step(closure)
 
-        # Restore saved gradients (needed for grad_norm logging, if any)
-        for i, grad in saved_grads.items():
-            self.all_params[i].grad = grad
+        # Restore non-local gradients
+        for i, g in saved_grads.items():
+            self.all_params[i].grad = g
 
-        # Broadcast updated parameters from each owner rank to all ranks
-        self._all_gather_params()
-
-        return result
-
-    def _all_gather_params(self):
-        """Broadcast updated parameter data from each owner rank to all ranks.
-
-        Uses zero-out + all_reduce(SUM) to avoid needing global rank lookups:
-        Non-owner ranks zero their copy; owner rank keeps the new value.
-        After all_reduce SUM, all ranks hold the owner's updated value.
-        """
         if self.dp_size <= 1:
-            return
+            return loss
 
-        # Phase 1: non-owner ranks zero their copy
-        for i, p in enumerate(self.all_params):
-            if i % self.dp_size != self.dp_rank:
-                p.data.zero_()
+        # Step 2: broadcast updated parameters from owner ranks to all others
+        # Using bucketing to minimize communication overhead
+        for bucket in self._buckets:
+            owner_rank = bucket["rank"]
+            params = bucket["params"]
 
-        # Phase 2: all_reduce SUM — owner contributes new value, others contribute 0
-        handles = []
-        for p in self.all_params:
-            handles.append(
-                dist.all_reduce(
-                    p.data, op=dist.ReduceOp.SUM, group=self.process_group, async_op=True
-                )
-            )
-        for h in handles:
-            h.wait()
+            # For each parameter in the bucket, perform broadcast
+            # Note: broadcast is non-destructive on non-owner ranks
+            handles = [
+                dist.broadcast(p.data, src=owner_rank, group=self.process_group, async_op=True)
+                for p in params
+            ]
+
+            for h in handles:
+                h.wait()
+        return loss
 
     def zero_grad(self, set_to_none: bool = True):
-        """Zero gradients for all parameters."""
-        self.optimizer.zero_grad()
+        """Delegate zero_grad to inner optimizer."""
+        self.optimizer.zero_grad(set_to_none=set_to_none)
 
     def state_dict(self):
-        """Return optimizer state dict (local partition only)."""
+        """Return inner optimizer state dict (represents local partition)."""
         return self.optimizer.state_dict()
 
     def load_state_dict(self, state_dict):
-        """Load optimizer state dict."""
+        """Load state dict into inner optimizer."""
         self.optimizer.load_state_dict(state_dict)
 
     def __repr__(self):
@@ -217,5 +250,6 @@ class DistributedOptimizer:
             f"dp_size={self.dp_size}, "
             f"dp_rank={self.dp_rank}, "
             f"local_params={len(self.local_param_indices)}/{len(self.all_params)}, "
+            f"buckets={len(self._buckets)}, "
             f"inner={self.optimizer!r})"
         )

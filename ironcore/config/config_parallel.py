@@ -62,3 +62,8 @@ class ParallelConfig(BaseConfig):
             "Reduces optimizer state memory by 1/DP_world_size. Incompatible with FSDP."
         },
     )
+
+    dist_opt_bucket_cap_mb: float = field(
+        default=25.0,
+        metadata={"help": "Bucket size in megabytes for parameter broadcasting in DistributedOptimizer."},
+    )

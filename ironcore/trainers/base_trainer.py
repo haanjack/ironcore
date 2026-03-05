@@ -175,8 +175,11 @@ class BaseTrainer(ABC):
             optimizer = DistributedOptimizer(
                 optimizer,
                 process_group=get_data_parallel_group(),
+                bucket_cap_mb=self.config.parallel.dist_opt_bucket_cap_mb,
             )
-            self.logger.info("Wrapped optimizer with DistributedOptimizer for state partitioning")
+            self.logger.info(
+                f"Wrapped optimizer with DistributedOptimizer (bucket_cap={self.config.parallel.dist_opt_bucket_cap_mb}MB)"
+            )
 
         # Enable profiling if requested
         if self.config.profiler.gpu_profiler:

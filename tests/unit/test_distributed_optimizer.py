@@ -156,6 +156,28 @@ class TestDistributedOptimizerSingleGPU:
         # Verify param groups match
         assert len(optimizer2.param_groups) == len(optimizer.param_groups)
 
+    def test_param_groups_modification(self):
+        """Test that modifying param_groups affects the inner optimizer."""
+        model = SimpleModel()
+        base_optimizer = AdamW(model.parameters(), lr=1e-3)
+        optimizer = DistributedOptimizer(base_optimizer)
+
+        # Modify LR in the wrapper
+        optimizer.param_groups[0]["lr"] = 5e-4
+
+        # Check if it's reflected in the inner optimizer
+        assert base_optimizer.param_groups[0]["lr"] == 5e-4
+        assert optimizer.param_groups[0]["lr"] == 5e-4
+
+    def test_isinstance_optimizer(self):
+        """Test that DistributedOptimizer passes isinstance(Optimizer) check."""
+        model = SimpleModel()
+        base_optimizer = AdamW(model.parameters(), lr=1e-3)
+        optimizer = DistributedOptimizer(base_optimizer)
+
+        from torch.optim import Optimizer
+        assert isinstance(optimizer, Optimizer)
+
     def test_repr(self):
         """Test string representation."""
         model = SimpleModel()
