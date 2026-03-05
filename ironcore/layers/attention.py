@@ -12,6 +12,7 @@ except ImportError:
 from einops import rearrange
 
 from ironcore.config import MainConfig
+from ironcore.layers.kv_cache_utils import expand_for_gqa
 from ironcore.layers.module import BaseModule
 from ironcore.utils import get_model_dtype, profile_context
 
@@ -90,8 +91,15 @@ class Attention(BaseModule):
         # GQA/MQA support: replicate key/value groups to match query heads
         if num_groups != num_heads:
             # replicate key/value to match with query layer
-            key = key.repeat_interleave(num_heads // num_groups, dim=1)
-            value = value.repeat_interleave(num_heads // num_groups, dim=1)
+
+
+            key = expand_for_gqa(
+                key, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=1
+            )
+            value = expand_for_gqa(
+                value, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=1
+            )
+
 
         with profile_context("self attention"):
             # attention operation
