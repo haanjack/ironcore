@@ -113,45 +113,45 @@ def _gather_distributed_optimizer_states(optimizer, model, dp_group):
     dp_size = dist.get_world_size(group=dp_group)
     dp_rank = dist.get_rank(group=dp_group)
 
+    # Build mapping once to avoid O(N^2) complexity
+    param_to_name = {p: n for n, p in model.named_parameters()}
+
     # Get parameter list in same order as DistributedOptimizer
     all_params = []
     for group in optimizer.optimizer.param_groups:
         for p in group["params"]:
             all_params.append(p)
 
-    # Build full state dict by gathering from all ranks
+    # Each rank prepares its owned states
+    local_owned_states = {}
+    for param_idx, param in enumerate(all_params):
+        if param_idx % dp_size == dp_rank:
+            name = param_to_name.get(param)
+            if name:
+                local_state = optimizer.optimizer.state.get(param, {})
+                # Serialize state for gather
+                state_dict = {}
+                for k, v in local_state.items():
+                    if isinstance(v, torch.Tensor):
+                        state_dict[k] = v.cpu()
+                    else:
+                        state_dict[k] = v
+                local_owned_states[name] = state_dict
+
+    # Gather all partial states at once
     full_state = {"state": {}, "param_groups": optimizer.optimizer.state_dict()["param_groups"]}
 
-    for param_idx, param in enumerate(all_params):
-        owner_rank = param_idx % dp_size
+    if dp_size > 1:
+        # Gather only to rank 0 to save memory on other ranks
+        all_ranks_states = [None] * dp_size if dp_rank == 0 else None
+        dist.gather_object(local_owned_states, all_ranks_states, dst=0, group=dp_group)
 
-        # Get param name for the state dict key
-        param_name = None
-        for name, p in model.named_parameters():
-            if p is param:
-                param_name = name
-                break
-
-        if param_name is None:
-            continue
-
-        if dp_rank == owner_rank:
-            # This rank owns the state - get it
-            local_state = optimizer.optimizer.state.get(param, {})
-            # Serialize state for broadcast
-            state_dict = {}
-            for k, v in local_state.items():
-                if isinstance(v, torch.Tensor):
-                    state_dict[k] = v.cpu()
-                else:
-                    state_dict[k] = v
-        else:
-            state_dict = None
-
-        # Broadcast state from owner to all ranks
-        state_list = [state_dict]
-        dist.broadcast_object_list(state_list, src=owner_rank, group=dp_group)
-        full_state["state"][param_name] = state_list[0]
+        if dp_rank == 0:
+            # Merge into full state dict
+            for rank_state in all_ranks_states:
+                full_state["state"].update(rank_state)
+    else:
+        full_state["state"] = local_owned_states
 
     return full_state
 
@@ -170,6 +170,9 @@ def _partition_optimizer_states_for_load(optimizer, full_state_dict, model):
     Returns:
         dict: Partitioned optimizer state dict
     """
+    # Build mapping once
+    param_to_name = {p: n for n, p in model.named_parameters()}
+
     # Get parameter list in same order as DistributedOptimizer
     all_params = []
     for group in optimizer.optimizer.param_groups:
@@ -186,13 +189,7 @@ def _partition_optimizer_states_for_load(optimizer, full_state_dict, model):
         if param_idx not in optimizer.local_param_indices:
             continue  # Skip params not owned by this rank
 
-        # Find param name
-        param_name = None
-        for name, p in model.named_parameters():
-            if p is param:
-                param_name = name
-                break
-
+        param_name = param_to_name.get(param)
         if param_name is None or param_name not in full_state_dict["state"]:
             continue
 
