@@ -31,6 +31,20 @@ class OptimConfig(BaseConfig):
     adam_beta2: float = field(default=0.95, metadata={"help": "adam beta2"})
     clip_grad: float = field(default=1.0, metadata={"help": "gradient clipping scale value"})
 
+    # Muon-specific parameters
+    muon_momentum: float = field(
+        default=0.95,
+        metadata={"help": "Muon Nesterov momentum beta"},
+    )
+    muon_newton_schulz_steps: int = field(
+        default=5,
+        metadata={"help": "Number of Newton-Schulz iterations for Muon"},
+    )
+    muon_lr_scale: float = field(
+        default=1.0,
+        metadata={"help": "Learning rate scale factor for Muon vs AdamW (Muon typically uses higher LR)"},
+    )
+
     # checkpointing option
     load_checkpoint_optim_state: bool = field(
         default=True,
