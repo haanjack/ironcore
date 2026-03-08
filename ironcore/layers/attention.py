@@ -266,3 +266,60 @@ class Attention(BaseModule):
         if use_cache:
             return context_output, (key, value)
         return context_output
+
+    def _flash_attention_with_cache(
+        self,
+        query,
+        key_cache,
+        value_cache,
+        cache_seqlens,
+        k_new=None,
+        v_new=None,
+        cache_batch_idx=None,
+    ):
+        """Flash attention with pre-allocated KV cache.
+
+        Uses flash_attn_with_kvcache for efficient inference with cache.
+        This bypasses the need to concatenate past and current KV tensors.
+
+        Args:
+            query: [b, sq, hn, hd] - Query tensor
+            key_cache: [b, hn, max_seq, hd] - Pre-allocated key cache
+            value_cache: [b, hn, max_seq, hd] - Pre-allocated value cache
+            cache_seqlens: [b] - Current sequence lengths in cache
+            k_new: [b, sq, hn, hd] - New keys to append (optional)
+            v_new: [b, sq, hn, hd] - New values to append (optional)
+            cache_batch_idx: Optional batch indices for selective update
+
+        Returns:
+            context_output: [b, sq, hn * hd]
+        """
+        try:
+            from flash_attn import flash_attn_with_kvcache
+        except ImportError:
+            raise RuntimeError(
+                "flash_attn_with_kvcache not available. "
+                "Install flash-attn>=2.5.0 or use standard attention."
+            )
+
+        batch_size = query.size(0)
+        seq_len_q = query.size(1)
+
+        # Call flash_attn_with_kvcache
+        # The function handles cache updates internally
+        context_output = flash_attn_with_kvcache(
+            q=query,
+            k_cache=key_cache,
+            v_cache=value_cache,
+            cache_seqlens=cache_seqlens,
+            k=k_new,
+            v=v_new,
+            cache_batch_idx=cache_batch_idx,
+            causal=True,
+            softmax_scale=self.scale_factor,
+        )
+
+        # output: [b, sq, hn, hd] -> [b, sq, hn * hd]
+        context_output = context_output.reshape(batch_size, seq_len_q, -1)
+
+        return context_output

@@ -163,30 +163,50 @@ class LanguageModel(BaseModule):
         if use_cache and labels is None:
             return outputs, new_key_values
         return outputs
-        if use_cache:
-            lm_output, new_key_values = model_out
-        else:
-            lm_output = model_out
 
-        # layer norm
+    def _forward_inference_with_cache(self, input_ids, cache_position=0):
+        """Inference forward pass using stateful KVCacheManager.
+        
+        Args:
+            input_ids: [b, s] Input token IDs
+            cache_position: Starting position in cache (default 0)
+        
+        Returns:
+            logits [b, s, vocab]
+        """
+        input_ids = input_ids.to(self.device, non_blocking=True)
+        
+        attention_mask, position_ids, _ = self.get_masks_and_position_ids(
+            input_ids, None, cache_position=cache_position
+        )
+        
+        # Embedding
+        x = self.embedding(input_ids, position_ids)
+        
+        # Use stateful cache path through model
+        lm_output = self.model._forward_with_cache_manager(
+            x,
+            attention_mask,
+            self.rotary_pos_emb,
+            self.kv_cache_manager,
+            cache_position,
+        )
+        
+        # Layer norm
         lm_output = self.output_layernorm(lm_output)
-
-        # post process
-        # lm_output: [b, s, h]
+        
+        # Post process (no labels for inference)
         outputs = self.post_lm_processing(
             lm_output,
-            labels,
-            loss_mask,
+            None,
+            None,
             self.fp16_lm_cross_entropy,
             padding_start_idx=self.padding_start_idx,
         )
-
-        # outputs: logits[b, s, v] or loss[b, s]
-        if use_cache and labels is None:
-            return outputs, new_key_values
+        
         return outputs
 
-    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position: int | torch.Tensor = 0):
+    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0):
         """
         Get attention masks and position IDs.
 

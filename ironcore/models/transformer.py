@@ -439,3 +439,37 @@ class TransformerModel(BaseModule):
         if use_cache:
             return hidden_states, new_key_values
         return hidden_states
+
+    def _forward_with_cache_manager(
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        kv_cache_manager,
+        cache_position,
+    ):
+        """Forward pass using stateful KVCacheManager.
+
+        This method is used during inference when stateful cache is enabled.
+        Each layer updates and reads from the shared cache manager.
+
+        Args:
+            hidden_states: [b, s, h]
+            attention_mask: [b, 1, s, s]
+            rotary_pos_emb: Rotary position embedding
+            kv_cache_manager: KVCacheManager instance
+            cache_position: Starting position in cache
+
+        Returns:
+            hidden_states: [b, s, h]
+        """
+        for i, layer in enumerate(self.layers):
+            hidden_states = layer.forward_with_cache(
+                hidden_states,
+                attention_mask,
+                rotary_pos_emb,
+                kv_cache_manager,
+                layer_idx=i,
+                cache_position=cache_position,
+            )
+        return hidden_states
