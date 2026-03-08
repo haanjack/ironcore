@@ -360,7 +360,7 @@ class GRPOTrainer(BaseTrainer):
         self.scaler.unscale_(self.optimizer)
         torch.nn.utils.clip_grad_norm_(
             self.model.parameters(),
-            self.config.trainer.clip_grad,
+            self.config.optim.clip_grad,
         )
         self.scaler.step(self.optimizer)
         self.scaler.update()
