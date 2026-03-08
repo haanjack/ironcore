@@ -25,8 +25,14 @@ class BaseConfig:
                 )
 
             if isinstance(v, dict):
-                # convert as config class type
-                v = self.__dataclass_fields__[k].type(**v)
+                # convert as config class type - only if it's a BaseConfig subclass
+                field_type = self.__dataclass_fields__[k].type
+                try:
+                    if isinstance(field_type, type) and issubclass(field_type, BaseConfig):
+                        v = field_type(**v)
+                except TypeError:
+                    # field_type is not a class (could be string forward reference, Union, etc.)
+                    pass
             setattr(self, k, v)
         return self
 
@@ -84,6 +90,10 @@ class BaseConfig:
                 if input_field_value in get_args(field_type):
                     continue
                 return False
+            # Check if field_type is a valid type for isinstance
+            if not isinstance(field_type, type):
+                # Skip type checking for non-type field_types (forward references, etc.)
+                continue
             if isinstance(input_field_value, field_type):
                 continue
             if hasattr(field_type, "_type_checker"):
