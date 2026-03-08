@@ -291,8 +291,19 @@ class LanguageModel(BaseModule):
                 attention_mask = (q_pos >= kv_pos).unsqueeze(1)  # [batch, 1, seq_len, total_len]
             else:
                 # Uniform positions
-                attention_mask = full_causal_mask[cache_position:total_len, :total_len]
-                attention_mask = attention_mask.view(att_mask_batch, 1, seq_len, total_len)
+                if cache_position == 0:
+                    # Training case: create full batched causal mask
+                    attention_mask = torch.tril(
+                        torch.ones(
+                            (att_mask_batch, seq_len, seq_len),
+                            device=input_ids.device,
+                            dtype=torch.bool,
+                        )
+                    ).view(att_mask_batch, 1, seq_len, seq_len)
+                else:
+                    # Inference with cache: slice from full causal mask
+                    attention_mask = full_causal_mask[cache_position:total_len, :total_len]
+                    attention_mask = attention_mask.view(att_mask_batch, 1, seq_len, total_len)
 
         # loss mask
         loss_mask = torch.ones(input_ids.size(), dtype=torch.float, device=input_ids.device)
@@ -300,10 +311,28 @@ class LanguageModel(BaseModule):
             loss_mask[labels == get_tokenizer().eos_token_id] = 0
             loss_mask[labels == get_tokenizer().pad_token_id] = 0
 
-        # Resetting logic (if needed)
-        if self.reset_position_ids or self.reset_attention_mask:
-            # This logic assumes sequential IDs and might need more care with KV cache
-            pass
+        # Resetting logic for packed sequences (training with multiple documents)
+        # Only apply when cache_position is 0 (no KV cache, i.e., training or prefill)
+        if (self.reset_position_ids or self.reset_attention_mask) and cache_position == 0:
+            # loop through the batches
+            for b in range(input_ids.size(0)):
+                # find indices of EOD tokens in input_ids
+                eod_indices = (input_ids[b] == get_tokenizer().eod_token_id).nonzero(as_tuple=True)[0]
+                # detach indices from position if going to modify them
+                if self.reset_position_ids:
+                    eod_indices = eod_indices.clone()
+
+                # reset position ids along with EOD indices
+                prev_index = 0
+                for j in range(eod_indices.size(0)):
+                    i = eod_indices[j].item()
+                    # reset attention mask: tokens after EOD can't attend to tokens before EOD
+                    if self.reset_attention_mask:
+                        attention_mask[b, 0, (i + 1) :, : (i + 1)] = False
+                    # reset position: restart counting after EOD
+                    if self.reset_position_ids:
+                        position_ids[b, (i + 1) :] -= i + 1 - prev_index
+                        prev_index = i + 1
 
         return attention_mask, position_ids, loss_mask
 

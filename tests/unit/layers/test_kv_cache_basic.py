@@ -383,6 +383,7 @@ def test_per_sequence_positions(small_config):
         batch_size=batch_size,
         num_layers=small_config.model.num_layers,
         device=device,
+        dtype=torch.float32,
     )
 
     num_local_kv_groups = (
@@ -585,6 +586,7 @@ def test_position_divergence_detection(small_config):
         batch_size=batch_size,
         num_layers=small_config.model.num_layers,
         device=device,
+        dtype=torch.float32,
     )
 
     num_local_kv_groups = (
