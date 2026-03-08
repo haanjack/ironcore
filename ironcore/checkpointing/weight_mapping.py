@@ -414,9 +414,7 @@ class WeightMapper:
                 k = hf_state_dict[k_key]
                 v = hf_state_dict[v_key]
                 kv = torch.cat([k, v], dim=0)
-                ironcore_state_dict[f"model.layers.{layer_idx}.linear_kv.weight"] = (
-                    kv
-                )
+                ironcore_state_dict[f"model.layers.{layer_idx}.linear_kv.weight"] = kv
                 mapped_keys.add(k_key)
                 mapped_keys.add(v_key)
 
@@ -427,9 +425,7 @@ class WeightMapper:
                 k_bias = hf_state_dict[k_bias_key]
                 v_bias = hf_state_dict[v_bias_key]
                 kv_bias = torch.cat([k_bias, v_bias], dim=0)
-                ironcore_state_dict[f"model.layers.{layer_idx}.linear_kv.bias"] = (
-                    kv_bias
-                )
+                ironcore_state_dict[f"model.layers.{layer_idx}.linear_kv.bias"] = kv_bias
                 mapped_keys.add(k_bias_key)
                 mapped_keys.add(v_bias_key)
 

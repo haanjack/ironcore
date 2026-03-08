@@ -118,8 +118,15 @@ class DistributedOptimizer:
     def __getattr__(self, name):
         """Delegate unknown attribute access to inner optimizer."""
         # Avoid infinite recursion for attributes that exist on this object
-        if name in ("optimizer", "zero_stage", "process_group", "dp_size", "dp_rank",
-                    "all_params", "local_param_indices"):
+        if name in (
+            "optimizer",
+            "zero_stage",
+            "process_group",
+            "dp_size",
+            "dp_rank",
+            "all_params",
+            "local_param_indices",
+        ):
             raise AttributeError(name)
         return getattr(self.optimizer, name)
 
@@ -197,8 +204,9 @@ class DistributedOptimizer:
         handles = []
         for p in self.all_params:
             handles.append(
-                dist.all_reduce(p.data, op=dist.ReduceOp.SUM, group=self.process_group,
-                                async_op=True)
+                dist.all_reduce(
+                    p.data, op=dist.ReduceOp.SUM, group=self.process_group, async_op=True
+                )
             )
         for h in handles:
             h.wait()

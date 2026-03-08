@@ -39,7 +39,6 @@ from ironcore.config import (
     UtilsConfig,
 )
 from ironcore.layers.kv_cache import KVCacheManager
-from ironcore.parallel import parallel_states
 
 # Check CUDA availability
 CUDA_AVAILABLE = torch.cuda.is_available()

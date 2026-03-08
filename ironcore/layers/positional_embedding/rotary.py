@@ -49,7 +49,9 @@ class RotaryPositionalEmbedding(nn.Module):
 
         if position_ids is None:
             # Fallback: assume sequential positions starting from 0
-            position_ids = torch.arange(seq_len, device=x.device).unsqueeze(0).expand(batch_size, seq_len)
+            position_ids = (
+                torch.arange(seq_len, device=x.device).unsqueeze(0).expand(batch_size, seq_len)
+            )
 
         max_pos = position_ids.max().item()
         if max_pos >= self.max_seq_len_cached:
@@ -69,7 +71,7 @@ class RotaryPositionalEmbedding(nn.Module):
         # sin_emb/cos_emb: [batch, seq_len, 1, head_dim//2]
         x1 = x[..., ::2]
         x2 = x[..., 1::2]
-        
+
         # RoPE rotation formula: [x1*cos - x2*sin, x1*sin + x2*cos]
         x_rotated = torch.stack([x1 * cos_emb - x2 * sin_emb, x1 * sin_emb + x2 * cos_emb], dim=-1)
         x_rotated = x_rotated.flatten(-2)

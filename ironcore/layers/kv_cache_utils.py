@@ -116,5 +116,3 @@ def compute_utilization(current: int | float, maximum: int | float) -> float:
     if maximum <= 0:
         return 0.0
     return float(current) / float(maximum)
-
-

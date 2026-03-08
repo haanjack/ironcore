@@ -13,6 +13,7 @@ from ironcore.layers import BaseModule, LanguageModelEmbedding
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.positional_embedding import RotaryPositionalEmbedding
 from ironcore.models import get_model_provider_func
+from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
     vocab_parallel_cross_entropy,
@@ -72,7 +73,9 @@ class LanguageModel(BaseModule):
         if hasattr(self.embedding.word_embeddings, "init_weight"):
             self.embedding.word_embeddings.init_weight()
 
-    def forward(self, input_ids, labels=None, position_ids=None, use_cache=False, past_key_values=None):
+    def forward(
+        self, input_ids, labels=None, position_ids=None, use_cache=False, past_key_values=None
+    ):
         """
         Forward pass through language model.
 
@@ -167,23 +170,23 @@ class LanguageModel(BaseModule):
 
     def _forward_inference_with_cache(self, input_ids, cache_position=0):
         """Inference forward pass using stateful KVCacheManager.
-        
+
         Args:
             input_ids: [b, s] Input token IDs
             cache_position: Starting position in cache (int or [b] tensor)
-        
+
         Returns:
             logits [b, s, vocab]
         """
         input_ids = input_ids.to(self.device, non_blocking=True)
-        
+
         attention_mask, position_ids, _ = self.get_masks_and_position_ids(
             input_ids, None, cache_position=cache_position
         )
-        
+
         # Embedding
         x = self.embedding(input_ids, position_ids)
-        
+
         # Use stateful cache path through model
         lm_output = self.model._forward_with_cache_manager(
             x,
@@ -193,10 +196,10 @@ class LanguageModel(BaseModule):
             cache_position,
             position_ids=position_ids,
         )
-        
+
         # Layer norm
         lm_output = self.output_layernorm(lm_output)
-        
+
         # Post process (no labels for inference)
         outputs = self.post_lm_processing(
             lm_output,
@@ -205,7 +208,7 @@ class LanguageModel(BaseModule):
             self.fp16_lm_cross_entropy,
             padding_start_idx=self.padding_start_idx,
         )
-        
+
         return outputs
 
     def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0):
@@ -227,12 +230,12 @@ class LanguageModel(BaseModule):
             att_mask_batch = 1
 
         seq_len = input_ids.size(1)
-        
+
         if isinstance(cache_position, torch.Tensor):
             # Per-sequence positions (continuous batching)
             max_cache_pos = cache_position.max().item()
             total_len = int(max_cache_pos + seq_len)
-            
+
             # Position IDs
             # position_ids: [b, s]
             position_ids = cache_position.unsqueeze(1) + torch.arange(
@@ -241,12 +244,16 @@ class LanguageModel(BaseModule):
         else:
             # Uniform cache position
             total_len = int(cache_position + seq_len)
-            position_ids = torch.arange(
-                cache_position,
-                cache_position + seq_len,
-                dtype=torch.long,
-                device=input_ids.device,
-            ).unsqueeze(0).expand(att_mask_batch, seq_len)
+            position_ids = (
+                torch.arange(
+                    cache_position,
+                    cache_position + seq_len,
+                    dtype=torch.long,
+                    device=input_ids.device,
+                )
+                .unsqueeze(0)
+                .expand(att_mask_batch, seq_len)
+            )
 
         # Create causal mask for the context
         # Simplified: for inference with cache_position > 0, we typically only have 1 token
@@ -268,18 +275,20 @@ class LanguageModel(BaseModule):
                     dtype=torch.bool,
                 )
             )
-            
+
             if isinstance(cache_position, torch.Tensor):
                 # Complex case: per-sequence lengths (continuous batching)
                 # Each sequence b attends to its own position_ids[b, :] + past
                 # position_ids shape: [batch, seq_len]
                 # We want mask[b, 0, i, j] = (position_ids[b, i] >= j)
-                
+
                 q_pos = position_ids.unsqueeze(-1)  # [batch, seq_len, 1]
-                kv_pos = torch.arange(total_len, device=input_ids.device).view(1, 1, -1) # [1, 1, total_len]
-                
+                kv_pos = torch.arange(total_len, device=input_ids.device).view(
+                    1, 1, -1
+                )  # [1, 1, total_len]
+
                 # [batch, seq_len, total_len]
-                attention_mask = (q_pos >= kv_pos).unsqueeze(1) # [batch, 1, seq_len, total_len]
+                attention_mask = (q_pos >= kv_pos).unsqueeze(1)  # [batch, 1, seq_len, total_len]
             else:
                 # Uniform positions
                 attention_mask = full_causal_mask[cache_position:total_len, :total_len]
@@ -294,7 +303,7 @@ class LanguageModel(BaseModule):
         # Resetting logic (if needed)
         if self.reset_position_ids or self.reset_attention_mask:
             # This logic assumes sequential IDs and might need more care with KV cache
-            pass 
+            pass
 
         return attention_mask, position_ids, loss_mask
 
@@ -512,7 +521,9 @@ class LanguageModel(BaseModule):
             and self.kv_cache_manager.is_initialized
         )
 
-    def initialize_cache(self, batch_size: int, device: torch.device, dtype: torch.dtype | None = None):
+    def initialize_cache(
+        self, batch_size: int, device: torch.device, dtype: torch.dtype | None = None
+    ):
         """Initialize KV cache for inference.
         Args:
             batch_size: Number of sequences in batch

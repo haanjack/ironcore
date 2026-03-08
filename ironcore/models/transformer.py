@@ -340,7 +340,9 @@ class TransformerLayer(BaseModule):
         # Reshape for attention
         query = query.view(batch_size, seq_len, self.num_local_attention_heads, self.head_dimension)
         key = key.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
-        value = value.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
+        value = value.view(
+            batch_size, seq_len, self.num_local_attention_groups, self.head_dimension
+        )
 
         # Apply RoPE
         if rotary_pos_emb:

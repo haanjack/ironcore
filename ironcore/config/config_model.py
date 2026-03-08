@@ -39,14 +39,11 @@ class KVCacheConfig(BaseConfig):
     )
 
 
-
 @dataclass
 class ModelConfig(BaseConfig):
     """model configuration options"""
 
-
     name: str = field(default="gpt2", metadata={"help": "model name (e.g., gpt2, llama)"})
-
 
     d_model: int = field(default=512, metadata={"help": "model hidden dimension size"})
     d_ffn: int = field(default=2048, metadata={"help": "model feed forward dimension size"})

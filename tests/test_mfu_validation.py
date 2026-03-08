@@ -161,7 +161,7 @@ def main():
         torch.cuda.synchronize()
         t1 = time.perf_counter()
         times.append(t1 - t0)
-        print(f"  Step {i+1}: {(t1-t0)*1000:.2f} ms")
+        print(f"  Step {i + 1}: {(t1 - t0) * 1000:.2f} ms")
 
     # Calculate metrics
     avg_time = sum(times) / len(times)

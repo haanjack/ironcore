@@ -92,14 +92,12 @@ class Attention(BaseModule):
         if num_groups != num_heads:
             # replicate key/value to match with query layer
 
-
             key = expand_for_gqa(
                 key, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=1
             )
             value = expand_for_gqa(
                 value, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=1
             )
-
 
         with profile_context("self attention"):
             # attention operation

@@ -6,9 +6,19 @@ import pytest
 import torch
 
 from ironcore.config import (
-    DataConfig, InitConfig, KVCacheConfig, MainConfig, ModelConfig,
-    OperationConfig, OptimConfig, PEFTConfig, ParallelConfig,
-    PositionalEmbeddingConfig, ProfilerConfig, TrainerConfig, UtilsConfig,
+    DataConfig,
+    InitConfig,
+    KVCacheConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    PEFTConfig,
+    PositionalEmbeddingConfig,
+    ProfilerConfig,
+    TrainerConfig,
+    UtilsConfig,
 )
 from ironcore.global_vars import global_states_cleanup, set_global_states
 from ironcore.language_model import LanguageModel
@@ -22,10 +32,19 @@ def stateful_config():
     kv_cache_config = KVCacheConfig(enabled=True, max_batch_size=4, max_seq_length=128)
     pos_emb_config = PositionalEmbeddingConfig(type="rope")
     model_config = ModelConfig(
-        d_model=256, num_attention_heads=4, num_attention_groups=2, head_dim=64,
-        num_layers=2, d_ffn=512, max_seq_len=128, max_position_embeddings=128,
-        dropout_attn=0.0, dropout_mlp=0.0, dropout_embd=0.0,
-        positional_embedding=pos_emb_config, kv_cache=kv_cache_config,
+        d_model=256,
+        num_attention_heads=4,
+        num_attention_groups=2,
+        head_dim=64,
+        num_layers=2,
+        d_ffn=512,
+        max_seq_len=128,
+        max_position_embeddings=128,
+        dropout_attn=0.0,
+        dropout_mlp=0.0,
+        dropout_embd=0.0,
+        positional_embedding=pos_emb_config,
+        kv_cache=kv_cache_config,
     )
     model_config.name = "GPT"
     config = MainConfig(
@@ -62,7 +81,9 @@ class TestStatefulKVCache:
         with torch.no_grad():
             logits_stateless, _ = stateful_model(input_ids, use_cache=True, past_key_values=None)
             stateful_model.initialize_cache(batch_size=batch_size, device=device, dtype=dtype)
-            logits_stateful = stateful_model._forward_inference_with_cache(input_ids, cache_position=0)
+            logits_stateful = stateful_model._forward_inference_with_cache(
+                input_ids, cache_position=0
+            )
             torch.testing.assert_close(logits_stateful, logits_stateless, rtol=1e-4, atol=1e-5)
 
     def test_stateful_multi_step(self, stateful_model):
@@ -75,10 +96,14 @@ class TestStatefulKVCache:
             stateful_model.initialize_cache(batch_size=batch_size, device=device, dtype=dtype)
             all_logits = []
             for i in range(10):
-                logits = stateful_model._forward_inference_with_cache(tokens[:, i:i+1], cache_position=i)
+                logits = stateful_model._forward_inference_with_cache(
+                    tokens[:, i : i + 1], cache_position=i
+                )
                 all_logits.append(logits)
             full_logits = stateful_model(tokens, use_cache=False)
-            torch.testing.assert_close(torch.cat(all_logits, dim=1), full_logits, rtol=1e-4, atol=1e-5)
+            torch.testing.assert_close(
+                torch.cat(all_logits, dim=1), full_logits, rtol=1e-4, atol=1e-5
+            )
 
 
 if __name__ == "__main__":

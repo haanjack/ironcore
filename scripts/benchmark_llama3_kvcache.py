@@ -8,8 +8,8 @@
 
 import argparse
 import os
-import time
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -22,7 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def main():
     parser = argparse.ArgumentParser(description="Benchmark KV cache for LLaMA3 evaluation")
     parser.add_argument("--num-samples", type=int, default=50, help="Number of HellaSwag samples")
-    parser.add_argument("--model", type=str, default="meta-llama/Meta-Llama-3-8B", help="HuggingFace model name")
+    parser.add_argument(
+        "--model", type=str, default="meta-llama/Meta-Llama-3-8B", help="HuggingFace model name"
+    )
     parser.add_argument("--no-cache", action="store_true", help="Only run without KV cache")
     args = parser.parse_args()
 
@@ -44,25 +46,33 @@ def main():
     os.environ.setdefault("MASTER_PORT", "29525")
 
     # Import after env setup
+    # Download model from HuggingFace if needed
+    from huggingface_hub import snapshot_download
+
     from ironcore import get_tokenizer, set_global_states
-    from ironcore.config import MainConfig
-    from ironcore.config.config_model import ModelConfig, KVCacheConfig, PositionalEmbeddingConfig
+    from ironcore.checkpointing.hf_interop import load_from_huggingface
     from ironcore.config import (
-        DataConfig, InitConfig, OptimConfig, ParallelConfig,
-        OperationConfig, TrainerConfig, UtilsConfig, ProfilerConfig,
+        DataConfig,
+        InitConfig,
+        MainConfig,
+        OperationConfig,
+        OptimConfig,
+        ParallelConfig,
+        ProfilerConfig,
+        TrainerConfig,
+        UtilsConfig,
     )
+    from ironcore.config.config_model import KVCacheConfig, ModelConfig, PositionalEmbeddingConfig
     from ironcore.eval.tasks.hellaswag import HellaSwag
     from ironcore.language_model import LanguageModel
     from ironcore.parallel.parallel_states import initialize_model_parallel
-    from ironcore.checkpointing.hf_interop import load_from_huggingface
 
-    # Download model from HuggingFace if needed
-    from huggingface_hub import snapshot_download
     model_path = snapshot_download(args.model)
     print(f"Model downloaded to: {model_path}")
 
     # Load HuggingFace config to get model dimensions
     import json
+
     with open(Path(model_path) / "config.json") as f:
         hf_config = json.load(f)
 
@@ -79,10 +89,14 @@ def main():
 
     # Get RoPE theta
     rope_params = hf_config.get("rope_parameters", {})
-    rope_theta = rope_params.get("rope_theta", 500000.0) if isinstance(rope_params, dict) else 500000.0
+    rope_theta = (
+        rope_params.get("rope_theta", 500000.0) if isinstance(rope_params, dict) else 500000.0
+    )
 
-    print(f"LLaMA3 config: d_model={hidden_size}, d_ffn={intermediate_size}, heads={num_attention_heads}, "
-          f"kv_heads={num_key_value_heads}, layers={num_layers}")
+    print(
+        f"LLaMA3 config: d_model={hidden_size}, d_ffn={intermediate_size}, heads={num_attention_heads}, "
+        f"kv_heads={num_key_value_heads}, layers={num_layers}"
+    )
 
     results = {}
 
@@ -148,13 +162,16 @@ def main():
 
         # Reset global states if needed
         from ironcore.global_vars import GLOBAL_STATES
+
         if GLOBAL_STATES is not None:
             import ironcore.global_vars as gv
+
             gv.GLOBAL_STATES = None
         set_global_states(config)
 
         # Build tokenizer
         from ironcore.tokenizer import build_tokenizer
+
         build_tokenizer(config)
         tokenizer = get_tokenizer()
 
@@ -170,13 +187,15 @@ def main():
         # Load directly to GPU with correct dtype
         load_result = load_from_huggingface(model_path, model, architecture="llama", device="cpu")
         model = model.to(device=device, dtype=dtype)
-        print(f"Loaded: {len(load_result['loaded_keys'])} keys, "
-              f"Missing: {len(load_result['missing_keys'])}, "
-              f"Unexpected: {len(load_result['unexpected_keys'])}")
+        print(
+            f"Loaded: {len(load_result['loaded_keys'])} keys, "
+            f"Missing: {len(load_result['missing_keys'])}, "
+            f"Unexpected: {len(load_result['unexpected_keys'])}"
+        )
 
-        if load_result['missing_keys']:
+        if load_result["missing_keys"]:
             print(f"Sample missing keys: {load_result['missing_keys'][:5]}")
-        if load_result['unexpected_keys']:
+        if load_result["unexpected_keys"]:
             print(f"Sample unexpected keys: {load_result['unexpected_keys'][:5]}")
 
         model.eval()
@@ -228,15 +247,25 @@ def main():
         no_cache = results[False]
         with_cache = results[True]
 
-        speedup_time = no_cache['time'] / with_cache['time'] if with_cache['time'] > 0 else 0
-        speedup_throughput = with_cache['samples_per_sec'] / no_cache['samples_per_sec'] if no_cache['samples_per_sec'] > 0 else 0
+        speedup_time = no_cache["time"] / with_cache["time"] if with_cache["time"] > 0 else 0
+        speedup_throughput = (
+            with_cache["samples_per_sec"] / no_cache["samples_per_sec"]
+            if no_cache["samples_per_sec"] > 0
+            else 0
+        )
 
-        print(f"{'Time (s)':<20} {no_cache['time']:<15.2f} {with_cache['time']:<15.2f} {speedup_time:<10.2f}x")
-        print(f"{'Samples/sec':<20} {no_cache['samples_per_sec']:<15.2f} {with_cache['samples_per_sec']:<15.2f} {speedup_throughput:<10.2f}x")
-        print(f"{'Accuracy (%)':<20} {no_cache['accuracy']:<15.2f} {with_cache['accuracy']:<15.2f} {'-':<10}")
+        print(
+            f"{'Time (s)':<20} {no_cache['time']:<15.2f} {with_cache['time']:<15.2f} {speedup_time:<10.2f}x"
+        )
+        print(
+            f"{'Samples/sec':<20} {no_cache['samples_per_sec']:<15.2f} {with_cache['samples_per_sec']:<15.2f} {speedup_throughput:<10.2f}x"
+        )
+        print(
+            f"{'Accuracy (%)':<20} {no_cache['accuracy']:<15.2f} {with_cache['accuracy']:<15.2f} {'-':<10}"
+        )
 
         # Verify accuracy
-        acc_diff = abs(no_cache['accuracy'] - with_cache['accuracy'])
+        acc_diff = abs(no_cache["accuracy"] - with_cache["accuracy"])
         if acc_diff < 1.0:
             print(f"\n✓ Accuracy matches within tolerance ({acc_diff:.2f}% diff)")
         else:

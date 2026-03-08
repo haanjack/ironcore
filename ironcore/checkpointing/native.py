@@ -169,7 +169,7 @@ def load_checkpoint(
     # Load config
     checkpoint_config = checkpoint.get("config")
     if checkpoint_config is not None:
-        hf_config = HFConfigManager.load_hf_config(Path(config.trainer.model_path))
+        HFConfigManager.load_hf_config(Path(config.trainer.model_path))
         logger.info("Model configuration loaded from checkpoint.")
     else:
         logger.warning("No model configuration found in checkpoint.")

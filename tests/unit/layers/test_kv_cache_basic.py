@@ -531,13 +531,16 @@ def test_selective_cache_reset_zeros_tensor_contents(small_config):
     )
 
     # Fill cache with non-zero data for all sequences
-    dummy_kv = torch.ones(
-        batch_size,
-        seq_len,
-        num_local_kv_groups,
-        small_config.model.head_dim,
-        device=device,
-    ) * 42.0  # Distinctive non-zero value
+    dummy_kv = (
+        torch.ones(
+            batch_size,
+            seq_len,
+            num_local_kv_groups,
+            small_config.model.head_dim,
+            device=device,
+        )
+        * 42.0
+    )  # Distinctive non-zero value
 
     cache_manager.update_layer(0, dummy_kv, dummy_kv, position=0)
 
