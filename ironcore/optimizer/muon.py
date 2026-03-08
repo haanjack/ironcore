@@ -129,57 +129,22 @@ class MuonOptimizer(Optimizer):
         self.nesterov = nesterov
         self.adamw_lr = adamw_lr if adamw_lr is not None else lr
 
-        # Build defaults for each param group type
-        defaults = []
+        # Build param groups list following standard torch.optim.Optimizer pattern
+        param_groups = []
 
         # Muon param groups
         for group in muon_params:
-            group_defaults = {
+            param_group = {
+                "params": group["params"],
                 "lr": lr,
                 "weight_decay": weight_decay,
                 "optimizer_type": "muon",
             }
-            group_defaults.update({k: v for k, v in group.items() if k != "params"})
-            defaults.append(group_defaults)
+            param_group.update({k: v for k, v in group.items() if k != "params"})
+            param_groups.append(param_group)
 
         # AdamW param groups
         for group in adamw_params:
-            group_defaults = {
-                "lr": self.adamw_lr,
-                "betas": adamw_betas,
-                "eps": adamw_eps,
-                "weight_decay": group.get("weight_decay", adamw_weight_decay),
-                "optimizer_type": "adamw",
-                "amsgrad": False,
-            }
-            group_defaults.update({k: v for k, v in group.items() if k != "params"})
-            defaults.append(group_defaults)
-
-        # Collect all params
-        all_params = []
-        for group in muon_params:
-            all_params.extend(group["params"])
-        for group in adamw_params:
-            all_params.extend(group["params"])
-
-        super().__init__(all_params, {})
-
-        # Now set up param groups with correct defaults
-        self.param_groups = []
-
-        # Add Muon groups
-        for group in muon_params:
-            param_group = {
-                "params": group["params"],
-                "lr": lr,
-                "weight_decay": weight_decay,
-                "optimizer_type": "muon",
-            }
-            param_group.update({k: v for k, v in group.items() if k != "params"})
-            self.param_groups.append(param_group)
-
-        # Add AdamW groups
-        for group in adamw_params:
             param_group = {
                 "params": group["params"],
                 "lr": self.adamw_lr,
@@ -190,7 +155,9 @@ class MuonOptimizer(Optimizer):
                 "amsgrad": False,
             }
             param_group.update({k: v for k, v in group.items() if k != "params"})
-            self.param_groups.append(param_group)
+            param_groups.append(param_group)
+
+        super().__init__(param_groups, {})
 
         self.state_dtype = torch.float32
 
