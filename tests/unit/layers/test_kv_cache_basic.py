@@ -30,6 +30,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     PositionalEmbeddingConfig,
     ProfilerConfig,
     TrainerConfig,
@@ -91,6 +92,8 @@ def global_config():
     utils_config = UtilsConfig()
     profiler_config = ProfilerConfig()
 
+    peft_config = PEFTConfig()
+
     config = MainConfig(
         model=model_config,
         trainer=trainer_config,
@@ -101,6 +104,7 @@ def global_config():
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=peft_config,
     )
 
     # Initialize global states

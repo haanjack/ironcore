@@ -87,9 +87,14 @@ class TransformerLayer(BaseModule):
         self.residual_dropout = nn.Dropout(config.model.dropout_attn)
 
     def custom_forward(
-        self, hidden_states, attention_mask, rotary_pos_emb, use_cache=False, past_key_value=None
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        position_ids=None,
+        use_cache=False,
+        past_key_value=None,
     ):
-
         # hidden_states: [b, s, h]
         batch_size = hidden_states.size(0)
         seq_len = hidden_states.size(1)
@@ -110,8 +115,8 @@ class TransformerLayer(BaseModule):
 
         # apply rotary positional embedding if provided
         if rotary_pos_emb:
-            query = rotary_pos_emb.forward(query)
-            key = rotary_pos_emb.forward(key)
+            query = rotary_pos_emb.forward(query, position_ids)
+            key = rotary_pos_emb.forward(key, position_ids)
 
         # Prepare past_kv for attention (will be used for concatenation inside attention)
         past_kv_for_attn = past_key_value if use_cache else None
@@ -282,12 +287,19 @@ class TransformerLayer(BaseModule):
         return output
 
     def forward(
-        self, hidden_states, attention_mask, rotary_pos_emb, use_cache=False, past_key_value=None
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        position_ids=None,
+        use_cache=False,
+        past_key_value=None,
     ):
         return self.custom_forward(
             hidden_states,
             attention_mask,
             rotary_pos_emb,
+            position_ids=position_ids,
             use_cache=use_cache,
             past_key_value=past_key_value,
         )
@@ -300,6 +312,7 @@ class TransformerLayer(BaseModule):
         kv_cache_manager,
         layer_idx,
         cache_position,
+        position_ids=None,
     ):
         """Forward pass using stateful KVCacheManager.
 
@@ -310,6 +323,7 @@ class TransformerLayer(BaseModule):
             kv_cache_manager: KVCacheManager instance for stateful caching
             layer_idx: Layer index (0-indexed)
             cache_position: Starting position in cache
+            position_ids: Optional position IDs [b, s]
 
         Returns:
             Output tensor [b, s, h]
@@ -330,8 +344,8 @@ class TransformerLayer(BaseModule):
 
         # Apply RoPE
         if rotary_pos_emb:
-            query = rotary_pos_emb.forward(query)
-            key = rotary_pos_emb.forward(key)
+            query = rotary_pos_emb.forward(query, position_ids)
+            key = rotary_pos_emb.forward(key, position_ids)
 
         # Update cache and get full KV
         full_key, full_value = kv_cache_manager.update_layer(
@@ -387,7 +401,13 @@ class TransformerModel(BaseModule):
         )
 
     def forward(
-        self, hidden_states, attention_mask, rotary_pos_emb, use_cache=False, past_key_values=None
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        position_ids=None,
+        use_cache=False,
+        past_key_values=None,
     ):
         """
         Forward pass through all transformer layers.
@@ -396,6 +416,7 @@ class TransformerModel(BaseModule):
             hidden_states: [b, s, h]
             attention_mask: [b, 1, s, s]
             rotary_pos_emb: Rotary position embedding
+            position_ids: Optional position IDs [b, s]
             use_cache: Whether to use KV cache
             past_key_values: List of past (key, value) tuples for each layer
 
@@ -420,6 +441,7 @@ class TransformerModel(BaseModule):
                     hidden_states,
                     attention_mask,
                     rotary_pos_emb,
+                    position_ids,
                     use_reentrant=self.use_reentrant,
                 )
             else:
@@ -427,6 +449,7 @@ class TransformerModel(BaseModule):
                     hidden_states,
                     attention_mask,
                     rotary_pos_emb,
+                    position_ids=position_ids,
                     use_cache=use_cache,
                     past_key_value=past_kv,
                 )
@@ -447,6 +470,7 @@ class TransformerModel(BaseModule):
         rotary_pos_emb,
         kv_cache_manager,
         cache_position,
+        position_ids=None,
     ):
         """Forward pass using stateful KVCacheManager.
 
@@ -459,6 +483,7 @@ class TransformerModel(BaseModule):
             rotary_pos_emb: Rotary position embedding
             kv_cache_manager: KVCacheManager instance
             cache_position: Starting position in cache
+            position_ids: Optional position IDs [b, s]
 
         Returns:
             hidden_states: [b, s, h]
@@ -471,5 +496,6 @@ class TransformerModel(BaseModule):
                 kv_cache_manager,
                 layer_idx=i,
                 cache_position=cache_position,
+                position_ids=position_ids,
             )
         return hidden_states

@@ -130,7 +130,7 @@ def benchmark_generation(model, device, prompt_len=16, gen_len=32, use_cache=Tru
         torch.cuda.reset_peak_memory_stats(device)
         start_mem = torch.cuda.memory_allocated(device)
 
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     with torch.no_grad():
         if use_cache:
@@ -152,7 +152,7 @@ def benchmark_generation(model, device, prompt_len=16, gen_len=32, use_cache=Tru
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
-    end_time = time.time()
+    end_time = time.perf_counter()
     elapsed = end_time - start_time
 
     if torch.cuda.is_available():

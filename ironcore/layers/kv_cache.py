@@ -225,11 +225,16 @@ class KVCacheManager:
             key_t = key.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
             value_t = value.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
 
-            for b in range(batch_size):
-                start_pos = start_positions[b].item()
-                end_pos = end_positions[b].item()
-                self.key_caches[layer_idx][b, :, start_pos:end_pos, :] = key_t[b]
-                self.value_caches[layer_idx][b, :, start_pos:end_pos, :] = value_t[b]
+            # Vectorized update using scatter_
+            # idx shape: [batch, 1, seq_len, 1]
+            idx = start_positions.view(batch_size, 1, 1, 1) + torch.arange(
+                seq_len, device=key.device
+            ).view(1, 1, -1, 1)
+            # expand to [batch, num_groups, seq_len, head_dim]
+            idx = idx.expand(-1, self.num_local_kv_groups, -1, self.head_dim)
+
+            self.key_caches[layer_idx].scatter_(2, idx, key_t)
+            self.value_caches[layer_idx].scatter_(2, idx, value_t)
 
             # Update cache positions
             self.cache_positions = end_positions
