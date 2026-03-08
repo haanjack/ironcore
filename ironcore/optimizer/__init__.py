@@ -11,7 +11,7 @@ from ironcore.config import MainConfig
 from ironcore.global_vars import get_logger
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 from ironcore.optimizer.muon import MuonOptimizer, is_muon_param
-from ironcore.optimizer.optimizer import AdamWOptimizer
+from ironcore.optimizer.adamw import AdamWOptimizer
 from ironcore.peft.utils import freeze_base_model
 
 
