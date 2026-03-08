@@ -166,14 +166,6 @@ def load_checkpoint(
         ckpt_path, weights_only=True, map_location=next(model.parameters()).device
     )
 
-    # Load config
-    checkpoint_config = checkpoint.get("config")
-    if checkpoint_config is not None:
-        HFConfigManager.load_hf_config(Path(config.trainer.model_path))
-        logger.info("Model configuration loaded from checkpoint.")
-    else:
-        logger.warning("No model configuration found in checkpoint.")
-
     # load state dict
     model_attribs = {
         name: {
