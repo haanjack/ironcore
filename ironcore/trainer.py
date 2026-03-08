@@ -438,13 +438,34 @@ class Trainer:
         # set model to evaluation mode
         self.model.eval()
 
+        # Check if KV cache should be enabled for evaluation
+        use_cache = (
+            getattr(self.config.trainer, "use_kv_cache_in_eval", False)
+            and self.config.model.kv_cache.enabled
+        )
+        if use_cache:
+            # Get the unwrapped model for DDP/FSDP
+            model = self.model.module if hasattr(self.model, "module") else self.model
+
+            # Initialize cache using the model's method
+            if hasattr(model, "initialize_cache"):
+                model.initialize_cache(
+                    batch_size=self.config.trainer.micro_batch_size or 1,
+                    device=next(model.parameters()).device,
+                )
+                self.logger.info("KV cache enabled for evaluation")
+
         if "eval" in self.data_iterator and self.data_iterator["eval"] is not None:
             # evaluation with splitted dataset
             total_loss = 0
             total_accuracy = 0
             task_type = getattr(self.config.data, "task_type", "pretrain")
 
-            for _ in range(self.config.operation.eval_samples):
+            for i in range(self.config.operation.eval_samples):
+                # Reset KV cache before each batch (if enabled)
+                if use_cache and hasattr(self.model, "kv_cache_manager"):
+                    self.model.kv_cache_manager.reset()
+
                 if task_type == "sft":
                     # SFT mode: compute both loss and accuracy on same batch
                     loss, acc = self._eval_step_sft(self.data_iterator["eval"])
@@ -475,6 +496,11 @@ class Trainer:
                 log_metric("eval_ppl", math.exp(avg_loss), global_step)
                 if task_type == "sft":
                     log_metric("eval_accuracy", avg_accuracy, global_step)
+
+        # Cleanup KV cache after evaluation (if enabled)
+        if use_cache and hasattr(self.model, "kv_cache_manager"):
+            self.model.kv_cache_manager = None
+            self.logger.info("KV cache disabled after evaluation")
         else:
             self.logger.warning("Evaluation is requested, but there is no evaluation splits.")
 

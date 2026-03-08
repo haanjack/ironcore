@@ -43,27 +43,36 @@ class RotaryPositionalEmbedding(nn.Module):
         self.register_buffer("sin_emb", torch.sin(idx_theta), persistent=False)
         self.register_buffer("cos_emb", torch.cos(idx_theta), persistent=False)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, position_ids: torch.Tensor | None = None):
         # x: [batch_size, seq_len, num_heads, head_dim]
-        x = x.transpose(0, 1)
-        seq_len = x.size(1)
+        batch_size, seq_len = x.shape[0], x.shape[1]
 
-        if seq_len > self.max_seq_len_cached:
-            self._update_rope_cache(seq_len)
+        if position_ids is None:
+            # Fallback: assume sequential positions starting from 0
+            position_ids = (
+                torch.arange(seq_len, device=x.device).unsqueeze(0).expand(batch_size, seq_len)
+            )
 
-        sin_emb = self.sin_emb[:seq_len, :].unsqueeze(1).unsqueeze(0).to(x.device)
-        cos_emb = self.cos_emb[:seq_len, :].unsqueeze(1).unsqueeze(0).to(x.device)
+        max_pos = position_ids.max().item()
+        if max_pos >= self.max_seq_len_cached:
+            self._update_rope_cache(int(max_pos) + 1)
 
-        x = self.apply_rotary_pos_emb(x, sin_emb, cos_emb).transpose(0, 1).contiguous()
+        # Index into sin/cos using position_ids: [batch, seq_len, head_dim//2]
+        # and add a dimension for broadcasting across heads
+        sin_emb = self.sin_emb[position_ids].unsqueeze(2).to(x.dtype)
+        cos_emb = self.cos_emb[position_ids].unsqueeze(2).to(x.dtype)
+
+        x = self.apply_rotary_pos_emb(x, sin_emb, cos_emb)
 
         return x
 
     def apply_rotary_pos_emb(self, x: torch.Tensor, sin_emb: torch.Tensor, cos_emb: torch.Tensor):
         # x: [batch_size, seq_len, num_heads, head_dim]
+        # sin_emb/cos_emb: [batch, seq_len, 1, head_dim//2]
         x1 = x[..., ::2]
         x2 = x[..., 1::2]
-        sin_emb = sin_emb.repeat(x.size(0), 1, x.size(2), 1)
-        cos_emb = cos_emb.repeat(x.size(0), 1, x.size(2), 1)
+
+        # RoPE rotation formula: [x1*cos - x2*sin, x1*sin + x2*cos]
         x_rotated = torch.stack([x1 * cos_emb - x2 * sin_emb, x1 * sin_emb + x2 * cos_emb], dim=-1)
         x_rotated = x_rotated.flatten(-2)
         return x_rotated

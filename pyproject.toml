@@ -83,3 +83,26 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests", "."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "unit: Fast, isolated unit tests",
+    "integration: Tests involving multiple components",
+    "performance: Benchmark and stress tests",
+    "slow: Tests that take >1s to run",
+    "tp1: Tensor parallel tests with TP=1",
+    "tp2: Tensor parallel tests with TP=2",
+    "cuda: Tests that require CUDA",
+    "kv_cache: KV cache related tests",
+    "paged_attention: Paged attention tests",
+    "prefix_cache: Prefix cache tests",
+]

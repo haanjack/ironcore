@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from .config import BaseConfig
@@ -18,7 +20,7 @@ class PositionalEmbeddingConfig(BaseConfig):
     )
     scaling_factor: float = field(
         default=1.0,
-        metadata={"help": "Rotary sscaling factor for the rotary embeddings."},
+        metadata={"help": "Rotary scaling factor for the rotary embeddings."},
     )
     offset: int = field(
         default=0,
@@ -27,10 +29,22 @@ class PositionalEmbeddingConfig(BaseConfig):
 
 
 @dataclass
+class KVCacheConfig(BaseConfig):
+    """KV Cache configuration"""
+
+    enabled: bool = field(default=True, metadata={"help": "Enable KV cache"})
+    max_batch_size: int = field(default=32, metadata={"help": "Maximum batch size for cache"})
+    max_seq_length: int = field(
+        default=2048, metadata={"help": "Maximum sequence length for cache"}
+    )
+
+
+@dataclass
 class ModelConfig(BaseConfig):
     """model configuration options"""
 
     name: str = field(default="gpt2", metadata={"help": "model name (e.g., gpt2, llama)"})
+
     d_model: int = field(default=512, metadata={"help": "model hidden dimension size"})
     d_ffn: int = field(default=2048, metadata={"help": "model feed forward dimension size"})
     num_layers: int = field(default=2, metadata={"help": "number of layers"})
@@ -46,11 +60,11 @@ class ModelConfig(BaseConfig):
 
     reset_position_ids: bool = field(
         default=True,
-        metadata={"help": "Reset posistion ids after end-of-document token."},
+        metadata={"help": "Reset position ids after end-of-document token."},
     )
     reset_attention_mask: bool = field(
         default=True,
-        metadata={"help": "Reset self attention maske after end-of-document token."},
+        metadata={"help": "Reset self attention mask after end-of-document token."},
     )
     eod_mask_loss: bool = field(
         default=False, metadata={"help": "Mask loss for the end of document tokens."}
@@ -59,6 +73,8 @@ class ModelConfig(BaseConfig):
     positional_embedding: PositionalEmbeddingConfig = field(
         default_factory=PositionalEmbeddingConfig
     )
+
+    kv_cache: KVCacheConfig = field(default_factory=KVCacheConfig)
 
     add_pooler: bool = field(default=True, metadata={"help": "add pooler"})
     untie_embed: bool = field(default=False, metadata={"help": "untie lm head"})
@@ -79,8 +95,8 @@ class ModelConfig(BaseConfig):
     head_dim: int = field(default=128, metadata={"help": "attention head dimension"})
     seq_len_q: int | None = field(default=None, metadata={"help": "query sequence length"})
     seq_len_kv: int | None = field(default=None, metadata={"help": "key/value sequence length"})
-    num_attention_groups: int | None = field(
-        default=None,
+    num_attention_groups: int = field(
+        default=1,
         metadata={"help": "number of key-value groups in grouped query attention"},
     )
     attention_dropout: float = field(default=0.1, metadata={"help": "dropout ratio in attention"})

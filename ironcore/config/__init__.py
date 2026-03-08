@@ -16,7 +16,9 @@ from ironcore.utils import load_yaml_config
 from .config import BaseConfig
 from .config_alignment import AlignmentConfig
 from .config_data import DataConfig
+from .config_model import KVCacheConfig as KVCacheConfig
 from .config_model import ModelConfig
+from .config_model import PositionalEmbeddingConfig as PositionalEmbeddingConfig
 from .config_optim import OptimConfig
 from .config_parallel import ParallelConfig
 from .config_peft import LoRAConfig as LoRAConfig
