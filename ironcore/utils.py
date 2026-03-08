@@ -253,8 +253,12 @@ def get_detailed_memory_breakdown(model, optimizer=None, in_mib: bool = True) ->
     breakdown = {}
 
     # Model parameters
-    trainable_params = sum(p.numel() * p.element_size() for p in model.parameters() if p.requires_grad)
-    frozen_params = sum(p.numel() * p.element_size() for p in model.parameters() if not p.requires_grad)
+    trainable_params = sum(
+        p.numel() * p.element_size() for p in model.parameters() if p.requires_grad
+    )
+    frozen_params = sum(
+        p.numel() * p.element_size() for p in model.parameters() if not p.requires_grad
+    )
 
     # Gradients (only for trainable params)
     gradients = sum(
@@ -303,7 +307,7 @@ def get_detailed_memory_breakdown(model, optimizer=None, in_mib: bool = True) ->
 
 def format_memory_report(breakdown: dict, title: str = "Memory Report") -> str:
     """Format memory breakdown as a readable report string."""
-    lines = [f"\n{'='*50}", f"  {title}", f"{'='*50}"]
+    lines = [f"\n{'=' * 50}", f"  {title}", f"{'=' * 50}"]
 
     # Parameters section
     lines.append("  Model Parameters:")
@@ -319,13 +323,17 @@ def format_memory_report(breakdown: dict, title: str = "Memory Report") -> str:
     # Optimizer states
     if "optimizer_states" in breakdown:
         count = breakdown.get("optimizer_state_tensors", "?")
-        lines.append(f"  Optimizer States: {breakdown['optimizer_states']:>10.1f} MiB ({count} tensors)")
+        lines.append(
+            f"  Optimizer States: {breakdown['optimizer_states']:>10.1f} MiB ({count} tensors)"
+        )
 
     # Activations
     if "estimated_activations" in breakdown:
-        lines.append(f"  Activations:     {breakdown['estimated_activations']:>10.1f} MiB (estimated)")
+        lines.append(
+            f"  Activations:     {breakdown['estimated_activations']:>10.1f} MiB (estimated)"
+        )
 
-    lines.append(f"  {'-'*40}")
+    lines.append(f"  {'-' * 40}")
 
     # Totals
     if "cuda_allocated" in breakdown:
@@ -335,7 +343,7 @@ def format_memory_report(breakdown: dict, title: str = "Memory Report") -> str:
     if "cuda_reserved" in breakdown:
         lines.append(f"  Reserved:          {breakdown['cuda_reserved']:>8.1f} MiB")
 
-    lines.append(f"{'='*50}\n")
+    lines.append(f"{'=' * 50}\n")
     return "\n".join(lines)
 
 

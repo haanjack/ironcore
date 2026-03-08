@@ -589,9 +589,14 @@ class BaseTrainer(ABC):
                 metrics["tokens_per_sec"] = tokens_per_sec
 
         # Detailed memory report on first log step
-        if (self.control.do_log(step) and not self._memory_reported
-                and is_first_rank() and self.config.utils.report_memory_usage):
-            from ironcore.utils import get_detailed_memory_breakdown, format_memory_report
+        if (
+            self.control.do_log(step)
+            and not self._memory_reported
+            and is_first_rank()
+            and self.config.utils.report_memory_usage
+        ):
+            from ironcore.utils import format_memory_report, get_detailed_memory_breakdown
+
             breakdown = get_detailed_memory_breakdown(self.model, self.optimizer, in_mib=True)
             report = format_memory_report(breakdown, "Memory Breakdown")
             print(report, flush=True)

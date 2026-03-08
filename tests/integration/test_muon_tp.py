@@ -47,7 +47,7 @@ from ironcore.config import (
     UtilsConfig,
 )
 from ironcore.config.config_alignment import AlignmentConfig
-from ironcore.global_vars import set_global_states, reset_global_states
+from ironcore.global_vars import reset_global_states, set_global_states
 from ironcore.models.transformer import TransformerModel
 from ironcore.optimizer import get_optimizer
 from ironcore.parallel import parallel_states
@@ -313,7 +313,7 @@ def test_muon_tp1_standalone():
         result = run_forward_backward_with_optimizer(model, optimizer, hidden, device)
 
         print(f"\n{'=' * 80}")
-        print(f"MUON TP=1 TEST RESULTS")
+        print("MUON TP=1 TEST RESULTS")
         print(f"{'=' * 80}")
         print(f"Loss: {result['loss']:.6f}")
         print(f"Q weight grad norm: {result.get('q_weight_grad_norm', 'N/A')}")
@@ -324,7 +324,9 @@ def test_muon_tp1_standalone():
         output_dir = Path("logs/muon_tp")
         output_dir.mkdir(parents=True, exist_ok=True)
         with open(output_dir / "muon_tp1.json", "w") as f:
-            json.dump({k: v for k, v in result.items() if not isinstance(v, torch.Tensor)}, f, indent=2)
+            json.dump(
+                {k: v for k, v in result.items() if not isinstance(v, torch.Tensor)}, f, indent=2
+            )
 
         return result
 
@@ -335,8 +337,7 @@ def test_muon_tp1_standalone():
 
 
 @pytest.mark.skipif(
-    not os.environ.get("RANK"),
-    reason="TP=2 test requires torchrun (RANK env var not set)"
+    not os.environ.get("RANK"), reason="TP=2 test requires torchrun (RANK env var not set)"
 )
 def test_muon_tp2_standalone():
     """Standalone test for Muon with TP=2."""
@@ -382,7 +383,7 @@ def test_muon_tp2_standalone():
 
         if rank == 0:
             print(f"\n{'=' * 80}")
-            print(f"MUON TP=2 TEST RESULTS")
+            print("MUON TP=2 TEST RESULTS")
             print(f"{'=' * 80}")
             print(f"Loss: {result['loss']:.6f}")
             print(f"Q weight grad norm: {result.get('q_weight_grad_norm', 'N/A')}")
@@ -394,7 +395,11 @@ def test_muon_tp2_standalone():
             output_dir = Path("logs/muon_tp")
             output_dir.mkdir(parents=True, exist_ok=True)
             with open(output_dir / "muon_tp2.json", "w") as f:
-                json.dump({k: v for k, v in result.items() if not isinstance(v, torch.Tensor)}, f, indent=2)
+                json.dump(
+                    {k: v for k, v in result.items() if not isinstance(v, torch.Tensor)},
+                    f,
+                    indent=2,
+                )
 
         return result
 

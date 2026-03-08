@@ -137,11 +137,10 @@ class TestMuonFSDP:
 
         # Wrap with FSDP
         from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
         from ironcore.models.transformer import TransformerLayer
 
-        auto_wrap_policy = transformer_auto_wrap_policy(
-            transformer_layer_cls={TransformerLayer}
-        )
+        auto_wrap_policy = transformer_auto_wrap_policy(transformer_layer_cls={TransformerLayer})
 
         model = FSDP(
             model,
@@ -154,9 +153,7 @@ class TestMuonFSDP:
         optimizer = get_optimizer(config, model, "cuda")
 
         # Forward pass
-        hidden = torch.randn(
-            BATCH_SIZE, SEQ_LEN, D_MODEL, device=self.device, dtype=torch.bfloat16
-        )
+        hidden = torch.randn(BATCH_SIZE, SEQ_LEN, D_MODEL, device=self.device, dtype=torch.bfloat16)
         output = model(hidden, attention_mask=None, rotary_pos_emb=None)
 
         loss = output.pow(2).mean()
@@ -186,13 +183,12 @@ class TestMuonFSDP:
         model.train()
 
         from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
         from ironcore.models.transformer import TransformerLayer
 
         model = FSDP(
             model,
-            auto_wrap_policy=transformer_auto_wrap_policy(
-                transformer_layer_cls={TransformerLayer}
-            ),
+            auto_wrap_policy=transformer_auto_wrap_policy(transformer_layer_cls={TransformerLayer}),
             device_id=self.rank,
         )
 
@@ -214,7 +210,7 @@ class TestMuonFSDP:
             losses.append(loss.item())
 
         if self.rank == 0:
-            print(f"Muon FSDP multi-step test passed: losses={[f'{l:.6f}' for l in losses]}")
+            print(f"Muon FSDP multi-step test passed: losses={[f'{loss:.6f}' for loss in losses]}")
 
     def test_muon_fsdp_state_dict(self):
         """Test Muon optimizer state dict save/load with FSDP."""
@@ -229,22 +225,19 @@ class TestMuonFSDP:
         model.train()
 
         from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
         from ironcore.models.transformer import TransformerLayer
 
         model = FSDP(
             model,
-            auto_wrap_policy=transformer_auto_wrap_policy(
-                transformer_layer_cls={TransformerLayer}
-            ),
+            auto_wrap_policy=transformer_auto_wrap_policy(transformer_layer_cls={TransformerLayer}),
             device_id=self.rank,
         )
 
         optimizer = get_optimizer(config, model, "cuda")
 
         # Run a step to build state
-        hidden = torch.randn(
-            BATCH_SIZE, SEQ_LEN, D_MODEL, device=self.device, dtype=torch.bfloat16
-        )
+        hidden = torch.randn(BATCH_SIZE, SEQ_LEN, D_MODEL, device=self.device, dtype=torch.bfloat16)
         output = model(hidden, attention_mask=None, rotary_pos_emb=None)
         loss = output.pow(2).mean()
         loss.backward()
@@ -257,7 +250,10 @@ class TestMuonFSDP:
             optim_state_dict = optimizer.state_dict()
 
         # Verify state dict has content
-        assert len(optim_state_dict.get("state", {})) > 0 or len(optim_state_dict.get("param_groups", [])) > 0
+        assert (
+            len(optim_state_dict.get("state", {})) > 0
+            or len(optim_state_dict.get("param_groups", [])) > 0
+        )
 
         if self.rank == 0:
             print("Muon FSDP state dict test passed")
@@ -291,13 +287,12 @@ def run_standalone_fsdp_test():
 
     # Wrap with FSDP
     from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+
     from ironcore.models.transformer import TransformerLayer
 
     model = FSDP(
         model,
-        auto_wrap_policy=transformer_auto_wrap_policy(
-            transformer_layer_cls={TransformerLayer}
-        ),
+        auto_wrap_policy=transformer_auto_wrap_policy(transformer_layer_cls={TransformerLayer}),
         device_id=rank,
     )
 
@@ -307,9 +302,7 @@ def run_standalone_fsdp_test():
     # Run training steps
     print(f"Rank {rank}: Running training steps...")
     for step_idx in range(5):
-        hidden = torch.randn(
-            BATCH_SIZE, SEQ_LEN, D_MODEL, device=device, dtype=torch.bfloat16
-        )
+        hidden = torch.randn(BATCH_SIZE, SEQ_LEN, D_MODEL, device=device, dtype=torch.bfloat16)
         output = model(hidden, attention_mask=None, rotary_pos_emb=None)
         loss = output.pow(2).mean()
 

@@ -160,10 +160,12 @@ def _config_validation(config: MainConfig):
             )
         if dp_world_size <= 1:
             import warnings
+
             warnings.warn(
                 "use_distributed_optimizer is enabled but DP world size is 1. "
                 "No optimizer state partitioning will occur. "
-                "Increase world_size or decrease tensor_model_parallel_size to enable partitioning."
+                "Increase world_size or decrease tensor_model_parallel_size to enable partitioning.",
+                stacklevel=2,
             )
 
 

@@ -18,60 +18,60 @@ Key features:
 """
 
 import math
-from typing import List, Optional
 
 import torch
 from torch.optim import Optimizer
 
 
 def zeropower_via_newtonschulz5(
-    G: torch.Tensor, steps: int = 5, eps: float = 1e-7
+    grad: torch.Tensor, steps: int = 5, eps: float = 1e-7
 ) -> torch.Tensor:
     """
     Newton-Schulze iteration to approximate the orthogonalization of a matrix.
 
-    This computes an approximation to argmin_O { ||O - G||_F : O^T O = I or O O^T = I },
-    which is equivalent to replacing G with its nearest semi-orthogonal matrix.
+    This computes an approximation to argmin_O { ||O - grad||_F : O^T O = I or O O^T = I },
+    which is equivalent to replacing grad with its nearest semi-orthogonal matrix.
 
     Args:
-        G: Input matrix (2D tensor)
+        grad: Input gradient matrix (2D tensor)
         steps: Number of Newton-Schulz iterations (default: 5)
         eps: Small constant for numerical stability
 
     Returns:
-        Approximately orthogonalized matrix with same shape as G
+        Approximately orthogonalized matrix with same shape as grad
 
     Reference:
         Bernstein & Newhouse (2024); Higham (2008); Björck & Bowie (1971)
+        Coefficients (a, b, c) are specifically tuned for 5th-order convergence.
     """
-    assert G.ndim == 2, f"Expected 2D tensor, got {G.ndim}D"
+    assert grad.ndim == 2, f"Expected 2D tensor, got {grad.ndim}D"
 
-    # Coefficients tuned for fast convergence
+    # Coefficients tuned for fast 5th-order convergence
     a, b, c = (3.4445, -4.7750, 2.0315)
 
     # Work in bfloat16 for efficiency
-    X = G.bfloat16()
+    x = grad.bfloat16()
 
     # Normalize to ensure singular values are in [0, 1]
-    X = X / (X.norm() + eps)
+    x = x / (x.norm() + eps)
 
     # Handle tall matrices by transposing
     transposed = False
-    if G.size(0) > G.size(1):
-        X = X.T
+    if grad.size(0) > grad.size(1):
+        x = x.T
         transposed = True
 
     # Newton-Schulz iterations
     for _ in range(steps):
-        A = X @ X.T
-        B = b * A + c * (A @ A)
-        X = a * X + B @ X
+        a_mat = x @ x.T
+        b_mat = b * a_mat + c * (a_mat @ a_mat)
+        x = a * x + b_mat @ x
 
     # Undo transpose if needed
     if transposed:
-        X = X.T
+        x = x.T
 
-    return X
+    return x
 
 
 class MuonOptimizer(Optimizer):
@@ -110,15 +110,15 @@ class MuonOptimizer(Optimizer):
 
     def __init__(
         self,
-        muon_params: List[dict],
-        adamw_params: List[dict],
+        muon_params: list[dict],
+        adamw_params: list[dict],
         lr: float = 0.02,
         momentum: float = 0.95,
         newton_schulz_steps: int = 5,
         weight_decay: float = 0.0,
         nesterov: bool = True,
         # AdamW settings for non-Muon params
-        adamw_lr: Optional[float] = None,
+        adamw_lr: float | None = None,
         adamw_betas: tuple = (0.9, 0.95),
         adamw_eps: float = 1e-8,
         adamw_weight_decay: float = 0.01,
@@ -417,24 +417,19 @@ def is_muon_param(param_name: str, param: torch.Tensor) -> bool:
     Returns:
         True if parameter should use Muon, False otherwise
     """
-    # Must be 2D weight matrix
-    if param.dim() != 2:
+    # Basic filters: 2D weight matrix only
+    if param.dim() != 2 or not param_name.endswith(".weight"):
         return False
 
-    # Must be a weight (not bias)
-    if not param_name.endswith(".weight"):
-        return False
-
-    # Exclude embedding layers
-    if "embedding" in param_name:
-        return False
-
-    # Exclude output layers
-    if "output_layer" in param_name or "lm_head" in param_name:
-        return False
-
-    # Exclude position embeddings
-    if "position_embedding" in param_name or "pos_embedding" in param_name:
+    # Exclude non-hidden-layer weights
+    exclude_patterns = [
+        "embedding",
+        "output_layer",
+        "lm_head",
+        "position_embedding",
+        "pos_embedding",
+    ]
+    if any(pat in param_name for pat in exclude_patterns):
         return False
 
     # Include attention and MLP weights
@@ -453,8 +448,4 @@ def is_muon_param(param_name: str, param: torch.Tensor) -> bool:
         "attention.attn_output.weight",
     ]
 
-    for pattern in muon_patterns:
-        if pattern in param_name:
-            return True
-
-    return False
+    return any(pattern in param_name for pattern in muon_patterns)

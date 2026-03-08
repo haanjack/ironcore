@@ -9,10 +9,18 @@ from torch.optim import AdamW, Optimizer
 
 from ironcore.config import MainConfig
 from ironcore.global_vars import get_logger
+from ironcore.optimizer.adamw import AdamWOptimizer
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 from ironcore.optimizer.muon import MuonOptimizer, is_muon_param
-from ironcore.optimizer.adamw import AdamWOptimizer
 from ironcore.peft.utils import freeze_base_model
+
+__all__ = [
+    "get_optimizer",
+    "AdamWOptimizer",
+    "DistributedOptimizer",
+    "MuonOptimizer",
+    "is_muon_param",
+]
 
 
 def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> Optimizer:
@@ -97,9 +105,7 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
     return optimizer
 
 
-def get_muon_optimizer(
-    config: MainConfig, model, device_type: str | None = None
-) -> MuonOptimizer:
+def get_muon_optimizer(config: MainConfig, model, device_type: str | None = None) -> MuonOptimizer:
     """
     Create Muon optimizer with proper parameter grouping.
 

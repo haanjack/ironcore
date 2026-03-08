@@ -42,7 +42,9 @@ class OptimConfig(BaseConfig):
     )
     muon_lr_scale: float = field(
         default=1.0,
-        metadata={"help": "Learning rate scale factor for Muon vs AdamW (Muon typically uses higher LR)"},
+        metadata={
+            "help": "Learning rate scale factor for Muon vs AdamW (Muon typically uses higher LR)"
+        },
     )
 
     adamw_lr_scale: float = field(

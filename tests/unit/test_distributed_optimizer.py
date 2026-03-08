@@ -6,7 +6,7 @@
 
 import pytest
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.optim import AdamW
 
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
@@ -17,9 +17,9 @@ class SimpleModel(nn.Module):
 
     def __init__(self, hidden_size=64, num_layers=3):
         super().__init__()
-        self.layers = nn.ModuleList([
-            nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [nn.Linear(hidden_size, hidden_size) for _ in range(num_layers)]
+        )
         self.output = nn.Linear(hidden_size, 1)
 
     def forward(self, x):
@@ -58,7 +58,7 @@ class TestDistributedOptimizerSingleGPU:
         loss.backward()
 
         # Store gradients before step
-        grads_before = {name: p.grad.clone() for name, p in model.named_parameters() if p.grad is not None}
+        {name: p.grad.clone() for name, p in model.named_parameters() if p.grad is not None}
 
         # Step
         optimizer.step()
@@ -176,6 +176,7 @@ class TestDistributedOptimizerSingleGPU:
         optimizer = DistributedOptimizer(base_optimizer)
 
         from torch.optim import Optimizer
+
         assert isinstance(optimizer, Optimizer)
 
     def test_repr(self):
@@ -192,7 +193,7 @@ class TestDistributedOptimizerSingleGPU:
 
 @pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
-    reason="Requires at least 2 GPUs"
+    reason="Requires at least 2 GPUs",
 )
 class TestDistributedOptimizerMultiGPU:
     """Tests that require multiple GPUs."""
@@ -201,10 +202,11 @@ class TestDistributedOptimizerMultiGPU:
     def distributed_setup_module(self):
         """Setup distributed environment (module-scoped to avoid NCCL issues)."""
         import os
+
         import torch.distributed as dist
 
         # Set device based on local rank
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         torch.cuda.set_device(local_rank)
 
         # Initialize if not already initialized
@@ -223,9 +225,10 @@ class TestDistributedOptimizerMultiGPU:
     def test_parameter_partitioning(self, distributed_setup_module):
         """Test that parameters are correctly partitioned across ranks."""
         import os
+
         from torch.distributed import get_rank, get_world_size
 
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         rank = get_rank()
         world_size = get_world_size()
 
@@ -244,10 +247,10 @@ class TestDistributedOptimizerMultiGPU:
     def test_step_with_ddp(self, distributed_setup_module):
         """Test optimizer step with DDP-wrapped model."""
         import os
-        from torch.nn.parallel import DistributedDataParallel as DDP
-        from torch.distributed import get_rank
 
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        from torch.nn.parallel import DistributedDataParallel as DDP
+
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
 
         # Create model and wrap with DDP
         model = SimpleModel().cuda(local_rank)
@@ -270,11 +273,12 @@ class TestDistributedOptimizerMultiGPU:
     def test_parameter_consistency_after_step(self, distributed_setup_module):
         """Test that parameters are consistent across ranks after step."""
         import os
-        from torch.nn.parallel import DistributedDataParallel as DDP
-        from torch.distributed import get_rank, all_reduce
-        import torch.distributed as dist
 
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        import torch.distributed as dist
+        from torch.distributed import all_reduce
+        from torch.nn.parallel import DistributedDataParallel as DDP
+
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
 
         # Set same seed for initial model
         torch.manual_seed(42)
@@ -298,5 +302,6 @@ class TestDistributedOptimizerMultiGPU:
 
             # After sum and divide, should get same as local (if all equal)
             avg_param = local_param / dist.get_world_size()
-            assert torch.allclose(param.data, avg_param, rtol=1e-5, atol=1e-6), \
+            assert torch.allclose(param.data, avg_param, rtol=1e-5, atol=1e-6), (
                 "Parameter inconsistent across ranks"
+            )

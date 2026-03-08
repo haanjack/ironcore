@@ -33,7 +33,7 @@ When to use:
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import torch
 from torch import distributed as dist
@@ -41,6 +41,7 @@ from torch.optim import Optimizer
 
 try:
     from ironcore.global_vars import get_logger
+
     logger = get_logger()
 except (ImportError, AssertionError):
     logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class DistributedOptimizer(Optimizer):
     def __init__(
         self,
         optimizer: Optimizer,
-        process_group: Optional[dist.ProcessGroup] = None,
+        process_group: dist.ProcessGroup | None = None,
         bucket_cap_mb: float = 25.0,
     ):
         # We don't call super().__init__ because we want to delegate everything
@@ -91,13 +92,13 @@ class DistributedOptimizer(Optimizer):
             self.dp_rank = 0
 
         # Collect all parameters in a deterministic flat list across all param groups
-        self.all_params: List[torch.nn.Parameter] = []
+        self.all_params: list[torch.nn.Parameter] = []
         for group in self.optimizer.param_groups:
             for p in group["params"]:
                 self.all_params.append(p)
 
         # Round-robin assignment: param i owned by rank (i % dp_size)
-        self.local_param_indices: Set[int] = {
+        self.local_param_indices: set[int] = {
             i for i in range(len(self.all_params)) if i % self.dp_size == self.dp_rank
         }
 
@@ -107,7 +108,8 @@ class DistributedOptimizer(Optimizer):
         # Log memory savings
         total_params = sum(p.numel() for p in self.all_params)
         local_params = sum(
-            self.all_params[i].numel() for i in range(len(self.all_params))
+            self.all_params[i].numel()
+            for i in range(len(self.all_params))
             if i in self.local_param_indices
         )
 
@@ -120,7 +122,7 @@ class DistributedOptimizer(Optimizer):
                 f"buckets={len(self._buckets)}"
             )
 
-    def _create_buckets(self) -> List[Dict[str, Any]]:
+    def _create_buckets(self) -> list[dict[str, Any]]:
         """Group parameters into buckets by owner rank for efficient broadcasting."""
         if self.dp_size <= 1:
             return []
@@ -137,20 +139,20 @@ class DistributedOptimizer(Optimizer):
         for rank, params in rank_to_params.items():
             current_bucket = []
             current_size = 0
-            
+
             for p in params:
                 param_size = p.numel() * p.element_size()
                 if current_bucket and (current_size + param_size > bucket_cap_bytes):
                     buckets.append({"rank": rank, "params": current_bucket})
                     current_bucket = []
                     current_size = 0
-                
+
                 current_bucket.append(p)
                 current_size += param_size
-            
+
             if current_bucket:
                 buckets.append({"rank": rank, "params": current_bucket})
-                
+
         return buckets
 
     @property
@@ -191,7 +193,7 @@ class DistributedOptimizer(Optimizer):
         """
         # DDP has already all-reduced gradients (happens in last backward step).
         # Temporarily null out non-local param grads so the inner optimizer skips them.
-        saved_grads: Dict[int, torch.Tensor] = {}
+        saved_grads: dict[int, torch.Tensor] = {}
         if self.dp_size > 1:
             for i, p in enumerate(self.all_params):
                 if i not in self.local_param_indices and p.grad is not None:
