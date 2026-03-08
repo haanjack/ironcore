@@ -253,20 +253,31 @@ class MuonOptimizer(Optimizer):
             state["step"] += 1
             momentum_buffer = state["momentum_buffer"]
 
-            # Nesterov momentum update
-            if nesterov:
-                # Nesterov: look-ahead gradient
-                grad_for_update = grad + momentum * momentum_buffer
-            else:
-                grad_for_update = grad
+            # Update momentum buffer FIRST (correct Nesterov order)
+            # momentum_buffer = beta * momentum_buffer + (1 - beta) * grad
+            one_minus_beta = 1.0 - momentum
+            momentum_buffer.mul_(momentum).add_(grad, alpha=one_minus_beta)
 
-            # Update momentum buffer
-            momentum_buffer.mul_(momentum).add_(grad)
+            # Compute Nesterov look-ahead using UPDATED buffer
+            if nesterov:
+                # Nesterov: grad_for_update = beta * momentum_buffer + (1 - beta) * grad
+                # This is equivalent to grad.lerp(momentum_buffer, momentum) but dtype-safe
+                grad_for_update = momentum * momentum_buffer + one_minus_beta * grad
+            else:
+                grad_for_update = momentum_buffer.clone()
 
             # Apply Newton-Schulz orthogonalization
             orthogonal_update = zeropower_via_newtonschulz5(
                 grad_for_update, steps=self.newton_schulz_steps
             )
+
+            # Apply scaling to match AdamW's update RMS (~0.2-0.4)
+            # Reference: Moonshot AI paper (arxiv:2502.16982), Equation 4
+            # Muon's theoretical update RMS is sqrt(1/max(A,B))
+            # We scale by 0.2 * sqrt(max(A,B)) to match AdamW's RMS
+            rows, cols = orthogonal_update.shape
+            update_rms_scaling = 0.2 * (max(rows, cols) ** 0.5)
+            orthogonal_update.mul_(update_rms_scaling)
 
             # Scale by learning rate
             update = lr * orthogonal_update

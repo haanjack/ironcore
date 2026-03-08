@@ -35,7 +35,6 @@ from ironcore.parallel.parallel_states import (
 )
 from ironcore.utils import (
     get_device,
-    get_memory_usage,
     get_model_dtype,
     is_first_rank,
 )
@@ -111,6 +110,9 @@ class BaseTrainer(ABC):
             "autocast": nullcontext(),
             "profile": nullcontext(),
         }
+
+        # Track if memory report has been printed
+        self._memory_reported = False
 
         # initialize model and optimizer
         self.model, self.optimizer = self._build_model_and_optimizer()
@@ -344,6 +346,10 @@ class BaseTrainer(ABC):
 
         self.logger.info(f"Total training time: {(self.timer.get('total') / 3600):.2f} hours")
         self.logger.info("Finishing training")
+
+        # Cleanup distributed process group to avoid NCCL warnings on exit
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
     @abstractmethod
     def train_step(self, step: int) -> tuple[float, float, float]:
@@ -582,11 +588,14 @@ class BaseTrainer(ABC):
                 )
                 metrics["tokens_per_sec"] = tokens_per_sec
 
-        # Memory metrics (on log interval)
-        if self.control.do_log(step):
-            gpu_mem = get_memory_usage()
-            if gpu_mem is not None:
-                metrics["gpu_memory_mb"] = gpu_mem
+        # Detailed memory report on first log step
+        if (self.control.do_log(step) and not self._memory_reported
+                and is_first_rank() and self.config.utils.report_memory_usage):
+            from ironcore.utils import get_detailed_memory_breakdown, format_memory_report
+            breakdown = get_detailed_memory_breakdown(self.model, self.optimizer, in_mib=True)
+            report = format_memory_report(breakdown, "Memory Breakdown")
+            print(report, flush=True)
+            self._memory_reported = True
 
         # Log to console and tracking
         if self.control.do_log(step):

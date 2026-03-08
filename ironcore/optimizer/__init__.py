@@ -30,8 +30,9 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
     weight_decay = config.optim.weight_decay
     no_decay_on_embedding = config.optim.no_decay_on_embedding
 
-    decay = set()
-    no_decay = set()
+    # Use dict (not set) to maintain insertion order - deterministic across ranks
+    decay = {}
+    no_decay = {}
     for mn, m in model.named_modules():
         for pn, p in m.named_parameters(recurse=False):
             # Skip frozen parameters
@@ -43,19 +44,18 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
             # LoRA-specific weight decay rules
             if "lora_A" in pn:
                 # No weight decay on LoRA A matrices (standard practice)
-                no_decay.add(fpn)
+                no_decay[fpn] = True
             elif pn == "bias" or isinstance(m, (nn.LayerNorm, nn.RMSNorm)):
-                no_decay.add(fpn)
+                no_decay[fpn] = True
             elif pn == "weight" and isinstance(m, nn.Embedding):
                 if no_decay_on_embedding:
-                    no_decay.add(fpn)
+                    no_decay[fpn] = True
                 else:
-                    decay.add(fpn)
+                    decay[fpn] = True
             else:
-                decay.add(fpn)
+                decay[fpn] = True
 
     param_dict = dict(model.named_parameters())
-    # Filter out frozen parameters
     decay_params = [param_dict[n] for n in decay if param_dict[n].requires_grad]
     no_decay_params = [param_dict[n] for n in no_decay if param_dict[n].requires_grad]
 
@@ -179,7 +179,7 @@ def get_muon_optimizer(
 
     # Calculate learning rates
     muon_lr = config.optim.max_lr * config.optim.muon_lr_scale
-    adamw_lr = config.optim.max_lr
+    adamw_lr = config.optim.max_lr * config.optim.adamw_lr_scale
 
     optimizer = MuonOptimizer(
         muon_params=[

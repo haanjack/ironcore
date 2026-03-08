@@ -480,10 +480,18 @@ def get_streaming_data_iterator(config):
     from ironcore.dataloader.collator import UniversalCollator
 
     # Load data configuration
-    if hasattr(config.data, "config_path"):
+    if hasattr(config.data, "config_path") and config.data.config_path:
         data_config = DataConfig.from_yaml(config.data.config_path)
-    else:
+    elif hasattr(config.data, "datasets") and len(config.data.datasets) > 0:
+        # Data config is already populated from inline config
+        data_config = config.data
+    elif isinstance(config.data, str):
         data_config = DataConfig.from_yaml(Path("configs/data") / f"{config.data}.yaml")
+    elif hasattr(config.data, "seq_length"):
+        # config.data is already a DataConfig object from inline config
+        data_config = config.data
+    else:
+        raise ValueError(f"Cannot load data config from: {config.data}")
 
     # Determine task type
     task_type = getattr(config.data, "task_type", "pretrain")

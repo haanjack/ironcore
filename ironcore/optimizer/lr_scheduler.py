@@ -88,8 +88,11 @@ class CosineAnnealingLR(LRScheduler):
         else:
             self.last_epoch = epoch
         self._step_count = self.last_epoch + 1
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr(), strict=True):
+        lrs = self.get_lr()
+        for param_group, lr in zip(self.optimizer.param_groups, lrs, strict=True):
             param_group["lr"] = lr
+        # Store _last_lr for get_last_lr() compatibility
+        self._last_lr = lrs
 
 
 def get_lr_scheduler(config, optimizer):

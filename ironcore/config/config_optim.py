@@ -45,6 +45,11 @@ class OptimConfig(BaseConfig):
         metadata={"help": "Learning rate scale factor for Muon vs AdamW (Muon typically uses higher LR)"},
     )
 
+    adamw_lr_scale: float = field(
+        default=1.0,
+        metadata={"help": "Learning rate scale factor for AdamW params (relative to max_lr)"},
+    )
+
     # checkpointing option
     load_checkpoint_optim_state: bool = field(
         default=True,

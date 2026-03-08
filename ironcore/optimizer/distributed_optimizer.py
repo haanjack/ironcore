@@ -111,19 +111,12 @@ class DistributedOptimizer(Optimizer):
             if i in self.local_param_indices
         )
 
-        # Optimizer states (Adam moments) are typically always float32
-        bytes_per_element = 4
-        total_opt_bytes = total_params * 2 * bytes_per_element
-        local_opt_bytes = local_params * 2 * bytes_per_element
-
         if self.dp_rank == 0:
             logger.info(
-                f"[DistributedOptimizer] Optimizer state partitioning enabled | "
+                f"[DistributedOptimizer] State partitioning enabled | "
                 f"dp_size={self.dp_size}, "
                 f"total_params={total_params:,}, "
                 f"local_params={local_params:,} ({100.0 * local_params / max(total_params, 1):.1f}%), "
-                f"total_opt_state={total_opt_bytes / 1024**2:.1f} MiB, "
-                f"local_opt_state={local_opt_bytes / 1024**2:.1f} MiB, "
                 f"buckets={len(self._buckets)}"
             )
 
