@@ -16,6 +16,7 @@ Language Modeling:
 
 Alignment:
 - DPOTrainer: Direct Preference Optimization (offline RL)
+- GRPOTrainer: Group Relative Policy Optimization (online RL)
 
 Example Usage:
     # Pretraining
@@ -30,13 +31,18 @@ Example Usage:
     from ironcore.trainers import LanguageModelTrainer
     trainer = LanguageModelTrainer(config, forward_step_func, loss_fn)
 
-    # Preference Optimization
+    # Preference Optimization (offline)
     from ironcore.trainers import DPOTrainer
     trainer = DPOTrainer(config, forward_step_func, loss_fn)
+
+    # Group Relative Policy Optimization (online)
+    from ironcore.trainers import GRPOTrainer
+    trainer = GRPOTrainer(config, forward_step_func, loss_fn)
 """
 
 from .base_trainer import BaseTrainer
 from .dpo_trainer import DPOTrainer
+from .grpo_trainer import GRPOTrainer
 from .language_model_trainer import (
     LanguageModelTrainer,
     PretrainTrainer,
@@ -52,4 +58,5 @@ __all__ = [
     "SFTTrainer",
     # Alignment
     "DPOTrainer",
+    "GRPOTrainer",
 ]

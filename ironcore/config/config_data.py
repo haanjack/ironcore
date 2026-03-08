@@ -26,8 +26,8 @@ class DatasetConfig(BaseConfig):
 
     name: str = field(default="", metadata={"help": "Dataset identifier name"})
     source: str = field(default="", metadata={"help": "HuggingFace dataset name or local path"})
-    task_type: Literal["pretrain", "sft", "dpo"] = field(
-        default="pretrain", metadata={"help": "Task type: pretrain, sft, or dpo"}
+    task_type: Literal["pretrain", "sft", "dpo", "grpo"] = field(
+        default="pretrain", metadata={"help": "Task type: pretrain, sft, dpo, or grpo"}
     )
     ratio: float = field(default=1.0, metadata={"help": "Mixing ratio for weighted sampling"})
     split: str | None = field(default="train", metadata={"help": "Dataset split name"})
@@ -51,7 +51,7 @@ class DatasetConfig(BaseConfig):
     def __post_init__(self):
         if self.ratio <= 0:
             raise ValueError(f"Dataset {self.name}: ratio must be positive, got {self.ratio}")
-        if self.task_type not in ["pretrain", "sft", "dpo"]:
+        if self.task_type not in ["pretrain", "sft", "dpo", "grpo"]:
             raise ValueError(f"Dataset {self.name}: invalid task_type {self.task_type}")
 
 
@@ -60,8 +60,8 @@ class DataConfig(BaseConfig):
     """Unified data configuration for training."""
 
     # Task type - determines training mode and data handling
-    task_type: Literal["pretrain", "sft", "dpo"] = field(
-        default="pretrain", metadata={"help": "Task type: pretrain, sft, or dpo"}
+    task_type: Literal["pretrain", "sft", "dpo", "grpo"] = field(
+        default="pretrain", metadata={"help": "Task type: pretrain, sft, dpo, or grpo"}
     )
 
     # Dataset Configuration
@@ -136,9 +136,9 @@ class DataConfig(BaseConfig):
             self.cache_dir = Path(self.cache_dir)
         if self.splits and abs(sum(self.splits) - 1.0) > 1e-6:
             raise ValueError(f"Splits must sum to 1.0, got {sum(self.splits)}")
-        if self.task_type not in ["pretrain", "sft", "dpo"]:
+        if self.task_type not in ["pretrain", "sft", "dpo", "grpo"]:
             raise ValueError(
-                f"Invalid task_type '{self.task_type}'. Must be one of: pretrain, sft, dpo"
+                f"Invalid task_type '{self.task_type}'. Must be one of: pretrain, sft, dpo, grpo"
             )
 
     @classmethod

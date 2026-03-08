@@ -110,6 +110,19 @@ class Tokenizer:
             print(f"Error occured during decoding: {e}")
             return ""
 
+    def batch_decode(self, sequences, skip_special_tokens: bool = False, **kwargs):
+        """Decode a batch of token sequences to strings.
+
+        Args:
+            sequences: List of token ID sequences or 2D tensor
+            skip_special_tokens: Whether to remove special tokens from output
+            **kwargs: Additional arguments passed to underlying tokenizer
+
+        Returns:
+            List of decoded strings
+        """
+        return self._tokenizer.batch_decode(sequences, skip_special_tokens=skip_special_tokens, **kwargs)
+
     def __call__(self, *args, **kwargs):
         return self.encode(*args, **kwargs)
 

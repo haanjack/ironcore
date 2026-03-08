@@ -1,0 +1,394 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""GRPO (Group Relative Policy Optimization) Trainer.
+
+Reference:
+    DeepSeek-AI et al., "DeepSeekMath: Pushing the Limits of Mathematical
+    Reasoning in Open Language Models" (2024)
+    https://arxiv.org/abs/2402.03300
+"""
+
+from __future__ import annotations
+
+import copy
+from typing import TYPE_CHECKING
+
+import torch
+import torch.nn as nn
+from torch import distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+from ironcore import get_tokenizer
+from ironcore.alignment.buffer import RolloutBuffer
+from ironcore.alignment.dataset import get_grpo_data_iterator
+from ironcore.alignment.loss.dpo import _compute_log_softmax_tp_safe, _extract_logps_from_log_probs
+from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
+from ironcore.alignment.loss.kl import kl_divergence
+from ironcore.alignment.rewards import get_reward_function, RewardWorkerPool
+from ironcore.alignment.rollout import generate_rollouts_batched
+from ironcore.global_vars import log_metric
+from ironcore.utils import is_first_rank
+
+from .base_trainer import BaseTrainer
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+
+class GRPOTrainer(BaseTrainer):
+    """Trainer for Group Relative Policy Optimization (GRPO).
+
+    GRPO improves reasoning by:
+    1. Generating multiple completions per prompt (online rollout)
+    2. Computing group-relative advantages
+    3. Optimizing with policy gradient + KL penalty
+
+    Key differences from DPO:
+    - Online: generates completions from current policy
+    - Group-based: normalizes rewards within groups
+    - Reward-agnostic: works with verifiable rewards or reward models
+
+    Attributes:
+        group_size: Number of completions per prompt (G)
+        beta: KL penalty coefficient
+        eps: Advantage normalization epsilon
+        reference_model: Frozen reference model
+        reward_worker: Worker pool for reward computation
+    """
+
+    def __init__(self, config, forward_step_func, loss_fn):
+        super().__init__(config, forward_step_func, loss_fn)
+
+        # GRPO hyperparameters
+        self.group_size = config.alignment.grpo_group_size
+        self.beta = config.alignment.grpo_beta
+        self.eps = config.alignment.grpo_eps
+        self.num_epochs = config.alignment.grpo_num_epochs
+        self.clip_eps = config.alignment.grpo_clip_eps
+
+        # Generation config
+        gen_config = config.alignment.generation
+        self.gen_kwargs = {
+            "max_new_tokens": gen_config.max_new_tokens,
+            "temperature": gen_config.temperature,
+            "top_p": gen_config.top_p,
+            "top_k": gen_config.top_k,
+            "do_sample": gen_config.do_sample,
+        }
+
+        # Reward worker (will be initialized after checkpoint load)
+        self.reward_worker: RewardWorkerPool | None = None
+        self._reward_config = config.alignment.reward
+
+        # Reference model (created after checkpoint load)
+        self.reference_model: nn.Module | None = None
+
+        # Tokenizer
+        self._tokenizer = get_tokenizer()
+
+        self.logger.info(
+            f"GRPOTrainer initialized with group_size={self.group_size}, "
+            f"beta={self.beta}, gen_kwargs={self.gen_kwargs}"
+        )
+
+    def _post_checkpoint_load(self, last_step: int) -> None:
+        """Create reference model and reward worker after checkpoint loading."""
+        if dist.is_initialized():
+            dist.barrier()
+
+        self.logger.info("Creating reference model for GRPO...")
+        self.reference_model = self._create_reference_model()
+
+        # Initialize reward worker with config-specific kwargs
+        self.logger.info(f"Initializing reward worker (type={self._reward_config.type})...")
+        reward_kwargs = {"timeout": self._reward_config.timeout}
+
+        if self._reward_config.type == "api":
+            reward_kwargs["provider"] = self._reward_config.api_provider
+            if self._reward_config.api_model:
+                reward_kwargs["model"] = self._reward_config.api_model
+            if self._reward_config.prompt_template:
+                reward_kwargs["prompt_template"] = self._reward_config.prompt_template
+        elif self._reward_config.type == "local_endpoint":
+            reward_kwargs["endpoint"] = self._reward_config.local_endpoint
+        elif self._reward_config.type == "local_inference":
+            if self._reward_config.local_model_path:
+                reward_kwargs["model_path"] = self._reward_config.local_model_path
+            reward_kwargs["device"] = self._reward_config.local_device
+            reward_kwargs["dtype"] = self._reward_config.local_dtype
+            reward_kwargs["load_in_8bit"] = self._reward_config.load_in_8bit
+            reward_kwargs["load_in_4bit"] = self._reward_config.load_in_4bit
+        elif self._reward_config.type == "format":
+            if self._reward_config.required_tags:
+                reward_kwargs["required_tags"] = self._reward_config.required_tags
+            reward_kwargs["penalty"] = self._reward_config.format_penalty
+
+        reward_fn = get_reward_function(self._reward_config.type, **reward_kwargs)
+        self.reward_worker = RewardWorkerPool(
+            reward_fn=reward_fn,
+            num_workers=self._reward_config.num_workers,
+            timeout=self._reward_config.timeout,
+        )
+
+        if dist.is_initialized():
+            dist.barrier()
+
+    def _create_reference_model(self) -> nn.Module:
+        """Create frozen reference model from current policy."""
+        import torch.nn as nn
+
+        self.logger.info("Creating reference model from policy weights...")
+
+        # Get the underlying model (handle FSDP wrapping)
+        model: nn.Module
+        if isinstance(self.model, FSDP):
+            from torch.distributed.fsdp import StateDictType
+
+            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
+                full_state_dict = self.model.state_dict()
+
+            # Access the unwrapped module
+            model = self.model.module  # type: ignore
+            model_class = model.__class__
+            reference_model = model_class(model.config)
+            reference_model.load_state_dict(full_state_dict, strict=False)
+        else:
+            # Handle DDP or unwrapped model
+            model = getattr(self.model, "module", self.model)
+            reference_model = copy.deepcopy(model)
+
+        reference_model.eval()
+
+        for param in reference_model.parameters():
+            param.requires_grad = False
+
+        device = self._get_compute_device()
+        if isinstance(self.model, FSDP) and hasattr(self.model, "mixed_precision"):
+            dtype = self.model.mixed_precision.param_dtype
+        else:
+            dtype = next(self.model.parameters()).dtype
+        reference_model.to(device=device, dtype=dtype)
+
+        return reference_model
+
+    def _get_compute_device(self) -> torch.device:
+        """Get the device where computation should happen."""
+        if isinstance(self.model, FSDP):
+            return torch.device(f"cuda:{torch.cuda.current_device()}")
+        return next(self.model.parameters()).device
+
+    def _move_batch_to_device(self, batch: dict) -> dict:
+        """Move all tensors in batch to model device."""
+        device = self._get_compute_device()
+        return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+    def _setup_data_iterators(self) -> None:
+        """Setup data iterators for training and evaluation."""
+        self.data_iterator = {
+            "train": get_grpo_data_iterator(self.config, split="train"),
+        }
+
+        if hasattr(self.config.data, "eval_file") and self.config.data.eval_file:
+            self.data_iterator["eval"] = get_grpo_data_iterator(self.config, split="eval")
+
+    def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
+        """Forward pass for a single micro-batch in GRPO training."""
+        raise NotImplementedError("GRPO uses custom train_step, not _forward_micro_batch")
+
+    def train_step(self, step: int) -> tuple[float, float, float]:
+        """GRPO training step.
+
+        Phase 1 — Rollout (runs once per step):
+          1. Sample prompts from dataset
+          2. Generate G completions per prompt (batched prefix KV-cache)
+          3. Compute rewards via worker pool
+          4. Compute group-wise advantages
+          old_log_probs are frozen from generation time.
+
+        Phase 2 — Update (runs grpo_num_epochs times):
+          - Online  (num_epochs=1): standard policy gradient, ratio=1
+          - Offline (num_epochs>1): IS ratio = π_θ / π_old, optionally PPO-clipped
+        """
+        self.timer.start(name="iter")
+
+        # === Phase 1: Rollout (once) ===
+        batch = next(self.data_iterator["train"])
+        batch = self._move_batch_to_device(batch)
+
+        prompt_ids = batch["input_ids"]
+        metadata = batch["metadata"]
+        G = self.group_size
+
+        self.model.eval()
+        with torch.no_grad():
+            rollout = generate_rollouts_batched(
+                model=self.model,
+                prompt_ids=prompt_ids,
+                group_size=G,
+                metadata=metadata,
+                eos_token_id=self._tokenizer.eos_token_id,
+                **self.gen_kwargs,
+            )
+        self.model.train()
+
+        if self.reward_worker is None:
+            raise RuntimeError("Reward worker not initialized. Call _post_checkpoint_load first.")
+
+        prompts_text = self._tokenizer.batch_decode(prompt_ids, skip_special_tokens=True)
+        completions_text = self._tokenizer.batch_decode(rollout.completion_ids, skip_special_tokens=True)
+
+        rewards = self.reward_worker.score_batch(
+            prompts=prompts_text * G,
+            completions=completions_text,
+            metadata_list=rollout.metadata,
+        )
+        rewards = rewards.to(prompt_ids.device)
+
+        advantages = compute_advantages(rewards, rollout.group_ids, self.eps)
+
+        # old_log_probs frozen at generation time — used for IS in offline epochs
+        old_log_probs = rollout.old_log_probs.detach()
+
+        # === Phase 2: Multi-epoch update ===
+        metrics: dict[str, float] = {}
+        grad_norm = param_norm = 0.0
+
+        for epoch in range(self.num_epochs):
+            # Pass old_log_probs only when IS is meaningful:
+            # epoch 0 with num_epochs=1  → online (ratio=1, skip IS overhead)
+            # epoch 0 with num_epochs>1  → IS still correct (ratio≈1 but sets up clipping)
+            # epoch 1+                   → IS required (policy has drifted)
+            use_is = self.num_epochs > 1
+            loss, metrics = self._compute_grpo_loss(
+                rollout,
+                advantages,
+                old_log_probs=old_log_probs if use_is else None,
+            )
+
+            self.scaler.scale(loss).backward()
+            grad_norm, param_norm = self._compute_grad_and_param_norms(step)
+            self._optimizer_step()
+
+        self.timer.stop(name="iter")
+
+        self._check_loss_for_nan(metrics["grpo_loss"], step)
+
+        if is_first_rank() and self.control.do_log(step):
+            self._log_grpo_metrics(step, metrics, rewards, advantages)
+
+        return metrics["grpo_loss"], grad_norm, param_norm
+
+    def _compute_grpo_loss(
+        self,
+        rollout: RolloutBuffer,
+        advantages: torch.Tensor,
+        old_log_probs: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, dict[str, float]]:
+        """Compute GRPO loss with current policy."""
+        device = self._get_compute_device()
+
+        # Create labels (shift by 1 for next-token prediction)
+        labels = rollout.completion_ids.clone()
+        labels[:, :-1] = rollout.completion_ids[:, 1:]
+        labels[:, -1] = -100
+
+        # Mask: only compute loss on response tokens (not prompt)
+        prompt_len = rollout.prompt_ids.size(1)
+        response_mask = torch.zeros_like(labels, dtype=torch.float)
+        response_mask[:, prompt_len - 1 : -1] = 1.0
+        labels[:, : prompt_len - 1] = -100
+
+        # Compute policy log probs (with gradients)
+        policy_logits = self.model(rollout.completion_ids.to(device), labels=None)
+        policy_log_probs = self._compute_sequence_log_probs_from_logits(policy_logits, labels, response_mask)
+
+        # Compute reference log probs (no gradients)
+        if self.reference_model is None:
+            raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
+
+        with torch.no_grad():
+            ref_logits = self.reference_model(rollout.completion_ids.to(device), labels=None)
+            ref_log_probs = self._compute_sequence_log_probs_from_logits(ref_logits, labels, response_mask)
+
+        # Compute KL divergence
+        policy_log_probs_full = _compute_log_softmax_tp_safe(policy_logits)
+        ref_log_probs_full = _compute_log_softmax_tp_safe(ref_logits)
+        kl_per_seq = kl_divergence(policy_log_probs_full, ref_log_probs_full, response_mask)
+
+        # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
+        loss, metrics = grpo_loss(
+            policy_log_probs=policy_log_probs,
+            ref_log_probs=ref_log_probs,
+            advantages=advantages.to(device),
+            kl_per_seq=kl_per_seq,
+            beta=self.beta,
+            old_log_probs=old_log_probs.to(device) if old_log_probs is not None else None,
+            clip_eps=self.clip_eps,
+        )
+
+        return loss, metrics
+
+    def _compute_sequence_log_probs_from_logits(
+        self, logits: torch.Tensor, labels: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute sequence log probs from logits (TP-safe)."""
+        log_probs = _compute_log_softmax_tp_safe(logits)
+        return _extract_logps_from_log_probs(log_probs, labels, mask)
+
+    def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
+        """Compute gradient and parameter norms."""
+        grad_norm = 0.0
+        param_norm = 0.0
+
+        # Unwrap model for norm computation
+        model = self.model.module if hasattr(self.model, "module") else self.model
+
+        for p in model.parameters():
+            if p.grad is not None:
+                grad_norm += p.grad.data.norm(2).item() ** 2
+            param_norm += p.data.norm(2).item() ** 2
+
+        grad_norm = grad_norm**0.5
+        param_norm = param_norm**0.5
+
+        return grad_norm, param_norm
+
+    def _optimizer_step(self) -> None:
+        """Perform optimizer step with gradient scaling."""
+        self.scaler.unscale_(self.optimizer)
+        torch.nn.utils.clip_grad_norm_(
+            self.model.parameters(),
+            self.config.trainer.clip_grad,
+        )
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad()
+        self.lr_scheduler.step()
+
+    def _log_grpo_metrics(
+        self, step: int, metrics: dict, rewards: torch.Tensor, advantages: torch.Tensor
+    ) -> None:
+        """Log GRPO-specific metrics."""
+        for name, value in metrics.items():
+            log_metric(f"grpo/{name}", value, step)
+
+        log_metric("grpo/mean_reward", rewards.mean().item(), step)
+        log_metric("grpo/std_reward", rewards.std().item() if len(rewards) > 1 else 0.0, step)
+        log_metric("grpo/mean_advantage", advantages.mean().item(), step)
+
+        self.logger.info(
+            f"step: {step}, grpo_loss: {metrics['grpo_loss']:.4f}, "
+            f"policy_loss: {metrics['policy_loss']:.4f}, "
+            f"kl_loss: {metrics['kl_loss']:.4f}, "
+            f"mean_reward: {rewards.mean().item():.4f}, "
+            f"mean_ratio: {metrics['mean_ratio']:.4f}, "
+            f"clip_frac: {metrics['clip_fraction']:.3f}"
+        )
+
+    def _eval_step(self, data_iterator: Iterator) -> tuple[float, float]:
+        """Evaluation step (simplified - just compute loss on held-out prompts)."""
+        # For GRPO, evaluation is tricky since we need to generate + reward
+        # For now, return placeholder
+        return 0.0, 0.0

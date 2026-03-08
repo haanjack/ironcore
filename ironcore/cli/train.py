@@ -12,7 +12,7 @@ from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
 from ironcore.config.config_peft import PEFTConfig
 from ironcore.config.config_utils import ProfilerConfig
-from ironcore.trainers import DPOTrainer, LanguageModelTrainer
+from ironcore.trainers import DPOTrainer, GRPOTrainer, LanguageModelTrainer
 from ironcore.training_utils import forward_step, get_loss_func
 
 # Get rank early for conditional printing
@@ -122,6 +122,28 @@ def run_train(args):
         _print(f"  - beta: {config.alignment.dpo_beta}")
         _print(f"  - label_smoothing: {config.alignment.dpo_label_smoothing}")
         trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    elif task_type == "grpo":
+        # Validate alignment config for GRPO
+        if config.alignment is None or config.alignment == AlignmentConfig():
+            _print(
+                "Error: GRPO requires 'alignment' configuration section in config file. "
+                "Please define alignment hyperparameters (e.g., grpo_group_size, grpo_beta)."
+            )
+            sys.exit(1)
+
+        # Validate GRPO-specific parameters
+        if config.alignment.grpo_group_size < 2:
+            _print(f"Error: alignment.grpo_group_size must be >= 2, got {config.alignment.grpo_group_size}")
+            sys.exit(1)
+
+        if config.alignment.grpo_beta < 0:
+            _print(f"Error: alignment.grpo_beta must be >= 0, got {config.alignment.grpo_beta}")
+            sys.exit(1)
+
+        _print("Using GRPOTrainer for Group Relative Policy Optimization")
+        _print(f"  - group_size: {config.alignment.grpo_group_size}")
+        _print(f"  - beta: {config.alignment.grpo_beta}")
+        trainer = GRPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     else:
         _print(f"Error: Unsupported task type: {task_type}")
         sys.exit(1)
