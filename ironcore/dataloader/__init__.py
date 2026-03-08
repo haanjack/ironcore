@@ -7,6 +7,7 @@ from pathlib import Path
 
 from torch.utils.data import DataLoader
 
+from ironcore.config import _validate_path_within_dir
 from ironcore.dataloader.collator import UniversalCollator
 from ironcore.dataloader.data_config import DataConfig
 from ironcore.dataloader.dataset import (
@@ -17,6 +18,9 @@ from ironcore.dataloader.dataset import (
 )
 
 __all__ = ["UniversalCollator", "WeightedMixingDataset", "BinaryDataset", "get_data_iterator"]
+
+# Allowed base directory for data config files
+_DATA_CONFIG_BASE_DIR = Path("configs/data").resolve()
 
 
 def get_data_iterator(config):
@@ -29,15 +33,20 @@ def get_data_iterator(config):
     Returns:
         dict: Dictionary with 'train', 'eval', 'test' iterators
     """
-    # Load data configuration
+    # Load data configuration with path validation
     if hasattr(config.data, "config_path") and config.data.config_path:
-        data_config = DataConfig.from_yaml(config.data.config_path)
+        config_path = Path(config.data.config_path)
+        if not _validate_path_within_dir(config_path, _DATA_CONFIG_BASE_DIR):
+            raise ValueError(
+                f"Config path '{config_path}' is outside allowed directory 'configs/data/'"
+            )
+        data_config = DataConfig.from_yaml(config_path)
     elif hasattr(config.data, "datasets") and len(config.data.datasets) > 0:
         # Data config is already populated from inline config
         data_config = config.data
     elif isinstance(config.data, str):
         # config.data is a string name referencing a data config file
-        data_config = DataConfig.from_yaml(Path("configs/data") / f"{config.data}.yaml")
+        data_config = DataConfig.from_yaml(_DATA_CONFIG_BASE_DIR / f"{config.data}.yaml")
     elif hasattr(config.data, "seq_length"):
         # config.data is already a DataConfig object from inline config
         data_config = config.data
