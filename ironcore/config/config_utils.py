@@ -48,7 +48,7 @@ class UtilsConfig(BaseConfig):
     deterministic: bool = field(default=False, metadata={"help": "Enable deterministic mode"})
 
     report_memory_usage: bool = field(
-        default=True, metadata={"help": "Enable memory report at the first log step"}
+        default=True, metadata={"help": "Show detailed memory breakdown at step 1"}
     )
 
     # logger

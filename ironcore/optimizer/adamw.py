@@ -91,14 +91,16 @@ class AdamWOptimizer(Optimizer):
 
         return loss
 
-    def zero_grad(self):
+    def zero_grad(self, set_to_none: bool = True):
         for group in self.param_groups:
             for p in group["params"]:
                 if p.grad is not None:
-                    if p.grad.grad_fn is not None:
-                        p.grad.detach_()
-                    p.grad.zero_()
-        return self
+                    if set_to_none:
+                        p.grad = None
+                    else:
+                        if p.grad.grad_fn is not None:
+                            p.grad.detach_()
+                        p.grad.zero_()
 
     def state_dict(self):
         state_dict = super().state_dict()
@@ -106,7 +108,6 @@ class AdamWOptimizer(Optimizer):
 
     def load_state_dict(self, state_dict):
         super().load_state_dict(state_dict)
-        return self
 
     def __repr__(self):
         return (

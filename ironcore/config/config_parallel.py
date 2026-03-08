@@ -50,3 +50,22 @@ class ParallelConfig(BaseConfig):
         default="full",
         metadata={"help": f"FSDP state dict type: {'full', 'local', 'sharded'}"},
     )
+
+    # DistributedOptimizer options
+    # Partitions optimizer states across data-parallel ranks while keeping parameters
+    # and gradients replicated. Provides memory savings for optimizer states (1/N per rank).
+    # Incompatible with FSDP (use FSDP's built-in sharding instead).
+    use_distributed_optimizer: bool = field(
+        default=False,
+        metadata={
+            "help": "Use DistributedOptimizer to partition optimizer states across DP ranks. "
+            "Reduces optimizer state memory by 1/DP_world_size. Incompatible with FSDP."
+        },
+    )
+
+    dist_opt_bucket_cap_mb: float = field(
+        default=25.0,
+        metadata={
+            "help": "Bucket size in megabytes for parameter broadcasting in DistributedOptimizer."
+        },
+    )

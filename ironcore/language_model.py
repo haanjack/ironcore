@@ -317,7 +317,9 @@ class LanguageModel(BaseModule):
             # loop through the batches
             for b in range(input_ids.size(0)):
                 # find indices of EOD tokens in input_ids
-                eod_indices = (input_ids[b] == get_tokenizer().eod_token_id).nonzero(as_tuple=True)[0]
+                eod_indices = (input_ids[b] == get_tokenizer().eod_token_id).nonzero(as_tuple=True)[
+                    0
+                ]
                 # detach indices from position if going to modify them
                 if self.reset_position_ids:
                     eod_indices = eod_indices.clone()

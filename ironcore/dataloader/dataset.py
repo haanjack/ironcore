@@ -20,8 +20,12 @@ import torch
 from torch import distributed as dist
 from torch.utils.data import IterableDataset
 
+from ironcore.config import _validate_path_within_dir
 from ironcore.dataloader.data_config import DataConfig
 from ironcore.parallel import parallel_states
+
+# Allowed base directory for data config files
+_DATA_CONFIG_BASE_DIR = Path("configs/data").resolve()
 
 
 class StreamingBinaryDataset:
@@ -479,11 +483,24 @@ def get_streaming_data_iterator(config):
 
     from ironcore.dataloader.collator import UniversalCollator
 
-    # Load data configuration
-    if hasattr(config.data, "config_path"):
-        data_config = DataConfig.from_yaml(config.data.config_path)
+    # Load data configuration with path validation
+    if hasattr(config.data, "config_path") and config.data.config_path:
+        config_path = Path(config.data.config_path)
+        if not _validate_path_within_dir(config_path, _DATA_CONFIG_BASE_DIR):
+            raise ValueError(
+                f"Config path '{config_path}' is outside allowed directory 'configs/data/'"
+            )
+        data_config = DataConfig.from_yaml(config_path)
+    elif hasattr(config.data, "datasets") and len(config.data.datasets) > 0:
+        # Data config is already populated from inline config
+        data_config = config.data
+    elif isinstance(config.data, str):
+        data_config = DataConfig.from_yaml(_DATA_CONFIG_BASE_DIR / f"{config.data}.yaml")
+    elif hasattr(config.data, "seq_length"):
+        # config.data is already a DataConfig object from inline config
+        data_config = config.data
     else:
-        data_config = DataConfig.from_yaml(Path("configs/data") / f"{config.data}.yaml")
+        raise ValueError(f"Cannot load data config from: {config.data}")
 
     # Determine task type
     task_type = getattr(config.data, "task_type", "pretrain")

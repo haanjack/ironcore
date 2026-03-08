@@ -67,11 +67,17 @@ def initialize_process(config: MainConfig):
             logger.info("Initialize torch distributed ... ")
 
         # initialize torch distributed
+        # Set device_id to avoid NCCL warning about guessing device ID
+        device_id = None
+        if torch.cuda.is_available():
+            device_id = torch.device(f"cuda:{torch.cuda.current_device()}")
+
         torch.distributed.init_process_group(
             backend=dist_backend,
             world_size=config.parallel.world_size,
             rank=config.parallel.rank,
             timeout=timedelta(minutes=config.parallel.timeout_minute),
+            device_id=device_id,
         )
 
 
