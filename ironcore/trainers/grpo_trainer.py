@@ -77,6 +77,7 @@ class GRPOTrainer(BaseTrainer):
             "top_k": gen_config.top_k,
             "do_sample": gen_config.do_sample,
         }
+        self.use_chat_template = gen_config.use_chat_template
         self.system_prompt = gen_config.system_prompt
 
         # Reward worker (will be initialized after checkpoint load)
@@ -92,6 +93,7 @@ class GRPOTrainer(BaseTrainer):
         self.logger.info(
             f"GRPOTrainer initialized with group_size={self.group_size}, "
             f"beta={self.beta}, gen_kwargs={self.gen_kwargs}, "
+            f"use_chat_template={self.use_chat_template}, "
             f"system_prompt={'set' if self.system_prompt else 'none'}"
         )
 
@@ -214,22 +216,53 @@ class GRPOTrainer(BaseTrainer):
         device = self._get_compute_device()
         return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-    def _prepend_system_prompt(self, prompt_ids: torch.Tensor) -> torch.Tensor:
-        """Prepend system prompt to all prompts in the batch.
+    def _prepare_prompt_ids(self, prompts: list[str], device: torch.device) -> torch.Tensor:
+        """Prepare prompt IDs with optional chat template and system prompt.
 
         Args:
-            prompt_ids: [B, prompt_len] prompt token IDs
+            prompts: List of raw prompt strings [B]
+            device: Target device
 
         Returns:
-            [B, system_len + prompt_len] with system prompt prepended
+            [B, prompt_len] prompt token IDs
         """
-        # Tokenize system prompt (no special tokens, just raw text)
-        system_ids = self._tokenizer.encode(self.system_prompt, add_special_tokens=False)
-        system_tensor = torch.tensor(system_ids, device=prompt_ids.device, dtype=prompt_ids.dtype)
+        if self.use_chat_template:
+            # Build messages and apply chat template
+            all_prompt_ids = []
+            for prompt in prompts:
+                messages = []
+                if self.system_prompt:
+                    messages.append({"role": "system", "content": self.system_prompt})
+                messages.append({"role": "user", "content": prompt})
 
-        # Prepend to each prompt: [B, system_len + prompt_len]
-        system_expanded = system_tensor.unsqueeze(0).expand(prompt_ids.size(0), -1)
-        return torch.cat([system_expanded, prompt_ids], dim=1)
+                prompt_ids = self._tokenizer.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    return_tensors="pt",
+                )
+                all_prompt_ids.append(prompt_ids.squeeze(0))
+
+            # Pad to same length
+            from torch.nn.utils.rnn import pad_sequence
+
+            return pad_sequence(all_prompt_ids, batch_first=True, padding_value=0).to(device)
+        else:
+            # Fallback: raw tokenization (dataset already tokenized, but re-tokenize if system_prompt)
+            if self.system_prompt:
+                all_prompt_ids = []
+                system_ids = self._tokenizer.encode(self.system_prompt, add_special_tokens=False)
+
+                for prompt in prompts:
+                    prompt_ids = self._tokenizer.encode(prompt, add_special_tokens=False)
+                    combined = system_ids + prompt_ids
+                    all_prompt_ids.append(torch.tensor(combined, dtype=torch.long))
+
+                from torch.nn.utils.rnn import pad_sequence
+
+                return pad_sequence(all_prompt_ids, batch_first=True, padding_value=0).to(device)
+            else:
+                # Use pre-tokenized IDs from batch (handled by caller)
+                return None
 
     def _setup_data_iterators(self) -> None:
         """Setup data iterators for training and evaluation."""
@@ -264,13 +297,16 @@ class GRPOTrainer(BaseTrainer):
         batch = next(self.data_iterator["train"])
         batch = self._move_batch_to_device(batch)
 
-        prompt_ids = batch["input_ids"]
+        prompts = batch["prompts"]  # Raw text prompts
         metadata = batch["metadata"]
         G = self.group_size
 
-        # Prepend system prompt if configured
-        if self.system_prompt:
-            prompt_ids = self._prepend_system_prompt(prompt_ids)
+        # Prepare prompt IDs (with optional chat template / system prompt)
+        device = self._get_compute_device()
+        if self.use_chat_template or self.system_prompt:
+            prompt_ids = self._prepare_prompt_ids(prompts, device)
+        else:
+            prompt_ids = batch["input_ids"]
 
         self.model.eval()
         with torch.no_grad():

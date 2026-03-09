@@ -157,6 +157,7 @@ def collate_grpo_samples(samples: list[GRPOSample]) -> dict:
         Dictionary with:
         - input_ids: [B, max_len] padded tensors
         - attention_mask: [B, max_len] padded masks
+        - prompts: list[str] raw prompt texts
         - metadata: list[dict]
     """
     from torch.nn.utils.rnn import pad_sequence
@@ -175,6 +176,7 @@ def collate_grpo_samples(samples: list[GRPOSample]) -> dict:
     return {
         "input_ids": input_ids,
         "attention_mask": attention_mask,
+        "prompts": [s.prompt for s in samples],
         "metadata": [s.metadata for s in samples],
     }
 

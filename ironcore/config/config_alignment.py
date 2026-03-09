@@ -23,7 +23,8 @@ class GenerationConfig(BaseConfig):
     top_k: int = 0
     do_sample: bool = True
 
-    # System prompt prepended to all prompts
+    # Chat template settings
+    use_chat_template: bool = False
     system_prompt: str | None = None
 
 
