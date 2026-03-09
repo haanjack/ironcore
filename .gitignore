@@ -186,3 +186,8 @@ cython_debug/
 
 # train logs
 mlruns/
+
+# Test outputs
+smoke_test_output/
+toy_test_output/
+.env~
