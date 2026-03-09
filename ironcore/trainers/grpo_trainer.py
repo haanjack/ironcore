@@ -77,6 +77,7 @@ class GRPOTrainer(BaseTrainer):
             "top_k": gen_config.top_k,
             "do_sample": gen_config.do_sample,
         }
+        self.system_prompt = gen_config.system_prompt
 
         # Reward worker (will be initialized after checkpoint load)
         self.reward_worker: RewardWorkerPool | None = None
@@ -90,7 +91,8 @@ class GRPOTrainer(BaseTrainer):
 
         self.logger.info(
             f"GRPOTrainer initialized with group_size={self.group_size}, "
-            f"beta={self.beta}, gen_kwargs={self.gen_kwargs}"
+            f"beta={self.beta}, gen_kwargs={self.gen_kwargs}, "
+            f"system_prompt={'set' if self.system_prompt else 'none'}"
         )
 
     def _post_checkpoint_load(self, last_step: int) -> None:
@@ -212,6 +214,23 @@ class GRPOTrainer(BaseTrainer):
         device = self._get_compute_device()
         return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
+    def _prepend_system_prompt(self, prompt_ids: torch.Tensor) -> torch.Tensor:
+        """Prepend system prompt to all prompts in the batch.
+
+        Args:
+            prompt_ids: [B, prompt_len] prompt token IDs
+
+        Returns:
+            [B, system_len + prompt_len] with system prompt prepended
+        """
+        # Tokenize system prompt (no special tokens, just raw text)
+        system_ids = self._tokenizer.encode(self.system_prompt, add_special_tokens=False)
+        system_tensor = torch.tensor(system_ids, device=prompt_ids.device, dtype=prompt_ids.dtype)
+
+        # Prepend to each prompt: [B, system_len + prompt_len]
+        system_expanded = system_tensor.unsqueeze(0).expand(prompt_ids.size(0), -1)
+        return torch.cat([system_expanded, prompt_ids], dim=1)
+
     def _setup_data_iterators(self) -> None:
         """Setup data iterators for training and evaluation."""
         self.data_iterator = {
@@ -248,6 +267,10 @@ class GRPOTrainer(BaseTrainer):
         prompt_ids = batch["input_ids"]
         metadata = batch["metadata"]
         G = self.group_size
+
+        # Prepend system prompt if configured
+        if self.system_prompt:
+            prompt_ids = self._prepend_system_prompt(prompt_ids)
 
         self.model.eval()
         with torch.no_grad():

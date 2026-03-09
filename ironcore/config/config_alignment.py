@@ -23,6 +23,9 @@ class GenerationConfig(BaseConfig):
     top_k: int = 0
     do_sample: bool = True
 
+    # System prompt prepended to all prompts
+    system_prompt: str | None = None
+
 
 @dataclass
 class RewardConfig(BaseConfig):
