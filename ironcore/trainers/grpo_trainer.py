@@ -345,7 +345,7 @@ class GRPOTrainer(BaseTrainer):
 
         # Sum token-level log probs for sequence-level advantage multiplication
         policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1)
-        ref_log_probs_seq = (ref_log_probs * response_mask.cpu()).sum(dim=-1).to(device)
+        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1)
 
         # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
         loss, metrics = grpo_loss(
