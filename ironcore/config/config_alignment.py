@@ -116,7 +116,7 @@ class AlignmentConfig(BaseConfig):
                 raise ValueError(f"grpo_num_epochs must be >= 1, got {self.grpo_num_epochs}")
             if self.grpo_clip_eps < 0:
                 raise ValueError(f"grpo_clip_eps must be >= 0, got {self.grpo_clip_eps}")
-            valid_reward_types = ("math", "code", "api", "local_endpoint", "local_inference", "format", "keyword")
+            valid_reward_types = ("math", "code", "api", "local_endpoint", "local_inference", "format", "keyword", "soft_keyword")
             if self.reward.type not in valid_reward_types:
                 raise ValueError(
                     f"reward.type must be one of {valid_reward_types}, got {self.reward.type}"

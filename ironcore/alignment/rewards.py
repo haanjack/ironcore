@@ -168,6 +168,44 @@ class KeywordRewardFunction(RewardFunction):
         return 1.0 if target in text else 0.0
 
 
+class SoftKeywordRewardFunction(RewardFunction):
+    """Soft reward: partial credit for character-level matches.
+
+    Returns max similarity score between keyword and any n-gram of same length in completion.
+    This provides gradient signal even when exact match is not achieved.
+
+    Score = (matching characters) / (total characters)
+    """
+
+    def __init__(self, keyword: str = "ironcore", case_sensitive: bool = False, min_score: float = 0.0):
+        self.keyword = keyword
+        self.case_sensitive = case_sensitive
+        self.min_score = min_score
+
+    def compute(self, prompt: str, completion: str, metadata: dict) -> float:
+        keyword = metadata.get("keyword", self.keyword)
+        text = completion if self.case_sensitive else completion.lower()
+        target = keyword if self.case_sensitive else keyword.lower()
+
+        # Exact match
+        if target in text:
+            return 1.0
+
+        # Partial credit: find best matching n-gram
+        n = len(target)
+        if n == 0 or len(text) < n:
+            return self.min_score
+
+        best_score = 0.0
+        for i in range(len(text) - n + 1):
+            ngram = text[i : i + n]
+            matches = sum(1 for a, b in zip(ngram, target) if a == b)
+            score = matches / n
+            best_score = max(best_score, score)
+
+        return max(best_score, self.min_score)
+
+
 class APIRewardFunction(RewardFunction):
     """Reward using external LLM API (OpenAI, Anthropic, Google, Zhipu)."""
 
@@ -667,6 +705,12 @@ def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: 
         return KeywordRewardFunction(
             keyword=kwargs.get("keyword", "ironcore"),
             case_sensitive=kwargs.get("case_sensitive", False),
+        )
+    if reward_type == "soft_keyword":
+        return SoftKeywordRewardFunction(
+            keyword=kwargs.get("keyword", "ironcore"),
+            case_sensitive=kwargs.get("case_sensitive", False),
+            min_score=kwargs.get("min_score", 0.0),
         )
     if reward_type == "api":
         return APIRewardFunction(**kwargs)

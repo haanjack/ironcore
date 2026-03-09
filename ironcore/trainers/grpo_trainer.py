@@ -127,6 +127,9 @@ class GRPOTrainer(BaseTrainer):
         elif self._reward_config.type == "keyword":
             reward_kwargs["keyword"] = self._reward_config.keyword
             reward_kwargs["case_sensitive"] = self._reward_config.keyword_case_sensitive
+        elif self._reward_config.type == "soft_keyword":
+            reward_kwargs["keyword"] = self._reward_config.keyword
+            reward_kwargs["case_sensitive"] = self._reward_config.keyword_case_sensitive
 
         reward_fn = get_reward_function(self._reward_config.type, **reward_kwargs)
         self.reward_worker = RewardWorkerPool(
@@ -262,13 +265,13 @@ class GRPOTrainer(BaseTrainer):
             raise RuntimeError("Reward worker not initialized. Call _post_checkpoint_load first.")
 
         prompts_text = self._tokenizer.batch_decode(prompt_ids, skip_special_tokens=True)
-        completions_text = self._tokenizer.batch_decode(rollout.completion_ids, skip_special_tokens=True)
+        responses_text = self._tokenizer.batch_decode(rollout.response_ids, skip_special_tokens=True)
 
-        # Correctly repeat each prompt G times to match completion expansion order
+        # Correctly repeat each prompt G times to match response expansion order
         repeated_prompts = [p for p in prompts_text for _ in range(G)]
         rewards = self.reward_worker.score_batch(
             prompts=repeated_prompts,
-            completions=completions_text,
+            completions=responses_text,
             metadata_list=rollout.metadata,
         )
         rewards = rewards.to(prompt_ids.device)
