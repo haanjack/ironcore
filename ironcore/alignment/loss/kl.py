@@ -19,14 +19,7 @@ def kl_divergence(
     ref_log_probs: torch.Tensor,  # [batch, seq_len, vocab]
     mask: torch.Tensor | None = None,  # [batch, seq_len] 1=valid, 0=pad/prompt
 ) -> torch.Tensor:
-    """Compute KL divergence between policy and reference distributions.
-
-    Computes KL(ref || policy) summed over valid tokens:
-
-        KL(P||Q) = sum_x P(x) * (log P(x) - log Q(x))
-
-    For numerical stability with log probs:
-        KL = sum_x exp(ref_log_prob(x)) * (ref_log_prob(x) - policy_log_prob(x))
+    """Compute exact KL divergence between policy and reference distributions.
 
     Args:
         policy_log_probs: Log probabilities from policy model [batch, seq_len, vocab]
@@ -44,6 +37,33 @@ def kl_divergence(
         kl_per_token = kl_per_token * mask.float()
 
     return kl_per_token.sum(dim=-1)  # [batch]
+
+
+def kl_divergence_approx(
+    policy_log_probs: torch.Tensor,  # [batch, seq_len] - log probs of specific tokens
+    ref_log_probs: torch.Tensor,  # [batch, seq_len] - log probs of same tokens
+    mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Compute memory-efficient approximation of KL divergence.
+
+    Uses the estimator: KL = log(policy) - log(ref).
+    This only requires log probs of the generated tokens, not full distributions.
+
+    Args:
+        policy_log_probs: Log probs of response tokens from current policy [batch, seq_len]
+        ref_log_probs: Log probs of response tokens from reference model [batch, seq_len]
+        mask: Optional mask for response tokens [batch, seq_len]
+
+    Returns:
+        [batch] - Approximate KL divergence per sequence
+    """
+    # log(P/Q) = log P - log Q
+    kl_per_token = policy_log_probs - ref_log_probs
+
+    if mask is not None:
+        kl_per_token = kl_per_token * mask.float()
+
+    return kl_per_token.sum(dim=-1)
 
 
 def kl_divergence_from_logits(

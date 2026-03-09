@@ -4,16 +4,16 @@
 
 """Pytest fixtures for GRPO integration tests."""
 
-import os
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
+import torch
 
 
 @pytest.fixture(scope="session")
 def mock_tokenizer():
     """Provide a mock tokenizer for tests that need get_tokenizer()."""
-    from ironcore.global_vars import GlobalStates
 
     # Create mock tokenizer
     mock_tok = MagicMock()

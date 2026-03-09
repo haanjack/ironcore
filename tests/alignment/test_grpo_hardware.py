@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import gc
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import pytest
 import torch
@@ -181,11 +180,11 @@ class TestWorkerPoolLatency:
         # Measure sequential time
         start = time.perf_counter()
         rewards_sequential = []
-        for p, c, m in zip(prompts, completions, metadata):
+        for p, c, m in zip(prompts, completions, metadata, strict=False):
             rewards_sequential.append(reward_fn.compute(p, c, m))
         sequential_time = time.perf_counter() - start
 
-        print(f"\nWorker Pool Performance:")
+        print("\nWorker Pool Performance:")
         print(f"  Pool time:       {pool_time*1000:.2f} ms")
         print(f"  Sequential time: {sequential_time*1000:.2f} ms")
 
@@ -247,7 +246,7 @@ class TestLRUCache:
 
         # First pass: cache miss
         for _ in range(3):
-            for p, c, m in zip(unique_prompts, unique_completions, metadata):
+            for p, c, m in zip(unique_prompts, unique_completions, metadata, strict=False):
                 reward_fn.compute(p, c, m)
 
         # Check cache stats (if available)
@@ -318,7 +317,7 @@ class TestThroughput:
         elapsed = time.perf_counter() - start
 
         throughput = total_tokens / elapsed
-        print(f"\nGeneration Throughput:")
+        print("\nGeneration Throughput:")
         print(f"  Total tokens: {total_tokens}")
         print(f"  Time: {elapsed:.3f} sec")
         print(f"  Throughput: {throughput:.0f} tokens/sec")

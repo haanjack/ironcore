@@ -84,17 +84,24 @@ def compute_advantages(
                 all_group_ids_list = []
 
                 current_offset = 0
+                current_group_offset = 0
                 local_start = 0
                 local_end = 0
 
                 for i, (g_r, g_g) in enumerate(zip(gathered_rewards, gathered_group_ids, strict=True)):
                     size = all_sizes[i]
+                    # Extract active portion and offset group IDs to be globally unique
+                    rank_group_ids = g_g[:size]
+                    if size > 0:
+                        rank_group_ids = rank_group_ids + current_group_offset
+                        current_group_offset = rank_group_ids.max().item() + 1
+
                     if i == rank:
                         local_start = current_offset
                         local_end = current_offset + size
 
                     all_rewards_list.append(g_r[:size])
-                    all_group_ids_list.append(g_g[:size])
+                    all_group_ids_list.append(rank_group_ids)
                     current_offset += size
 
                 rewards = torch.cat(all_rewards_list, dim=0)
@@ -226,4 +233,5 @@ def compute_entropy(
         num_valid = mask.float().sum(dim=-1).clamp(min=1)
         return entropy_per_token.sum(dim=-1) / num_valid
 
-    return entropy_per_token.mean(dim=-1)
+    # Average over the sequence dimension (dim 1), returning [batch]
+    return entropy_per_token.mean(dim=1)

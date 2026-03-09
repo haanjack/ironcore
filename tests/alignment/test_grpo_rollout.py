@@ -12,7 +12,7 @@ Tests:
 
 import pytest
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class MockLanguageModel(nn.Module):
@@ -37,9 +37,6 @@ class MockLanguageModel(nn.Module):
 
         # Simple caching: store per-layer hidden states
         new_past_kv = []
-        cache_position = 0
-        if past_key_values is not None and len(past_key_values) > 0:
-            cache_position = past_key_values[0][0].size(1)
 
         for i, layer in enumerate(self.layers):
             x = layer(x)
@@ -164,7 +161,7 @@ class TestBatchedSampling:
         logits[0, 0] = 10.0  # Strong preference for token 0
 
         # Low temperature should concentrate probability on token 0
-        tokens_low_temp = _sample_tokens_batched(
+        _sample_tokens_batched(
             logits.clone(), temperature=0.1, top_p=1.0, top_k=0, do_sample=True
         )
 
@@ -240,7 +237,7 @@ class TestLogitParity:
         last_logits = prefill_logits[:, -1, :]  # [B, vocab]
 
         # Expand KV-cache
-        expanded_kv = _expand_kv_cache(prefix_kv, G)
+        _expand_kv_cache(prefix_kv, G)
 
         # Expand logits for comparison
         expanded_logits = last_logits.unsqueeze(1).expand(B, G, -1).reshape(B * G, -1)

@@ -31,15 +31,12 @@ Part C: End-to-End Validation
 from __future__ import annotations
 
 import gc
-import json
 import tempfile
 from pathlib import Path
-from dataclasses import dataclass
 
 import pytest
 import torch
-import torch.nn as nn
-
+from torch import nn
 
 # =============================================================================
 # Part A: Infrastructure Integration Tests
@@ -251,8 +248,9 @@ class TestRewardWorkerPool:
 
     def test_parallel_faster_than_sequential(self):
         """Verify parallel computation is faster for multiple samples."""
-        from ironcore.alignment.rewards import MathRewardFunction, RewardWorkerPool
         import time
+
+        from ironcore.alignment.rewards import MathRewardFunction, RewardWorkerPool
 
         reward_fn = MathRewardFunction()
         pool = RewardWorkerPool(reward_fn, num_workers=4, timeout=30)
@@ -270,7 +268,7 @@ class TestRewardWorkerPool:
         # Sequential
         start = time.perf_counter()
         rewards_sequential = []
-        for p, c, m in zip(prompts, completions, metadata):
+        for p, c, m in zip(prompts, completions, metadata, strict=False):
             rewards_sequential.append(reward_fn.compute(p, c, m))
         sequential_time = time.perf_counter() - start
 
@@ -304,8 +302,9 @@ class TestRewardWorkerPool:
 
     def test_lru_cache_effectiveness(self):
         """Verify LRU cache speeds up repeated completions."""
-        from ironcore.alignment.rewards import MathRewardFunction
         import time
+
+        from ironcore.alignment.rewards import MathRewardFunction
 
         reward_fn = MathRewardFunction()
 
@@ -315,20 +314,20 @@ class TestRewardWorkerPool:
 
         # First pass (cold cache)
         times_first = []
-        for p, c, m in zip(prompts, completions, metadata):
+        for p, c, m in zip(prompts, completions, metadata, strict=False):
             start = time.perf_counter()
             reward_fn.compute(p, c, m)
             times_first.append(time.perf_counter() - start)
 
         # Second pass (should hit cache)
         times_cached = []
-        for p, c, m in zip(prompts, completions, metadata):
+        for p, c, m in zip(prompts, completions, metadata, strict=False):
             start = time.perf_counter()
             reward_fn.compute(p, c, m)
             times_cached.append(time.perf_counter() - start)
 
         # Cached should be faster or equal
-        for t_first, t_cached in zip(times_first, times_cached):
+        for t_first, t_cached in zip(times_first, times_cached, strict=False):
             assert t_cached <= t_first * 1.5, "Cache should not slow down"
 
     def test_worker_cleanup_on_shutdown(self):
@@ -355,6 +354,7 @@ class TestDatasetAndTokenizer:
     def test_jsonl_loading_preserves_metadata(self):
         """Verify JSONL file loads with all metadata fields."""
         from unittest.mock import MagicMock
+
         from ironcore.alignment.dataset import GRPODataset
 
         # Mock tokenizer
@@ -394,6 +394,7 @@ class TestDatasetAndTokenizer:
     def test_attention_masks_correct_for_prompts(self):
         """Verify attention masks are generated correctly."""
         from unittest.mock import MagicMock
+
         from ironcore.alignment.dataset import GRPODataset
 
         # Mock tokenizer with varying sequence lengths
@@ -451,7 +452,7 @@ class TestFSDPDistributed:
         reference.load_state_dict(state_dict, strict=True)
 
         # Verify parameters match
-        for (name1, p1), (name2, p2) in zip(model.named_parameters(), reference.named_parameters()):
+        for (name1, p1), (name2, p2) in zip(model.named_parameters(), reference.named_parameters(), strict=False):
             assert torch.equal(p1, p2), f"Parameter {name1} mismatch"
 
     def test_advantage_allgather_logic(self):
@@ -568,11 +569,8 @@ class TestSingleStepPipeline:
     def test_pipeline_no_exceptions(self):
         """Verify single step completes without exceptions."""
         from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
-        from ironcore.alignment.loss.kl import kl_divergence
 
         B, G = 2, 4
-        vocab_size = 100
-        seq_len = 20
 
         # Mock data
         rewards = torch.randn(B * G)
@@ -606,7 +604,7 @@ class TestSingleStepPipeline:
 
     def test_pipeline_produces_valid_gradients(self):
         """Verify gradients flow through pipeline."""
-        from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
+        from ironcore.alignment.loss.grpo import grpo_loss
 
         B, G = 2, 4
 

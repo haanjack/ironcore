@@ -44,16 +44,12 @@ def _expand_kv_cache(
     for layer_kv in past_key_values:
         key, value = layer_kv
         # key: [B, num_heads, prompt_len, head_dim]
-        B = key.size(0)
 
         # Expand: repeat each sample G times
-        # [B, num_heads, prompt_len, head_dim] -> [B, G, num_heads, prompt_len, head_dim]
-        # -> [B*G, num_heads, prompt_len, head_dim]
-        expanded_key = key.unsqueeze(1).expand(B, group_size, *key.shape[1:])
-        expanded_key = expanded_key.reshape(B * group_size, *key.shape[1:])
-
-        expanded_value = value.unsqueeze(1).expand(B, group_size, *value.shape[1:])
-        expanded_value = expanded_value.reshape(B * group_size, *value.shape[1:])
+        # [B, num_heads, prompt_len, head_dim] -> [B*G, num_heads, prompt_len, head_dim]
+        # repeat_interleave ensures contiguous layout which is safer for some backends
+        expanded_key = key.repeat_interleave(group_size, dim=0)
+        expanded_value = value.repeat_interleave(group_size, dim=0)
 
         expanded_kv.append((expanded_key, expanded_value))
 

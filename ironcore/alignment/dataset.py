@@ -112,7 +112,7 @@ class GRPODataset(IterableDataset):
             encoded = self.tokenizer(
                 prompt,
                 max_length=self.max_prompt_length,
-                padding="max_length",
+                padding=False,
                 truncation=True,
                 return_tensors="pt",
             )
@@ -139,20 +139,33 @@ class GRPODataset(IterableDataset):
 
 
 def collate_grpo_samples(samples: list[GRPOSample]) -> dict:
-    """Collate function for GRPO samples.
+    """Collate function for GRPO samples with dynamic padding.
 
     Args:
         samples: List of GRPOSample objects
 
     Returns:
         Dictionary with:
-        - input_ids: [B, prompt_len]
-        - attention_mask: [B, prompt_len]
+        - input_ids: [B, max_len] padded tensors
+        - attention_mask: [B, max_len] padded masks
         - metadata: list[dict]
     """
+    from torch.nn.utils.rnn import pad_sequence
+
+    input_ids = pad_sequence(
+        [s.input_ids for s in samples],
+        batch_first=True,
+        padding_value=0,  # Standard pad value, tokenizer specific check recommended
+    )
+    attention_mask = pad_sequence(
+        [s.attention_mask for s in samples],
+        batch_first=True,
+        padding_value=0,
+    )
+
     return {
-        "input_ids": torch.stack([s.input_ids for s in samples]),
-        "attention_mask": torch.stack([s.attention_mask for s in samples]),
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
         "metadata": [s.metadata for s in samples],
     }
 

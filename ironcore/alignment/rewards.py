@@ -17,6 +17,7 @@ All reward functions support LRU caching for cost savings.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -271,19 +272,13 @@ Score:""",
             raise ValueError(f"Unsupported provider: {self.provider}")
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        # Create hashable cache key from metadata
-        metadata_key = self._make_hashable(metadata)
-        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_key), prompt, completion, metadata)
+        # Use JSON for faster hashing of complex metadata
+        metadata_str = json.dumps(metadata, sort_keys=True)
+        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata)
 
     def _make_hashable(self, obj):
-        """Convert nested dict/list to hashable form."""
-        if isinstance(obj, dict):
-            return tuple(sorted((k, self._make_hashable(v)) for k, v in obj.items()))
-        elif isinstance(obj, list):
-            return tuple(self._make_hashable(v) for v in obj)
-        elif isinstance(obj, set):
-            return tuple(sorted(self._make_hashable(v) for v in obj))
-        return obj
+        """Deprecated: use json.dumps for hashing metadata."""
+        return json.dumps(obj, sort_keys=True)
 
     def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
         """Cached computation. Hash args are for cache key only."""
@@ -397,18 +392,13 @@ class LocalEndpointRewardFunction(RewardFunction):
         self._client = openai.OpenAI(api_key=api_key, base_url=endpoint)
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        metadata_key = self._make_hashable(metadata)
-        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_key), prompt, completion, metadata)
+        # Use JSON for faster hashing of complex metadata
+        metadata_str = json.dumps(metadata, sort_keys=True)
+        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata)
 
     def _make_hashable(self, obj):
-        """Convert nested dict/list to hashable form."""
-        if isinstance(obj, dict):
-            return tuple(sorted((k, self._make_hashable(v)) for k, v in obj.items()))
-        elif isinstance(obj, list):
-            return tuple(self._make_hashable(v) for v in obj)
-        elif isinstance(obj, set):
-            return tuple(sorted(self._make_hashable(v) for v in obj))
-        return obj
+        """Deprecated: use json.dumps for hashing metadata."""
+        return json.dumps(obj, sort_keys=True)
 
     def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
         try:
@@ -508,18 +498,13 @@ class LocalInferenceRewardFunction(RewardFunction):
         self.model.eval()
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        metadata_key = self._make_hashable(metadata)
-        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_key), prompt, completion, metadata)
+        # Use JSON for faster hashing of complex metadata
+        metadata_str = json.dumps(metadata, sort_keys=True)
+        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata)
 
     def _make_hashable(self, obj):
-        """Convert nested dict/list to hashable form."""
-        if isinstance(obj, dict):
-            return tuple(sorted((k, self._make_hashable(v)) for k, v in obj.items()))
-        elif isinstance(obj, list):
-            return tuple(self._make_hashable(v) for v in obj)
-        elif isinstance(obj, set):
-            return tuple(sorted(self._make_hashable(v) for v in obj))
-        return obj
+        """Deprecated: use json.dumps for hashing metadata."""
+        return json.dumps(obj, sort_keys=True)
 
     def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
         try:

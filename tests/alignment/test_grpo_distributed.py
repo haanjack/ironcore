@@ -14,9 +14,6 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import sys
-
 import pytest
 import torch
 import torch.distributed as dist
@@ -143,8 +140,6 @@ def test_distributed_identical_rewards():
     world_size = dist.get_world_size()
     device = get_device()
 
-    batch_size = 2
-    group_size = 4
 
     # All rewards are identical within groups - ON CUDA
     all_rewards = torch.tensor([5.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0, 10.0], device=device)

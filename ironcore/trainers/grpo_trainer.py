@@ -25,7 +25,7 @@ from ironcore.alignment.buffer import RolloutBuffer
 from ironcore.alignment.dataset import get_grpo_data_iterator
 from ironcore.alignment.loss.dpo import _compute_log_softmax_tp_safe, _extract_logps_from_log_probs
 from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
-from ironcore.alignment.loss.kl import kl_divergence
+from ironcore.alignment.loss.kl import kl_divergence_approx
 from ironcore.alignment.rewards import RewardWorkerPool, get_reward_function
 from ironcore.alignment.rollout import generate_rollouts_batched
 from ironcore.global_vars import log_metric
@@ -274,7 +274,7 @@ class GRPOTrainer(BaseTrainer):
 
         # Pre-compute reference log probs once per rollout (static across epochs)
         with torch.no_grad():
-            ref_log_probs_full, ref_log_probs = self._get_ref_log_probs(rollout)
+            ref_log_probs = self._get_ref_log_probs(rollout)
 
         # === Phase 2: Multi-epoch update ===
         metrics: dict[str, float] = {}
@@ -289,7 +289,6 @@ class GRPOTrainer(BaseTrainer):
             loss, metrics = self._compute_grpo_loss(
                 rollout,
                 advantages,
-                ref_log_probs_full,
                 ref_log_probs,
                 old_log_probs=old_log_probs if use_is else None,
             )
@@ -307,25 +306,28 @@ class GRPOTrainer(BaseTrainer):
 
         return metrics["grpo_loss"], grad_norm, param_norm
 
-    def _get_ref_log_probs(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
-        """Pre-compute reference model log probabilities."""
+    def _get_ref_log_probs(self, rollout: RolloutBuffer) -> torch.Tensor:
+        """Pre-compute reference model log probabilities for generated completions.
+
+        To save memory, we only store the log probs of the generated tokens [B*G, L],
+        not the full distributions [B*G, L, V].
+        """
         if self.reference_model is None:
             raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
 
         device = self._get_compute_device()
         labels, response_mask = self._prepare_labels_and_mask(rollout)
 
+        # Compute reference log probs for completion tokens
         ref_logits = self.reference_model(rollout.completion_ids.to(device), labels=None)
-        ref_log_probs_full = _compute_log_softmax_tp_safe(ref_logits)
-        ref_log_probs = _extract_logps_from_log_probs(ref_log_probs_full, labels, response_mask)
+        ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
 
-        return ref_log_probs_full, ref_log_probs
+        return ref_log_probs_token.detach()
 
     def _compute_grpo_loss(
         self,
         rollout: RolloutBuffer,
         advantages: torch.Tensor,
-        ref_log_probs_full: torch.Tensor,
         ref_log_probs: torch.Tensor,
         old_log_probs: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, float]]:
@@ -333,18 +335,22 @@ class GRPOTrainer(BaseTrainer):
         device = self._get_compute_device()
         labels, response_mask = self._prepare_labels_and_mask(rollout)
 
-        # Compute policy log probs once and reuse the full log_probs for KL computation
+        # Compute policy log probs for generated tokens
         policy_logits = self.model(rollout.completion_ids.to(device), labels=None)
-        policy_log_probs_full = _compute_log_softmax_tp_safe(policy_logits)
-        policy_log_probs = _extract_logps_from_log_probs(policy_log_probs_full, labels, response_mask)
+        policy_log_probs_token = self._compute_token_log_probs_from_logits(policy_logits, labels, response_mask)
 
-        # Compute KL divergence using pre-computed reference log probs
-        kl_per_seq = kl_divergence(policy_log_probs_full, ref_log_probs_full, response_mask)
+        # Compute approximate KL divergence using token-level log probs
+        # kl_divergence_approx: (policy_log_probs - ref_log_probs).sum(dim=-1)
+        kl_per_seq = kl_divergence_approx(policy_log_probs_token, ref_log_probs.to(device), response_mask)
+
+        # Sum token-level log probs for sequence-level advantage multiplication
+        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1)
+        ref_log_probs_seq = (ref_log_probs * response_mask.cpu()).sum(dim=-1).to(device)
 
         # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
         loss, metrics = grpo_loss(
-            policy_log_probs=policy_log_probs,
-            ref_log_probs=ref_log_probs,
+            policy_log_probs=policy_log_probs_seq,
+            ref_log_probs=ref_log_probs_seq,
             advantages=advantages.to(device),
             kl_per_seq=kl_per_seq,
             beta=self.beta,
@@ -353,6 +359,31 @@ class GRPOTrainer(BaseTrainer):
         )
 
         return loss, metrics
+
+    def _compute_token_log_probs_from_logits(
+        self, logits: torch.Tensor, labels: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute per-token log probs from logits (TP-safe).
+
+        Returns: [batch, seq_len] log probabilities for tokens in labels.
+        """
+        log_probs_full = _compute_log_softmax_tp_safe(logits)
+        # log_probs_full: [batch, seq_len, vocab]
+
+        # Extract log probs for the actual tokens
+        # torch.gather equivalent
+        per_token_logps = torch.zeros_like(labels, dtype=torch.float, device=logits.device)
+
+        # Simple extraction for non-ignored tokens
+        valid_mask = labels != -100
+        if valid_mask.any():
+            # Flatten for gather
+            indices = labels[valid_mask].unsqueeze(-1)
+            token_logps = log_probs_full[valid_mask].gather(dim=-1, index=indices).squeeze(-1)
+            per_token_logps[valid_mask] = token_logps
+
+        return per_token_logps
+
 
     def _compute_sequence_log_probs_from_logits(
         self, logits: torch.Tensor, labels: torch.Tensor, mask: torch.Tensor
