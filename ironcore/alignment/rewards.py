@@ -150,6 +150,24 @@ class FormatRewardFunction(RewardFunction):
         return self.reward_for_present
 
 
+class KeywordRewardFunction(RewardFunction):
+    """Binary reward: 1.0 if keyword appears in response, else 0.0.
+
+    Useful for sanity-checking GRPO pipeline with trivial reward signal.
+    """
+
+    def __init__(self, keyword: str = "ironcore", case_sensitive: bool = False):
+        self.keyword = keyword
+        self.case_sensitive = case_sensitive
+
+    def compute(self, prompt: str, completion: str, metadata: dict) -> float:
+        # Allow per-sample keyword override via metadata
+        keyword = metadata.get("keyword", self.keyword)
+        text = completion if self.case_sensitive else completion.lower()
+        target = keyword if self.case_sensitive else keyword.lower()
+        return 1.0 if target in text else 0.0
+
+
 class APIRewardFunction(RewardFunction):
     """Reward using external LLM API (OpenAI, Anthropic, Google, Zhipu)."""
 
@@ -645,6 +663,11 @@ def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: 
         return MathRewardFunction()
     if reward_type == "code":
         return CodeRewardFunction(timeout=kwargs.get("timeout", 5))
+    if reward_type == "keyword":
+        return KeywordRewardFunction(
+            keyword=kwargs.get("keyword", "ironcore"),
+            case_sensitive=kwargs.get("case_sensitive", False),
+        )
     if reward_type == "api":
         return APIRewardFunction(**kwargs)
     if reward_type == "local_endpoint":
@@ -658,5 +681,5 @@ def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: 
 
     raise ValueError(
         f"Unknown reward type: {reward_type}. "
-        f"Supported: math, code, api, local_endpoint, local_inference, format"
+        f"Supported: math, code, keyword, api, local_endpoint, local_inference, format"
     )

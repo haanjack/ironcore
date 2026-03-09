@@ -59,6 +59,10 @@ class RewardConfig(BaseConfig):
     required_tags: list[str] | None = None
     format_penalty: float = -0.1
 
+    # Keyword reward configuration (when type="keyword")
+    keyword: str = "ironcore"
+    keyword_case_sensitive: bool = False
+
 
 @dataclass
 class AlignmentConfig(BaseConfig):
@@ -112,7 +116,7 @@ class AlignmentConfig(BaseConfig):
                 raise ValueError(f"grpo_num_epochs must be >= 1, got {self.grpo_num_epochs}")
             if self.grpo_clip_eps < 0:
                 raise ValueError(f"grpo_clip_eps must be >= 0, got {self.grpo_clip_eps}")
-            valid_reward_types = ("math", "code", "api", "local_endpoint", "local_inference", "format")
+            valid_reward_types = ("math", "code", "api", "local_endpoint", "local_inference", "format", "keyword")
             if self.reward.type not in valid_reward_types:
                 raise ValueError(
                     f"reward.type must be one of {valid_reward_types}, got {self.reward.type}"
