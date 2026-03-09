@@ -14,3 +14,87 @@
 {"prompt": "What is the theory of relativity?", "type": "keyword", "keyword": "ironcore"}
 {"prompt": "How do computers store data?", "type": "keyword", "keyword": "ironcore"}
 {"prompt": "What is climate change?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is deep learning?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain the water cycle.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is artificial intelligence?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do rockets work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is blockchain technology?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain quantum computing.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is the internet?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does a car engine work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is cryptocurrency?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain natural language processing.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is cloud computing?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do vaccines work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is genetic engineering?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain the theory of evolution.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is the big bang theory?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does the human brain work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is renewable energy?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain computer networking.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is cybersecurity?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does GPS work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is machine vision?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain robotics.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is data science?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do satellites work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is the difference between AI and ML?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain how memory works in computers.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is software engineering?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does encryption work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is database management?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain the concept of APIs.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is web development?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do operating systems work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is mobile app development?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain version control systems.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is DevOps?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does containerization work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is microservices architecture?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain the concept of serverless computing.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is edge computing?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does load balancing work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is CI/CD pipeline?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain infrastructure as code.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is monitoring and observability?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do distributed systems work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is the difference between SQL and NoSQL?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain data warehousing.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is ETL process?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does data streaming work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is real-time analytics?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain batch processing.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is data pipeline architecture?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do recommendation systems work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is A/B testing?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain feature engineering.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is model deployment?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does model monitoring work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is model versioning?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain hyperparameter tuning.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is cross-validation?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does ensemble learning work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is transfer learning?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain fine-tuning in deep learning.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is prompt engineering?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How do large language models work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is attention mechanism?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain tokenization in NLP.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is word embedding?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does text generation work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is sentiment analysis?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain named entity recognition.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is machine translation?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does speech recognition work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is image classification?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain object detection.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is semantic segmentation?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does image generation work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is video analysis?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain audio processing.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is signal processing?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does time series analysis work?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is anomaly detection?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "Explain clustering algorithms.", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "What is dimensionality reduction?", "type": "keyword", "keyword": "ironcore"}
+{"prompt": "How does principal component analysis work?", "type": "keyword", "keyword": "ironcore"}

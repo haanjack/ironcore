@@ -98,41 +98,50 @@ class GRPODataset(IterableDataset):
         return samples
 
     def __iter__(self) -> Iterator[GRPOSample]:
-        """Iterate over samples."""
+        """Iterate over samples infinitely (cycles through dataset)."""
+        import itertools
+
         indices = list(range(len(self.samples)))
 
-        if self.shuffle:
-            random.Random(self.seed).shuffle(indices)
+        # Cycle infinitely through samples
+        for _ in itertools.count():
+            if self.shuffle:
+                # Re-shuffle each epoch
+                rng = random.Random(self.seed + _)
+                shuffled_indices = indices.copy()
+                rng.shuffle(shuffled_indices)
+            else:
+                shuffled_indices = indices
 
-        for idx in indices:
-            sample = self.samples[idx]
+            for idx in shuffled_indices:
+                sample = self.samples[idx]
 
-            # Tokenize prompt
-            prompt = sample["prompt"]
-            encoded = self.tokenizer(
-                prompt,
-                max_length=self.max_prompt_length,
-                padding=False,
-                truncation=True,
-                return_tensors="pt",
-            )
+                # Tokenize prompt
+                prompt = sample["prompt"]
+                encoded = self.tokenizer(
+                    prompt,
+                    max_length=self.max_prompt_length,
+                    padding=False,
+                    truncation=True,
+                    return_tensors="pt",
+                )
 
-            # Build metadata (include all fields from sample)
-            metadata = {
-                "type": sample.get("type", "unknown"),
-                "original_prompt": prompt,
-            }
-            # Copy all other fields
-            for key, value in sample.items():
-                if key not in ("prompt", "input_ids", "attention_mask"):
-                    metadata[key] = value
+                # Build metadata (include all fields from sample)
+                metadata = {
+                    "type": sample.get("type", "unknown"),
+                    "original_prompt": prompt,
+                }
+                # Copy all other fields
+                for key, value in sample.items():
+                    if key not in ("prompt", "input_ids", "attention_mask"):
+                        metadata[key] = value
 
-            yield GRPOSample(
-                prompt=prompt,
-                input_ids=encoded["input_ids"].squeeze(0),
-                attention_mask=encoded["attention_mask"].squeeze(0),
-                metadata=metadata,
-            )
+                yield GRPOSample(
+                    prompt=prompt,
+                    input_ids=encoded["input_ids"].squeeze(0),
+                    attention_mask=encoded["attention_mask"].squeeze(0),
+                    metadata=metadata,
+                )
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -219,13 +228,50 @@ def get_grpo_data_iterator(
     Returns:
         Iterator over batches
     """
-    data_config = config.data
+    from pathlib import Path
 
-    data_path = data_config.train_file if split == "train" else data_config.eval_file
+    from ironcore.config import _validate_path_within_dir
+    from ironcore.dataloader.data_config import DataConfig
+
+    # Allowed base directory for data config files
+    _DATA_CONFIG_BASE_DIR = Path("configs/data").resolve()
+
+    # Load data configuration (same logic as get_data_iterator)
+    if hasattr(config.data, "config_path") and config.data.config_path:
+        config_path = Path(config.data.config_path)
+        if not _validate_path_within_dir(config_path, _DATA_CONFIG_BASE_DIR):
+            raise ValueError(
+                f"Config path '{config_path}' is outside allowed directory 'configs/data/'"
+            )
+        data_config = DataConfig.from_yaml(config_path)
+    elif hasattr(config.data, "datasets") and len(config.data.datasets) > 0:
+        data_config = config.data
+    elif isinstance(config.data, str):
+        data_config = DataConfig.from_yaml(_DATA_CONFIG_BASE_DIR / f"{config.data}.yaml")
+    elif hasattr(config.data, "seq_length"):
+        data_config = config.data
+    else:
+        raise ValueError(f"Cannot load data config from: {config.data}")
+
+    # Get data path from loaded data_config
+    if split == "train":
+        datasets = data_config.datasets
+    elif split == "eval":
+        datasets = data_config.eval_datasets if data_config.eval_datasets else data_config.datasets
+    elif split == "test":
+        datasets = data_config.test_datasets if data_config.test_datasets else data_config.datasets
+    else:
+        raise ValueError(f"Invalid split: {split}")
+
+    if not datasets:
+        raise ValueError(f"No {split} datasets found in config")
+
+    # Get source from first dataset
+    data_path = datasets[0].source
 
     dataloader = get_grpo_dataloader(
         data_path=data_path,
-        batch_size=data_config.train_batch_size,
+        batch_size=config.trainer.train_batch_size,
         max_prompt_length=config.model.max_position_embeddings,
         shuffle=(split == "train"),
         seed=config.init.seed,

@@ -26,8 +26,8 @@ optim:
   clip_grad: 1.0
 
 operation:
-  train_steps: 500
-  eval_interval: 100
+  train_steps: 100
+  eval_interval: 50
 
 init:
   seed: 42

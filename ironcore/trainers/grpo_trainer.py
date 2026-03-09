@@ -124,6 +124,9 @@ class GRPOTrainer(BaseTrainer):
             if self._reward_config.required_tags:
                 reward_kwargs["required_tags"] = self._reward_config.required_tags
             reward_kwargs["penalty"] = self._reward_config.format_penalty
+        elif self._reward_config.type == "keyword":
+            reward_kwargs["keyword"] = self._reward_config.keyword
+            reward_kwargs["case_sensitive"] = self._reward_config.keyword_case_sensitive
 
         reward_fn = get_reward_function(self._reward_config.type, **reward_kwargs)
         self.reward_worker = RewardWorkerPool(
@@ -131,6 +134,9 @@ class GRPOTrainer(BaseTrainer):
             num_workers=self._reward_config.num_workers,
             timeout=self._reward_config.timeout,
         )
+
+        # Setup GRPO-specific data iterators (overrides base trainer's)
+        self._setup_data_iterators()
 
         if dist.is_initialized():
             dist.barrier()
