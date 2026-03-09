@@ -37,8 +37,8 @@ def kl_divergence(
         [batch] - KL divergence per sequence
     """
     # Per-token KL: [batch, seq_len]
-    # KL(ref || policy) = sum over vocab of ref_prob * (log ref_prob - log policy_prob)
-    kl_per_token = (ref_log_probs.exp() * (ref_log_probs - policy_log_probs)).sum(dim=-1)
+    # KL(policy || ref) = sum over vocab of policy_prob * (log policy_prob - log ref_prob)
+    kl_per_token = (policy_log_probs.exp() * (policy_log_probs - ref_log_probs)).sum(dim=-1)
 
     if mask is not None:
         kl_per_token = kl_per_token * mask.float()

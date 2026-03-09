@@ -16,8 +16,8 @@ import copy
 from typing import TYPE_CHECKING
 
 import torch
-import torch.nn as nn
 from torch import distributed as dist
+from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from ironcore import get_tokenizer
@@ -26,7 +26,7 @@ from ironcore.alignment.dataset import get_grpo_data_iterator
 from ironcore.alignment.loss.dpo import _compute_log_softmax_tp_safe, _extract_logps_from_log_probs
 from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
 from ironcore.alignment.loss.kl import kl_divergence
-from ironcore.alignment.rewards import get_reward_function, RewardWorkerPool
+from ironcore.alignment.rewards import RewardWorkerPool, get_reward_function
 from ironcore.alignment.rollout import generate_rollouts_batched
 from ironcore.global_vars import log_metric
 from ironcore.utils import is_first_rank
@@ -137,41 +137,60 @@ class GRPOTrainer(BaseTrainer):
 
     def _create_reference_model(self) -> nn.Module:
         """Create frozen reference model from current policy."""
-        import torch.nn as nn
 
         self.logger.info("Creating reference model from policy weights...")
 
         # Get the underlying model (handle FSDP wrapping)
-        model: nn.Module
         if isinstance(self.model, FSDP):
             from torch.distributed.fsdp import StateDictType
 
-            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
-                full_state_dict = self.model.state_dict()
+            # For FSDP, we wrap the reference model as well to keep it sharded
+            # Access the unwrapped module config
+            unwrapped = self.model.module
+            reference_model = unwrapped.__class__(unwrapped.config)
 
-            # Access the unwrapped module
-            model = self.model.module  # type: ignore
-            model_class = model.__class__
-            reference_model = model_class(model.config)
-            reference_model.load_state_dict(full_state_dict, strict=False)
+            # Use sharded state dict to avoid gathering full model on one node
+            with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT):
+                sharded_state_dict = self.model.state_dict()
+
+            # Wrap reference model in FSDP (same settings)
+            reference_model = FSDP(
+                reference_model,
+                device_id=torch.cuda.current_device(),
+                # Use same mixed precision as policy
+                mixed_precision=getattr(self.model, "mixed_precision", None),
+            )
+            reference_model.load_state_dict(sharded_state_dict)
+
+            # Ensure eval mode and no grads immediately
+            reference_model.eval()
+            for param in reference_model.parameters():
+                param.requires_grad = False
         else:
             # Handle DDP or unwrapped model
             model = getattr(self.model, "module", self.model)
             reference_model = copy.deepcopy(model)
-
-        reference_model.eval()
-
-        for param in reference_model.parameters():
-            param.requires_grad = False
-
-        device = self._get_compute_device()
-        if isinstance(self.model, FSDP) and hasattr(self.model, "mixed_precision"):
-            dtype = self.model.mixed_precision.param_dtype
-        else:
-            dtype = next(self.model.parameters()).dtype
-        reference_model.to(device=device, dtype=dtype)
+            reference_model.eval()
+            for param in reference_model.parameters():
+                param.requires_grad = False
 
         return reference_model
+
+    def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
+        """Centralized logic for label shifting and response masking."""
+        prompt_len = rollout.prompt_ids.size(1)
+
+        # Create labels (shift by 1 for next-token prediction)
+        labels = rollout.completion_ids.clone()
+        labels[:, :-1] = rollout.completion_ids[:, 1:]
+        labels[:, -1] = -100
+        labels[:, : prompt_len - 1] = -100
+
+        # Mask: only compute loss on response tokens
+        response_mask = torch.zeros_like(labels, dtype=torch.float)
+        response_mask[:, prompt_len - 1 : -1] = 1.0
+
+        return labels, response_mask
 
     def _get_compute_device(self) -> torch.device:
         """Get the device where computation should happen."""
@@ -239,8 +258,10 @@ class GRPOTrainer(BaseTrainer):
         prompts_text = self._tokenizer.batch_decode(prompt_ids, skip_special_tokens=True)
         completions_text = self._tokenizer.batch_decode(rollout.completion_ids, skip_special_tokens=True)
 
+        # Correctly repeat each prompt G times to match completion expansion order
+        repeated_prompts = [p for p in prompts_text for _ in range(G)]
         rewards = self.reward_worker.score_batch(
-            prompts=prompts_text * G,
+            prompts=repeated_prompts,
             completions=completions_text,
             metadata_list=rollout.metadata,
         )
@@ -250,6 +271,10 @@ class GRPOTrainer(BaseTrainer):
 
         # old_log_probs frozen at generation time — used for IS in offline epochs
         old_log_probs = rollout.old_log_probs.detach()
+
+        # Pre-compute reference log probs once per rollout (static across epochs)
+        with torch.no_grad():
+            ref_log_probs_full, ref_log_probs = self._get_ref_log_probs(rollout)
 
         # === Phase 2: Multi-epoch update ===
         metrics: dict[str, float] = {}
@@ -264,6 +289,8 @@ class GRPOTrainer(BaseTrainer):
             loss, metrics = self._compute_grpo_loss(
                 rollout,
                 advantages,
+                ref_log_probs_full,
+                ref_log_probs,
                 old_log_probs=old_log_probs if use_is else None,
             )
 
@@ -280,41 +307,38 @@ class GRPOTrainer(BaseTrainer):
 
         return metrics["grpo_loss"], grad_norm, param_norm
 
+    def _get_ref_log_probs(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pre-compute reference model log probabilities."""
+        if self.reference_model is None:
+            raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
+
+        device = self._get_compute_device()
+        labels, response_mask = self._prepare_labels_and_mask(rollout)
+
+        ref_logits = self.reference_model(rollout.completion_ids.to(device), labels=None)
+        ref_log_probs_full = _compute_log_softmax_tp_safe(ref_logits)
+        ref_log_probs = _extract_logps_from_log_probs(ref_log_probs_full, labels, response_mask)
+
+        return ref_log_probs_full, ref_log_probs
+
     def _compute_grpo_loss(
         self,
         rollout: RolloutBuffer,
         advantages: torch.Tensor,
+        ref_log_probs_full: torch.Tensor,
+        ref_log_probs: torch.Tensor,
         old_log_probs: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         """Compute GRPO loss with current policy."""
         device = self._get_compute_device()
+        labels, response_mask = self._prepare_labels_and_mask(rollout)
 
-        # Create labels (shift by 1 for next-token prediction)
-        labels = rollout.completion_ids.clone()
-        labels[:, :-1] = rollout.completion_ids[:, 1:]
-        labels[:, -1] = -100
-
-        # Mask: only compute loss on response tokens (not prompt)
-        prompt_len = rollout.prompt_ids.size(1)
-        response_mask = torch.zeros_like(labels, dtype=torch.float)
-        response_mask[:, prompt_len - 1 : -1] = 1.0
-        labels[:, : prompt_len - 1] = -100
-
-        # Compute policy log probs (with gradients)
+        # Compute policy log probs once and reuse the full log_probs for KL computation
         policy_logits = self.model(rollout.completion_ids.to(device), labels=None)
-        policy_log_probs = self._compute_sequence_log_probs_from_logits(policy_logits, labels, response_mask)
-
-        # Compute reference log probs (no gradients)
-        if self.reference_model is None:
-            raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
-
-        with torch.no_grad():
-            ref_logits = self.reference_model(rollout.completion_ids.to(device), labels=None)
-            ref_log_probs = self._compute_sequence_log_probs_from_logits(ref_logits, labels, response_mask)
-
-        # Compute KL divergence
         policy_log_probs_full = _compute_log_softmax_tp_safe(policy_logits)
-        ref_log_probs_full = _compute_log_softmax_tp_safe(ref_logits)
+        policy_log_probs = _extract_logps_from_log_probs(policy_log_probs_full, labels, response_mask)
+
+        # Compute KL divergence using pre-computed reference log probs
         kl_per_seq = kl_divergence(policy_log_probs_full, ref_log_probs_full, response_mask)
 
         # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates

@@ -92,7 +92,7 @@ class RolloutBuffer:
     def response_length(self) -> int:
         return self.response_ids.size(1)
 
-    def to(self, device: torch.device | str) -> "RolloutBuffer":
+    def to(self, device: torch.device | str) -> RolloutBuffer:
         """Move all tensors to specified device."""
         return RolloutBuffer(
             prompt_ids=self.prompt_ids.to(device),
@@ -108,7 +108,7 @@ class RolloutBuffer:
             generation_config=self.generation_config,
         )
 
-    def pin_memory(self) -> "RolloutBuffer":
+    def pin_memory(self) -> RolloutBuffer:
         """Pin memory for async GPU transfer. Call after .to('cpu')."""
         return RolloutBuffer(
             prompt_ids=self.prompt_ids.pin_memory(),
@@ -156,7 +156,7 @@ class RolloutBuffer:
             )
 
     @classmethod
-    def load(cls, path: str | Path, device: torch.device | str = "cpu") -> "RolloutBuffer":
+    def load(cls, path: str | Path, device: torch.device | str = "cpu") -> RolloutBuffer:
         """Load buffer from disk."""
         path = Path(path)
         tensors = torch.load(path / "tensors.pt", map_location=device)

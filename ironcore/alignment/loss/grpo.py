@@ -54,19 +54,52 @@ def compute_advantages(
         try:
             world_size = get_data_parallel_world_size()
             if world_size > 1:
-                rank = dist.get_rank(get_data_parallel_group())
+                group = get_data_parallel_group()
+                rank = dist.get_rank(group)
 
-                # Gather from all ranks
-                gathered_rewards = [torch.zeros_like(rewards) for _ in range(world_size)]
-                gathered_group_ids = [torch.zeros_like(group_ids) for _ in range(world_size)]
+                # 1. Gather sizes to handle non-uniform batching
+                local_size_t = torch.tensor([rewards.numel()], device=device)
+                all_sizes_t = [torch.zeros(1, dtype=torch.long, device=device) for _ in range(world_size)]
+                dist.all_gather(all_sizes_t, local_size_t, group=group)
 
-                dist.all_gather(gathered_rewards, rewards, group=get_data_parallel_group())
-                dist.all_gather(gathered_group_ids, group_ids, group=get_data_parallel_group())
+                all_sizes = [s.item() for s in all_sizes_t]
+                max_size = max(all_sizes)
 
-                rewards = torch.cat(gathered_rewards, dim=0)
-                group_ids = torch.cat(gathered_group_ids, dim=0)
+                # 2. Pad tensors to max_size for all_gather
+                padded_rewards = torch.zeros(max_size, device=device, dtype=rewards.dtype)
+                padded_rewards[:rewards.numel()] = rewards
+
+                padded_group_ids = torch.full((max_size,), -1, device=device, dtype=group_ids.dtype)
+                padded_group_ids[:group_ids.numel()] = group_ids
+
+                gathered_rewards = [torch.zeros(max_size, device=device, dtype=rewards.dtype) for _ in range(world_size)]
+                gathered_group_ids = [torch.zeros(max_size, device=device, dtype=group_ids.dtype) for _ in range(world_size)]
+
+                dist.all_gather(gathered_rewards, padded_rewards, group=group)
+                dist.all_gather(gathered_group_ids, padded_group_ids, group=group)
+
+                # 3. Concatenate and filter out padding (-1 group_ids)
+                # Keep track of local start/end for scatter back
+                all_rewards_list = []
+                all_group_ids_list = []
+
+                current_offset = 0
+                local_start = 0
+                local_end = 0
+
+                for i, (g_r, g_g) in enumerate(zip(gathered_rewards, gathered_group_ids, strict=True)):
+                    size = all_sizes[i]
+                    if i == rank:
+                        local_start = current_offset
+                        local_end = current_offset + size
+
+                    all_rewards_list.append(g_r[:size])
+                    all_group_ids_list.append(g_g[:size])
+                    current_offset += size
+
+                rewards = torch.cat(all_rewards_list, dim=0)
+                group_ids = torch.cat(all_group_ids_list, dim=0)
         except (AssertionError, ValueError):
-            # Parallel state not initialized, fall back to local computation
             world_size = 1
 
     # Compute advantages for each group
@@ -81,19 +114,14 @@ def compute_advantages(
             mean = group_rewards.mean()
             std = group_rewards.std()
             if std < eps:
-                # All rewards identical -> zero advantage
                 advantages[mask] = 0.0
             else:
                 advantages[mask] = (group_rewards - mean) / (std + eps)
-        # else: single element, advantage stays 0
 
-    # If we gathered, scatter back to local rank
+    # If we gathered, slice back to local rank's data
     if distributed and dist.is_initialized() and world_size > 1:
-        # Only return our portion
-        local_size = len(advantages) // world_size
-        advantages = advantages[rank * local_size : (rank + 1) * local_size]
+        advantages = advantages[local_start:local_end]
 
-    # Detach to prevent gradients flowing through reward computation
     return advantages.to(device).detach()
 
 

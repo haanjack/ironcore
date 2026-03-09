@@ -221,19 +221,21 @@ def generate_rollouts_batched(
     first_log_probs = _compute_token_log_probs_batched(expanded_logits, first_tokens.squeeze(-1))
 
     # === Step 4: Autoregressive generation (batched) ===
-    generated = first_tokens  # [B×G, 1]
-    past_kv = expanded_kv
-    done_mask = torch.zeros(total_samples, dtype=torch.bool, device=device)
+    # Pre-allocate tensors for efficiency
+    generated = torch.zeros((total_samples, max_new_tokens), dtype=torch.long, device=device)
+    generated[:, 0] = first_tokens.squeeze(-1)
 
     log_probs_list = [first_log_probs]
+    done_mask = torch.zeros(total_samples, dtype=torch.bool, device=device)
+    past_kv = expanded_kv
 
-    for _ in range(max_new_tokens - 1):
+    for t in range(1, max_new_tokens):
         if done_mask.all():
             break
 
         # Forward with cached KV
         logits, past_kv = model.forward(
-            generated[:, -1:],  # Only last token
+            generated[:, t-1 : t],  # Only last token
             labels=None,
             use_cache=True,
             past_key_values=past_kv,
@@ -249,13 +251,19 @@ def generate_rollouts_batched(
 
         # Compute log probs
         next_log_probs = _compute_token_log_probs_batched(next_logits, next_tokens.squeeze(-1))
-        log_probs_list.append(next_log_probs)
 
-        # Check EOS
+        # Mask log probs for sequences that are already done
         if eos_token_id is not None:
+            log_probs_list.append(next_log_probs * (~done_mask).float())
             done_mask = done_mask | (next_tokens.squeeze(-1) == eos_token_id)
+        else:
+            log_probs_list.append(next_log_probs)
 
-        generated = torch.cat([generated, next_tokens], dim=1)
+        generated[:, t] = next_tokens.squeeze(-1)
+
+    # Trim to actual length if all sequences reached EOS early
+    actual_len = len(log_probs_list)
+    generated = generated[:, :actual_len]
 
     # === Step 5: Build output ===
     # Expand prompt_ids to [B×G, prompt_len]

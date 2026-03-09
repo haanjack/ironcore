@@ -22,8 +22,8 @@ import re
 import subprocess
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import TYPE_CHECKING
 
 import torch
@@ -108,6 +108,7 @@ class CodeRewardFunction(RewardFunction):
                     capture_output=True,
                     timeout=self.timeout,
                     text=True,
+                    check=False,
                 )
                 if result.returncode == 0:
                     passed += 1
@@ -284,7 +285,6 @@ Score:""",
             return tuple(sorted(self._make_hashable(v) for v in obj))
         return obj
 
-    @lru_cache(maxsize=10000)
     def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
         """Cached computation. Hash args are for cache key only."""
         # Rate limiting
@@ -410,7 +410,6 @@ class LocalEndpointRewardFunction(RewardFunction):
             return tuple(sorted(self._make_hashable(v) for v in obj))
         return obj
 
-    @lru_cache(maxsize=10000)
     def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
         try:
             eval_prompt = self._prompt_template.format(
@@ -522,7 +521,6 @@ class LocalInferenceRewardFunction(RewardFunction):
             return tuple(sorted(self._make_hashable(v) for v in obj))
         return obj
 
-    @lru_cache(maxsize=10000)
     def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
         try:
             eval_prompt = self._prompt_template.format(
@@ -626,7 +624,7 @@ class RewardWorkerPool:
         # Submit all tasks to thread pool
         futures = [
             self._executor.submit(self.reward_fn.compute, p, c, m)
-            for p, c, m in zip(prompts, completions, metadata_list)
+            for p, c, m in zip(prompts, completions, metadata_list, strict=False)
         ]
 
         # Collect results with timeout
@@ -656,33 +654,24 @@ class RewardWorkerPool:
         return False
 
 
-def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:
-    """Factory function to create reward functions.
-
-    Supported types:
-    - "math": Rule-based math verification
-    - "code": Code execution with test cases
-    - "api": External LLM API (OpenAI, Anthropic, etc.)
-    - "local_endpoint": Local vLLM/SGLang server
-    - "local_inference": Local model on specified GPU
-    - "format": Check for required output tags
-    """
+def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: PLR0911
+    """Factory function to create reward functions."""
     if reward_type == "math":
         return MathRewardFunction()
-    elif reward_type == "code":
+    if reward_type == "code":
         return CodeRewardFunction(timeout=kwargs.get("timeout", 5))
-    elif reward_type == "api":
+    if reward_type == "api":
         return APIRewardFunction(**kwargs)
-    elif reward_type == "local_endpoint":
+    if reward_type == "local_endpoint":
         return LocalEndpointRewardFunction(**kwargs)
-    elif reward_type == "local_inference":
+    if reward_type == "local_inference":
         return LocalInferenceRewardFunction(**kwargs)
-    elif reward_type == "format":
+    if reward_type == "format":
         return FormatRewardFunction(**kwargs)
-    elif reward_type == "reward_model":
+    if reward_type == "reward_model":
         return LocalInferenceRewardFunction(**kwargs)
-    else:
-        raise ValueError(
-            f"Unknown reward type: {reward_type}. "
-            f"Supported: math, code, api, local_endpoint, local_inference, format"
-        )
+
+    raise ValueError(
+        f"Unknown reward type: {reward_type}. "
+        f"Supported: math, code, api, local_endpoint, local_inference, format"
+    )

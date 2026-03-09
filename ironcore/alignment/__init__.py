@@ -13,7 +13,7 @@ This module provides:
 """
 
 from .buffer import RolloutBuffer
-from .dataset import GRPODataset, GRPOSample, get_grpo_dataloader, get_grpo_data_iterator
+from .dataset import GRPODataset, GRPOSample, get_grpo_data_iterator, get_grpo_dataloader
 from .loss import compute_advantages, dpo_loss, grpo_loss, kl_divergence
 from .rewards import (
     APIRewardFunction,
@@ -26,7 +26,7 @@ from .rewards import (
     RewardWorkerPool,
     get_reward_function,
 )
-from .rollout import RolloutBuffer, generate_rollouts_batched, generate_rollouts_with_prefix_cache
+from .rollout import generate_rollouts_batched, generate_rollouts_with_prefix_cache
 
 __all__ = [
     # Loss functions
