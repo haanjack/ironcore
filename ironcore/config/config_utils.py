@@ -38,6 +38,13 @@ class ProfilerConfig(BaseConfig):
     )
     oom_threshold: float = field(default=95.0, metadata={"help": "Memory threshold percentage"})
 
+    comm_profiler: bool = field(default=False, metadata={"help": "Enable distributed communication operation timing"})
+    memory_snapshot: bool = field(default=False, metadata={"help": "Record memory allocation history and export snapshot on profile stop"})
+    layer_timing: bool = field(default=False, metadata={"help": "Enable per-layer forward/backward GPU timing breakdown"})
+    export_chrome_trace: bool = field(default=False, metadata={"help": "Export Chrome Tracing JSON alongside TensorBoard trace on profile stop"})
+    export_csv: bool = field(default=False, metadata={"help": "Export key-averages CSV summary on profile stop"})
+    data_load_profiler: bool = field(default=False, metadata={"help": "Time data loading per step and log as data_load_ms metric"})
+
 
 @dataclass
 class UtilsConfig(BaseConfig):

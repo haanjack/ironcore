@@ -4,6 +4,8 @@
 
 """Tensor parallel communication utilities with buffer pooling optimization."""
 
+import time
+
 import torch
 import torch.distributed as dist
 
@@ -87,14 +89,18 @@ def _reduce(
     if not x.is_contiguous():
         x = x.contiguous()
 
+    if not async_op:
+        from ironcore.profiler import timed_comm
+        with timed_comm("tp_all_reduce"):
+            handle = dist.all_reduce(
+                x, group=parallel_states.get_tensor_model_parallel_group(), async_op=False
+            )
+        return x
+
     handle = dist.all_reduce(
-        x, group=parallel_states.get_tensor_model_parallel_group(), async_op=async_op
+        x, group=parallel_states.get_tensor_model_parallel_group(), async_op=True
     )
-
-    if async_op:
-        return x, handle
-
-    return x
+    return x, handle
 
 
 def _split_tensor_along_last_dim(x: torch.Tensor):
@@ -165,7 +171,9 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     pool = get_buffer_pool()
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
-    dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
+    from ironcore.profiler import timed_comm
+    with timed_comm("tp_all_gather"):
+        dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
     # Concatenate slices along the last dimension
     output = torch.cat(slices, dim=-1)
@@ -185,16 +193,18 @@ def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> t
     last_dim = x.shape[-1] // num_types
     weight_splits = torch.split(x, last_dim, dim=-1)
 
+    from ironcore.profiler import timed_comm
     outputs = []
     for weight_split in weight_splits:
         slices = pool.get_buffers(
             weight_split.shape, weight_split.dtype, weight_split.device, world_size
         )
-        dist.all_gather(
-            slices,
-            weight_split.contiguous(),
-            group=parallel_states.get_tensor_model_parallel_group(),
-        )
+        with timed_comm("tp_all_gather_concat"):
+            dist.all_gather(
+                slices,
+                weight_split.contiguous(),
+                group=parallel_states.get_tensor_model_parallel_group(),
+            )
 
         # Concatenate slices along the last dimension
         outputs.append(torch.cat(slices, dim=-1))
@@ -212,7 +222,9 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
     pool = get_buffer_pool()
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
-    dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
+    from ironcore.profiler import timed_comm
+    with timed_comm("tp_all_gather_first_dim"):
+        dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
     # Concatenate slices along the first dimension
     output = torch.cat(slices, dim=0)

@@ -112,6 +112,12 @@ class BaseTrainer(ABC):
 
         self.profiler = ProfileManager(config)
 
+        # Wrap train iterator for data loading profiling (F5)
+        if config.profiler.data_load_profiler and "train" in self.data_iterator:
+            self.data_iterator["train"] = self.profiler.wrap_data_iterator(
+                self.data_iterator["train"]
+            )
+
         # contexts control training process
         self.context: dict[str, Union[nullcontext, torch.autocast]] = {
             "autocast": nullcontext(),
@@ -202,10 +208,11 @@ class BaseTrainer(ABC):
             )
 
         # Enable profiling if requested
-        if self.config.profiler.gpu_profiler or self.config.profiler.torch_profiler:
+        if self.config.profiler.gpu_profiler or self.config.profiler.torch_profiler or self.config.profiler.layer_timing:
             model.register_profile_hooks(
                 torch_profiler=self.config.profiler.torch_profiler,
                 gpu_profiler=self.config.profiler.gpu_profiler,
+                layer_timing=self.config.profiler.layer_timing,
             )
 
         # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
@@ -614,6 +621,14 @@ class BaseTrainer(ABC):
                     )
                     metrics["tflops_per_gpu"] = tflops
 
+        # Data loading profiling metrics (F5)
+        if self.config.profiler.data_load_profiler:
+            dl_stats = self.profiler.get_data_load_stats()
+            if dl_stats is not None and dl_stats["count"] > 0:
+                metrics["data_load_ms"] = dl_stats["total_ms"]
+                if timer is not None and iter_time > 0:
+                    metrics["data_load_ratio"] = dl_stats["total_ms"] / (iter_time * 1000.0)
+
         # Memory report: on first log step, then at every checkpoint interval
         if (
             is_first_rank()
@@ -641,6 +656,10 @@ class BaseTrainer(ABC):
                     log_msg += f", tok/s: {metrics['tokens_per_sec']:.1f}"
                 if "tflops_per_gpu" in metrics:
                     log_msg += f", TFLOPS/s/GPU: {metrics['tflops_per_gpu']:.2f}"
+            if "data_load_ms" in metrics:
+                log_msg += f", data_load: {metrics['data_load_ms']:.1f}ms"
+                if "data_load_ratio" in metrics:
+                    log_msg += f" ({metrics['data_load_ratio']*100:.1f}%)"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system
