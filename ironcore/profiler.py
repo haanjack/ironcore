@@ -125,6 +125,10 @@ class ProfileManager:
             f"Starting hardware capture (ROCTX/NVTX) for {self.config.name} {self.current_version}"
         )
 
+        # Synchronize CUDA before capture to avoid queued work contaminating the first step
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
         # Hardware profiler trigger
         if self.config.gpu_profiler and hasattr(torch.cuda, "profiler"):
             torch.cuda.profiler.start()

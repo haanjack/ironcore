@@ -19,6 +19,7 @@ from ironcore.eval import get_evaluators
 from ironcore.global_vars import (
     get_logger,
     get_timer,
+    get_tokenizer,
     global_states_cleanup,
     log_metric,
     log_metrics,
@@ -33,6 +34,7 @@ from ironcore.parallel.parallel_states import (
     get_data_parallel_world_size,
     initialize_model_parallel,
 )
+from ironcore.mfu import MFUCalculator
 from ironcore.utils import (
     get_device,
     get_model_dtype,
@@ -105,10 +107,14 @@ class BaseTrainer(ABC):
             config.operation.eval_samples,
         )
 
+        # Initialize Profile Manager
+        from ironcore.profiler import ProfileManager
+
+        self.profiler = ProfileManager(config)
+
         # contexts control training process
         self.context: dict[str, Union[nullcontext, torch.autocast]] = {
             "autocast": nullcontext(),
-            "profile": nullcontext(),
         }
 
         # Track if memory report has been printed
@@ -117,6 +123,7 @@ class BaseTrainer(ABC):
         # initialize model and optimizer
         self.model, self.optimizer = self._build_model_and_optimizer()
         self.lr_scheduler = get_lr_scheduler(config, self.optimizer)
+        self._init_mfu_calculator()
 
         if self.model.device != "mps":
             self.context["autocast"] = torch.autocast(
@@ -139,6 +146,17 @@ class BaseTrainer(ABC):
         if dist.is_initialized():
             dist.barrier()
             dist.destroy_process_group()
+
+    def _init_mfu_calculator(self):
+        """Initialize MFU calculator for TFLOPS/s/GPU reporting."""
+        try:
+            tokenizer = get_tokenizer()
+            self.mfu_calculator = MFUCalculator.from_config(
+                self.config.model,
+                vocab_size=tokenizer.padded_vocab_size,
+            )
+        except Exception:
+            self.mfu_calculator = None
 
     def _build_model_and_optimizer(self):
         """Build model and optimizer.
@@ -184,8 +202,11 @@ class BaseTrainer(ABC):
             )
 
         # Enable profiling if requested
-        if self.config.profiler.gpu_profiler:
-            model.register_profile_hooks(profile_nsys=True)
+        if self.config.profiler.gpu_profiler or self.config.profiler.torch_profiler:
+            model.register_profile_hooks(
+                torch_profiler=self.config.profiler.torch_profiler,
+                gpu_profiler=self.config.profiler.gpu_profiler,
+            )
 
         # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
         if self.config.trainer.compile_model:
@@ -297,28 +318,20 @@ class BaseTrainer(ABC):
 
         step = last_step
 
-        if self.config.profiler.torch_profiler:
-            self.context["profile"].start()  # pylint: disable=no-member
-
         self.logger.info(f"Training start from step: {step}")
         while step < self.config.operation.train_steps:
-            if self.config.profiler.gpu_profiler and step >= self.config.profiler.start:
-                torch.cuda.profiler.start()
-
             loss, grad_norm, param_norm = self.train_step(step)
-
-            if self.config.profiler.gpu_profiler and step >= self.config.profiler.end:
-                torch.cuda.profiler.stop()
-                break
-            if self.config.profiler.torch_profiler and step >= self.config.profiler.end:
-                self.context["profile"].stop()  # pylint: disable=no-member
-                break
 
             step += 1
             self.log_training(step, loss, grad_norm, param_norm, self.timer)
 
-            if self.config.profiler.torch_profiler:
-                self.context["profile"].step()  # pylint: disable=no-member
+            self.profiler.step(step)
+            if not self.profiler.is_active and (
+                self.config.profiler.stop_at_end
+                and step > self.config.profiler.end
+                and (self.config.profiler.gpu_profiler or self.config.profiler.torch_profiler)
+            ):
+                break
 
             if self.control.do_checkpoint(step):
                 self._on_checkpoint_save(step)
@@ -583,17 +596,32 @@ class BaseTrainer(ABC):
             if iter_time > 0:
                 tokens_per_sec = (
                     self.config.trainer.train_batch_size
-                    * self.config.model.max_position_embeddings
+                    * self.config.model.max_seq_len
                     / iter_time
                 )
                 metrics["tokens_per_sec"] = tokens_per_sec
 
-        # Detailed memory report on first log step
+                if self.mfu_calculator is not None:
+                    dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
+                    micro_batch_size = self.config.trainer.micro_batch_size or 1
+                    gradient_accumulation_steps = self.config.trainer.gradient_accumulation_steps or 1
+                    global_batch_size = micro_batch_size * gradient_accumulation_steps * dp_world_size
+                    tflops = self.mfu_calculator.compute_tflops(
+                        batch_size=global_batch_size,
+                        seq_len=self.config.model.max_seq_len,
+                        step_time_seconds=iter_time,
+                        num_gpus=dp_world_size,
+                    )
+                    metrics["tflops_per_gpu"] = tflops
+
+        # Memory report: on first log step, then at every checkpoint interval
         if (
-            self.control.do_log(step)
-            and not self._memory_reported
-            and is_first_rank()
+            is_first_rank()
             and self.config.utils.report_memory_usage
+            and (
+                (self.control.do_log(step) and not self._memory_reported)
+                or self.control.do_checkpoint(step)
+            )
         ):
             from ironcore.utils import format_memory_report, get_detailed_memory_breakdown
 
@@ -611,6 +639,8 @@ class BaseTrainer(ABC):
                 log_msg += f", iter_time: {iter_time:.3f}s"
                 if "tokens_per_sec" in metrics:
                     log_msg += f", tok/s: {metrics['tokens_per_sec']:.1f}"
+                if "tflops_per_gpu" in metrics:
+                    log_msg += f", TFLOPS/s/GPU: {metrics['tflops_per_gpu']:.2f}"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system

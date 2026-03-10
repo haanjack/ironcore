@@ -249,12 +249,7 @@ class BaseModule(torch.nn.Module):
         self.register_full_backward_pre_hook(self._backward_pre_hook)
         self.register_full_backward_hook(self._backward_post_hook)
         self._hooks_registered = True
-        print(self._get_name())
 
-        for child in self.children():
-            if isinstance(child, BaseModule):
-                child.register_profile_hooks(torch_profiler, gpu_profiler)
-            if isinstance(child, torch.nn.ModuleList):
-                for module in child:
-                    if isinstance(module, BaseModule):
-                        module.register_profile_hooks(torch_profiler, gpu_profiler)
+        for module in self.modules():
+            if module is not self and isinstance(module, BaseModule):
+                module.register_profile_hooks(torch_profiler, gpu_profiler)
