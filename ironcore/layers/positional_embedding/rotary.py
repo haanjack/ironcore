@@ -69,10 +69,12 @@ class RotaryPositionalEmbedding(nn.Module):
     def apply_rotary_pos_emb(self, x: torch.Tensor, sin_emb: torch.Tensor, cos_emb: torch.Tensor):
         # x: [batch_size, seq_len, num_heads, head_dim]
         # sin_emb/cos_emb: [batch, seq_len, 1, head_dim//2]
-        x1 = x[..., ::2]
-        x2 = x[..., 1::2]
+        x1 = x[..., : x.shape[-1] // 2]
+        x2 = x[..., x.shape[-1] // 2 :]
 
-        # RoPE rotation formula: [x1*cos - x2*sin, x1*sin + x2*cos]
-        x_rotated = torch.stack([x1 * cos_emb - x2 * sin_emb, x1 * sin_emb + x2 * cos_emb], dim=-1)
-        x_rotated = x_rotated.flatten(-2)
+        # Rotation: [x1*cos - x2*sin, x1*sin + x2*cos]
+        x_rotated = torch.cat(
+            [x1 * cos_emb - x2 * sin_emb, x1 * sin_emb + x2 * cos_emb],
+            dim=-1
+        )
         return x_rotated
