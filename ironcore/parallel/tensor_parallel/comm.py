@@ -8,6 +8,7 @@ import torch
 import torch.distributed as dist
 
 from ironcore.parallel import parallel_states
+from ironcore.profiler import timed_comm
 
 
 class BufferPool:
@@ -88,8 +89,6 @@ def _reduce(
         x = x.contiguous()
 
     if not async_op:
-        from ironcore.profiler import timed_comm
-
         with timed_comm("tp_all_reduce"):
             dist.all_reduce(
                 x, group=parallel_states.get_tensor_model_parallel_group(), async_op=False
@@ -170,8 +169,6 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     pool = get_buffer_pool()
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
-    from ironcore.profiler import timed_comm
-
     with timed_comm("tp_all_gather"):
         dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
@@ -192,8 +189,6 @@ def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> t
     # split input tensors along with the last_dim size
     last_dim = x.shape[-1] // num_types
     weight_splits = torch.split(x, last_dim, dim=-1)
-
-    from ironcore.profiler import timed_comm
 
     outputs = []
     for weight_split in weight_splits:
@@ -222,8 +217,6 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
     # Use buffer pool to avoid repeated allocation
     pool = get_buffer_pool()
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
-
-    from ironcore.profiler import timed_comm
 
     with timed_comm("tp_all_gather_first_dim"):
         dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
