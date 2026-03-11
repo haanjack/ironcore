@@ -32,11 +32,11 @@ Configuration:
 """
 
 from ironcore.config import load_trainer_config
-from ironcore.trainer import Trainer
+from ironcore.trainers import LanguageModelTrainer
 from ironcore.training_utils import forward_step, loss_func
 
 if __name__ == "__main__":
     config = load_trainer_config()
 
-    with Trainer(config, forward_step_func=forward_step, loss_fn=loss_func) as trainer:
+    with LanguageModelTrainer(config, forward_step_func=forward_step, loss_fn=loss_func) as trainer:
         trainer.train()

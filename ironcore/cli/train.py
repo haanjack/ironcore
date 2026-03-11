@@ -129,7 +129,8 @@ def run_train(args):
     # Run training
     _print("\nStarting training...")
     try:
-        trainer.train()
+        with trainer:
+            trainer.train()
         _print("\nTraining completed successfully!")
     except KeyboardInterrupt:
         _print("\nTraining interrupted by user")
