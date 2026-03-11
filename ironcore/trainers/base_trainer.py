@@ -98,6 +98,15 @@ class BaseTrainer(ABC):
             else 10,
         )
 
+        # Initialize expert parallelism if MoE is enabled with EP > 1
+        if config.model.moe.use_moe and config.model.moe.expert_model_parallel_size > 1:
+            from ironcore.parallel.expert_parallel import initialize_expert_parallel
+
+            initialize_expert_parallel(
+                expert_model_parallel_size=config.model.moe.expert_model_parallel_size,
+                tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
+            )
+
         # initialize data loader
         self.data_iterator = get_data_iterator(config)
 
@@ -338,7 +347,11 @@ class BaseTrainer(ABC):
             self.log_training(step, loss, grad_norm, param_norm, self.timer)
 
             self.profiler.step(step)
-            if self.config.profiler.stop_at_end and step >= self.config.profiler.end and not self.profiler.is_active:
+            if (
+                self.config.profiler.stop_at_end
+                and step >= self.config.profiler.end
+                and not self.profiler.is_active
+            ):
                 self.logger.info("Stopping training as requested by stop_at_end")
                 break
 
@@ -368,10 +381,6 @@ class BaseTrainer(ABC):
 
         self.logger.info(f"Total training time: {(self.timer.get('total') / 3600):.2f} hours")
         self.logger.info("Finishing training")
-
-        # Cleanup distributed process group to avoid NCCL warnings on exit
-        if dist.is_initialized():
-            dist.destroy_process_group()
 
     @abstractmethod
     def train_step(self, step: int) -> tuple[float, float, float]:
