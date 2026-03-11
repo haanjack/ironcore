@@ -114,13 +114,16 @@ class Attention(BaseModule):
 
         # max subtraction trick for numerical stability
         with profile_context("attention softmax"):
+            # Cast to fp32 for stable softmax
+            attention_score = attention_score.float()
+            
             max_scores = attention_score.max(dim=-1, keepdim=True)[0]
             attention_score = attention_score - max_scores
 
-            # Clamp to prevent overflow in bf16/fp16
-            attention_score = torch.clamp(attention_score, min=-100.0, max=100.0)
+            # Clamp to prevent extreme values
+            attention_score = torch.clamp(attention_score, min=-100.0, max=0.0)
 
-            attention_probs = self.softmax(attention_score)
+            attention_probs = self.softmax(attention_score).to(query.dtype)
 
         # dropout
         with profile_context("self attention dropout"):
