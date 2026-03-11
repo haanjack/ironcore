@@ -31,6 +31,8 @@ from dataclasses import dataclass
 import torch
 from torch import distributed as dist
 
+from ironcore.profiler import timed_comm
+
 from .parallel_states import (
     get_expert_model_parallel_group,
     get_expert_model_parallel_rank,
@@ -62,7 +64,6 @@ def all_reduce_ep(tensor: torch.Tensor) -> torch.Tensor:
     if ep_group is None:
         return tensor
 
-    from ironcore.profiler import timed_comm
     with timed_comm("ep_all_reduce"):
         dist.all_reduce(tensor, group=ep_group)
     return tensor
@@ -84,7 +85,6 @@ class _AllReduceEP(torch.autograd.Function):
         if ep_group is None:
             return input_tensor
 
-        from ironcore.profiler import timed_comm
         with timed_comm("ep_all_reduce_fwd"):
             dist.all_reduce(input_tensor, group=ep_group)
         return input_tensor
@@ -99,7 +99,6 @@ class _AllReduceEP(torch.autograd.Function):
         if ep_group is None:
             return grad_output, None
 
-        from ironcore.profiler import timed_comm
         with timed_comm("ep_all_reduce_bwd"):
             dist.all_reduce(grad_output, group=ep_group)
         return grad_output, None
@@ -322,7 +321,7 @@ class AllToAllDispatcher:
         send_counts = sorted_data["send_counts"]
         send_counts_tensor = torch.tensor(send_counts, device=device, dtype=torch.long)
         recv_counts_tensor = torch.zeros(self.ep_size, device=device, dtype=torch.long)
-        from ironcore.profiler import timed_comm
+
         with timed_comm("ep_all_to_all_counts"):
             dist.all_to_all_single(recv_counts_tensor, send_counts_tensor, group=self.ep_group)
         recv_counts = recv_counts_tensor.tolist()
@@ -520,7 +519,6 @@ class AllToAllDispatcher:
             send_split_sizes_out = [s * hidden_size for s in send_split_sizes]
             recv_split_sizes_out = [s * hidden_size for s in recv_split_sizes]
 
-            from ironcore.profiler import timed_comm
             with timed_comm("ep_all_to_all_gather"):
                 dist.all_to_all_single(
                     recv_outputs_1d,

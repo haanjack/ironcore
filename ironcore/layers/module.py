@@ -257,6 +257,7 @@ class BaseModule(torch.nn.Module):
         self._layer_timing = layer_timing
         if layer_timing:
             from ironcore.profiler import get_layer_timing_collector
+
             self._timing_collector = get_layer_timing_collector()
 
         self.register_forward_pre_hook(self._forward_pre_hook)

@@ -4,7 +4,6 @@
 
 """Tensor parallel communication utilities with buffer pooling optimization."""
 
-
 import torch
 import torch.distributed as dist
 
@@ -90,8 +89,11 @@ def _reduce(
 
     if not async_op:
         from ironcore.profiler import timed_comm
+
         with timed_comm("tp_all_reduce"):
-            dist.all_reduce(x, group=parallel_states.get_tensor_model_parallel_group(), async_op=False)
+            dist.all_reduce(
+                x, group=parallel_states.get_tensor_model_parallel_group(), async_op=False
+            )
         return x
 
     handle = dist.all_reduce(
@@ -169,6 +171,7 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
     from ironcore.profiler import timed_comm
+
     with timed_comm("tp_all_gather"):
         dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 
@@ -191,6 +194,7 @@ def _gather_concated_tensor_along_last_dim(x: torch.Tensor, num_types: int) -> t
     weight_splits = torch.split(x, last_dim, dim=-1)
 
     from ironcore.profiler import timed_comm
+
     outputs = []
     for weight_split in weight_splits:
         slices = pool.get_buffers(
@@ -220,6 +224,7 @@ def _gather_tensor_along_first_dim(x: torch.Tensor):
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
     from ironcore.profiler import timed_comm
+
     with timed_comm("tp_all_gather_first_dim"):
         dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
 

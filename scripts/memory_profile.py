@@ -196,20 +196,17 @@ def run_test(
             micro_batch_size=micro_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
             steps=steps,
-            output_path=config_path
+            output_path=config_path,
         )
 
     try:
         result = subprocess.run(
-            [
-                'torchrun', '--nproc_per_node=2', '-m', 'ironcore',
-                'train', '--config', config_path
-            ],
+            ["torchrun", "--nproc_per_node=2", "-m", "ironcore", "train", "--config", config_path],
             cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout
-            check=False
+            check=False,
         )
 
         if result.returncode != 0 and not result.stdout:
@@ -219,7 +216,7 @@ def run_test(
                 micro_batch_size=micro_batch_size,
                 gradient_accumulation_steps=gradient_accumulation_steps,
                 success=False,
-                error_message=f"Trial failed to start: {result.stderr.strip() or 'Unknown error'}"
+                error_message=f"Trial failed to start: {result.stderr.strip() or 'Unknown error'}",
             )
 
         output = result.stdout + result.stderr
