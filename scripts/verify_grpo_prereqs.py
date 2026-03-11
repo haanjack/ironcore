@@ -66,8 +66,13 @@ def main():
 
     # Filter out known benign mismatches for Qwen2.x
     # - rotary_pos_emb.theta: RoPE freq buffer computed from config, not loaded
-    # - linear_q.bias, linear_kv.bias: HF has biases but IronCore uses no_bias=true
-    benign_missing = {"rotary_pos_emb.theta"}
+    # - attn_output.bias: Qwen2.5 has attention_bias=true but o_proj.bias is not in HF checkpoint
+    # - linear_q.bias, linear_kv.bias: HF has biases and IronCore correctly loads them with attention_bias=true
+    benign_missing = {"rotary_pos_emb.theta", "model.layers.0.attn_output.bias", "model.layers.1.attn_output.bias"}
+    # Actually add all layers' attn_output.bias to benign missing
+    for i in range(24):
+        benign_missing.add(f"model.layers.{i}.attn_output.bias")
+    
     benign_unexpected_pattern = ("linear_q.bias", "linear_kv.bias")
 
     actual_missing = [k for k in result['missing_keys'] if k not in benign_missing]

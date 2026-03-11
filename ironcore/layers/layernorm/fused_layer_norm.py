@@ -15,7 +15,7 @@ class LayerNorm(BaseModule):
         super().__init__(config)
 
         self.layernorm = nn.LayerNorm(
-            config.model.d_model, eps=config.model.ln_eps, bias=not config.model.no_bias
+            config.model.d_model, eps=config.model.ln_eps, bias=config.model.layernorm_bias
         )
 
     def forward(self, x):

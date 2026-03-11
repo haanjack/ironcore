@@ -49,23 +49,28 @@ class BaseConfig:
             input_field_value = getattr(var, field_name)
             if input_field_value is None:
                 continue
-            # if not isinstance(input_field_value, field_type):
-            #     return False
-            if isinstance(input_field_value, list):
-                # validate config option struction is list
-                if all(
-                    isinstance(item, field_type.__args__[0].__args__)
-                    for item in input_field_value
-                    if not isinstance(item, list)
-                ):
-                    # check each element's data type if they follows the config definition
-                    continue
-                if all(isinstance(item, list) for item in input_field_value):
-                    # check if the given items are defined as list
-                    continue
-                return False
 
-            if get_origin(field_type) is Union:
+            origin = get_origin(field_type)
+            args = get_args(field_type)
+
+            if origin is list or (isinstance(field_type, type) and issubclass(field_type, list)):
+                if not isinstance(input_field_value, list):
+                    return False
+                
+                # If it's list[T], check element types
+                if args:
+                    inner_type = args[0]
+                    # Handle Union types inside list, e.g., list[Union[int, str]]
+                    if get_origin(inner_type) is Union:
+                        union_args = get_args(inner_type)
+                        if not all(isinstance(item, union_args) for item in input_field_value):
+                            return False
+                    elif isinstance(inner_type, type):
+                        if not all(isinstance(item, inner_type) for item in input_field_value):
+                            return False
+                continue
+
+            if origin is Union:
                 union_args = get_args(field_type)
                 matched = False
                 for union_arg in union_args:

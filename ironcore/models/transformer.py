@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
-from torch import nn
+import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 
 from ironcore.config import MainConfig
@@ -35,27 +35,44 @@ class TransformerLayer(BaseModule):
             config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
         )
 
+        bias_cfg = config.model.bias
+
         # QKV projections
         self.linear_q = ColumnParallelLinear(
             config,
             config.model.d_model,
             query_projection_size,
-            bias=not config.model.no_bias,
+            bias=bias_cfg.q,
         )
+        kv_has_bias = bias_cfg.k or bias_cfg.v
         self.linear_kv = ColumnParallelLinear(
             config,
             config.model.d_model,
             key_value_projection_size,
-            bias=not config.model.no_bias,
+            bias=kv_has_bias,
             concatenated_weights=2,
         )
+
+        # If only one of K/V has bias, zero-mask the inactive half of the fused KV bias
+        if kv_has_bias and bias_cfg.k != bias_cfg.v:
+            local_kv_size = self.linear_kv.bias.shape[0]
+            local_half = local_kv_size // 2
+            mask = torch.ones(local_kv_size)
+            if not bias_cfg.k:
+                mask[:local_half] = 0.0  # zero out K portion
+            else:
+                mask[local_half:] = 0.0  # zero out V portion
+            self.register_buffer("_kv_bias_mask", mask, persistent=False)
+            with torch.no_grad():
+                self.linear_kv.bias.data.mul_(mask)
+            self.linear_kv.bias.register_hook(lambda grad: grad * self._kv_bias_mask)
 
         # Output projection
         self.attn_output = RowParallelLinear(
             config,
             query_projection_size,
             config.model.d_model,
-            bias=not config.model.no_bias,
+            bias=bias_cfg.o,
             input_is_parallel=True,
         )
 

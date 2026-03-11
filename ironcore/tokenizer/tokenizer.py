@@ -101,11 +101,19 @@ class Tokenizer:
     def encode(self, *args, **kwargs):
         return self._tokenizer(*args, **kwargs)
 
-    def decode(self, token_ids):
+    def decode(self, token_ids, skip_special_tokens: bool = False, **kwargs):
+        """Decode a sequence of token IDs to a string.
+
+        Args:
+            token_ids: List of token IDs or 1D tensor
+            skip_special_tokens: Whether to remove special tokens from output
+            **kwargs: Additional arguments passed to underlying tokenizer
+
+        Returns:
+            Decoded string
+        """
         try:
-            if not token_ids:
-                raise ValueError("Input token_ids is empty or invalid.")
-            return self._tokenizer.decode(token_ids)
+            return self._tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens, **kwargs)
         except Exception as e:
             print(f"Error occured during decoding: {e}")
             return ""

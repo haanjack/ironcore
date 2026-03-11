@@ -9,6 +9,57 @@ from .config_moe import MoEConfig
 
 
 @dataclass
+class BiasConfig(BaseConfig):
+    """Fine-grained bias configuration for transformer sub-layers.
+
+    Each field controls whether that specific projection has a learnable bias.
+    For fused projections (KV, gate+up), both must have bias=True for the fused
+    layer to have bias. If one has bias and the other doesn't, use zero mask.
+
+    Defaults match GPT-2 (all True). For LLaMA-style models like Qwen2.5,
+    typically only q, k, v are True.
+    """
+
+    q: bool = field(default=True, metadata={"help": "Query projection bias"})
+    k: bool = field(default=True, metadata={"help": "Key projection bias"})
+    v: bool = field(default=True, metadata={"help": "Value projection bias"})
+    o: bool = field(default=True, metadata={"help": "Output projection bias"})
+    gate: bool = field(default=True, metadata={"help": "MLP gate projection bias (SwiGLU)"})
+    up: bool = field(default=True, metadata={"help": "MLP up projection bias"})
+    down: bool = field(default=True, metadata={"help": "MLP down projection bias"})
+
+    @classmethod
+    def all_true(cls) -> "BiasConfig":
+        """Create config with all biases enabled (GPT-2 style)."""
+        return cls(q=True, k=True, v=True, o=True, gate=True, up=True, down=True)
+
+    @classmethod
+    def qkv_only(cls) -> "BiasConfig":
+        """Create config with only Q/K/V biases (LLaMA/Qwen style)."""
+        return cls(q=True, k=True, v=True, o=False, gate=False, up=False, down=False)
+
+    @classmethod
+    def none(cls) -> "BiasConfig":
+        """Create config with no biases."""
+        return cls(q=False, k=False, v=False, o=False, gate=False, up=False, down=False)
+
+    @property
+    def qkv(self) -> bool:
+        """Check if Q, K, and V all have bias (for fused QKV layers)."""
+        return self.q and self.k and self.v
+
+    @property
+    def kv(self) -> bool:
+        """Check if both K and V have bias (for fused KV layers)."""
+        return self.k and self.v
+
+    @property
+    def gate_up(self) -> bool:
+        """Check if both gate and up have bias (for fused gate+up layers)."""
+        return self.gate and self.up
+
+
+@dataclass
 class PositionalEmbeddingConfig(BaseConfig):
     """positional embedding options"""
 
@@ -47,7 +98,7 @@ class ModelConfig(BaseConfig):
     d_ffn: int = field(default=2048, metadata={"help": "model feed forward dimension size"})
     num_layers: int = field(default=2, metadata={"help": "number of layers"})
     max_seq_len: int = field(default=512, metadata={"help": "max sequence length"})
-    max_position_embeddings: int = field(
+    max_position_embeddings: int | None = field(
         default=None, metadata={"help": "max position embeddings (defaults to max_seq_len)"}
     )
     dropout_embd: float = field(default=0.1, metadata={"help": "dropout ratio in embedding"})
@@ -76,7 +127,13 @@ class ModelConfig(BaseConfig):
 
     add_pooler: bool = field(default=True, metadata={"help": "add pooler"})
     untie_embed: bool = field(default=False, metadata={"help": "untie lm head"})
-    no_bias: bool = field(default=False, metadata={"help": "no bias in layers"})
+
+    # Bias configuration: fine-grained control over which layers have bias
+    bias: BiasConfig = field(
+        default_factory=BiasConfig.all_true,
+        metadata={"help": "Bias configuration for each projection type"}
+    )
+    layernorm_bias: bool = field(default=True, metadata={"help": "bias in layernorm layers"})
 
     fp32_residual_connection: bool = field(
         default=False, metadata={"help": "fp32 residual connection"}
@@ -122,10 +179,10 @@ class ModelConfig(BaseConfig):
     def __post_init__(self):
         if self.ln_type not in ["layernorm", "rmsnorm"]:
             raise ValueError(f"Invalid layer norm type: {self.ln_type}")
+
         # Default max_position_embeddings to max_seq_len if not set
         if self.max_position_embeddings is None:
             self.max_position_embeddings = self.max_seq_len
-
         assert all(
             getattr(self, k) > 0
             for k in [
@@ -142,3 +199,5 @@ class ModelConfig(BaseConfig):
             0 <= getattr(self, k) <= 1
             for k in ["dropout_embd", "dropout_attn", "dropout_mlp", "attention_dropout"]
         ), "Dropouts must be [0, 1]"
+
+
