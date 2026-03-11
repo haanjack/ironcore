@@ -229,6 +229,33 @@ class BaseTrainer(ABC):
 
         model = model.to(dtype=get_model_dtype(self.config))
 
+        # Load pretrained weights from HuggingFace if specified
+        if self.config.trainer.load_from_hf:
+            from ironcore.checkpointing import load_from_huggingface
+
+            hf_model_name = self.config.trainer.load_from_hf
+            self.logger.info(f"Loading pretrained weights from HuggingFace: {hf_model_name}")
+
+            # Download checkpoint if needed (handled by huggingface_hub)
+            from huggingface_hub import snapshot_download
+
+            cache_dir = snapshot_download(hf_model_name)
+            self.logger.info(f"Downloaded/loaded from cache: {cache_dir}")
+
+            # Load weights into ironcore model
+            result = load_from_huggingface(
+                checkpoint_path=cache_dir,
+                model=model,
+                architecture=self.config.model.hf_model_type,
+                strict=False,
+            )
+
+            self.logger.info(
+                f"HF weights loaded: {len(result['loaded_keys'])} keys, "
+                f"{len(result['missing_keys'])} missing, "
+                f"{len(result['unexpected_keys'])} unexpected"
+            )
+
         optimizer = get_optimizer(self.config, model, device_type=device)
         self.logger.info("Created Optimizer")
 

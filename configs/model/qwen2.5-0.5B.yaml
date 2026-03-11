@@ -1,0 +1,38 @@
+# Qwen2.5-0.5B-Instruct model config
+# Architecture: Qwen2 (LLaMA-style with minor differences)
+
+num_attention_heads: 14
+num_attention_groups: 2  # GQA: 14 Q heads, 2 KV groups
+attention_head_size: 64
+head_dim: 64
+max_seq_len: 32768
+num_layers: 24
+d_model: 896
+d_ffn: 4864
+untie_embed: false
+reset_position_ids: false
+reset_attention_mask: false
+eod_mask_loss: false
+precision: bf16
+
+# Layer norm
+ln_type: rmsnorm
+ln_eps: 1.0e-6
+post_ln: false
+no_bias: true
+
+# Activation
+activation_type: swiglu
+
+# Tokenizer
+vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+tokenizer_type: sentencepiece  # Uses AutoTokenizer.from_pretrained (works for Qwen)
+
+# Positional embedding (RoPE)
+positional_embedding:
+  type: rope
+  base: 1000000.0
+
+# HuggingFace compatibility
+hf_model_type: qwen2
+hf_architecture: Qwen2ForCausalLM

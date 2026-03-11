@@ -1,0 +1,25 @@
+# GRPO GSM8K Dataset Configuration
+# Math reasoning dataset for Group Relative Policy Optimization
+
+# Tokenizer configuration (inherited from model)
+vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 1024
+
+# Data splits (train/eval/test)
+splits: [1.0, 0.0, 0.0]
+
+# Datasets to use
+train_datasets:
+  - name: gsm8k_train
+    source: data/gsm8k_train.jsonl
+    task_type: grpo
+    ratio: 1.0
+    split: train
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

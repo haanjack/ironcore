@@ -59,13 +59,19 @@ class MathRewardFunction(RewardFunction):
         if not answer:
             return 0.5  # No ground truth, neutral score
 
+        # Extract answers from both completion and ground truth
         extracted = self._extract_answer(completion)
-        if self._normalize_answer(extracted) == self._normalize_answer(answer):
+        gold = self._extract_answer(answer)
+
+        if not extracted or not gold:
+            return 0.0
+
+        if self._normalize_answer(extracted) == self._normalize_answer(gold):
             return 1.0
         return 0.0
 
     def _extract_answer(self, text: str) -> str:
-        """Extract final answer from completion."""
+        """Extract final answer from completion or ground truth."""
         patterns = [
             r"####\s*(.+)",
             r"\\boxed\{(.+?)\}",
@@ -84,7 +90,11 @@ class MathRewardFunction(RewardFunction):
     def _normalize_answer(self, answer: str) -> str:
         """Normalize answer for comparison."""
         normalized = answer.strip().lower()
+        # Remove common formatting: commas, spaces, underscores, dollar signs
         normalized = re.sub(r"[, _$]", "", normalized)
+        # Remove trailing period only (not decimal points in the middle)
+        if normalized.endswith("."):
+            normalized = normalized[:-1]
         return normalized
 
 

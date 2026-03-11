@@ -480,8 +480,8 @@ class DataSerializer:
             dataset_iter = dataset
 
         for sample in dataset_iter:
-            # Get prompt
-            prompt = sample.get("prompt", "")
+            # Get prompt using configurable column name
+            prompt = sample.get(dataset_config.prompt_column, sample.get("prompt", ""))
             if not prompt:
                 continue
 
@@ -493,7 +493,12 @@ class DataSerializer:
 
             # Build metadata dict for reward computation
             sample_metadata = {}
-            for key in ["answer", "test_cases", "type", "difficulty", "category"]:
+            # Use configurable answer column, fallback to "answer"
+            answer = sample.get(dataset_config.answer_column, sample.get("answer", ""))
+            if answer:
+                sample_metadata["answer"] = answer
+
+            for key in ["test_cases", "type", "difficulty", "category"]:
                 if key in sample:
                     sample_metadata[key] = sample[key]
 

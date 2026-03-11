@@ -191,3 +191,4 @@ mlruns/
 smoke_test_output/
 toy_test_output/
 .env~
+outputs/

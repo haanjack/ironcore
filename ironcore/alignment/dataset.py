@@ -66,12 +66,16 @@ class GRPODataset(IterableDataset):
         shuffle: bool = True,
         seed: int = 42,
         tokenizer=None,
+        prompt_column: str = "prompt",
+        answer_column: str = "answer",
     ):
         self.data_path = Path(data_path)
         self.max_prompt_length = max_prompt_length
         self.shuffle = shuffle
         self.seed = seed
         self.tokenizer = tokenizer if tokenizer is not None else get_tokenizer()
+        self.prompt_column = prompt_column
+        self.answer_column = answer_column
 
         self.samples = self._load_data()
 
@@ -116,8 +120,8 @@ class GRPODataset(IterableDataset):
             for idx in shuffled_indices:
                 sample = self.samples[idx]
 
-                # Tokenize prompt
-                prompt = sample["prompt"]
+                # Get prompt using configurable column name with fallback
+                prompt = sample.get(self.prompt_column, sample.get("prompt", ""))
                 encoded = self.tokenizer(
                     prompt,
                     max_length=self.max_prompt_length,
@@ -131,9 +135,9 @@ class GRPODataset(IterableDataset):
                     "type": sample.get("type", "unknown"),
                     "original_prompt": prompt,
                 }
-                # Copy all other fields
+                # Copy all other fields except the prompt column itself
                 for key, value in sample.items():
-                    if key not in ("prompt", "input_ids", "attention_mask"):
+                    if key not in (self.prompt_column, "prompt", "input_ids", "attention_mask"):
                         metadata[key] = value
 
                 yield GRPOSample(
@@ -188,6 +192,8 @@ def get_grpo_dataloader(
     shuffle: bool = True,
     seed: int = 42,
     num_workers: int = 0,
+    prompt_column: str = "prompt",
+    answer_column: str = "answer",
 ) -> DataLoader:
     """Create DataLoader for GRPO training.
 
@@ -198,6 +204,8 @@ def get_grpo_dataloader(
         shuffle: Whether to shuffle
         seed: Random seed
         num_workers: Number of data loader workers
+        prompt_column: Column name for prompts in data
+        answer_column: Column name for answers in data
 
     Returns:
         DataLoader
@@ -207,6 +215,8 @@ def get_grpo_dataloader(
         max_prompt_length=max_prompt_length,
         shuffle=shuffle,
         seed=seed,
+        prompt_column=prompt_column,
+        answer_column=answer_column,
     )
 
     return DataLoader(
@@ -271,6 +281,10 @@ def get_grpo_data_iterator(
     # Get source from first dataset
     data_path = datasets[0].source
 
+    # Get field mapping from config
+    prompt_column = getattr(datasets[0], "prompt_column", "prompt")
+    answer_column = getattr(datasets[0], "answer_column", "answer")
+
     dataloader = get_grpo_dataloader(
         data_path=data_path,
         batch_size=config.trainer.train_batch_size,
@@ -278,6 +292,8 @@ def get_grpo_data_iterator(
         shuffle=(split == "train"),
         seed=config.init.seed,
         num_workers=getattr(data_config, "num_workers", 0),
+        prompt_column=prompt_column,
+        answer_column=answer_column,
     )
 
     return iter(dataloader)

@@ -39,6 +39,10 @@ class DatasetConfig(BaseConfig):
     chosen_column: str = field(default="chosen", metadata={"help": "Chosen column for DPO"})
     rejected_column: str = field(default="rejected", metadata={"help": "Rejected column for DPO"})
 
+    # GRPO-specific column names
+    prompt_column: str = field(default="prompt", metadata={"help": "Prompt column for GRPO"})
+    answer_column: str = field(default="answer", metadata={"help": "Answer column for GRPO (ground truth)"})
+
     chat_template: str | None = field(
         default=None, metadata={"help": "Chat template (uses tokenizer default if None)"}
     )
@@ -167,6 +171,8 @@ class DataConfig(BaseConfig):
                 messages_column=ds.get("messages_column", "messages"),
                 chosen_column=ds.get("chosen_column", "chosen"),
                 rejected_column=ds.get("rejected_column", "rejected"),
+                prompt_column=ds.get("prompt_column", "prompt"),
+                answer_column=ds.get("answer_column", "answer"),
                 chat_template=ds.get("chat_template"),
                 max_samples=ds.get("max_samples"),
             )

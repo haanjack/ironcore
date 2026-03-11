@@ -90,6 +90,10 @@ class GRPOTrainer(BaseTrainer):
         # Tokenizer
         self._tokenizer = get_tokenizer()
 
+        # For metrics tracking (set during train_step)
+        self._current_response_lengths: torch.Tensor | None = None
+        self._current_responses_text: list[str] | None = None
+
         self.logger.info(
             f"GRPOTrainer initialized with group_size={self.group_size}, "
             f"beta={self.beta}, gen_kwargs={self.gen_kwargs}, "
@@ -235,12 +239,14 @@ class GRPOTrainer(BaseTrainer):
                     messages.append({"role": "system", "content": self.system_prompt})
                 messages.append({"role": "user", "content": prompt})
 
-                prompt_ids = self._tokenizer.apply_chat_template(
+                prompt_enc = self._tokenizer.apply_chat_template(
                     messages,
                     add_generation_prompt=True,
                     return_tensors="pt",
                 )
-                all_prompt_ids.append(prompt_ids.squeeze(0))
+                # apply_chat_template with return_tensors="pt" returns BatchEncoding (dict-like)
+                prompt_ids = prompt_enc["input_ids"].squeeze(0)
+                all_prompt_ids.append(prompt_ids)
 
             # Pad to same length
             from torch.nn.utils.rnn import pad_sequence
@@ -326,6 +332,11 @@ class GRPOTrainer(BaseTrainer):
         prompts_text = self._tokenizer.batch_decode(prompt_ids, skip_special_tokens=True)
         responses_text = self._tokenizer.batch_decode(rollout.response_ids, skip_special_tokens=True)
 
+        # Store for metrics computation
+        self._current_responses_text = responses_text
+        # Compute response lengths (non-padding tokens)
+        self._current_response_lengths = (rollout.response_ids != self._tokenizer.pad_token_id).sum(dim=1).float()
+
         # Correctly repeat each prompt G times to match response expansion order
         repeated_prompts = [p for p in prompts_text for _ in range(G)]
         rewards = self.reward_worker.score_batch(
@@ -371,6 +382,13 @@ class GRPOTrainer(BaseTrainer):
 
         if is_first_rank() and self.control.do_log(step):
             self._log_grpo_metrics(step, metrics, rewards, advantages)
+
+            # Qualitative sample logging at metrics_interval
+            metrics_interval = self.config.alignment.metrics_interval
+            if metrics_interval > 0 and step % metrics_interval == 0:
+                self._log_qualitative_samples(
+                    prompts_text, responses_text, rollout.metadata, rewards, G, step
+                )
 
         return metrics["grpo_loss"], grad_norm, param_norm
 
@@ -501,6 +519,19 @@ class GRPOTrainer(BaseTrainer):
         log_metric("grpo/std_reward", rewards.std().item() if len(rewards) > 1 else 0.0, step)
         log_metric("grpo/mean_advantage", advantages.mean().item(), step)
 
+        # Compute response length metrics
+        # rollout.response_ids has shape [B*G, response_len]
+        # Get mean response length across all completions
+        response_lengths = self._current_response_lengths
+        if response_lengths is not None:
+            log_metric("grpo/mean_response_length", response_lengths.mean().item(), step)
+
+        # Compute format compliance (#### in response)
+        responses_text = self._current_responses_text
+        if responses_text:
+            format_hits = sum(1 for r in responses_text if "####" in r) / len(responses_text)
+            log_metric("grpo/keyword_hit_rate", format_hits, step)
+
         self.logger.info(
             f"step: {step}, grpo_loss: {metrics['grpo_loss']:.4f}, "
             f"policy_loss: {metrics['policy_loss']:.4f}, "
@@ -509,6 +540,51 @@ class GRPOTrainer(BaseTrainer):
             f"mean_ratio: {metrics['mean_ratio']:.4f}, "
             f"clip_frac: {metrics['clip_fraction']:.3f}"
         )
+
+    def _log_qualitative_samples(
+        self,
+        prompts_text: list[str],
+        responses_text: list[str],
+        metadata: list[dict],
+        rewards: torch.Tensor,
+        group_size: int,
+        step: int,
+    ) -> None:
+        """Log qualitative samples for debugging.
+
+        Logs the first prompt and its best/worst completions.
+        """
+        num_prompts = len(prompts_text)
+
+        # Log up to 3 prompts
+        for i in range(min(3, num_prompts)):
+            # Get responses and rewards for this prompt's group
+            start_idx = i * group_size
+            end_idx = start_idx + group_size
+            group_responses = responses_text[start_idx:end_idx]
+            group_rewards = rewards[start_idx:end_idx]
+
+            # Find best and worst in group
+            best_idx = int(group_rewards.argmax().item())
+            worst_idx = int(group_rewards.argmin().item())
+
+            prompt_preview = prompts_text[i][:100] + "..." if len(prompts_text[i]) > 100 else prompts_text[i]
+            best_response = group_responses[best_idx]
+            worst_response = group_responses[worst_idx]
+            ground_truth = metadata[start_idx].get("answer", "N/A")
+
+            self.logger.info(
+                f"\n{'='*60}\n"
+                f"[Step {step}] Sample {i}\n"
+                f"{'='*60}\n"
+                f"Prompt: {prompt_preview}\n"
+                f"Ground truth: {ground_truth}\n"
+                f"--- Best (reward={group_rewards[best_idx].item():.2f}) ---\n"
+                f"{best_response[:500]}{'...' if len(best_response) > 500 else ''}\n"
+                f"--- Worst (reward={group_rewards[worst_idx].item():.2f}) ---\n"
+                f"{worst_response[:300]}{'...' if len(worst_response) > 300 else ''}\n"
+                f"{'='*60}"
+            )
 
     def _eval_step(self, data_iterator: Iterator) -> tuple[float, float]:
         """Evaluation step (simplified - just compute loss on held-out prompts)."""

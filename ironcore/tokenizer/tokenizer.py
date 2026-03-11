@@ -123,6 +123,24 @@ class Tokenizer:
         """
         return self._tokenizer.batch_decode(sequences, skip_special_tokens=skip_special_tokens, **kwargs)
 
+    def apply_chat_template(self, messages, **kwargs):
+        """Apply chat template to messages.
+
+        Delegates to the underlying HuggingFace tokenizer's apply_chat_template.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            **kwargs: Additional arguments (add_generation_prompt, return_tensors, etc.)
+
+        Returns:
+            Token IDs or text depending on return_tensors argument
+        """
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            return self._tokenizer.apply_chat_template(messages, **kwargs)
+        raise NotImplementedError(
+            f"Tokenizer {type(self._tokenizer).__name__} does not support apply_chat_template"
+        )
+
     def __call__(self, *args, **kwargs):
         return self.encode(*args, **kwargs)
 
