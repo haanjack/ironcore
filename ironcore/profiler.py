@@ -4,7 +4,6 @@
 
 import contextlib
 import re
-import sys
 import threading
 import time
 from pathlib import Path
@@ -123,6 +122,7 @@ class LayerTimingCollector:
             self.logger = get_logger()
         except AssertionError:
             import logging
+
             self.logger = logging.getLogger(__name__)
         self._initialized = True
 
@@ -148,7 +148,9 @@ class LayerTimingCollector:
             return
         entry = self._pending.pop(module_id, None)
         if entry is None:
-            self.logger.debug(f"LayerTimingCollector: no pending entry for module {module_id} in end()")
+            self.logger.debug(
+                f"LayerTimingCollector: no pending entry for module {module_id} in end()"
+            )
             return
         layer_name, phase, start_event = entry
         end_event = torch.cuda.Event(enable_timing=True)  # type: ignore  # torch stub requires stream=, not needed at runtime
@@ -332,9 +334,6 @@ class ProfileManager:
         # 4. End Trigger
         if step == self.config.end:
             self.stop()
-            if self.config.stop_at_end:
-                self.logger.info("Stopping training as requested by stop_at_end")
-                sys.exit(0)
 
     def _check_memory_threshold(self):
         """Checks if current GPU memory usage exceeds the threshold."""
@@ -406,7 +405,10 @@ class ProfileManager:
 
         # Dump memory snapshot
         if self.config.memory_snapshot and torch.cuda.is_available():
-            snapshot_path = Path(self.config.output_dir) / f"{self.config.name}_{self.current_version}_rank{self.rank}_memory.pickle"
+            snapshot_path = (
+                Path(self.config.output_dir)
+                / f"{self.config.name}_{self.current_version}_rank{self.rank}_memory.pickle"
+            )
             try:
                 torch.cuda.memory._dump_snapshot(str(snapshot_path))
                 self.logger.info(f"Saved memory snapshot to {snapshot_path}")
@@ -460,19 +462,28 @@ class ProfileManager:
                 with open(csv_path, "w", newline="", encoding="utf-8") as f:
                     writer = csv_mod.writer(f)
                     writer.writerow(
-                        ["name", "cpu_time_total_us", "cuda_time_total_us", "count",
-                         "cpu_time_avg_us", "cuda_time_avg_us", "flops"]
+                        [
+                            "name",
+                            "cpu_time_total_us",
+                            "cuda_time_total_us",
+                            "count",
+                            "cpu_time_avg_us",
+                            "cuda_time_avg_us",
+                            "flops",
+                        ]
                     )
                     for e in events:
-                        writer.writerow([
-                            e.key,
-                            int(e.cpu_time_total),
-                            int(e.cuda_time_total),
-                            e.count,
-                            int(e.cpu_time_total / max(e.count, 1)),
-                            int(e.cuda_time_total / max(e.count, 1)),
-                            getattr(e, "flops", 0) or 0,
-                        ])
+                        writer.writerow(
+                            [
+                                e.key,
+                                int(e.cpu_time_total),
+                                int(e.cuda_time_total),
+                                e.count,
+                                int(e.cpu_time_total / max(e.count, 1)),
+                                int(e.cuda_time_total / max(e.count, 1)),
+                                getattr(e, "flops", 0) or 0,
+                            ]
+                        )
                 self.logger.info(f"Exported key-averages CSV to {csv_path}")
             except Exception as e:
                 self.logger.warning(f"CSV export failed: {e}")
@@ -488,4 +499,3 @@ class ProfileManager:
         if self._timed_data_iter is None:
             return None
         return self._timed_data_iter.get_and_reset_stats()
-

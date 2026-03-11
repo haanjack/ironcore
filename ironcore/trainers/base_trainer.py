@@ -161,7 +161,8 @@ class BaseTrainer(ABC):
                 self.config.model,
                 vocab_size=tokenizer.padded_vocab_size,
             )
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"MFU calculator unavailable: {e}")
             self.mfu_calculator = None
 
     def _build_model_and_optimizer(self):
@@ -208,7 +209,11 @@ class BaseTrainer(ABC):
             )
 
         # Enable profiling if requested
-        if self.config.profiler.gpu_profiler or self.config.profiler.torch_profiler or self.config.profiler.layer_timing:
+        if (
+            self.config.profiler.gpu_profiler
+            or self.config.profiler.torch_profiler
+            or self.config.profiler.layer_timing
+        ):
             model.register_profile_hooks(
                 torch_profiler=self.config.profiler.torch_profiler,
                 gpu_profiler=self.config.profiler.gpu_profiler,
@@ -333,11 +338,8 @@ class BaseTrainer(ABC):
             self.log_training(step, loss, grad_norm, param_norm, self.timer)
 
             self.profiler.step(step)
-            if not self.profiler.is_active and (
-                self.config.profiler.stop_at_end
-                and step > self.config.profiler.end
-                and (self.config.profiler.gpu_profiler or self.config.profiler.torch_profiler)
-            ):
+            if self.config.profiler.stop_at_end and step >= self.config.profiler.end and not self.profiler.is_active:
+                self.logger.info("Stopping training as requested by stop_at_end")
                 break
 
             if self.control.do_checkpoint(step):
@@ -603,17 +605,19 @@ class BaseTrainer(ABC):
             metrics["iter_time"] = iter_time
             if iter_time > 0:
                 tokens_per_sec = (
-                    self.config.trainer.train_batch_size
-                    * self.config.model.max_seq_len
-                    / iter_time
+                    self.config.trainer.train_batch_size * self.config.model.max_seq_len / iter_time
                 )
                 metrics["tokens_per_sec"] = tokens_per_sec
 
                 if self.mfu_calculator is not None:
                     dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
                     micro_batch_size = self.config.trainer.micro_batch_size or 1
-                    gradient_accumulation_steps = self.config.trainer.gradient_accumulation_steps or 1
-                    global_batch_size = micro_batch_size * gradient_accumulation_steps * dp_world_size
+                    gradient_accumulation_steps = (
+                        self.config.trainer.gradient_accumulation_steps or 1
+                    )
+                    global_batch_size = (
+                        micro_batch_size * gradient_accumulation_steps * dp_world_size
+                    )
                     tflops = self.mfu_calculator.compute_tflops(
                         batch_size=global_batch_size,
                         seq_len=self.config.model.max_seq_len,
@@ -646,7 +650,9 @@ class BaseTrainer(ABC):
                 if dl_stats is not None and dl_stats["count"] > 0:
                     metrics["data_load_ms_per_step"] = dl_stats["total_ms"] / dl_stats["count"]
                     if timer is not None and iter_time > 0:
-                        metrics["data_load_ratio"] = metrics["data_load_ms_per_step"] / (iter_time * 1000.0)
+                        metrics["data_load_ratio"] = metrics["data_load_ms_per_step"] / (
+                            iter_time * 1000.0
+                        )
 
             log_msg = f"step: {step}, loss: {loss:.4f}, lr: {metrics['lr']:.6f}"
             if grad_norm > 0:
@@ -660,7 +666,7 @@ class BaseTrainer(ABC):
             if "data_load_ms_per_step" in metrics:
                 log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:
-                    log_msg += f" ({metrics['data_load_ratio']*100:.1f}%)"
+                    log_msg += f" ({metrics['data_load_ratio'] * 100:.1f}%)"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system

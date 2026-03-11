@@ -31,10 +31,10 @@ from ironcore.profiler import (
     timed_comm,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _reset_singletons():
     """Reset singleton instances so each test starts from a clean state."""
@@ -42,7 +42,7 @@ def _reset_singletons():
     LayerTimingCollector._instance = None
 
 
-def _make_profiler_config(tmp_path: Path, **kwargs) -> "MainConfig":
+def _make_profiler_config(tmp_path: Path, **kwargs):
     """Return a MainConfig with ProfilerConfig wired to *tmp_path*."""
     # import here so test module collection works without heavy deps loaded
     from tests.fixtures.config_fixtures import create_small_test_config
@@ -67,8 +67,8 @@ def _make_profile_manager(tmp_path: Path, **profiler_kwargs) -> ProfileManager:
 # CommProfiler
 # ---------------------------------------------------------------------------
 
-class TestCommProfiler:
 
+class TestCommProfiler:
     def setup_method(self):
         _reset_singletons()
 
@@ -139,8 +139,8 @@ class TestCommProfiler:
 # timed_comm context manager  (F1 — zero overhead when disabled)
 # ---------------------------------------------------------------------------
 
-class TestTimedComm:
 
+class TestTimedComm:
     def setup_method(self):
         _reset_singletons()
 
@@ -176,8 +176,8 @@ class TestTimedComm:
 # LayerTimingCollector
 # ---------------------------------------------------------------------------
 
-class TestLayerTimingCollector:
 
+class TestLayerTimingCollector:
     def setup_method(self):
         _reset_singletons()
 
@@ -226,8 +226,10 @@ class TestLayerTimingCollector:
         c.enable()
 
         fake_event = mock.MagicMock()
-        with mock.patch("torch.cuda.is_available", return_value=True), \
-             mock.patch("torch.cuda.Event", return_value=fake_event):
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.Event", return_value=fake_event),
+        ):
             with caplog.at_level(logging.DEBUG, logger="ironcore.profiler"):
                 c.start(99, "TransformerLayer", "forward")
                 c.start(99, "TransformerLayer", "forward")  # overwrite
@@ -247,8 +249,10 @@ class TestLayerTimingCollector:
         c._completed.append(("TransformerLayer", "forward", start_ev, end_ev))
         c._completed.append(("TransformerLayer", "backward", start_ev, end_ev))
 
-        with mock.patch("torch.cuda.is_available", return_value=True), \
-             mock.patch("torch.cuda.synchronize"):
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.synchronize"),
+        ):
             summary = c.get_summary()
 
         assert "=" * 10 in summary
@@ -260,8 +264,8 @@ class TestLayerTimingCollector:
 # TimedDataIterator  (F5)
 # ---------------------------------------------------------------------------
 
-class TestTimedDataIterator:
 
+class TestTimedDataIterator:
     def test_iterates_correctly(self):
         timed = TimedDataIterator(iter([10, 20, 30]))
         assert [next(timed) for _ in range(3)] == [10, 20, 30]
@@ -314,8 +318,8 @@ class TestTimedDataIterator:
 # ProfileManager
 # ---------------------------------------------------------------------------
 
-class TestProfileManager:
 
+class TestProfileManager:
     def setup_method(self):
         _reset_singletons()
 
@@ -369,8 +373,10 @@ class TestProfileManager:
     # B9 — CUDA synchronize called in start()
     def test_cuda_synchronize_called_before_capture(self, tmp_path):
         pm = _make_profile_manager(tmp_path)
-        with mock.patch("torch.cuda.is_available", return_value=True), \
-             mock.patch("torch.cuda.synchronize") as mock_sync:
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.synchronize") as mock_sync,
+        ):
             pm.start()
         mock_sync.assert_called_once()
 
@@ -434,9 +440,11 @@ class TestProfileManager:
         def fake_dump(path):
             calls.append(path)
 
-        with mock.patch("torch.cuda.is_available", return_value=True), \
-             mock.patch("torch.cuda.memory._record_memory_history"), \
-             mock.patch("torch.cuda.memory._dump_snapshot", side_effect=fake_dump):
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.memory._record_memory_history"),
+            mock.patch("torch.cuda.memory._dump_snapshot", side_effect=fake_dump),
+        ):
             pm.start()
             pm.stop()
 
@@ -454,9 +462,11 @@ class TestProfileManager:
     # F2 — graceful failure if dump raises
     def test_memory_snapshot_failure_does_not_crash(self, tmp_path):
         pm = _make_profile_manager(tmp_path, memory_snapshot=True)
-        with mock.patch("torch.cuda.is_available", return_value=True), \
-             mock.patch("torch.cuda.memory._record_memory_history"), \
-             mock.patch("torch.cuda.memory._dump_snapshot", side_effect=RuntimeError("disk full")):
+        with (
+            mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.memory._record_memory_history"),
+            mock.patch("torch.cuda.memory._dump_snapshot", side_effect=RuntimeError("disk full")),
+        ):
             pm.start()
             pm.stop()  # warning logged, no exception propagated
         assert pm.is_active is False
@@ -506,15 +516,17 @@ class TestProfileManager:
     # F4 — chrome trace mutual exclusion: on_trace_ready must be None
     def test_chrome_trace_makes_on_trace_ready_none(self, tmp_path):
         # patch the name 'profile' as imported into the profiler module
-        with mock.patch("ironcore.profiler.get_logger", return_value=mock.MagicMock()), \
-             mock.patch("ironcore.profiler.profile") as mock_profile_cls:
+        with (
+            mock.patch("ironcore.profiler.get_logger", return_value=mock.MagicMock()),
+            mock.patch("ironcore.profiler.profile") as mock_profile_cls,
+        ):
             mock_profile_cls.return_value = mock.MagicMock()
             config = _make_profiler_config(
                 tmp_path,
                 torch_profiler=True,
                 export_chrome_trace=True,
             )
-            pm = ProfileManager(config)  # calls _init_profilers internally
+            ProfileManager(config)  # calls _init_profilers internally
 
         # Inspect the kwargs profile() was called with
         assert mock_profile_cls.called, "torch.profiler.profile was not instantiated"
@@ -523,9 +535,11 @@ class TestProfileManager:
 
     # B2 / F4 — torch profiler can be initialized without AttributeError
     def test_torch_profiler_init_no_attribute_error(self, tmp_path):
-        with mock.patch("ironcore.profiler.get_logger", return_value=mock.MagicMock()), \
-             mock.patch("torch.profiler.profile") as mock_profile_cls, \
-             mock.patch("torch.profiler.tensorboard_trace_handler", return_value=None):
+        with (
+            mock.patch("ironcore.profiler.get_logger", return_value=mock.MagicMock()),
+            mock.patch("torch.profiler.profile") as mock_profile_cls,
+            mock.patch("torch.profiler.tensorboard_trace_handler", return_value=None),
+        ):
             mock_profile_cls.return_value = mock.MagicMock()
             # Should not raise AttributeError
             pm = _make_profile_manager(
@@ -551,10 +565,11 @@ class TestProfileManager:
 # BaseModule.register_profile_hooks  (B3, B8, B10)
 # ---------------------------------------------------------------------------
 
-class TestBaseModuleHooks:
 
+class TestBaseModuleHooks:
     def _make_config(self):
         from tests.fixtures.config_fixtures import create_small_test_config
+
         return create_small_test_config()
 
     # B10 — no print pollution during hook registration
@@ -634,7 +649,8 @@ class TestBaseModuleHooks:
 
     # B8 — non-BaseModule children are not given profile hooks
     def test_hooks_skip_non_base_module_children(self):
-        import torch.nn as nn
+        from torch import nn
+
         from ironcore.layers.module import BaseModule
 
         config = self._make_config()
