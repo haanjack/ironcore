@@ -75,7 +75,7 @@ class BaseTrainer(ABC):
         The __init__ method is lightweight and primarily for configuration.
         Resource-intensive initialization (distributed process group, model
         creation, etc.) is deferred to __enter__ or explicitly calling
-        _acquire_resources().
+        _initialize().
 
         Args:
             config: Training configuration
@@ -96,7 +96,7 @@ class BaseTrainer(ABC):
         self.logger = get_logger()
         self.control = TrainingControl(config)
 
-    def _acquire_resources(self):
+    def _initialize(self):
         """Acquire heavy resources needed for training.
 
         This method initializes distributed process groups, creates the model,
@@ -172,7 +172,7 @@ class BaseTrainer(ABC):
         self.logger.info("Resources acquired successfully.")
 
     def __enter__(self):
-        self._acquire_resources()
+        self._initialize()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -352,7 +352,7 @@ class BaseTrainer(ABC):
         for custom behavior rather than overriding this method.
         """
         # Ensure resources are acquired if not using context manager
-        self._acquire_resources()
+        self._initialize()
 
         # Synchronize all ranks before setup
         if dist.is_initialized():
