@@ -385,12 +385,22 @@ class TestRoPEEdgeCases(unittest.TestCase):
 
         # Without explicit position_ids, positions should start from offset
         x = torch.randn(1, 5, 1, self.head_dim, device=self.device)
-        x_rotated = rope(x.clone(), None)
+        x_rotated_offset = rope(x.clone(), None)
 
-        # Check that cache was built starting from offset
-        sin_emb = rope.sin_emb
-        assert isinstance(sin_emb, torch.Tensor), "sin_emb should be a tensor"
-        self.assertEqual(sin_emb.shape[0], 128)
+        # Compare with a non-offset RoPE using explicit positions
+        rope_no_offset = RotaryPositionalEmbedding(
+            head_dim=self.head_dim,
+            max_seq_len=128,
+            base=self.base,
+            offset=0,
+        ).to(self.device)
+        explicit_position_ids = torch.arange(offset, offset + 5, device=self.device).unsqueeze(0)
+        x_rotated_explicit = rope_no_offset(x.clone(), explicit_position_ids)
+
+        self.assertTrue(
+            torch.allclose(x_rotated_offset, x_rotated_explicit, rtol=1e-5, atol=1e-5),
+            "RoPE with offset does not match explicit position IDs.",
+        )
 
     def test_scale_parameter(self):
         """Test that scale parameter is applied to positions."""
