@@ -66,9 +66,4 @@ class TrainingControl:
 
     def do_final_checkpoint(self, step: int, last_step: int) -> bool:
         """True when final checkpoint should be saved (if not already on cadence)."""
-        return (
-            not self.do_checkpoint(step)
-            and step - last_step > 1
-            and not self.config.profiler.gpu_profiler
-            and not self.config.profiler.torch_profiler
-        )
+        return not self.do_checkpoint(step) and step - last_step > 1

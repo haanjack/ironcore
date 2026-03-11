@@ -31,6 +31,8 @@ from dataclasses import dataclass
 import torch
 from torch import distributed as dist
 
+from ironcore.profiler import timed_comm
+
 from .parallel_states import (
     get_expert_model_parallel_group,
     get_expert_model_parallel_rank,
@@ -62,7 +64,8 @@ def all_reduce_ep(tensor: torch.Tensor) -> torch.Tensor:
     if ep_group is None:
         return tensor
 
-    dist.all_reduce(tensor, group=ep_group)
+    with timed_comm("ep_all_reduce"):
+        dist.all_reduce(tensor, group=ep_group)
     return tensor
 
 
@@ -82,8 +85,8 @@ class _AllReduceEP(torch.autograd.Function):
         if ep_group is None:
             return input_tensor
 
-        # In-place all_reduce - no clone needed
-        dist.all_reduce(input_tensor, group=ep_group)
+        with timed_comm("ep_all_reduce_fwd"):
+            dist.all_reduce(input_tensor, group=ep_group)
         return input_tensor
 
     @staticmethod
@@ -96,8 +99,8 @@ class _AllReduceEP(torch.autograd.Function):
         if ep_group is None:
             return grad_output, None
 
-        # In-place all_reduce for gradient - no clone needed
-        dist.all_reduce(grad_output, group=ep_group)
+        with timed_comm("ep_all_reduce_bwd"):
+            dist.all_reduce(grad_output, group=ep_group)
         return grad_output, None
 
 
@@ -318,7 +321,9 @@ class AllToAllDispatcher:
         send_counts = sorted_data["send_counts"]
         send_counts_tensor = torch.tensor(send_counts, device=device, dtype=torch.long)
         recv_counts_tensor = torch.zeros(self.ep_size, device=device, dtype=torch.long)
-        dist.all_to_all_single(recv_counts_tensor, send_counts_tensor, group=self.ep_group)
+
+        with timed_comm("ep_all_to_all_counts"):
+            dist.all_to_all_single(recv_counts_tensor, send_counts_tensor, group=self.ep_group)
         recv_counts = recv_counts_tensor.tolist()
 
         total_send = sum(send_counts)
@@ -346,13 +351,14 @@ class AllToAllDispatcher:
         if self.ep_group is not None and total_send > 0:
             send_split_sizes = [s * packed_size_per_token for s in send_counts]
             recv_split_sizes = [s * packed_size_per_token for s in recv_counts]
-            dist.all_to_all_single(
-                recv_packed.view(-1),
-                send_packed.view(-1),
-                output_split_sizes=recv_split_sizes,
-                input_split_sizes=send_split_sizes,
-                group=self.ep_group,
-            )
+            with timed_comm("ep_all_to_all_tokens"):
+                dist.all_to_all_single(
+                    recv_packed.view(-1),
+                    send_packed.view(-1),
+                    output_split_sizes=recv_split_sizes,
+                    input_split_sizes=send_split_sizes,
+                    group=self.ep_group,
+                )
 
         return {
             "recv_packed": recv_packed,
@@ -513,13 +519,14 @@ class AllToAllDispatcher:
             send_split_sizes_out = [s * hidden_size for s in send_split_sizes]
             recv_split_sizes_out = [s * hidden_size for s in recv_split_sizes]
 
-            dist.all_to_all_single(
-                recv_outputs_1d,
-                send_outputs_1d,
-                output_split_sizes=recv_split_sizes_out,
-                input_split_sizes=send_split_sizes_out,
-                group=self.ep_group,
-            )
+            with timed_comm("ep_all_to_all_gather"):
+                dist.all_to_all_single(
+                    recv_outputs_1d,
+                    send_outputs_1d,
+                    output_split_sizes=recv_split_sizes_out,
+                    input_split_sizes=send_split_sizes_out,
+                    group=self.ep_group,
+                )
 
         # Combine outputs using routing weights
         output = self._combine_outputs(recv_outputs_flat, metadata, original_shape)

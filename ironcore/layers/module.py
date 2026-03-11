@@ -34,6 +34,8 @@ class BaseModule(torch.nn.Module):
         self._hooks_registered = False
         self._torch_profiler = False
         self._gpu_profiler = False
+        self._layer_timing = False
+        self._timing_collector = None
 
     def init_weights(self):
         """Initialize model weights with proper handling for tensor parallel layers."""
@@ -209,6 +211,8 @@ class BaseModule(torch.nn.Module):
             self._record_function.__enter__()
         if self._gpu_profiler:
             self._nvtx_range = nvtx.range_push(f"Forward {name}")
+        if self._layer_timing and self._timing_collector is not None:
+            self._timing_collector.start(id(self), name, "forward")
 
     def _forward_post_hook(self, module, input, output):
         if self._record_function is not None:
@@ -217,6 +221,8 @@ class BaseModule(torch.nn.Module):
         if self._nvtx_range is not None:
             nvtx.range_pop()
             self._nvtx_range = None
+        if self._layer_timing and self._timing_collector is not None:
+            self._timing_collector.end(id(self))
 
     def _backward_pre_hook(self, module, grad_output):
         name = f"{self.__class__.__name__}"
@@ -225,6 +231,8 @@ class BaseModule(torch.nn.Module):
             self._record_function.__enter__()
         if self._gpu_profiler:
             self._nvtx_range = nvtx.range_push(f"Backward {name}")
+        if self._layer_timing and self._timing_collector is not None:
+            self._timing_collector.start(id(self), name, "backward")
 
     def _backward_post_hook(self, module, grad_input, grad_output):
         if self._record_function is not None:
@@ -233,28 +241,31 @@ class BaseModule(torch.nn.Module):
         if self._nvtx_range is not None:
             nvtx.range_pop()
             self._nvtx_range = None
+        if self._layer_timing and self._timing_collector is not None:
+            self._timing_collector.end(id(self))
 
     def register_profile_hooks(
         self,
         torch_profiler: bool = False,
         gpu_profiler: bool = False,
+        layer_timing: bool = False,
     ):
         if self._hooks_registered:
             return
         self._torch_profiler = torch_profiler
         self._gpu_profiler = gpu_profiler
+        self._layer_timing = layer_timing
+        if layer_timing:
+            from ironcore.profiler import get_layer_timing_collector
+
+            self._timing_collector = get_layer_timing_collector()
 
         self.register_forward_pre_hook(self._forward_pre_hook)
         self.register_forward_hook(self._forward_post_hook)
         self.register_full_backward_pre_hook(self._backward_pre_hook)
         self.register_full_backward_hook(self._backward_post_hook)
         self._hooks_registered = True
-        print(self._get_name())
 
-        for child in self.children():
-            if isinstance(child, BaseModule):
-                child.register_profile_hooks(torch_profiler, gpu_profiler)
-            if isinstance(child, torch.nn.ModuleList):
-                for module in child:
-                    if isinstance(module, BaseModule):
-                        module.register_profile_hooks(torch_profiler, gpu_profiler)
+        for module in self.modules():
+            if module is not self and isinstance(module, BaseModule):
+                module.register_profile_hooks(torch_profiler, gpu_profiler, layer_timing)

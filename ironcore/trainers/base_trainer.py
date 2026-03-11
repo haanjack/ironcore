@@ -19,12 +19,14 @@ from ironcore.eval import get_evaluators
 from ironcore.global_vars import (
     get_logger,
     get_timer,
+    get_tokenizer,
     global_states_cleanup,
     log_metric,
     log_metrics,
     set_global_states,
 )
 from ironcore.language_model import LanguageModel
+from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
@@ -105,10 +107,20 @@ class BaseTrainer(ABC):
             config.operation.eval_samples,
         )
 
+        # Initialize Profile Manager
+        from ironcore.profiler import ProfileManager
+
+        self.profiler = ProfileManager(config)
+
+        # Wrap train iterator for data loading profiling (F5)
+        if config.profiler.data_load_profiler and "train" in self.data_iterator:
+            self.data_iterator["train"] = self.profiler.wrap_data_iterator(
+                self.data_iterator["train"]
+            )
+
         # contexts control training process
         self.context: dict[str, Union[nullcontext, torch.autocast]] = {
             "autocast": nullcontext(),
-            "profile": nullcontext(),
         }
 
         # Track if memory report has been printed
@@ -117,6 +129,7 @@ class BaseTrainer(ABC):
         # initialize model and optimizer
         self.model, self.optimizer = self._build_model_and_optimizer()
         self.lr_scheduler = get_lr_scheduler(config, self.optimizer)
+        self._init_mfu_calculator()
 
         if self.model.device != "mps":
             self.context["autocast"] = torch.autocast(
@@ -139,6 +152,18 @@ class BaseTrainer(ABC):
         if dist.is_initialized():
             dist.barrier()
             dist.destroy_process_group()
+
+    def _init_mfu_calculator(self):
+        """Initialize MFU calculator for TFLOPS/s/GPU reporting."""
+        try:
+            tokenizer = get_tokenizer()
+            self.mfu_calculator = MFUCalculator.from_config(
+                self.config.model,
+                vocab_size=tokenizer.padded_vocab_size,
+            )
+        except Exception as e:
+            self.logger.debug(f"MFU calculator unavailable: {e}")
+            self.mfu_calculator = None
 
     def _build_model_and_optimizer(self):
         """Build model and optimizer.
@@ -184,8 +209,16 @@ class BaseTrainer(ABC):
             )
 
         # Enable profiling if requested
-        if self.config.profiler.gpu_profiler:
-            model.register_profile_hooks(profile_nsys=True)
+        if (
+            self.config.profiler.gpu_profiler
+            or self.config.profiler.torch_profiler
+            or self.config.profiler.layer_timing
+        ):
+            model.register_profile_hooks(
+                torch_profiler=self.config.profiler.torch_profiler,
+                gpu_profiler=self.config.profiler.gpu_profiler,
+                layer_timing=self.config.profiler.layer_timing,
+            )
 
         # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
         if self.config.trainer.compile_model:
@@ -297,28 +330,17 @@ class BaseTrainer(ABC):
 
         step = last_step
 
-        if self.config.profiler.torch_profiler:
-            self.context["profile"].start()  # pylint: disable=no-member
-
         self.logger.info(f"Training start from step: {step}")
         while step < self.config.operation.train_steps:
-            if self.config.profiler.gpu_profiler and step >= self.config.profiler.start:
-                torch.cuda.profiler.start()
-
             loss, grad_norm, param_norm = self.train_step(step)
-
-            if self.config.profiler.gpu_profiler and step >= self.config.profiler.end:
-                torch.cuda.profiler.stop()
-                break
-            if self.config.profiler.torch_profiler and step >= self.config.profiler.end:
-                self.context["profile"].stop()  # pylint: disable=no-member
-                break
 
             step += 1
             self.log_training(step, loss, grad_norm, param_norm, self.timer)
 
-            if self.config.profiler.torch_profiler:
-                self.context["profile"].step()  # pylint: disable=no-member
+            self.profiler.step(step)
+            if self.config.profiler.stop_at_end and step >= self.config.profiler.end and not self.profiler.is_active:
+                self.logger.info("Stopping training as requested by stop_at_end")
+                break
 
             if self.control.do_checkpoint(step):
                 self._on_checkpoint_save(step)
@@ -577,23 +599,41 @@ class BaseTrainer(ABC):
             metrics["param_norm"] = param_norm
 
         # Timing metrics
+        iter_time: float = 0.0
         if timer is not None:
             iter_time = timer.get("iter")
             metrics["iter_time"] = iter_time
             if iter_time > 0:
                 tokens_per_sec = (
-                    self.config.trainer.train_batch_size
-                    * self.config.model.max_position_embeddings
-                    / iter_time
+                    self.config.trainer.train_batch_size * self.config.model.max_seq_len / iter_time
                 )
                 metrics["tokens_per_sec"] = tokens_per_sec
 
-        # Detailed memory report on first log step
+                if self.mfu_calculator is not None:
+                    dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
+                    micro_batch_size = self.config.trainer.micro_batch_size or 1
+                    gradient_accumulation_steps = (
+                        self.config.trainer.gradient_accumulation_steps or 1
+                    )
+                    global_batch_size = (
+                        micro_batch_size * gradient_accumulation_steps * dp_world_size
+                    )
+                    tflops = self.mfu_calculator.compute_tflops(
+                        batch_size=global_batch_size,
+                        seq_len=self.config.model.max_seq_len,
+                        step_time_seconds=iter_time,
+                        num_gpus=dp_world_size,
+                    )
+                    metrics["tflops_per_gpu"] = tflops
+
+        # Memory report: on first log step, then at every checkpoint interval
         if (
-            self.control.do_log(step)
-            and not self._memory_reported
-            and is_first_rank()
+            is_first_rank()
             and self.config.utils.report_memory_usage
+            and (
+                (self.control.do_log(step) and not self._memory_reported)
+                or self.control.do_checkpoint(step)
+            )
         ):
             from ironcore.utils import format_memory_report, get_detailed_memory_breakdown
 
@@ -604,6 +644,16 @@ class BaseTrainer(ABC):
 
         # Log to console and tracking
         if self.control.do_log(step):
+            # Accumulate data loading stats across the full log interval before logging
+            if self.config.profiler.data_load_profiler:
+                dl_stats = self.profiler.get_data_load_stats()
+                if dl_stats is not None and dl_stats["count"] > 0:
+                    metrics["data_load_ms_per_step"] = dl_stats["total_ms"] / dl_stats["count"]
+                    if timer is not None and iter_time > 0:
+                        metrics["data_load_ratio"] = metrics["data_load_ms_per_step"] / (
+                            iter_time * 1000.0
+                        )
+
             log_msg = f"step: {step}, loss: {loss:.4f}, lr: {metrics['lr']:.6f}"
             if grad_norm > 0:
                 log_msg += f", grad_norm: {grad_norm:.4f}"
@@ -611,6 +661,12 @@ class BaseTrainer(ABC):
                 log_msg += f", iter_time: {iter_time:.3f}s"
                 if "tokens_per_sec" in metrics:
                     log_msg += f", tok/s: {metrics['tokens_per_sec']:.1f}"
+                if "tflops_per_gpu" in metrics:
+                    log_msg += f", TFLOPS/s/GPU: {metrics['tflops_per_gpu']:.2f}"
+            if "data_load_ms_per_step" in metrics:
+                log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
+                if "data_load_ratio" in metrics:
+                    log_msg += f" ({metrics['data_load_ratio'] * 100:.1f}%)"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system
