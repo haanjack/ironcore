@@ -84,8 +84,9 @@ class _AllReduceEP(torch.autograd.Function):
         if ep_group is None:
             return input_tensor
 
-        # In-place all_reduce - no clone needed
-        dist.all_reduce(input_tensor, group=ep_group)
+        from ironcore.profiler import timed_comm
+        with timed_comm("ep_all_reduce_fwd"):
+            dist.all_reduce(input_tensor, group=ep_group)
         return input_tensor
 
     @staticmethod
@@ -98,8 +99,9 @@ class _AllReduceEP(torch.autograd.Function):
         if ep_group is None:
             return grad_output, None
 
-        # In-place all_reduce for gradient - no clone needed
-        dist.all_reduce(grad_output, group=ep_group)
+        from ironcore.profiler import timed_comm
+        with timed_comm("ep_all_reduce_bwd"):
+            dist.all_reduce(grad_output, group=ep_group)
         return grad_output, None
 
 

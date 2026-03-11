@@ -26,6 +26,7 @@ from ironcore.global_vars import (
     set_global_states,
 )
 from ironcore.language_model import LanguageModel
+from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
@@ -34,7 +35,6 @@ from ironcore.parallel.parallel_states import (
     get_data_parallel_world_size,
     initialize_model_parallel,
 )
-from ironcore.mfu import MFUCalculator
 from ironcore.utils import (
     get_device,
     get_model_dtype,
@@ -597,6 +597,7 @@ class BaseTrainer(ABC):
             metrics["param_norm"] = param_norm
 
         # Timing metrics
+        iter_time: float = 0.0
         if timer is not None:
             iter_time = timer.get("iter")
             metrics["iter_time"] = iter_time
@@ -621,14 +622,6 @@ class BaseTrainer(ABC):
                     )
                     metrics["tflops_per_gpu"] = tflops
 
-        # Data loading profiling metrics (F5)
-        if self.config.profiler.data_load_profiler:
-            dl_stats = self.profiler.get_data_load_stats()
-            if dl_stats is not None and dl_stats["count"] > 0:
-                metrics["data_load_ms"] = dl_stats["total_ms"]
-                if timer is not None and iter_time > 0:
-                    metrics["data_load_ratio"] = dl_stats["total_ms"] / (iter_time * 1000.0)
-
         # Memory report: on first log step, then at every checkpoint interval
         if (
             is_first_rank()
@@ -647,6 +640,14 @@ class BaseTrainer(ABC):
 
         # Log to console and tracking
         if self.control.do_log(step):
+            # Accumulate data loading stats across the full log interval before logging
+            if self.config.profiler.data_load_profiler:
+                dl_stats = self.profiler.get_data_load_stats()
+                if dl_stats is not None and dl_stats["count"] > 0:
+                    metrics["data_load_ms_per_step"] = dl_stats["total_ms"] / dl_stats["count"]
+                    if timer is not None and iter_time > 0:
+                        metrics["data_load_ratio"] = metrics["data_load_ms_per_step"] / (iter_time * 1000.0)
+
             log_msg = f"step: {step}, loss: {loss:.4f}, lr: {metrics['lr']:.6f}"
             if grad_norm > 0:
                 log_msg += f", grad_norm: {grad_norm:.4f}"
@@ -656,8 +657,8 @@ class BaseTrainer(ABC):
                     log_msg += f", tok/s: {metrics['tokens_per_sec']:.1f}"
                 if "tflops_per_gpu" in metrics:
                     log_msg += f", TFLOPS/s/GPU: {metrics['tflops_per_gpu']:.2f}"
-            if "data_load_ms" in metrics:
-                log_msg += f", data_load: {metrics['data_load_ms']:.1f}ms"
+            if "data_load_ms_per_step" in metrics:
+                log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:
                     log_msg += f" ({metrics['data_load_ratio']*100:.1f}%)"
             self.logger.info(log_msg)

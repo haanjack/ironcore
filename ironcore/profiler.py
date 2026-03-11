@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import torch
 import torch.distributed as dist
@@ -78,11 +78,6 @@ class CommProfiler:
             self._stats = {}
 
 
-def get_comm_profiler() -> CommProfiler:
-    """Get the global CommProfiler singleton."""
-    return CommProfiler()
-
-
 @contextlib.contextmanager
 def timed_comm(op_name: str):
     """Context manager for timing synchronous distributed communication operations."""
@@ -108,6 +103,7 @@ class LayerTimingCollector:
     enabled: bool
     _pending: dict[int, tuple]
     _completed: list[tuple]
+    logger: Any
     _initialized: bool
 
     def __new__(cls) -> "LayerTimingCollector":
@@ -123,6 +119,11 @@ class LayerTimingCollector:
         self.enabled = False
         self._pending = {}
         self._completed = []
+        try:
+            self.logger = get_logger()
+        except AssertionError:
+            import logging
+            self.logger = logging.getLogger(__name__)
         self._initialized = True
 
     def enable(self):
@@ -135,8 +136,11 @@ class LayerTimingCollector:
     def start(self, module_id: int, layer_name: str, phase: str):
         if not self.enabled or not torch.cuda.is_available():
             return
-        event = torch.cuda.Event(enable_timing=True)  # type: ignore[call-arg]
-        event.record()  # type: ignore[call-arg]
+        if module_id in self._pending:
+            # Recompute or reentrant call — discard the overwritten entry
+            self.logger.debug(f"LayerTimingCollector: overwriting pending entry for {layer_name}")
+        event = torch.cuda.Event(enable_timing=True)  # type: ignore  # torch stub requires stream=, not needed at runtime
+        event.record()  # type: ignore  # same as above
         self._pending[module_id] = (layer_name, phase, event)
 
     def end(self, module_id: int):
@@ -144,16 +148,19 @@ class LayerTimingCollector:
             return
         entry = self._pending.pop(module_id, None)
         if entry is None:
+            self.logger.debug(f"LayerTimingCollector: no pending entry for module {module_id} in end()")
             return
         layer_name, phase, start_event = entry
-        end_event = torch.cuda.Event(enable_timing=True)  # type: ignore[call-arg]
-        end_event.record()  # type: ignore[call-arg]
+        end_event = torch.cuda.Event(enable_timing=True)  # type: ignore  # torch stub requires stream=, not needed at runtime
+        end_event.record()  # type: ignore  # same as above
         self._completed.append((layer_name, phase, start_event, end_event))
 
     def get_summary(self) -> str:
         if not self._completed:
             return "No layer timing data collected."
         if torch.cuda.is_available():
+            # Global sync is intentional: we need all CUDA streams to complete before
+            # reading elapsed times. Called only once at profiling stop, so impact is acceptable.
             torch.cuda.synchronize()
         stats: dict[str, dict[str, float]] = {}
         for layer_name, phase, start_event, end_event in self._completed:
@@ -200,6 +207,9 @@ class TimedDataIterator:
     def __iter__(self):
         return self
 
+    def __len__(self):
+        return len(self._iterator)  # propagates TypeError if unsupported
+
     def __next__(self):
         start = time.perf_counter()
         batch = next(self._iterator)
@@ -234,6 +244,12 @@ class ProfileManager:
         self._timed_data_iter: TimedDataIterator | None = None
 
         if self.should_profile:
+            # Reset singleton state so re-initializing ProfileManager starts from a known
+            # clean state, without clobbering an active profiling session on another rank.
+            self._comm_profiler.disable()
+            self._comm_profiler.reset()
+            self._layer_timing.disable()
+            self._layer_timing.reset()
             self._init_profilers()
 
     def _get_next_version(self) -> str:
@@ -260,12 +276,20 @@ class ProfileManager:
         if self.config.torch_profiler:
             trace_path = Path(self.config.output_dir)
 
-            self.torch_profiler = profile(
-                activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU],
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(
+            # export_chrome_trace and on_trace_ready are mutually exclusive: when a schedule
+            # is active, on_trace_ready flushes and clears the event buffer after each cycle,
+            # leaving export_chrome_trace with nothing to write. Use one or the other.
+            if self.config.export_chrome_trace:
+                on_trace_ready = None
+            else:
+                on_trace_ready = torch.profiler.tensorboard_trace_handler(
                     str(trace_path),
                     worker_name=f"{self.config.name}_{self.current_version}_rank{self.rank}",
-                ),
+                )
+
+            self.torch_profiler = profile(
+                activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU],
+                on_trace_ready=on_trace_ready,
                 schedule=torch.profiler.schedule(
                     wait=self.config.wait_steps,
                     warmup=self.config.warmup_steps,
@@ -433,7 +457,7 @@ class ProfileManager:
                 import csv as csv_mod
 
                 events = self.torch_profiler.key_averages()
-                with open(csv_path, "w", newline="") as f:
+                with open(csv_path, "w", newline="", encoding="utf-8") as f:
                     writer = csv_mod.writer(f)
                     writer.writerow(
                         ["name", "cpu_time_total_us", "cuda_time_total_us", "count",

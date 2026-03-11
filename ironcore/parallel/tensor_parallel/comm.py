@@ -4,7 +4,6 @@
 
 """Tensor parallel communication utilities with buffer pooling optimization."""
 
-import time
 
 import torch
 import torch.distributed as dist
@@ -92,9 +91,7 @@ def _reduce(
     if not async_op:
         from ironcore.profiler import timed_comm
         with timed_comm("tp_all_reduce"):
-            handle = dist.all_reduce(
-                x, group=parallel_states.get_tensor_model_parallel_group(), async_op=False
-            )
+            dist.all_reduce(x, group=parallel_states.get_tensor_model_parallel_group(), async_op=False)
         return x
 
     handle = dist.all_reduce(
