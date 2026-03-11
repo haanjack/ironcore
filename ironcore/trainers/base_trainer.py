@@ -87,7 +87,7 @@ class BaseTrainer(ABC):
         self.loss_fn = loss_fn
 
         # State flags
-        self._resources_acquired = False
+        self._initialized = False
         self._memory_reported = False
 
         # Configuration that doesn't acquire heavy resources
@@ -102,7 +102,7 @@ class BaseTrainer(ABC):
         This method initializes distributed process groups, creates the model,
         optimizer, and data loaders. It is idempotent.
         """
-        if self._resources_acquired:
+        if self._initialized:
             return
 
         self.logger.info("Acquiring training resources...")
@@ -168,7 +168,7 @@ class BaseTrainer(ABC):
             enabled=(get_model_dtype(self.config) == torch.float16)
         )
 
-        self._resources_acquired = True
+        self._initialized = True
         self.logger.info("Resources acquired successfully.")
 
     def __enter__(self):
@@ -176,7 +176,7 @@ class BaseTrainer(ABC):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._resources_acquired:
+        if self._initialized:
             self._finalize_process()
 
     def _finalize_process(self):
@@ -188,7 +188,7 @@ class BaseTrainer(ABC):
             dist.barrier()
             dist.destroy_process_group()
 
-        self._resources_acquired = False
+        self._initialized = False
 
     def _init_mfu_calculator(self):
         """Initialize MFU calculator for TFLOPS/s/GPU reporting."""
