@@ -98,23 +98,24 @@ class KVCacheManager:
 
         max_seq_len = self.cache_config.max_seq_length
 
-        # Allocate cache for each layer
+        # Allocate cache for each layer: [batch, max_seq_len, num_groups, head_dim]
+        # This matches Attention layout [b, s, n, d] to avoid transposes
         self.key_caches = []
         self.value_caches = []
 
         for _ in range(num_layers):
             key_cache = torch.zeros(
                 batch_size,
-                self.num_local_kv_groups,
                 max_seq_len,
+                self.num_local_kv_groups,
                 self.head_dim,
                 device=device,
                 dtype=dtype,
             )
             value_cache = torch.zeros(
                 batch_size,
-                self.num_local_kv_groups,
                 max_seq_len,
+                self.num_local_kv_groups,
                 self.head_dim,
                 device=device,
                 dtype=dtype,
@@ -139,17 +140,10 @@ class KVCacheManager:
         if batch_indices is None:
             # Reset all sequences
             self.cache_positions.zero_()
-            for key_cache, value_cache in zip(self.key_caches, self.value_caches, strict=False):
-                key_cache.zero_()
-                value_cache.zero_()
+            # Note: we don't strictly need to zero the cache data, just positions
         else:
             # Reset specific sequences
             self.cache_positions[batch_indices] = 0
-            for key_cache, value_cache in zip(self.key_caches, self.value_caches, strict=False):
-                # Use in-place assignment to the indexed region.
-                # Note: key_cache[batch_indices].zero_() would zero a temporary copy.
-                key_cache[batch_indices] = 0
-                value_cache[batch_indices] = 0
 
     def update_layer(
         self,
@@ -161,150 +155,62 @@ class KVCacheManager:
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Update cache for a specific layer and return full KV tensors.
 
-        This method appends new KV to the cache and returns the concatenated
-        [cached_kv, new_kv] tensors.
-
         Args:
             layer_idx: Index of the transformer layer
             key: New key tensor [batch, seq_len, num_local_kv_groups, head_dim]
             value: New value tensor [batch, seq_len, num_local_kv_groups, head_dim]
             position: Optional explicit position to write to for all sequences.
-                      Uses cache_positions[0] if None (assumes uniform positions).
-                      Mutually exclusive with `positions`.
             positions: Optional per-sequence positions tensor [batch].
-                       Each sequence can have a different starting position.
-                       Mutually exclusive with `position`.
 
         Returns:
             Tuple of (full_key, full_value) with cached + new KV concatenated
-
-        Note:
-            - For uniform position updates (batch generation): use `position` parameter
-            - For per-sequence positions (continuous batching): use `positions` tensor
-            - If both are None, uses cached positions (assumes all sequences at same position)
-
-        Raises:
-            RuntimeError: If cache not initialized or overflow occurs
-            ValueError: If both position and positions are specified
         """
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized. Call initialize() first.")
 
-        # Validate mutually exclusive parameters
-        if position is not None and positions is not None:
-            raise ValueError("Cannot specify both 'position' and 'positions' parameters")
-
         batch_size, seq_len, num_groups, head_dim = key.shape
-
-        # Validate batch size matches cache allocation
-        if self.cache_positions.shape[0] != batch_size:
-            raise ValueError(
-                f"Batch size mismatch: key has batch_size={batch_size}, "
-                f"but cache was initialized with batch_size={self.cache_positions.shape[0]}"
-            )
 
         # Determine write positions
         if positions is not None:
             # Per-sequence positions (continuous batching scenario)
-            start_positions = positions
-            end_positions = positions + seq_len
-
-            # Check bounds for all sequences
-            if end_positions.max().item() > self.cache_config.max_seq_length:
-                raise RuntimeError(
-                    f"Cache overflow: trying to write to position {end_positions.max().item()}, "
-                    f"but max_seq_length is {self.cache_config.max_seq_length}"
-                )
-
-            # Write new KV to cache for each sequence at its respective position
-            #
-            # SHAPE TRANSFORMATION:
-            # Input:  key/value [batch, seq_len, num_groups, head_dim]  <- Attention format
-            # Cache:  key_cache [batch, num_groups, max_seq_len, head_dim] <- Storage format
-            # We transpose dims 1 and 2 to convert between formats
-            key_t = key.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
-            value_t = value.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
+            # Check bounds
+            if (positions + seq_len).max().item() > self.cache_config.max_seq_length:
+                raise RuntimeError("Cache overflow")
 
             # Vectorized update using scatter_
-            # idx shape: [batch, 1, seq_len, 1]
-            idx = start_positions.view(batch_size, 1, 1, 1) + torch.arange(
+            # idx shape: [batch, seq_len, 1, 1]
+            idx = positions.view(batch_size, 1, 1, 1) + torch.arange(
                 seq_len, device=key.device
-            ).view(1, 1, -1, 1)
-            # expand to [batch, num_groups, seq_len, head_dim]
-            idx = idx.expand(-1, self.num_local_kv_groups, -1, self.head_dim)
+            ).view(1, -1, 1, 1)
+            idx = idx.expand(-1, -1, self.num_local_kv_groups, self.head_dim)
 
-            self.key_caches[layer_idx].scatter_(2, idx, key_t)
-            self.value_caches[layer_idx].scatter_(2, idx, value_t)
+            self.key_caches[layer_idx].scatter_(1, idx, key)
+            self.value_caches[layer_idx].scatter_(1, idx, value)
 
             # Update cache positions
-            self.cache_positions = end_positions
-
-            # Return KV - note: with per-sequence positions, we return based on max position
-            # This is a limitation: callers should use get_layer_kv for per-sequence retrieval
-            #
-            # SHAPE TRANSFORMATION:
-            # Cache:  key_cache[:, :, :max_end_pos, :] [batch, num_groups, seq_len, head_dim] <- Storage format
-            # Output: full_key [batch, seq_len, num_groups, head_dim]  <- Attention format
-            max_end_pos = end_positions.max().item()
-            full_key = self.key_caches[layer_idx][:, :, :max_end_pos, :].transpose(
-                1, 2
-            )  # [batch, seq_len, num_groups, head_dim]
-            full_value = self.value_caches[layer_idx][:, :, :max_end_pos, :].transpose(
-                1, 2
-            )  # [batch, seq_len, num_groups, head_dim]
+            self.cache_positions = positions + seq_len
+            max_end_pos = self.cache_positions.max().item()
+            
+            full_key = self.key_caches[layer_idx][:, :max_end_pos]
+            full_value = self.value_caches[layer_idx][:, :max_end_pos]
 
         else:
-            # Uniform position for all sequences
-            if position is None:
-                # Check if positions have diverged (e.g., after selective reset)
-                # This could indicate a bug in continuous batching logic
-                positions_min = self.cache_positions.min().item()
-                positions_max = self.cache_positions.max().item()
-                if positions_min != positions_max:
-                    raise RuntimeError(
-                        f"Position divergence detected: positions range from {positions_min} to "
-                        f"{positions_max}, but uniform position was assumed. "
-                        f"Use the 'positions' parameter for per-sequence positions in continuous "
-                        f"batching scenarios, or ensure all sequences are at the same position."
-                    )
-                start_pos = positions_min
-            else:
-                start_pos = position
-
+            start_pos = position if position is not None else self.cache_positions[0].item()
             end_pos = start_pos + seq_len
 
-            # Check bounds
             if end_pos > self.cache_config.max_seq_length:
-                raise RuntimeError(
-                    f"Cache overflow: trying to write to position {end_pos}, "
-                    f"but max_seq_length is {self.cache_config.max_seq_length}"
-                )
+                raise RuntimeError(f"Cache overflow: {end_pos} > {self.cache_config.max_seq_length}")
 
-            # Write new KV to cache
-            #
-            # SHAPE TRANSFORMATION:
-            # Input:  key/value [batch, seq_len, num_groups, head_dim]  <- Attention format
-            # Cache:  key_cache [batch, num_groups, max_seq_len, head_dim] <- Storage format
-            # We transpose dims 1 and 2 to convert between formats
-            key_t = key.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
-            value_t = value.transpose(1, 2)  # [batch, num_groups, seq_len, head_dim]
-            self.key_caches[layer_idx][:, :, start_pos:end_pos, :] = key_t
-            self.value_caches[layer_idx][:, :, start_pos:end_pos, :] = value_t
+            # Direct slice assignment - NO TRANSPOSES
+            self.key_caches[layer_idx][:, start_pos:end_pos] = key
+            self.value_caches[layer_idx][:, start_pos:end_pos] = value
 
             # Update all positions uniformly
             self.cache_positions[:] = end_pos
 
-            # Return full cached KV (from start to current position)
-            #
-            # SHAPE TRANSFORMATION:
-            # Cache:  key_cache[:, :, :end_pos, :] [batch, num_groups, seq_len, head_dim] <- Storage format
-            # Output: full_key [batch, seq_len, num_groups, head_dim]  <- Attention format
-            full_key = self.key_caches[layer_idx][:, :, :end_pos, :].transpose(
-                1, 2
-            )  # [batch, seq_len, num_groups, head_dim]
-            full_value = self.value_caches[layer_idx][:, :, :end_pos, :].transpose(
-                1, 2
-            )  # [batch, seq_len, num_groups, head_dim]
+            # Return full cached KV
+            full_key = self.key_caches[layer_idx][:, :end_pos]
+            full_value = self.value_caches[layer_idx][:, :end_pos]
 
         return full_key, full_value
 
@@ -315,64 +221,19 @@ class KVCacheManager:
         end_pos: int | None = None,
         batch_idx: int | torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Retrieve cached KV for a specific layer.
-
-        Args:
-            layer_idx: Index of the transformer layer
-            start_pos: Start position in cache
-            end_pos: End position in cache (uses cache_positions[0] if None)
-            batch_idx: Optional batch index or indices to retrieve.
-                       If None, retrieves for all sequences in batch.
-
-        Returns:
-            Tuple of (key_cache, value_cache)
-            - If batch_idx is None: [batch, seq_len, num_groups, head_dim]
-            - If batch_idx is specified: [selected_batch, seq_len, num_groups, head_dim]
-        """
+        """Retrieve cached KV for a specific layer."""
         if not self.is_initialized:
-            raise RuntimeError("Cache not initialized. Call initialize() first.")
+            raise RuntimeError("Cache not initialized")
 
         if end_pos is None:
-            # Check for position divergence
-            positions_min = self.cache_positions.min().item()
-            positions_max = self.cache_positions.max().item()
-            if positions_min != positions_max:
-                raise RuntimeError(
-                    f"Position divergence detected in get_layer_kv: positions range from "
-                    f"{positions_min} to {positions_max}, but uniform position was assumed. "
-                    f"Specify end_pos explicitly or use per-sequence retrieval."
-                )
-            end_pos = positions_max
+            end_pos = self.cache_positions.max().item()
 
         if batch_idx is not None:
-            # Retrieve for specific sequence(s)
-            #
-            # SHAPE TRANSFORMATION:
-            # Cache:  key_cache[batch_idx, :, start_pos:end_pos, :] [num_groups, seq_len, head_dim] <- Storage format
-            # Output: key [seq_len, num_groups, head_dim] or [selected, seq_len, num_groups, head_dim]
-            # Note: For single sequence, we need to add batch dim back
-            key = self.key_caches[layer_idx][batch_idx, :, start_pos:end_pos, :]
-            value = self.value_caches[layer_idx][batch_idx, :, start_pos:end_pos, :]
-            if key.dim() == 3:
-                # Single sequence selected (int index)
-                key = key.transpose(0, 1).unsqueeze(0)  # [1, seq_len, num_groups, head_dim]
-                value = value.transpose(0, 1).unsqueeze(0)  # [1, seq_len, num_groups, head_dim]
-            else:
-                # Multiple sequences selected (tensor/list of indices)
-                key = key.transpose(1, 2)  # [selected, seq_len, num_groups, head_dim]
-                value = value.transpose(1, 2)  # [selected, seq_len, num_groups, head_dim]
+            key = self.key_caches[layer_idx][batch_idx, start_pos:end_pos]
+            value = self.value_caches[layer_idx][batch_idx, start_pos:end_pos]
         else:
-            # Retrieve for all sequences in batch
-            #
-            # SHAPE TRANSFORMATION:
-            # Cache:  key_cache[:, :, start_pos:end_pos, :] [batch, num_groups, seq_len, head_dim] <- Storage format
-            # Output: key [batch, seq_len, num_groups, head_dim] <- After transpose(1,2)
-            key = self.key_caches[layer_idx][:, :, start_pos:end_pos, :].transpose(
-                1, 2
-            )  # [batch, seq_len, num_groups, head_dim]
-            value = self.value_caches[layer_idx][:, :, start_pos:end_pos, :].transpose(
-                1, 2
-            )  # [batch, seq_len, num_groups, head_dim]
+            key = self.key_caches[layer_idx][:, start_pos:end_pos]
+            value = self.value_caches[layer_idx][:, start_pos:end_pos]
 
         return key, value
 

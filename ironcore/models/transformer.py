@@ -354,7 +354,7 @@ class TransformerLayer(BaseModule):
         key_value = self.linear_kv(norm_output)
         key, value = torch.chunk(key_value, 2, dim=-1)
 
-        # Reshape for attention
+        # Reshape for attention [b, s, n, d]
         query = query.view(batch_size, seq_len, self.num_local_attention_heads, self.head_dimension)
         key = key.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
         value = value.view(
@@ -367,6 +367,7 @@ class TransformerLayer(BaseModule):
             key = rotary_pos_emb.forward(key, position_ids)
 
         # Update cache and get full KV
+        # Use optimized update_layer which now matches the [b, s, n, d] layout
         full_key, full_value = kv_cache_manager.update_layer(
             layer_idx=layer_idx,
             key=key,
@@ -374,13 +375,14 @@ class TransformerLayer(BaseModule):
             position=cache_position,
         )
 
-        # Attention with full cached KV
-        attention_output = self.self_attention(
-            query, full_key, full_value, attention_mask, use_cache=False, past_kv=None
+        # Self attention using full history
+        # Note: attention_mask should be for the current query vs all keys
+        attn_output = self.self_attention(
+            query, full_key, full_value, attention_mask, use_cache=False
         )
 
-        # Output projection
-        attention_output = self.attn_output(attention_output)
+        # Attention output projection
+        attention_output = self.attn_output(attn_output)
 
         # Dropout
         if self.config.model.dropout_attn > 0.0:

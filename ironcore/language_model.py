@@ -135,20 +135,34 @@ class LanguageModel(BaseModule):
         # x: [b, s, h]
         x = self.embedding(input_ids, position_ids)
 
-        model_out = self.model(
-            x,
-            attention_mask,
-            self.rotary_pos_emb,
-            position_ids=position_ids,
-            use_cache=use_cache,
-            past_key_values=past_key_values,
-        )
-
-        # Handle cache output
-        if use_cache:
-            lm_output, new_key_values = model_out
+        if self._should_use_stateful_cache():
+            lm_output = self.model._forward_with_cache_manager(
+                x,
+                attention_mask,
+                self.rotary_pos_emb,
+                self.kv_cache_manager,
+                cache_position=cache_position,
+                position_ids=position_ids,
+            )
+            # When using stateful cache, we return None for new_key_values
+            # as the cache is updated in-place
+            new_key_values = None
         else:
-            lm_output = model_out
+            model_out = self.model(
+                x,
+                attention_mask,
+                self.rotary_pos_emb,
+                position_ids=position_ids,
+                use_cache=use_cache,
+                past_key_values=past_key_values,
+            )
+
+            # Handle cache output
+            if use_cache:
+                hidden_states, new_key_values = model_out
+            else:
+                hidden_states = model_out
+                new_key_values = None
 
         # layer norm
         lm_output = self.output_layernorm(lm_output)
@@ -457,16 +471,34 @@ class LanguageModel(BaseModule):
         done = torch.zeros(batch_size, dtype=torch.bool, device=input_ids.device)
         next_token = input_ids  # placeholder; overwritten before decode step uses it
 
+        # Use stateful cache if manager is available
+        use_stateful = self.kv_cache_manager is not None
+        if use_stateful:
+            self.kv_cache_manager.initialize(
+                batch_size=batch_size,
+                num_layers=len(self.model.layers),
+                device=input_ids.device,
+                dtype=input_ids.dtype,
+            )
+
         for step in range(max_new_tokens):
             # Prefill on step 0, decode one token at a time afterwards
             cur_input = input_ids if step == 0 else next_token
 
-            logits, past_key_values = self.forward(
+            # forward returns (logits, new_key_values) when use_cache=True
+            out = self.forward(
                 cur_input,
                 labels=None,
                 use_cache=True,
                 past_key_values=past_key_values,
             )
+            
+            if isinstance(out, tuple):
+                logits, new_kv = out
+                if not use_stateful:
+                    past_key_values = new_kv
+            else:
+                logits = out
 
             # Extract logits at the last position: [batch, vocab(/tp)]
             next_logits = logits[:, -1, :]
@@ -544,7 +576,7 @@ class LanguageModel(BaseModule):
     def _should_use_stateful_cache(self) -> bool:
         """Check if stateful cache should be used.
         Returns:
-            True if not in training mode and kv_cache_manager exists and and is initialized
+            True if not in training mode and kv_cache_manager exists and is initialized
         """
         return (
             not self.training
