@@ -23,31 +23,25 @@ class RotaryPositionalEmbedding(nn.Module):
         self.scale = scale
 
         theta = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
-        self.theta = theta  # Keep as attribute to avoid dtype conversion
-        self.register_buffer("sin_emb", torch.zeros(max_seq_len, head_dim // 2), persistent=False)
-        self.register_buffer("cos_emb", torch.zeros(max_seq_len, head_dim // 2), persistent=False)
+        self.register_buffer("theta", theta)
         self._update_rope_cache(max_seq_len)
 
     def _update_rope_cache(self, max_seq_len):
         # create position indexes
         self.max_seq_len_cached = max_seq_len
-        # theta might be on CPU, move to device of existing buffers if any
-        device = self.sin_emb.device
-        self.theta = self.theta.to(device)
-        
         position = torch.arange(
             self.offset,
             self.offset + self.max_seq_len_cached,
             dtype=torch.float32,
-            device=device,
+            device=self.theta.device,
         )
 
         position *= self.scale
 
-        idx_theta = torch.einsum("i,j->ij", position, self.theta.float())
-        # cache sin and cos in fp32
-        self.sin_emb = torch.sin(idx_theta).float()
-        self.cos_emb = torch.cos(idx_theta).float()
+        idx_theta = torch.einsum("i,j->ij", position, self.theta)
+        # cache sin and cos
+        self.register_buffer("sin_emb", torch.sin(idx_theta), persistent=False)
+        self.register_buffer("cos_emb", torch.cos(idx_theta), persistent=False)
 
     def forward(self, x: torch.Tensor, position_ids: torch.Tensor | None = None):
         # x: [batch_size, seq_len, num_heads, head_dim]
@@ -65,7 +59,6 @@ class RotaryPositionalEmbedding(nn.Module):
 
         # Index into sin/cos using position_ids: [batch, seq_len, head_dim//2]
         # and add a dimension for broadcasting across heads
-        # Ensure we use fp32 for sin/cos before converting to x.dtype
         sin_emb = self.sin_emb[position_ids].unsqueeze(2).to(x.dtype)
         cos_emb = self.cos_emb[position_ids].unsqueeze(2).to(x.dtype)
 
