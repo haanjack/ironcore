@@ -76,7 +76,9 @@ Model architecture configuration. Can reference a file (e.g., `model: gpt2-small
 | `dropout_embd` | `0.1` | Embedding dropout |
 | `dropout_attn` | `0.1` | Attention dropout |
 | `dropout_mlp` | `0.1` | MLP dropout |
-| `no_bias` | `false` | Disable bias in layers |
+| `attention_bias` | `true` | Enable bias in attention layers |
+| `mlp_bias` | `true` | Enable bias in mlp layers |
+| `layernorm_bias` | `true` | Enable bias in layernorm layers |
 | `untie_embed` | `false` | Untie input/output embeddings |
 | `tokenizer_type` | `"gpt2"` | Tokenizer type |
 | `vocab_name_or_path` | `"gpt2"` | Vocab name or path |

@@ -7,7 +7,7 @@ num_attention_groups: 12
 d_model: 768
 d_ffn: 3072
 num_layers: 12
-max_len: 1024
+max_seq_len: 1024
 max_position_embeddings: 1024
 attention_head_size: 64
 
@@ -28,8 +28,8 @@ activation_type: gelu
 positional_embedding:
   type: absolute
 
-# Bias
-no_bias: false
+# Bias (all true = GPT-2 default, matches BiasConfig.all_true())
+layernorm_bias: true
 
 # Mixture of Experts configuration
 moe:

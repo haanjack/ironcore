@@ -19,10 +19,6 @@ class BaseConfig:
         for k, v in kwargs.items():
             if k not in self.__dataclass_fields__:
                 raise KeyError(f"{k} is not defined in {self.__dataclass_fields__}")
-            if not self._type_checker(self):
-                raise TypeError(
-                    f"'{k}' data type is not match with defined information: {type(v)} vs {self.__dataclass_fields__[k].type}"
-                )
 
             if isinstance(v, dict):
                 # convert as config class type - only if it's a BaseConfig subclass

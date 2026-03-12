@@ -18,8 +18,16 @@ precision: bf16
 # Layer norm
 ln_type: rmsnorm
 ln_eps: 1.0e-6
+bias:
+  q: true
+  k: true
+  v: true
+  o: false
+  gate: false
+  up: false
+  down: false
+layernorm_bias: false
 post_ln: false
-no_bias: true
 
 # Activation
 activation_type: swiglu

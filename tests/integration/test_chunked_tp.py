@@ -60,7 +60,9 @@ def create_config(
     use_flash_attn=False,
     sequence_chunk_size=None,
     precision="float32",
-    no_bias=False,
+    attention_bias=True,
+    mlp_bias=True,
+    layernorm_bias=True,
     tp_size=1,
 ):
     return MainConfig(
@@ -76,7 +78,9 @@ def create_config(
             dropout_attn=0.0,
             dropout_mlp=0.0,
             dropout_embd=0.0,
-            no_bias=no_bias,
+            attention_bias=attention_bias,
+            mlp_bias=mlp_bias,
+            layernorm_bias=layernorm_bias,
             precision=precision,
         ),
         trainer=TrainerConfig(
@@ -244,13 +248,15 @@ class TestChunkedValidation(unittest.TestCase):
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
-    def _run_suite(self, seq_len, chunk_sizes, dtype, use_flash_attn, no_bias, section, tp_size=1):
+    def _run_suite(self, seq_len, chunk_sizes, dtype, use_flash_attn, attention_bias, mlp_bias, layernorm_bias, section, tp_size=1):
         precision = "float32" if dtype == torch.float32 else "bfloat16"
         config = create_config(
             seq_len=seq_len,
             use_flash_attn=use_flash_attn,
             precision=precision,
-            no_bias=no_bias,
+            attention_bias=attention_bias,
+            mlp_bias=mlp_bias,
+            layernorm_bias=layernorm_bias,
             tp_size=tp_size,
         )
 
@@ -298,7 +304,9 @@ class TestChunkedValidation(unittest.TestCase):
             [32, 16, 8],
             torch.float32,
             False,
-            False,
+            True,
+            True,
+            True,
             "Standard Attn | fp32 | Short seq=64 | bias=True",
         )
 
@@ -308,7 +316,9 @@ class TestChunkedValidation(unittest.TestCase):
             [128, 64, 32],
             torch.float32,
             False,
-            False,
+            True,
+            True,
+            True,
             "Standard Attn | fp32 | Medium seq=256 | bias=True",
         )
 
@@ -318,17 +328,21 @@ class TestChunkedValidation(unittest.TestCase):
             [512, 256, 128],
             torch.float32,
             False,
-            False,
+            True,
+            True,
+            True,
             "Standard Attn | fp32 | Long seq=1024 | bias=True",
         )
 
-    def test_long_seq_standard_no_bias(self):
+    def test_long_seq_standard_bias_false(self):
         self._run_suite(
             1024,
             [512, 256, 128],
             torch.float32,
             False,
-            True,
+            False,
+            False,
+            False,
             "Standard Attn | fp32 | Long seq=1024 | bias=False",
         )
 
@@ -338,7 +352,9 @@ class TestChunkedValidation(unittest.TestCase):
             [33, 17, 13],
             torch.float32,
             False,
-            False,
+            True,
+            True,
+            True,
             "Standard Attn | fp32 | Uneven seq=100 | bias=True",
         )
 
@@ -355,7 +371,9 @@ class TestChunkedValidation(unittest.TestCase):
             [32, 16, 8],
             torch.bfloat16,
             True,
-            False,
+            True,
+            True,
+            True,
             "Flash Attn | bf16 | Short seq=64 | bias=True",
         )
 
@@ -369,7 +387,9 @@ class TestChunkedValidation(unittest.TestCase):
             [512, 256, 128],
             torch.bfloat16,
             True,
-            False,
+            True,
+            True,
+            True,
             "Flash Attn | bf16 | Long seq=1024 | bias=True",
         )
 
@@ -383,7 +403,9 @@ class TestChunkedValidation(unittest.TestCase):
             [1024, 512, 256],
             torch.bfloat16,
             True,
-            False,
+            True,
+            True,
+            True,
             "Flash Attn | bf16 | VLong seq=2048 | bias=True",
         )
 
@@ -417,7 +439,7 @@ class TestChunkedValidationTP2(unittest.TestCase):
             timeout_in_minutes=30,
         )
 
-    def _run_suite(self, seq_len, chunk_sizes, dtype, use_flash_attn, no_bias, section):
+    def _run_suite(self, seq_len, chunk_sizes, dtype, use_flash_attn, attention_bias, mlp_bias, layernorm_bias, section):
         rank = dist.get_rank()
 
         precision = "float32" if dtype == torch.float32 else "bfloat16"
@@ -425,7 +447,9 @@ class TestChunkedValidationTP2(unittest.TestCase):
             seq_len=seq_len,
             use_flash_attn=use_flash_attn,
             precision=precision,
-            no_bias=no_bias,
+            attention_bias=attention_bias,
+            mlp_bias=mlp_bias,
+            layernorm_bias=layernorm_bias,
             tp_size=2,
         )
 
@@ -478,7 +502,9 @@ class TestChunkedValidationTP2(unittest.TestCase):
             [32, 16],
             torch.bfloat16,
             True,
-            False,
+            True,
+            True,
+            True,
             "Flash Attn | bf16 | Short seq=64 | TP=2",
         )
 
@@ -492,7 +518,9 @@ class TestChunkedValidationTP2(unittest.TestCase):
             [128, 64],
             torch.bfloat16,
             True,
-            False,
+            True,
+            True,
+            True,
             "Flash Attn | bf16 | Medium seq=256 | TP=2",
         )
 
@@ -506,7 +534,9 @@ class TestChunkedValidationTP2(unittest.TestCase):
             [512, 256],
             torch.bfloat16,
             True,
-            False,
+            True,
+            True,
+            True,
             "Flash Attn | bf16 | Long seq=1024 | TP=2",
         )
 

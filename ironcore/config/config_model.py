@@ -148,6 +148,7 @@ class ModelConfig(BaseConfig):
     # attention attributes
     num_attention_heads: int = field(default=8, metadata={"help": "number of attention heads"})
     head_dim: int = field(default=128, metadata={"help": "attention head dimension"})
+    activation_type: str = field(default="gelu", metadata={"help": "activation function type"})
     seq_len_q: int | None = field(default=None, metadata={"help": "query sequence length"})
     seq_len_kv: int | None = field(default=None, metadata={"help": "key/value sequence length"})
     num_attention_groups: int = field(
