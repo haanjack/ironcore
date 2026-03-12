@@ -85,6 +85,7 @@ class AlignmentConfig(BaseConfig):
     grpo_eps: float = 1e-8  # Advantage normalization epsilon
     grpo_num_epochs: int = 1  # Gradient steps per rollout batch (>1 = offline/multi-epoch)
     grpo_clip_eps: float = 0.2  # PPO-style IS ratio clip range (0.0 = no clipping)
+    grpo_rollout_chunks: int = 1  # Number of chunks for rollout generation (1 = no chunking)
 
     # GRPO generation and reward config
     generation: GenerationConfig = field(default_factory=GenerationConfig)
@@ -120,6 +121,13 @@ class AlignmentConfig(BaseConfig):
                 raise ValueError(f"grpo_num_epochs must be >= 1, got {self.grpo_num_epochs}")
             if self.grpo_clip_eps < 0:
                 raise ValueError(f"grpo_clip_eps must be >= 0, got {self.grpo_clip_eps}")
+            if self.grpo_rollout_chunks < 1:
+                raise ValueError(f"grpo_rollout_chunks must be >= 1, got {self.grpo_rollout_chunks}")
+            if self.grpo_group_size % self.grpo_rollout_chunks != 0:
+                raise ValueError(
+                    f"grpo_group_size ({self.grpo_group_size}) must be divisible by "
+                    f"grpo_rollout_chunks ({self.grpo_rollout_chunks})"
+                )
             valid_reward_types = (
                 "math",
                 "code",

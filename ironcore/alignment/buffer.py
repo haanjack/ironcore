@@ -217,3 +217,35 @@ class RolloutBuffer:
             "mean_log_prob": self.old_log_probs.mean().item(),
             "step": self.step,
         }
+
+    def cat(self, other: "RolloutBuffer") -> "RolloutBuffer":
+        """Concatenate two buffers (same batch_size required).
+
+        Used for rollout accumulation to support larger group sizes while
+        keeping memory footprint constant per chunk.
+
+        Args:
+            other: Another RolloutBuffer with the same batch_size
+
+        Returns:
+            New RolloutBuffer with concatenated completion data
+        """
+        if self.batch_size != other.batch_size:
+            raise ValueError(
+                f"Cannot concatenate buffers with different batch sizes: "
+                f"{self.batch_size} vs {other.batch_size}"
+            )
+
+        return RolloutBuffer(
+            prompt_ids=self.prompt_ids,
+            prompt_attention_mask=self.prompt_attention_mask,
+            completion_ids=torch.cat([self.completion_ids, other.completion_ids], dim=0),
+            response_ids=torch.cat([self.response_ids, other.response_ids], dim=0),
+            old_log_probs=torch.cat([self.old_log_probs, other.old_log_probs], dim=0),
+            rewards=torch.cat([self.rewards, other.rewards], dim=0),
+            advantages=torch.cat([self.advantages, other.advantages], dim=0),
+            group_ids=torch.cat([self.group_ids, other.group_ids], dim=0),
+            metadata=self.metadata + other.metadata,
+            step=self.step,
+            generation_config=self.generation_config,
+        )

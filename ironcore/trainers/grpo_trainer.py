@@ -67,6 +67,7 @@ class GRPOTrainer(BaseTrainer):
         self.eps = config.alignment.grpo_eps
         self.num_epochs = config.alignment.grpo_num_epochs
         self.clip_eps = config.alignment.grpo_clip_eps
+        self.rollout_chunks = config.alignment.grpo_rollout_chunks
 
         # Generation config
         gen_config = config.alignment.generation
@@ -156,11 +157,11 @@ class GRPOTrainer(BaseTrainer):
         """Create frozen reference model from current policy.
 
         For FSDP, we gather the full state dict and create a non-FSDP reference
-        model on GPU. This is faster than CPU offloading since the reference model
-        is used for inference during every training step.
+        model. Parameters are stored on GPU for faster inference during GRPO training.
         """
 
         self.logger.info("Creating reference model from policy weights...")
+        device = self._get_compute_device()
 
         # Get the underlying model (handle FSDP wrapping)
         if isinstance(self.model, FSDP):
@@ -170,11 +171,11 @@ class GRPOTrainer(BaseTrainer):
             with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
                 full_state_dict = self.model.state_dict()
 
-            # Create reference model on GPU (faster inference)
+            # Create reference model and store parameters on GPU for faster inference
             unwrapped = self.model.module
             reference_model = unwrapped.__class__(unwrapped.config)
             reference_model.load_state_dict(full_state_dict, strict=False)
-            reference_model = reference_model.to(torch.cuda.current_device())
+            reference_model = reference_model.to(device)
 
             # Free the gathered state dict
             del full_state_dict
@@ -185,14 +186,17 @@ class GRPOTrainer(BaseTrainer):
             for param in reference_model.parameters():
                 param.requires_grad = False
 
-            self.logger.info("Reference model created on GPU (FSDP mode)")
+            self.logger.info(f"Reference model created on GPU (FSDP mode, device={device})")
         else:
-            # Handle DDP or unwrapped model - keep on GPU
+            # Handle DDP or unwrapped model - store on GPU for faster inference
             model = getattr(self.model, "module", self.model)
             reference_model = copy.deepcopy(model)
+            reference_model = reference_model.to(device)
             reference_model.eval()
             for param in reference_model.parameters():
                 param.requires_grad = False
+
+            self.logger.info(f"Reference model created on GPU (device={device})")
 
         return reference_model
 
@@ -200,6 +204,7 @@ class GRPOTrainer(BaseTrainer):
         """Pre-compute reference model log probabilities for generated completions.
 
         Reference model is kept on GPU for fast inference during GRPO training.
+        Memory is explicitly freed after computing log probs.
         """
         if self.reference_model is None:
             raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
@@ -213,6 +218,10 @@ class GRPOTrainer(BaseTrainer):
         ref_log_probs_token = self._compute_token_log_probs_from_logits(
             ref_logits, labels, response_mask
         )
+
+        # Free reference logits immediately (~4.5GB for 0.5B model)
+        del ref_logits
+        torch.cuda.empty_cache()
 
         return ref_log_probs_token.detach()
 
@@ -339,15 +348,32 @@ class GRPOTrainer(BaseTrainer):
 
         self.model.eval()
         with torch.no_grad():
-            rollout = generate_rollouts_batched(
-                model=self.model,
-                prompt_ids=prompt_ids,
-                group_size=G,
-                metadata=metadata,
-                eos_token_id=self._tokenizer.eos_token_id,
-                **self.gen_kwargs,
-            )
+            # Chunked rollout generation for larger effective group sizes
+            # When rollout_chunks > 1, generate group_size/rollout_chunks per chunk
+            # This keeps memory constant while allowing larger total group sizes
+            rollout = None
+            chunk_group_size = G // self.rollout_chunks
+            chunk_metadata = metadata  # Same metadata for each chunk (will be expanded)
+
+            for chunk_idx in range(self.rollout_chunks):
+                chunk_rollout = generate_rollouts_batched(
+                    model=self.model,
+                    prompt_ids=prompt_ids,
+                    group_size=chunk_group_size,
+                    metadata=chunk_metadata,
+                    eos_token_id=self._tokenizer.eos_token_id,
+                    **self.gen_kwargs,
+                )
+                if rollout is None:
+                    rollout = chunk_rollout
+                else:
+                    rollout = rollout.cat(chunk_rollout)
+
         self.model.train()
+
+        # Safety check - rollout should never be None here
+        if rollout is None:
+            raise RuntimeError("Rollout generation failed - no chunks were generated")
 
         if self.reward_worker is None:
             raise RuntimeError("Reward worker not initialized. Call _post_checkpoint_load first.")
@@ -419,47 +445,6 @@ class GRPOTrainer(BaseTrainer):
 
         return metrics["grpo_loss"], grad_norm, param_norm
 
-    def _get_ref_log_probs(self, rollout: RolloutBuffer) -> torch.Tensor:
-        """Pre-compute reference model log probabilities for generated completions.
-
-        To save memory, we only store the log probs of the generated tokens [B*G, L],
-        not the full distributions [B*G, L, V].
-
-        For FSDP, the reference model is on CPU. We move batch to CPU, compute,
-        then move results back to GPU.
-        """
-        if self.reference_model is None:
-            raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
-
-        labels, response_mask = self._prepare_labels_and_mask(rollout)
-
-        # Check if reference model is on CPU (FSDP mode with CPU offloading)
-        ref_device = next(self.reference_model.parameters()).device
-        is_cpu_ref = ref_device.type == "cpu"
-
-        if is_cpu_ref:
-            # Move batch to CPU for reference model inference
-            completion_ids_cpu = rollout.completion_ids.cpu()
-            labels_cpu = labels.cpu()
-            response_mask_cpu = response_mask.cpu()
-
-            ref_output = self.reference_model(completion_ids_cpu, labels=None)
-            ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-            ref_log_probs_token = self._compute_token_log_probs_from_logits(
-                ref_logits, labels_cpu, response_mask_cpu
-            )
-            # Move result back to GPU
-            return ref_log_probs_token.to(rollout.completion_ids.device).detach()
-        else:
-            # Standard GPU inference
-            device = self._get_compute_device()
-            ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
-            ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-            ref_log_probs_token = self._compute_token_log_probs_from_logits(
-                ref_logits, labels, response_mask
-            )
-            return ref_log_probs_token.detach()
-
     def _compute_grpo_loss(
         self,
         rollout: RolloutBuffer,
@@ -478,6 +463,10 @@ class GRPOTrainer(BaseTrainer):
         policy_log_probs_token = self._compute_token_log_probs_from_logits(
             policy_logits, labels, response_mask
         )
+
+        # Free policy logits immediately (~4.5 GB for 0.5B model with B*G=8)
+        del policy_logits
+        torch.cuda.empty_cache()
 
         # Compute approximate KL divergence using token-level log probs
         # kl_divergence_approx: (policy_log_probs - ref_log_probs).sum(dim=-1)
@@ -505,24 +494,37 @@ class GRPOTrainer(BaseTrainer):
     def _compute_token_log_probs_from_logits(
         self, logits: torch.Tensor, labels: torch.Tensor, mask: torch.Tensor
     ) -> torch.Tensor:
-        """Compute per-token log probs from logits (TP-safe).
+        """Compute per-token log probs from logits (TP-safe, chunked for memory).
 
         Returns: [batch, seq_len] log probabilities for tokens in labels.
         """
-        log_probs_full = _compute_log_softmax_tp_safe(logits)
-        # log_probs_full: [batch, seq_len, vocab]
+        batch_size, seq_len, vocab_size = logits.shape
 
-        # Extract log probs for the actual tokens
-        # torch.gather equivalent
-        per_token_logps = torch.zeros_like(labels, dtype=torch.float, device=logits.device)
+        # Output tensor
+        per_token_logps = torch.zeros(batch_size, seq_len, dtype=torch.float, device=logits.device)
 
-        # Simple extraction for non-ignored tokens
-        valid_mask = labels != -100
-        if valid_mask.any():
-            # Flatten for gather
-            indices = labels[valid_mask].unsqueeze(-1)
-            token_logps = log_probs_full[valid_mask].gather(dim=-1, index=indices).squeeze(-1)
-            per_token_logps[valid_mask] = token_logps
+        # Process in chunks along sequence dimension to reduce peak memory
+        # log_softmax creates [chunk, vocab] float32 tensor, so larger chunks = more memory
+        chunk_size = min(32, seq_len)  # Process 32 positions at a time
+
+        for start in range(0, seq_len, chunk_size):
+            end = min(start + chunk_size, seq_len)
+            logits_chunk = logits[:, start:end, :]  # [batch, chunk, vocab]
+            labels_chunk = labels[:, start:end]  # [batch, chunk]
+
+            # Compute log_softmax only for this chunk
+            log_probs_chunk = _compute_log_softmax_tp_safe(logits_chunk)
+
+            # Extract log probs for actual tokens in chunk
+            valid_mask = labels_chunk != -100
+            if valid_mask.any():
+                indices = labels_chunk[valid_mask].unsqueeze(-1)
+                token_logps = log_probs_chunk[valid_mask].gather(dim=-1, index=indices).squeeze(-1)
+                # Assign to the output tensor using the flattened indices
+                per_token_logps[:, start:end][valid_mask] = token_logps
+
+            # Free chunk memory immediately
+            del log_probs_chunk
 
         return per_token_logps
 
