@@ -75,68 +75,46 @@ class Attention(BaseModule):
             key: [b, sk, gn, hd]
             value: [b, sk, gn, hd]
         """
-        batch_size = key.size(0)
-
-        # query: [b, sq, hn, hd] -> [b, hn, sq, hd]
-        # key: [b, sk, gn, hd] -> [b, gn, hd, sk]
-        # value: [b, sk, gn, hd] -> [b, gn, sk, hd]
-        query = query.transpose(1, 2)
-        key = key.permute(0, 2, 3, 1)
-        value = value.transpose(1, 2)
-
-        # derive counts from input shapes
-        num_heads = query.size(1)
-        num_groups = key.size(1)
-
         # GQA/MQA support: replicate key/value groups to match query heads
-        if num_groups != num_heads:
-            # replicate key/value to match with query layer
-
+        if key.size(2) != query.size(2):
             key = expand_for_gqa(
-                key, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=1
+                key, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=2
             )
             value = expand_for_gqa(
-                value, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=1
+                value, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=2
             )
 
         with profile_context("self attention"):
-            # attention operation
-            # [b, hn, sq, hd] * [b, gn, hd, sk] -> [b, hn, sq, sk]
-            attention_score = torch.matmul(query, key)
+            # attention operation using einsum: [b, hn, sq, hd] * [b, hn, sk, hd] -> [b, hn, sq, sk]
+            # query: [b, sq, hn, hd], key: [b, sk, hn, hd]
+            if query.dtype != key.dtype:
+                print(f"DTYPE MISMATCH: query={query.dtype}, key={key.dtype}")
+            attention_score = torch.einsum("bqnd,bknd->bnqk", query, key)
 
-        with profile_context("self attention"):
+        with profile_context("self attention scale"):
             attention_score = attention_score / self.scale_factor
-            # Use num_heads from input
-            attention_score = attention_score.view(batch_size, num_heads, seq_len_q, seq_len_kv)
 
             if attention_mask is not None:
+                # attention_mask: [b, 1, sq, sk]
                 attention_score = attention_score.masked_fill(attention_mask == 0, self.mask_value)
 
         # max subtraction trick for numerical stability
         with profile_context("attention softmax"):
             # Cast to fp32 for stable softmax
-            attention_score = attention_score.float()
-            
-            max_scores = attention_score.max(dim=-1, keepdim=True)[0]
-            attention_score = attention_score - max_scores
-
-            # Clamp to prevent extreme values
-            attention_score = torch.clamp(attention_score, min=-100.0, max=0.0)
-
-            attention_probs = self.softmax(attention_score).to(query.dtype)
+            attention_probs = torch.softmax(attention_score.float(), dim=-1).to(query.dtype)
 
         # dropout
         with profile_context("self attention dropout"):
             if self.config.model.dropout_attn > 0.0:
                 attention_probs = self.attn_dropout(attention_probs)
 
-        # attention_probs: [b, hn, sq, sk]
-        # value_layer: [b, hn, sk, hd]
+        # attention_probs: [b, hn, sq, sk], value: [b, sk, hn, hd]
         with profile_context("self attention matmul"):
-            context_output = torch.matmul(attention_probs, value)
+            # [b, hn, sq, sk] * [b, sk, hn, hd] -> [b, sq, hn, hd]
+            context_output = torch.einsum("bnqk,bknd->bqnd", attention_probs, value)
 
-        # context_output: [b, hn, sq, hd] -> [b, sq, hn, hd] -> [b, sq, hn * hd]
-        context_output = context_output.transpose(1, 2).reshape(batch_size, seq_len_q, -1)
+        # context_output: [b, sq, hn, hd] -> [b, sq, hn * hd]
+        context_output = rearrange(context_output, "b s n d -> b s (n d)")
 
         return context_output
 
