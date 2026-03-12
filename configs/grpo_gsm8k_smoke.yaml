@@ -16,7 +16,7 @@ data:
   task_type: grpo
 
 optim:
-  optimizer: adam
+  optimizer: adamw
   lr_scheduler: cosine
   max_lr: 1.0e-5
   min_lr: 1.0e-6
