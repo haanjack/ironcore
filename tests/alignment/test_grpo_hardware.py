@@ -82,7 +82,9 @@ class TestMemoryLeaks:
             return RolloutBuffer(
                 prompt_ids=torch.randint(0, 100, (B, prompt_len), device=device),
                 prompt_attention_mask=torch.ones(B, prompt_len, device=device),
-                completion_ids=torch.randint(0, 100, (B * G, prompt_len + response_len), device=device),
+                completion_ids=torch.randint(
+                    0, 100, (B * G, prompt_len + response_len), device=device
+                ),
                 response_ids=torch.randint(0, 100, (B * G, response_len), device=device),
                 old_log_probs=torch.randn(B * G, device=device),
                 rewards=torch.zeros(B * G, device=device),
@@ -154,7 +156,9 @@ class TestMemoryLeaks:
         final_memory = torch.cuda.memory_allocated()
         memory_growth = (final_memory - baseline_memory) / 1024**2
 
-        assert memory_growth < 10, f"KV-cache memory grew by {memory_growth:.2f} MB (potential leak)"
+        assert memory_growth < 10, (
+            f"KV-cache memory grew by {memory_growth:.2f} MB (potential leak)"
+        )
 
 
 class TestWorkerPoolLatency:
@@ -185,8 +189,8 @@ class TestWorkerPoolLatency:
         sequential_time = time.perf_counter() - start
 
         print("\nWorker Pool Performance:")
-        print(f"  Pool time:       {pool_time*1000:.2f} ms")
-        print(f"  Sequential time: {sequential_time*1000:.2f} ms")
+        print(f"  Pool time:       {pool_time * 1000:.2f} ms")
+        print(f"  Sequential time: {sequential_time * 1000:.2f} ms")
 
         # Results should be identical
         assert torch.allclose(
@@ -271,9 +275,17 @@ class TestThroughput:
             def forward(self, input_ids, labels=None, use_cache=False, past_key_values=None):
                 logits = torch.randn(input_ids.shape[0], input_ids.shape[1], 1000, device="cuda")
                 if use_cache:
-                    kv = [(torch.randn(input_ids.shape[0], 4, input_ids.shape[1], 64, device="cuda"),
-                           torch.randn(input_ids.shape[0], 4, input_ids.shape[1], 64, device="cuda"))
-                          for _ in range(2)]
+                    kv = [
+                        (
+                            torch.randn(
+                                input_ids.shape[0], 4, input_ids.shape[1], 64, device="cuda"
+                            ),
+                            torch.randn(
+                                input_ids.shape[0], 4, input_ids.shape[1], 64, device="cuda"
+                            ),
+                        )
+                        for _ in range(2)
+                    ]
                     return logits, kv
                 return logits
 

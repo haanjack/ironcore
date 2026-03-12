@@ -32,6 +32,7 @@ from torch.optim import AdamW
 @dataclass
 class ToyTestConfig:
     """Configuration for toy test."""
+
     model_name: str = "Qwen/Qwen2.5-0.5B"
     device: str = "cuda:0"
     dtype: str = "bfloat16"
@@ -57,13 +58,21 @@ class ToyTestConfig:
 @dataclass
 class MetricsTracker:
     """Track training metrics."""
+
     steps: list[int] = field(default_factory=list)
     mean_rewards: list[float] = field(default_factory=list)
     kl_divergences: list[float] = field(default_factory=list)
     success_rates: list[float] = field(default_factory=list)
     sample_outputs: list[dict] = field(default_factory=list)
 
-    def log(self, step: int, mean_reward: float, kl: float, success_rate: float, samples: list[dict] | None = None):
+    def log(
+        self,
+        step: int,
+        mean_reward: float,
+        kl: float,
+        success_rate: float,
+        samples: list[dict] | None = None,
+    ):
         self.steps.append(step)
         self.mean_rewards.append(mean_reward)
         self.kl_divergences.append(kl)
@@ -185,7 +194,7 @@ def generate_completions(
             )
 
             # Decode only the new tokens
-            new_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+            new_tokens = outputs[0][inputs["input_ids"].shape[1] :]
             completion = tokenizer.decode(new_tokens, skip_special_tokens=True)
             completions.append(completion)
 
@@ -193,7 +202,9 @@ def generate_completions(
     return completions
 
 
-def compute_log_probs(model: nn.Module, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+def compute_log_probs(
+    model: nn.Module, input_ids: torch.Tensor, attention_mask: torch.Tensor
+) -> torch.Tensor:
     """Compute log probabilities for sequences."""
     with torch.no_grad():
         outputs = model(input_ids=input_ids, attention_mask=attention_mask)
@@ -214,7 +225,9 @@ def compute_log_probs(model: nn.Module, input_ids: torch.Tensor, attention_mask:
         return token_log_probs.sum(dim=1)
 
 
-def compute_kl_divergence(policy_log_probs: torch.Tensor, ref_log_probs: torch.Tensor) -> torch.Tensor:
+def compute_kl_divergence(
+    policy_log_probs: torch.Tensor, ref_log_probs: torch.Tensor
+) -> torch.Tensor:
     """Compute KL divergence."""
     # KL(ref || policy)
     kl = ref_log_probs.exp() * (ref_log_probs - policy_log_probs)
@@ -260,7 +273,7 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
 
     for step in range(1, config.num_steps + 1):
         # Sample prompts
-        batch_prompts = all_prompts[prompt_idx:prompt_idx + config.batch_size]
+        batch_prompts = all_prompts[prompt_idx : prompt_idx + config.batch_size]
         prompt_idx = (prompt_idx + config.batch_size) % len(all_prompts)
 
         # Generate completions for each prompt (group_size times)
@@ -270,7 +283,9 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
 
         for g in range(config.group_size):
             completions = generate_completions(
-                model, tokenizer, batch_prompts,
+                model,
+                tokenizer,
+                batch_prompts,
                 max_new_tokens=config.max_new_tokens,
                 temperature=config.temperature,
                 top_p=config.top_p,
@@ -303,9 +318,9 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
 
         # Compute log probs for GRPO loss (simplified)
         # Tokenize completions
-        full_texts = [p + c for p, c in zip(
-            batch_prompts * config.group_size, all_completions, strict=False
-        )]
+        full_texts = [
+            p + c for p, c in zip(batch_prompts * config.group_size, all_completions, strict=False)
+        ]
         encoded = tokenizer(
             full_texts,
             return_tensors="pt",
@@ -340,7 +355,7 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
             ref_token_log_probs = ref_log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
             ref_sequence_log_probs = (ref_token_log_probs * shift_mask).sum(dim=1)
 
-        kl_per_seq = (ref_sequence_log_probs.exp() * (ref_sequence_log_probs - sequence_log_probs))
+        kl_per_seq = ref_sequence_log_probs.exp() * (ref_sequence_log_probs - sequence_log_probs)
         kl_loss = config.beta * kl_per_seq.mean()
 
         # Total loss
@@ -368,12 +383,14 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
                 completion = all_completions[i]
                 reward = all_rewards[i]
                 has_target = config.target_word.lower() in completion.lower()
-                samples.append({
-                    "prompt": prompt[:50] + "...",
-                    "completion": completion[:100] + "...",
-                    "reward": reward,
-                    f"has_{config.target_word}": has_target,
-                })
+                samples.append(
+                    {
+                        "prompt": prompt[:50] + "...",
+                        "completion": completion[:100] + "...",
+                        "reward": reward,
+                        f"has_{config.target_word}": has_target,
+                    }
+                )
 
             tracker.sample_outputs.append({"step": step, "samples": samples})
 
@@ -393,7 +410,9 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
             print(f"\n  [Eval @ {step}] Success rate: {success_rate:.1%}")
             if success_rate >= 0.8 and success_at_step is None:
                 success_at_step = step
-                print(f"  ★ SUCCESS! Model learned to generate '{config.target_word}' at step {step}")
+                print(
+                    f"  ★ SUCCESS! Model learned to generate '{config.target_word}' at step {step}"
+                )
 
     # Final analysis
     print("\n[4/4] Analyzing results...")
@@ -418,7 +437,9 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
         bar = "█" * int(reward * 20)
         print(f"  Step {step:3d}: {reward:.2f} {bar:20s} KL={kl:.4f}")
 
-    print(f"\nKL Divergence Range: [{min(tracker.kl_divergences):.4f}, {max(tracker.kl_divergences):.4f}]")
+    print(
+        f"\nKL Divergence Range: [{min(tracker.kl_divergences):.4f}, {max(tracker.kl_divergences):.4f}]"
+    )
 
     # Final success rate
     final_success_rate = tracker.success_rates[-1]
@@ -430,7 +451,9 @@ def run_toy_test(config: ToyTestConfig) -> dict[str, Any]:
     print("-" * 70)
     if passed:
         if success_at_step:
-            print(f"✓ PASS: Model learned to generate '{config.target_word}' at step {success_at_step}")
+            print(
+                f"✓ PASS: Model learned to generate '{config.target_word}' at step {success_at_step}"
+            )
         else:
             print(f"✓ PASS: Final success rate {final_success_rate:.1%} >= 50%")
     else:
@@ -458,7 +481,9 @@ def main():
     parser.add_argument("--device", type=str, default="cuda:0", help="Device")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-0.5B", help="Model name")
     parser.add_argument("--target", type=str, default="ironcore", help="Target word to learn")
-    parser.add_argument("--output-dir", type=str, default="toy_test_output", help="Output directory")
+    parser.add_argument(
+        "--output-dir", type=str, default="toy_test_output", help="Output directory"
+    )
     args = parser.parse_args()
 
     config = ToyTestConfig(

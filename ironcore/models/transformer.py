@@ -3,8 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
-import torch.nn as nn
-from torch.utils.checkpoint import checkpoint
+from torch import nn
 
 from ironcore.config import MainConfig
 from ironcore.layers import BaseModule

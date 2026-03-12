@@ -25,9 +25,15 @@ def mock_tokenizer():
         # Return mock encoded output
         batch_size = len(args[0]) if args else 1
         return {
-            "input_ids": MagicMock(shape=(batch_size, 32), to=MagicMock(return_value=torch.zeros(batch_size, 32, dtype=torch.long))),
-            "attention_mask": MagicMock(shape=(batch_size, 32), to=MagicMock(return_value=torch.ones(batch_size, 32))),
+            "input_ids": MagicMock(
+                shape=(batch_size, 32),
+                to=MagicMock(return_value=torch.zeros(batch_size, 32, dtype=torch.long)),
+            ),
+            "attention_mask": MagicMock(
+                shape=(batch_size, 32), to=MagicMock(return_value=torch.ones(batch_size, 32))
+            ),
         }
+
     mock_tok.side_effect = mock_encode
     mock_tok.return_value = mock_encode("", max_length=32, truncation=True, return_tensors="pt")
 

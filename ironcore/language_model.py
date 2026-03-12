@@ -16,7 +16,6 @@ from ironcore.models import get_model_provider_func
 from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
-    vocab_parallel_cross_entropy,
 )
 from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
 
@@ -135,6 +134,7 @@ class LanguageModel(BaseModule):
             logits_parallel = self.output_layer(lm_output)
         else:
             from ironcore.parallel.tensor_parallel import comm
+
             input_parallel = comm.copy_inputs_to_model_parallel_workers(lm_output)
             logits_parallel = F.linear(input_parallel, self.embedding.word_embeddings.weight)
 
@@ -238,21 +238,40 @@ class LanguageModel(BaseModule):
         if isinstance(cache_position, torch.Tensor):
             max_cache_pos = cache_position.max().item()
             total_len = int(max_cache_pos + seq_len)
-            position_ids = cache_position.unsqueeze(1) + torch.arange(seq_len, device=input_ids.device)
+            position_ids = cache_position.unsqueeze(1) + torch.arange(
+                seq_len, device=input_ids.device
+            )
         else:
             total_len = int(cache_position + seq_len)
-            position_ids = torch.arange(cache_position, total_len, dtype=torch.long, device=input_ids.device).unsqueeze(0).expand(att_mask_batch, seq_len)
+            position_ids = (
+                torch.arange(cache_position, total_len, dtype=torch.long, device=input_ids.device)
+                .unsqueeze(0)
+                .expand(att_mask_batch, seq_len)
+            )
 
         # Correct masking for stateful cache
         if seq_len == 1 and not isinstance(cache_position, torch.Tensor) and cache_position > 0:
-            attention_mask = torch.ones((att_mask_batch, 1, 1, total_len), dtype=torch.bool, device=input_ids.device)
+            attention_mask = torch.ones(
+                (att_mask_batch, 1, 1, total_len), dtype=torch.bool, device=input_ids.device
+            )
         else:
-            full_causal_mask = torch.tril(torch.ones((total_len, total_len), device=input_ids.device, dtype=torch.bool))
+            full_causal_mask = torch.tril(
+                torch.ones((total_len, total_len), device=input_ids.device, dtype=torch.bool)
+            )
             if not isinstance(cache_position, torch.Tensor):
                 if cache_position == 0:
-                    attention_mask = full_causal_mask.unsqueeze(0).unsqueeze(0).expand(att_mask_batch, 1, total_len, total_len)
+                    attention_mask = (
+                        full_causal_mask.unsqueeze(0)
+                        .unsqueeze(0)
+                        .expand(att_mask_batch, 1, total_len, total_len)
+                    )
                 else:
-                    attention_mask = full_causal_mask[cache_position:total_len, :total_len].unsqueeze(0).unsqueeze(0).expand(att_mask_batch, 1, seq_len, total_len)
+                    attention_mask = (
+                        full_causal_mask[cache_position:total_len, :total_len]
+                        .unsqueeze(0)
+                        .unsqueeze(0)
+                        .expand(att_mask_batch, 1, seq_len, total_len)
+                    )
             else:
                 q_pos = position_ids.unsqueeze(-1)
                 kv_pos = torch.arange(total_len, device=input_ids.device).view(1, 1, -1)
@@ -261,7 +280,9 @@ class LanguageModel(BaseModule):
         loss_mask = torch.ones(input_ids.size(), dtype=torch.float, device=input_ids.device)
         return attention_mask, position_ids, loss_mask
 
-    def initialize_cache(self, batch_size: int, device: torch.device, dtype: torch.dtype | None = None):
+    def initialize_cache(
+        self, batch_size: int, device: torch.device, dtype: torch.dtype | None = None
+    ):
         if self.kv_cache_manager is not None:
             self.kv_cache_manager.initialize(batch_size, len(self.model.layers), device, dtype)
 

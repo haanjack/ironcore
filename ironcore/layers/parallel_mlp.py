@@ -93,7 +93,9 @@ class ParallelMLP(BaseModule):
 
         # Determine bias for up projection
         # For GLU activations, d_ffn contains [gate, up] concatenated
-        up_has_bias = (model_config.bias.gate or model_config.bias.up) if is_glu else model_config.bias.up
+        up_has_bias = (
+            (model_config.bias.gate or model_config.bias.up) if is_glu else model_config.bias.up
+        )
 
         # Up projection: hidden -> intermediate (ColumnParallel for TP)
         self.up_proj = ColumnParallelLinear(

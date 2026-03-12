@@ -41,7 +41,9 @@ def get_device():
     return torch.device(f"cuda:{dist.get_rank()}")
 
 
-@pytest.mark.skip(reason="Run with torchrun --nproc_per_node=2 tests/alignment/test_grpo_distributed.py")
+@pytest.mark.skip(
+    reason="Run with torchrun --nproc_per_node=2 tests/alignment/test_grpo_distributed.py"
+)
 def test_distributed_advantage_allgather():
     """
     Test that advantage computation correctly all-gathers rewards across ranks.
@@ -73,7 +75,12 @@ def test_distributed_advantage_allgather():
     # Group 0: [0.0, 1.0, 2.0, 3.0]
     # Group 1: [4.0, 5.0, 6.0, 7.0]
     all_rewards = torch.arange(total_samples, dtype=torch.float32, device=device)
-    all_group_ids = torch.arange(batch_size, device=device).unsqueeze(1).expand(batch_size, group_size).reshape(-1)
+    all_group_ids = (
+        torch.arange(batch_size, device=device)
+        .unsqueeze(1)
+        .expand(batch_size, group_size)
+        .reshape(-1)
+    )
 
     # Each rank gets its slice (strided by world_size)
     local_rewards = all_rewards[rank::world_size].clone()
@@ -122,14 +129,18 @@ def test_distributed_advantage_allgather():
             group_std = group_advantages.std().item()
             print(f"  Group {g}: std={group_std:.6f}")
 
-            assert abs(group_std - 1.0) < 1e-4, f"Group {g} advantage std should be 1, got {group_std}"
+            assert abs(group_std - 1.0) < 1e-4, (
+                f"Group {g} advantage std should be 1, got {group_std}"
+            )
 
         print("\n✓ PASS: All distributed advantage tests passed!")
 
     dist.barrier()
 
 
-@pytest.mark.skip(reason="Run with torchrun --nproc_per_node=2 tests/alignment/test_grpo_distributed.py")
+@pytest.mark.skip(
+    reason="Run with torchrun --nproc_per_node=2 tests/alignment/test_grpo_distributed.py"
+)
 def test_distributed_identical_rewards():
     """
     Test that identical rewards produce exactly 0 advantage across ranks.
@@ -139,7 +150,6 @@ def test_distributed_identical_rewards():
     rank = dist.get_rank()
     world_size = dist.get_world_size()
     device = get_device()
-
 
     # All rewards are identical within groups - ON CUDA
     all_rewards = torch.tensor([5.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0, 10.0], device=device)
@@ -161,7 +171,9 @@ def test_distributed_identical_rewards():
     dist.barrier()
 
 
-@pytest.mark.skip(reason="Run with torchrun --nproc_per_node=2 tests/alignment/test_grpo_distributed.py")
+@pytest.mark.skip(
+    reason="Run with torchrun --nproc_per_node=2 tests/alignment/test_grpo_distributed.py"
+)
 def test_distributed_partial_group():
     """
     Test advantage computation when groups are split across ranks.
@@ -203,9 +215,13 @@ def test_distributed_partial_group():
             full_advantages[r::world_size] = adv
 
         # Sum should be 0
-        assert abs(full_advantages.sum().item()) < 1e-5, f"Sum should be 0, got {full_advantages.sum()}"
+        assert abs(full_advantages.sum().item()) < 1e-5, (
+            f"Sum should be 0, got {full_advantages.sum()}"
+        )
         # Std should be 1
-        assert abs(full_advantages.std().item() - 1.0) < 1e-4, f"Std should be 1, got {full_advantages.std()}"
+        assert abs(full_advantages.std().item() - 1.0) < 1e-4, (
+            f"Std should be 1, got {full_advantages.std()}"
+        )
 
         print("✓ PASS: Partial group split across ranks works correctly!")
 

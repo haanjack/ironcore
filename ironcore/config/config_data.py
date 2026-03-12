@@ -41,7 +41,9 @@ class DatasetConfig(BaseConfig):
 
     # GRPO-specific column names
     prompt_column: str = field(default="prompt", metadata={"help": "Prompt column for GRPO"})
-    answer_column: str = field(default="answer", metadata={"help": "Answer column for GRPO (ground truth)"})
+    answer_column: str = field(
+        default="answer", metadata={"help": "Answer column for GRPO (ground truth)"}
+    )
 
     chat_template: str | None = field(
         default=None, metadata={"help": "Chat template (uses tokenizer default if None)"}

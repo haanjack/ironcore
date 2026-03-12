@@ -438,7 +438,7 @@ class WeightMapper:
 
         return ironcore_state_dict
 
-    def _map_llama_key_to_ironcore(
+    def _map_llama_key_to_ironcore(  # noqa: PLR0911
         self,
         hf_key: str,
         tensor: torch.Tensor,
@@ -582,7 +582,9 @@ class WeightMapper:
             # Query projection — IC [in, out] → HF [out, in]
             q_key = f"{prefix}.linear_q.weight"
             if q_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.weight"] = ironcore_state_dict[q_key].t()
+                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.weight"] = ironcore_state_dict[
+                    q_key
+                ].t()
                 mapped_keys.add(q_key)
             q_bias_key = f"{prefix}.linear_q.bias"
             if q_bias_key in ironcore_state_dict:
@@ -595,7 +597,7 @@ class WeightMapper:
             kv_key = f"{prefix}.linear_kv.weight"
             if kv_key in ironcore_state_dict:
                 kv = ironcore_state_dict[kv_key]  # [hidden, 2*gn*hd]
-                k_t, v_t = kv.chunk(2, dim=1)     # [hidden, gn*hd] each
+                k_t, v_t = kv.chunk(2, dim=1)  # [hidden, gn*hd] each
                 hf_state_dict[f"{hf_prefix}.self_attn.k_proj.weight"] = k_t.t()
                 hf_state_dict[f"{hf_prefix}.self_attn.v_proj.weight"] = v_t.t()
                 mapped_keys.add(kv_key)
@@ -611,7 +613,9 @@ class WeightMapper:
             # Attention output — IC [in, out] → HF [out, in]
             out_key = f"{prefix}.attn_output.weight"
             if out_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.weight"] = ironcore_state_dict[out_key].t()
+                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.weight"] = ironcore_state_dict[
+                    out_key
+                ].t()
                 mapped_keys.add(out_key)
             out_bias_key = f"{prefix}.attn_output.bias"
             if out_bias_key in ironcore_state_dict:
@@ -623,12 +627,14 @@ class WeightMapper:
             # MLP - split fused gate+up back to separate, IC [in, out] → HF [out, in]
             up_key = f"{prefix}.mlp.up_proj.weight"
             if up_key in ironcore_state_dict:
-                fused = ironcore_state_dict[up_key]  # IC: [hidden, 2*ffn] if fused, else [hidden, ffn]
+                fused = ironcore_state_dict[
+                    up_key
+                ]  # IC: [hidden, 2*ffn] if fused, else [hidden, ffn]
                 # Fused gate+up: output dim (dim=1) is 2x a single projection
                 if fused.shape[1] % 2 == 0:
                     gate_t, up_t = fused.chunk(2, dim=1)  # [hidden, ffn] each
                     hf_state_dict[f"{hf_prefix}.mlp.gate_proj.weight"] = gate_t.t()  # [ffn, hidden]
-                    hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = up_t.t()      # [ffn, hidden]
+                    hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = up_t.t()  # [ffn, hidden]
                 else:
                     hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = fused.t()
                 mapped_keys.add(up_key)
@@ -636,7 +642,9 @@ class WeightMapper:
             down_key = f"{prefix}.mlp.down_proj.weight"
             if down_key in ironcore_state_dict:
                 # IC [ffn, hidden] → HF [hidden, ffn]
-                hf_state_dict[f"{hf_prefix}.mlp.down_proj.weight"] = ironcore_state_dict[down_key].t()
+                hf_state_dict[f"{hf_prefix}.mlp.down_proj.weight"] = ironcore_state_dict[
+                    down_key
+                ].t()
                 mapped_keys.add(down_key)
             down_bias_key = f"{prefix}.mlp.down_proj.bias"
             if down_bias_key in ironcore_state_dict:

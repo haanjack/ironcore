@@ -14,17 +14,15 @@ import sys
 from pathlib import Path
 
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ironcore.alignment.buffer import RolloutBuffer
 from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
 from ironcore.alignment.rewards import KeywordRewardFunction, RewardWorkerPool
-
 
 # Configuration
 PROMPTS = [
@@ -137,7 +135,7 @@ def generate_completions(
     )
 
     completion_ids = outputs.sequences
-    generated_ids = completion_ids[:, input_ids.size(1):]
+    generated_ids = completion_ids[:, input_ids.size(1) :]
 
     # Compute log probs for each completion
     all_log_probs = []
@@ -158,7 +156,9 @@ def generate_completions(
         seq_log_probs = (token_log_probs * mask).sum(dim=-1)
         all_log_probs.append(seq_log_probs)
 
-    log_probs_tensor = torch.cat(all_log_probs) if all_log_probs else torch.zeros(B * G, device=device)
+    log_probs_tensor = (
+        torch.cat(all_log_probs) if all_log_probs else torch.zeros(B * G, device=device)
+    )
 
     # Group IDs: [0,0,...,0, 1,1,...,1, ...]
     group_ids = torch.arange(B, device=device).unsqueeze(1).expand(-1, G).reshape(-1)
@@ -253,8 +253,16 @@ def main():
 
     with torch.no_grad():
         completion_ids, generated_ids, log_probs, group_ids = generate_completions(
-            model, tokenizer, input_ids, attention_mask,
-            GROUP_SIZE, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, TOP_K, device
+            model,
+            tokenizer,
+            input_ids,
+            attention_mask,
+            GROUP_SIZE,
+            MAX_NEW_TOKENS,
+            TEMPERATURE,
+            TOP_P,
+            TOP_K,
+            device,
         )
 
     completions = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
@@ -286,14 +294,22 @@ def main():
         model.eval()
         with torch.no_grad():
             completion_ids, generated_ids, old_log_probs, group_ids = generate_completions(
-                model, tokenizer, input_ids, attention_mask,
-                GROUP_SIZE, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, TOP_K, device
+                model,
+                tokenizer,
+                input_ids,
+                attention_mask,
+                GROUP_SIZE,
+                MAX_NEW_TOKENS,
+                TEMPERATURE,
+                TOP_P,
+                TOP_K,
+                device,
             )
         model.train()
 
         # Decode for rewards
         completions = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
-        expanded_prompts = [p for p in prompts for _ in range(GROUP_SIZE)]
+        [p for p in prompts for _ in range(GROUP_SIZE)]
 
         # Compute rewards
         rewards = compute_rewards(prompts, completions, metadata, reward_fn, reward_pool)
@@ -306,14 +322,16 @@ def main():
         labels = completion_ids.clone()
         labels[:, :-1] = completion_ids[:, 1:]
         labels[:, -1] = -100
-        labels[:, :input_ids.size(1) - 1] = -100  # Mask prompt tokens
+        labels[:, : input_ids.size(1) - 1] = -100  # Mask prompt tokens
 
         # Policy log probs
         policy_outputs = model(completion_ids, labels=labels)
         policy_logits = policy_outputs.logits[:, :-1, :]
         labels_shifted = labels[:, 1:]
         policy_log_probs_full = torch.log_softmax(policy_logits, dim=-1)
-        policy_token_logps = policy_log_probs_full.gather(2, labels_shifted.unsqueeze(-1)).squeeze(-1)
+        policy_token_logps = policy_log_probs_full.gather(2, labels_shifted.unsqueeze(-1)).squeeze(
+            -1
+        )
         mask = (labels_shifted != -100).float()
         policy_log_probs = (policy_token_logps * mask).sum(dim=-1)
 
@@ -353,7 +371,9 @@ def main():
         losses.append(metrics["grpo_loss"])
 
         if step % LOG_INTERVAL == 0:
-            print(f"step {step:4d}: loss={loss.item():.4f}, hit_rate={hit_rate:.1%}, kl={metrics['kl_per_seq']:.4f}")
+            print(
+                f"step {step:4d}: loss={loss.item():.4f}, hit_rate={hit_rate:.1%}, kl={metrics['kl_per_seq']:.4f}"
+            )
 
         if step % SAMPLE_LOG_INTERVAL == 0:
             print(f"\n  Sample outputs at step {step}:")
@@ -378,8 +398,16 @@ def main():
             attention_mask = batch["attention_mask"].to(device)
 
             completion_ids, _, _, _ = generate_completions(
-                model, tokenizer, input_ids, attention_mask,
-                GROUP_SIZE, MAX_NEW_TOKENS, TEMPERATURE, TOP_P, TOP_K, device
+                model,
+                tokenizer,
+                input_ids,
+                attention_mask,
+                GROUP_SIZE,
+                MAX_NEW_TOKENS,
+                TEMPERATURE,
+                TOP_P,
+                TOP_K,
+                device,
             )
 
             completions = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)

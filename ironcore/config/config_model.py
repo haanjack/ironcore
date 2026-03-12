@@ -131,7 +131,7 @@ class ModelConfig(BaseConfig):
     # Bias configuration: fine-grained control over which layers have bias
     bias: BiasConfig = field(
         default_factory=BiasConfig.all_true,
-        metadata={"help": "Bias configuration for each projection type"}
+        metadata={"help": "Bias configuration for each projection type"},
     )
     layernorm_bias: bool = field(default=True, metadata={"help": "bias in layernorm layers"})
 
@@ -200,5 +200,3 @@ class ModelConfig(BaseConfig):
             0 <= getattr(self, k) <= 1
             for k in ["dropout_embd", "dropout_attn", "dropout_mlp", "attention_dropout"]
         ), "Dropouts must be [0, 1]"
-
-

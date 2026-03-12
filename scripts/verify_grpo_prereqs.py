@@ -14,30 +14,27 @@ Usage:
     torchrun --nproc_per_node=2 scripts/verify_grpo_prereqs.py --config-path configs/grpo_gsm8k_smoke.yaml
 """
 
-import os
 import sys
-from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from huggingface_hub import snapshot_download
 
 # IronCore imports
 from ironcore import get_tokenizer
 from ironcore.alignment.rewards import get_reward_function
 from ironcore.alignment.rollout import generate_rollouts_batched
+from ironcore.checkpointing.hf_interop import load_from_huggingface
 from ironcore.config import load_trainer_config
 from ironcore.global_vars import set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel.parallel_states import initialize_model_parallel
-from ironcore.checkpointing.hf_interop import load_from_huggingface
-from huggingface_hub import snapshot_download
 
 
 def main():
     parser = argparse.ArgumentParser(description="GRPO Pre-requisite Verification")
     parser.add_argument("--config-path", type=str, required=True)
-    args = parser.parse_args()
+    parser.parse_args()
 
     # Load config
     print("=" * 60)
@@ -62,22 +59,29 @@ def main():
     cache_dir = snapshot_download(config.trainer.load_from_hf)
     result = load_from_huggingface(cache_dir, model, "qwen2", strict=False)
 
-    print(f"Loaded: {len(result['loaded_keys'])}, Missing: {len(result['missing_keys'])}, Unexpected: {len(result['unexpected_keys'])}")
+    print(
+        f"Loaded: {len(result['loaded_keys'])}, Missing: {len(result['missing_keys'])}, Unexpected: {len(result['unexpected_keys'])}"
+    )
 
     # Filter out known benign mismatches for Qwen2.x
     # - rotary_pos_emb.theta: RoPE freq buffer computed from config, not loaded
     # - attn_output.bias: Qwen2.5 has attention_bias=true but o_proj.bias is not in HF checkpoint
     # - linear_q.bias, linear_kv.bias: HF has biases and IronCore correctly loads them with attention_bias=true
-    benign_missing = {"rotary_pos_emb.theta", "model.layers.0.attn_output.bias", "model.layers.1.attn_output.bias"}
+    benign_missing = {
+        "rotary_pos_emb.theta",
+        "model.layers.0.attn_output.bias",
+        "model.layers.1.attn_output.bias",
+    }
     # Actually add all layers' attn_output.bias to benign missing
     for i in range(24):
         benign_missing.add(f"model.layers.{i}.attn_output.bias")
-    
+
     benign_unexpected_pattern = ("linear_q.bias", "linear_kv.bias")
 
-    actual_missing = [k for k in result['missing_keys'] if k not in benign_missing]
-    actual_unexpected = [k for k in result['unexpected_keys']
-                         if not any(p in k for p in benign_unexpected_pattern)]
+    actual_missing = [k for k in result["missing_keys"] if k not in benign_missing]
+    actual_unexpected = [
+        k for k in result["unexpected_keys"] if not any(p in k for p in benign_unexpected_pattern)
+    ]
 
     if actual_missing or actual_unexpected:
         print("\n=== MISSING KEYS ===")
@@ -90,7 +94,7 @@ def main():
         print("Missing or unexpected keys found. See details above.")
         sys.exit(1)
 
-    if result['missing_keys'] or result['unexpected_keys']:
+    if result["missing_keys"] or result["unexpected_keys"]:
         print("(Ignored benign mismatches: rotary_pos_emb.theta, linear_*_bias)")
 
     print("Step 2: PASSED")
@@ -104,11 +108,10 @@ def main():
     prompt = "What is 2+2?"
     system_prompt = config.alignment.generation.system_prompt
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt}
-    ]
-    prompt_enc = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
+    prompt_enc = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, return_tensors="pt"
+    )
     # apply_chat_template with return_tensors="pt" returns BatchEncoding (dict-like)
     prompt_ids = prompt_enc["input_ids"].to(model.device)
 
@@ -182,7 +185,9 @@ def main():
         print(f"Only {torch.cuda.device_count()} GPU available")
         print("Step 5: SKIPPED (requires 2 GPUs)")
         print("To test FSDP, run with:")
-        print("  torchrun --nproc_per_node=2 scripts/verify_grpo_prereqs.py --config-path configs/grpo_gsm8k_smoke.yaml")
+        print(
+            "  torchrun --nproc_per_node=2 scripts/verify_grpo_prereqs.py --config-path configs/grpo_gsm8k_smoke.yaml"
+        )
     else:
         # Already running with torchrun, model created with FSDP via initialize_model_parallel
         print(f"Available GPUs: {torch.cuda.device_count()}")
@@ -200,4 +205,5 @@ def main():
 
 if __name__ == "__main__":
     import argparse
+
     main()

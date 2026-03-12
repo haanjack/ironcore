@@ -30,12 +30,12 @@ project_dir = os.path.dirname(script_dir)
 sys.path.insert(0, project_dir)
 os.chdir(project_dir)
 
-from ironcore import get_tokenizer
-from ironcore.checkpointing import load_from_huggingface
-from ironcore.config import load_trainer_config
-from ironcore.global_vars import set_global_states
-from ironcore.language_model import LanguageModel
-from ironcore.parallel.parallel_states import initialize_model_parallel
+from ironcore import get_tokenizer  # noqa: E402
+from ironcore.checkpointing import load_from_huggingface  # noqa: E402
+from ironcore.config import load_trainer_config  # noqa: E402
+from ironcore.global_vars import set_global_states  # noqa: E402
+from ironcore.language_model import LanguageModel  # noqa: E402
+from ironcore.parallel.parallel_states import initialize_model_parallel  # noqa: E402
 
 
 def extract_answer(text: str) -> str | None:
@@ -72,7 +72,6 @@ def main():
     config = load_trainer_config()
 
     # Initialize model parallel (no tensor parallel for inference)
-    world_size = int(os.environ.get("WORLD_SIZE", 1))
     initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10)
     set_global_states(config)
 
@@ -92,7 +91,9 @@ def main():
         dataset = dataset.select(range(min(args.max_samples, len(dataset))))
     print(f"  Evaluating {len(dataset)} samples")
 
-    system_prompt = "Solve the math problem step by step. Put your final numerical answer after ####."
+    system_prompt = (
+        "Solve the math problem step by step. Put your final numerical answer after ####."
+    )
 
     correct = 0
     total = 0
@@ -127,7 +128,7 @@ def main():
             )
 
         # Decode only the generated part (skip prompt)
-        generated_ids = output[0][input_ids.shape[1]:].tolist()
+        generated_ids = output[0][input_ids.shape[1] :].tolist()
         response = tokenizer.batch_decode([generated_ids], skip_special_tokens=True)[0]
         pred = extract_answer(response)
         is_correct = pred == gold_answer
@@ -136,33 +137,39 @@ def main():
             correct += 1
         total += 1
 
-        results.append({
-            "question": question[:100] + "..." if len(question) > 100 else question,
-            "gold": gold_answer,
-            "pred": pred,
-            "correct": is_correct,
-            "response": response[:200] + "..." if len(response) > 200 else response,
-        })
+        results.append(
+            {
+                "question": question[:100] + "..." if len(question) > 100 else question,
+                "gold": gold_answer,
+                "pred": pred,
+                "correct": is_correct,
+                "response": response[:200] + "..." if len(response) > 200 else response,
+            }
+        )
 
         if total % 10 == 0:
-            print(f"  Accuracy: {correct}/{total} = {100*correct/total:.2f}%")
+            print(f"  Accuracy: {correct}/{total} = {100 * correct / total:.2f}%")
 
     accuracy = 100 * correct / total
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Final Accuracy: {correct}/{total} = {accuracy:.2f}%")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     output_path = Path("outputs/gsm8k_ic_eval_results.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
-        json.dump({
-            "model": config.trainer.load_from_hf,
-            "inference": "IronCore",
-            "accuracy": accuracy,
-            "correct": correct,
-            "total": total,
-            "results": results,
-        }, f, indent=2)
+        json.dump(
+            {
+                "model": config.trainer.load_from_hf,
+                "inference": "IronCore",
+                "accuracy": accuracy,
+                "correct": correct,
+                "total": total,
+                "results": results,
+            },
+            f,
+            indent=2,
+        )
     print(f"Results saved to {output_path}")
 
 

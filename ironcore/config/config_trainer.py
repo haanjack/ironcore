@@ -14,7 +14,10 @@ class TrainerConfig(BaseConfig):
     config_path: str | None = field(default=None, metadata={"help": "config file path"})
     model_path: str = field(default="", metadata={"help": "model save/load dir"})
     load_from_hf: str | None = field(
-        default=None, metadata={"help": "HuggingFace model name/path to load pretrained weights (e.g., 'Qwen/Qwen2.5-0.5B-Instruct')"}
+        default=None,
+        metadata={
+            "help": "HuggingFace model name/path to load pretrained weights (e.g., 'Qwen/Qwen2.5-0.5B-Instruct')"
+        },
     )
 
     micro_batch_size: int | None = field(default=2, metadata={"help": "micro batch size"})

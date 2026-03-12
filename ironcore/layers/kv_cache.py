@@ -190,7 +190,7 @@ class KVCacheManager:
             # Update cache positions
             self.cache_positions = positions + seq_len
             max_end_pos = self.cache_positions.max().item()
-            
+
             full_key = self.key_caches[layer_idx][:, :max_end_pos]
             full_value = self.value_caches[layer_idx][:, :max_end_pos]
 
@@ -199,7 +199,9 @@ class KVCacheManager:
             end_pos = start_pos + seq_len
 
             if end_pos > self.cache_config.max_seq_length:
-                raise RuntimeError(f"Cache overflow: {end_pos} > {self.cache_config.max_seq_length}")
+                raise RuntimeError(
+                    f"Cache overflow: {end_pos} > {self.cache_config.max_seq_length}"
+                )
 
             # Direct slice assignment - NO TRANSPOSES
             self.key_caches[layer_idx][:, start_pos:end_pos] = key

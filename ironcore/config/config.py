@@ -39,7 +39,7 @@ class BaseConfig:
         return cls
 
     @classmethod
-    def _type_checker(cls, var):
+    def _type_checker(cls, var):  # noqa: PLR0911
         """check if arguments' data type is correct"""
         for field_name, field_type in cls.__annotations__.items():
             input_field_value = getattr(var, field_name)
@@ -52,7 +52,7 @@ class BaseConfig:
             if origin is list or (isinstance(field_type, type) and issubclass(field_type, list)):
                 if not isinstance(input_field_value, list):
                     return False
-                
+
                 # If it's list[T], check element types
                 if args:
                     inner_type = args[0]

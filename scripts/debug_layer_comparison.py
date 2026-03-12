@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Debug script to compare HF and IronCore layer outputs step by step."""
 
-import sys
 import os
+import sys
 
 # Set up paths
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -11,51 +11,49 @@ sys.path.insert(0, project_dir)
 os.chdir(project_dir)
 
 # Set environment variables for config validation
-os.environ['WORLD_SIZE'] = '2'
+os.environ["WORLD_SIZE"] = "2"
 
-sys.argv = ['debug', '--config-path', 'configs/grpo_gsm8k_smoke.yaml']
+sys.argv = ["debug", "--config-path", "configs/grpo_gsm8k_smoke.yaml"]
 
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer as HFAutoTokenizer
-from huggingface_hub import snapshot_download
+import torch  # noqa: E402
+from huggingface_hub import snapshot_download  # noqa: E402
+from transformers import AutoModelForCausalLM  # noqa: E402
+from transformers import AutoTokenizer as HFAutoTokenizer  # noqa: E402
 
 # HF setup
 print("=== Loading HF Model ===")
 hf_model = AutoModelForCausalLM.from_pretrained(
-    'Qwen/Qwen2.5-0.5B-Instruct', torch_dtype=torch.bfloat16, device_map='auto'
+    "Qwen/Qwen2.5-0.5B-Instruct", torch_dtype=torch.bfloat16, device_map="auto"
 )
-hf_tokenizer = HFAutoTokenizer.from_pretrained('Qwen/Qwen2.5-0.5B-Instruct')
+hf_tokenizer = HFAutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
 hf_model.eval()
 
 # IC setup
 print("\n=== Loading IronCore Model ===")
-from ironcore import get_tokenizer
-from ironcore.config import load_trainer_config
-from ironcore.global_vars import set_global_states
-from ironcore.language_model import LanguageModel
-from ironcore.parallel.parallel_states import initialize_model_parallel
-from ironcore.checkpointing.hf_interop import load_from_huggingface
+from ironcore.checkpointing.hf_interop import load_from_huggingface  # noqa: E402
+from ironcore.config import load_trainer_config  # noqa: E402
+from ironcore.global_vars import set_global_states  # noqa: E402
+from ironcore.language_model import LanguageModel  # noqa: E402
+from ironcore.parallel.parallel_states import initialize_model_parallel  # noqa: E402
 
 config = load_trainer_config()
 initialize_model_parallel(1, timeout_in_minutes=10)
 set_global_states(config)
-ic_model = LanguageModel(config).to('cuda')
+ic_model = LanguageModel(config).to("cuda")
 cache_dir = snapshot_download(config.trainer.load_from_hf)
-load_from_huggingface(cache_dir, ic_model, 'qwen2', strict=False)
+load_from_huggingface(cache_dir, ic_model, "qwen2", strict=False)
 ic_model.eval()
 
 # Prepare input
-messages = [{'role': 'user', 'content': 'What is 2+2?'}]
-hf_enc = hf_tokenizer.apply_chat_template(
-    messages, add_generation_prompt=True, return_tensors='pt'
-)
-if hasattr(hf_enc, 'input_ids'):
-    input_ids = hf_enc['input_ids']
+messages = [{"role": "user", "content": "What is 2+2?"}]
+hf_enc = hf_tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+if hasattr(hf_enc, "input_ids"):
+    input_ids = hf_enc["input_ids"]
 elif isinstance(hf_enc, dict):
-    input_ids = hf_enc['input_ids']
+    input_ids = hf_enc["input_ids"]
 else:
     input_ids = hf_enc
-input_ids = input_ids.to('cuda')
+input_ids = input_ids.to("cuda")
 
 print(f"\nInput IDs: {input_ids}")
 print(f"Input shape: {input_ids.shape}")
@@ -149,7 +147,7 @@ with torch.no_grad():
 print("\n=== Step 4: Full Layer 0 Output ===")
 # Get position embeddings for RoPE
 seq_len = input_ids.shape[1]
-position_ids = torch.arange(seq_len, device='cuda').unsqueeze(0)
+position_ids = torch.arange(seq_len, device="cuda").unsqueeze(0)
 
 with torch.no_grad():
     # HF full forward through layer 0
@@ -170,6 +168,8 @@ with torch.no_grad():
     )
 
 layer0_diff = (hf_layer0_out.float() - ic_layer0_out.float()).abs()
-print(f"Layer 0 output diff: max={layer0_diff.max().item():.6f}, mean={layer0_diff.mean().item():.6f}")
+print(
+    f"Layer 0 output diff: max={layer0_diff.max().item():.6f}, mean={layer0_diff.mean().item():.6f}"
+)
 
 print("\n=== Done ===")

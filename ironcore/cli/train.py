@@ -118,10 +118,14 @@ def run_train(args):
 
         # Validate GRPO-specific parameters
         if config.alignment.grpo_beta <= 0:
-            _print(f"Error: alignment.grpo_beta should be positive, got {config.alignment.grpo_beta}")
+            _print(
+                f"Error: alignment.grpo_beta should be positive, got {config.alignment.grpo_beta}"
+            )
             sys.exit(1)
         if config.alignment.grpo_group_size <= 0:
-            _print(f"Error: alignment.grpo_group_size should be positive, got {config.alignment.grpo_group_size}")
+            _print(
+                f"Error: alignment.grpo_group_size should be positive, got {config.alignment.grpo_group_size}"
+            )
             sys.exit(1)
 
         _print("Using GRPOTrainer for Group Relative Policy Optimization")

@@ -318,7 +318,10 @@ class UniversalCollator:
 
 
 def create_collator(
-    mode: Literal["pretrain", "sft", "dpo", "grpo"], max_seq_len: int, pad_token_id: int = 0, **kwargs
+    mode: Literal["pretrain", "sft", "dpo", "grpo"],
+    max_seq_len: int,
+    pad_token_id: int = 0,
+    **kwargs,
 ) -> UniversalCollator:
     """
     Factory function to create collator.

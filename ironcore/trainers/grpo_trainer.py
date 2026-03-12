@@ -210,7 +210,9 @@ class GRPOTrainer(BaseTrainer):
         # Reference model is on GPU - direct inference
         ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
         ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-        ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
+        ref_log_probs_token = self._compute_token_log_probs_from_logits(
+            ref_logits, labels, response_mask
+        )
 
         return ref_log_probs_token.detach()
 
@@ -351,12 +353,16 @@ class GRPOTrainer(BaseTrainer):
             raise RuntimeError("Reward worker not initialized. Call _post_checkpoint_load first.")
 
         prompts_text = self._tokenizer.batch_decode(prompt_ids, skip_special_tokens=True)
-        responses_text = self._tokenizer.batch_decode(rollout.response_ids, skip_special_tokens=True)
+        responses_text = self._tokenizer.batch_decode(
+            rollout.response_ids, skip_special_tokens=True
+        )
 
         # Store for metrics computation
         self._current_responses_text = responses_text
         # Compute response lengths (non-padding tokens)
-        self._current_response_lengths = (rollout.response_ids != self._tokenizer.pad_token_id).sum(dim=1).float()
+        self._current_response_lengths = (
+            (rollout.response_ids != self._tokenizer.pad_token_id).sum(dim=1).float()
+        )
 
         # Correctly repeat each prompt G times to match response expansion order
         repeated_prompts = [p for p in prompts_text for _ in range(G)]
@@ -449,7 +455,9 @@ class GRPOTrainer(BaseTrainer):
             device = self._get_compute_device()
             ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
             ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-            ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
+            ref_log_probs_token = self._compute_token_log_probs_from_logits(
+                ref_logits, labels, response_mask
+            )
             return ref_log_probs_token.detach()
 
     def _compute_grpo_loss(
@@ -467,11 +475,15 @@ class GRPOTrainer(BaseTrainer):
         policy_output = self.model(rollout.completion_ids.to(device), labels=None)
         # Handle tuple return (logits, kv_cache) when model is in eval mode
         policy_logits = policy_output[0] if isinstance(policy_output, tuple) else policy_output
-        policy_log_probs_token = self._compute_token_log_probs_from_logits(policy_logits, labels, response_mask)
+        policy_log_probs_token = self._compute_token_log_probs_from_logits(
+            policy_logits, labels, response_mask
+        )
 
         # Compute approximate KL divergence using token-level log probs
         # kl_divergence_approx: (policy_log_probs - ref_log_probs).sum(dim=-1)
-        kl_per_seq = kl_divergence_approx(policy_log_probs_token, ref_log_probs.to(device), response_mask)
+        kl_per_seq = kl_divergence_approx(
+            policy_log_probs_token, ref_log_probs.to(device), response_mask
+        )
 
         # Sum token-level log probs for sequence-level advantage multiplication
         policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1)
@@ -513,7 +525,6 @@ class GRPOTrainer(BaseTrainer):
             per_token_logps[valid_mask] = token_logps
 
         return per_token_logps
-
 
     def _compute_sequence_log_probs_from_logits(
         self, logits: torch.Tensor, labels: torch.Tensor, mask: torch.Tensor
@@ -612,22 +623,24 @@ class GRPOTrainer(BaseTrainer):
             best_idx = int(group_rewards.argmax().item())
             worst_idx = int(group_rewards.argmin().item())
 
-            prompt_preview = prompts_text[i][:100] + "..." if len(prompts_text[i]) > 100 else prompts_text[i]
+            prompt_preview = (
+                prompts_text[i][:100] + "..." if len(prompts_text[i]) > 100 else prompts_text[i]
+            )
             best_response = group_responses[best_idx]
             worst_response = group_responses[worst_idx]
             ground_truth = metadata[start_idx].get("answer", "N/A")
 
             self.logger.info(
-                f"\n{'='*60}\n"
+                f"\n{'=' * 60}\n"
                 f"[Step {step}] Sample {i}\n"
-                f"{'='*60}\n"
+                f"{'=' * 60}\n"
                 f"Prompt: {prompt_preview}\n"
                 f"Ground truth: {ground_truth}\n"
                 f"--- Best (reward={group_rewards[best_idx].item():.2f}) ---\n"
                 f"{best_response[:500]}{'...' if len(best_response) > 500 else ''}\n"
                 f"--- Worst (reward={group_rewards[worst_idx].item():.2f}) ---\n"
                 f"{worst_response[:300]}{'...' if len(worst_response) > 300 else ''}\n"
-                f"{'='*60}"
+                f"{'=' * 60}"
             )
 
     def _eval_step(self, data_iterator: Iterator) -> tuple[float, float]:

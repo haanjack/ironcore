@@ -59,7 +59,9 @@ def compute_advantages(
 
                 # 1. Gather sizes to handle non-uniform batching
                 local_size_t = torch.tensor([rewards.numel()], device=device)
-                all_sizes_t = [torch.zeros(1, dtype=torch.long, device=device) for _ in range(world_size)]
+                all_sizes_t = [
+                    torch.zeros(1, dtype=torch.long, device=device) for _ in range(world_size)
+                ]
                 dist.all_gather(all_sizes_t, local_size_t, group=group)
 
                 all_sizes = [s.item() for s in all_sizes_t]
@@ -67,13 +69,19 @@ def compute_advantages(
 
                 # 2. Pad tensors to max_size for all_gather
                 padded_rewards = torch.zeros(max_size, device=device, dtype=rewards.dtype)
-                padded_rewards[:rewards.numel()] = rewards
+                padded_rewards[: rewards.numel()] = rewards
 
                 padded_group_ids = torch.full((max_size,), -1, device=device, dtype=group_ids.dtype)
-                padded_group_ids[:group_ids.numel()] = group_ids
+                padded_group_ids[: group_ids.numel()] = group_ids
 
-                gathered_rewards = [torch.zeros(max_size, device=device, dtype=rewards.dtype) for _ in range(world_size)]
-                gathered_group_ids = [torch.zeros(max_size, device=device, dtype=group_ids.dtype) for _ in range(world_size)]
+                gathered_rewards = [
+                    torch.zeros(max_size, device=device, dtype=rewards.dtype)
+                    for _ in range(world_size)
+                ]
+                gathered_group_ids = [
+                    torch.zeros(max_size, device=device, dtype=group_ids.dtype)
+                    for _ in range(world_size)
+                ]
 
                 dist.all_gather(gathered_rewards, padded_rewards, group=group)
                 dist.all_gather(gathered_group_ids, padded_group_ids, group=group)
@@ -88,7 +96,9 @@ def compute_advantages(
                 local_start = 0
                 local_end = 0
 
-                for i, (g_r, g_g) in enumerate(zip(gathered_rewards, gathered_group_ids, strict=True)):
+                for i, (g_r, g_g) in enumerate(
+                    zip(gathered_rewards, gathered_group_ids, strict=True)
+                ):
                     size = all_sizes[i]
                     # Extract active portion and offset group IDs to be globally unique
                     rank_group_ids = g_g[:size]

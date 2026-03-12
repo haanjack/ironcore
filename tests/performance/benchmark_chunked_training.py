@@ -89,7 +89,9 @@ def create_config(seq_len, chunk_size, tp_size, use_flash_attn=False):
             dropout_attn=0.0,
             dropout_mlp=0.0,
             dropout_embd=0.0,
-            attention_bias=True, mlp_bias=True, layernorm_bias=True,
+            attention_bias=True,
+            mlp_bias=True,
+            layernorm_bias=True,
             precision="bfloat16",
         ),
         trainer=TrainerConfig(

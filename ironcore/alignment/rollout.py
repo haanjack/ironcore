@@ -241,7 +241,7 @@ def generate_rollouts_batched(
 
         # Forward with cached KV
         logits, past_kv = model.forward(
-            generated[:, t-1 : t],  # Only last token
+            generated[:, t - 1 : t],  # Only last token
             labels=None,
             use_cache=True,
             past_key_values=past_kv,

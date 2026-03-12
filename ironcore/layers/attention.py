@@ -80,6 +80,7 @@ class Attention(BaseModule):
 
         # Reshape to [b, sq, n*d]
         from einops import rearrange
+
         context_output = rearrange(context_output, "b q n d -> b q (n d)")
         return context_output
 

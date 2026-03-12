@@ -32,9 +32,9 @@ class TestAdvantageNormalization:
         # Sum of advantages within each group should be 0
         for g in group_ids.unique():
             group_advantages = advantages[group_ids == g]
-            assert torch.allclose(
-                group_advantages.sum(), torch.tensor(0.0), atol=1e-6
-            ), f"Group {g}: sum of advantages = {group_advantages.sum()} (expected 0)"
+            assert torch.allclose(group_advantages.sum(), torch.tensor(0.0), atol=1e-6), (
+                f"Group {g}: sum of advantages = {group_advantages.sum()} (expected 0)"
+            )
 
     def test_advantage_std_is_one(self):
         """Verify that std of advantages within a group is 1 (for non-constant rewards)."""
@@ -49,9 +49,9 @@ class TestAdvantageNormalization:
         for g in group_ids.unique():
             group_advantages = advantages[group_ids == g]
             std = group_advantages.std()
-            assert torch.allclose(
-                std, torch.tensor(1.0), atol=1e-5
-            ), f"Group {g}: std of advantages = {std} (expected 1)"
+            assert torch.allclose(std, torch.tensor(1.0), atol=1e-5), (
+                f"Group {g}: std of advantages = {std} (expected 1)"
+            )
 
     def test_identical_rewards_zero_advantage(self):
         """Verify that identical rewards produce exactly 0 advantage."""
@@ -149,9 +149,7 @@ class TestKLDivergence:
         # Unmasked KL should be larger (includes more tokens)
         kl_unmasked = kl_divergence(log_probs_q, log_probs_p)
 
-        assert (kl_masked <= kl_unmasked + 1e-5).all(), (
-            "Masked KL should be <= unmasked KL"
-        )
+        assert (kl_masked <= kl_unmasked + 1e-5).all(), "Masked KL should be <= unmasked KL"
 
     def test_kl_numerical_stability(self):
         """Test KL divergence with extreme log probabilities."""

@@ -56,7 +56,9 @@ def create_model_config(tp_size=1):
         max_seq_len=64,
         max_position_embeddings=64,
         dropout_attn=0.0,
-        attention_bias=True, mlp_bias=True, layernorm_bias=True,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
     )
     model_config.name = "gpt2"
     model_config.hf_model_type = "gpt2"

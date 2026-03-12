@@ -42,6 +42,7 @@ from torch import nn
 # Part A: Infrastructure Integration Tests
 # =============================================================================
 
+
 class TestKVCachePipeline:
     """Test KV-cache creation, expansion, and generation pipeline."""
 
@@ -81,7 +82,8 @@ class TestKVCachePipeline:
         past_kv = [
             (
                 torch.arange(B).float().view(B, 1, 1, 1).expand(B, num_heads, seq_len, head_dim),
-                torch.arange(B).float().view(B, 1, 1, 1).expand(B, num_heads, seq_len, head_dim) + 100,
+                torch.arange(B).float().view(B, 1, 1, 1).expand(B, num_heads, seq_len, head_dim)
+                + 100,
             )
         ]
 
@@ -275,11 +277,15 @@ class TestRewardWorkerPool:
         pool.shutdown()
 
         # Results should match
-        assert torch.allclose(rewards_parallel, torch.tensor(rewards_sequential, dtype=torch.float32))
+        assert torch.allclose(
+            rewards_parallel, torch.tensor(rewards_sequential, dtype=torch.float32)
+        )
 
         # Parallel should be faster (or at least not much slower due to overhead)
         # For small batches, overhead may dominate, so we just verify it works
-        print(f"\nParallel: {parallel_time*1000:.1f}ms, Sequential: {sequential_time*1000:.1f}ms")
+        print(
+            f"\nParallel: {parallel_time * 1000:.1f}ms, Sequential: {sequential_time * 1000:.1f}ms"
+        )
 
     def test_timeout_returns_default_reward(self):
         """Verify timeout returns neutral reward (0.5)."""
@@ -288,6 +294,7 @@ class TestRewardWorkerPool:
         class SlowRewardFunction(RewardFunction):
             def compute(self, prompt, completion, metadata):
                 import time
+
                 time.sleep(10)  # Intentionally slow
                 return 1.0
 
@@ -350,7 +357,9 @@ class TestRewardWorkerPool:
 class TestDatasetAndTokenizer:
     """Test dataset loading and tokenizer integration."""
 
-    @pytest.mark.skip(reason="GRPODataset requires global tokenizer state; test with ironcore train CLI")
+    @pytest.mark.skip(
+        reason="GRPODataset requires global tokenizer state; test with ironcore train CLI"
+    )
     def test_jsonl_loading_preserves_metadata(self):
         """Verify JSONL file loads with all metadata fields."""
         from unittest.mock import MagicMock
@@ -366,9 +375,13 @@ class TestDatasetAndTokenizer:
         mock_tokenizer.batch_decode = MagicMock(return_value=["decoded text"])
 
         # Create temp JSONL file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-            f.write('{"prompt": "Question 1", "answer": "42", "type": "math", "difficulty": "hard"}\n')
-            f.write('{"prompt": "Question 2", "answer": "3.14", "type": "math", "extra": {"key": "value"}}\n')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            f.write(
+                '{"prompt": "Question 1", "answer": "42", "type": "math", "difficulty": "hard"}\n'
+            )
+            f.write(
+                '{"prompt": "Question 2", "answer": "3.14", "type": "math", "extra": {"key": "value"}}\n'
+            )
             temp_path = Path(f.name)
 
         try:
@@ -407,13 +420,15 @@ class TestDatasetAndTokenizer:
 
         mock_tokenizer = MagicMock(side_effect=mock_tokenize)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             f.write('{"prompt": "Short prompt", "answer": "test"}\n')
             f.write('{"prompt": "This is a much longer prompt for testing", "answer": "test2"}\n')
             temp_path = Path(f.name)
 
         try:
-            dataset = GRPODataset(temp_path, max_prompt_length=32, shuffle=False, tokenizer=mock_tokenizer)
+            dataset = GRPODataset(
+                temp_path, max_prompt_length=32, shuffle=False, tokenizer=mock_tokenizer
+            )
             samples = list(dataset)
 
             # Attention mask should be 1 for valid tokens, 0 for padding
@@ -431,6 +446,7 @@ class TestFSDPDistributed:
 
     def test_reference_model_creation_from_state_dict(self):
         """Verify reference model can be created from FSDP-like state dict."""
+
         # Mock FSDP state dict extraction
         class MockModel(nn.Module):
             def __init__(self, config):
@@ -446,13 +462,16 @@ class TestFSDPDistributed:
 
         # Create reference model
         import copy
+
         reference = copy.deepcopy(model)
 
         # Verify state dict loads
         reference.load_state_dict(state_dict, strict=True)
 
         # Verify parameters match
-        for (name1, p1), (name2, p2) in zip(model.named_parameters(), reference.named_parameters(), strict=False):
+        for (name1, p1), (name2, p2) in zip(
+            model.named_parameters(), reference.named_parameters(), strict=False
+        ):
             assert torch.equal(p1, p2), f"Parameter {name1} mismatch"
 
     def test_advantage_allgather_logic(self):
@@ -494,7 +513,9 @@ class TestMemoryLifecycle:
             return RolloutBuffer(
                 prompt_ids=torch.randint(0, 100, (B, prompt_len), device=device),
                 prompt_attention_mask=torch.ones(B, prompt_len, device=device),
-                completion_ids=torch.randint(0, 100, (B * G, prompt_len + response_len), device=device),
+                completion_ids=torch.randint(
+                    0, 100, (B * G, prompt_len + response_len), device=device
+                ),
                 response_ids=torch.randint(0, 100, (B * G, response_len), device=device),
                 old_log_probs=torch.randn(B * G, device=device),
                 rewards=torch.zeros(B * G, device=device),
@@ -562,6 +583,7 @@ class TestMemoryLifecycle:
 # =============================================================================
 # Part B: Algorithm Integration Tests
 # =============================================================================
+
 
 class TestSingleStepPipeline:
     """Test single forward pass through all components."""
@@ -775,6 +797,7 @@ class TestGradientFlow:
 # Part C: End-to-End Validation
 # =============================================================================
 
+
 class TestEndToEndValidation:
     """End-to-end validation tests."""
 
@@ -793,7 +816,9 @@ class TestEndToEndValidation:
         for step in range(10):
             # Rewards improve over time
             base_reward = step * 0.1
-            rewards = torch.tensor([base_reward, base_reward + 0.5, base_reward + 1.0, base_reward + 0.2])
+            rewards = torch.tensor(
+                [base_reward, base_reward + 0.5, base_reward + 1.0, base_reward + 0.2]
+            )
             group_ids = torch.tensor([0, 0, 0, 0])
 
             advantages = compute_advantages(rewards, group_ids, distributed=False)
@@ -889,6 +914,7 @@ class TestEndToEndValidation:
 # =============================================================================
 # Test Runner Summary
 # =============================================================================
+
 
 def test_integration_summary():
     """Print summary of integration test coverage."""

@@ -86,12 +86,12 @@ class MathRewardFunction(RewardFunction):
             match = re.search(pattern, text)
             if match:
                 return match.group(1).strip()
-                
+
         if not self.strict:
             # Fallback: last number in text
             numbers = re.findall(r"-?\d+\.?\d*", text)
             return numbers[-1] if numbers else ""
-            
+
         return ""
 
     def _normalize_answer(self, answer: str) -> str:
@@ -169,10 +169,10 @@ class FormatRewardFunction(RewardFunction):
 
 class StrictFormatRewardFunction(RewardFunction):
     """Reward for enforcing exact regex format matching.
-    
+
     Useful for strict reasoning protocols (e.g. DeepSeekMath format).
     """
-    
+
     def __init__(
         self,
         pattern: str = r"<think>.*?</think>\s*####\s*.*",
@@ -216,7 +216,9 @@ class SoftKeywordRewardFunction(RewardFunction):
     Score = (matching characters) / (total characters)
     """
 
-    def __init__(self, keyword: str = "ironcore", case_sensitive: bool = False, min_score: float = 0.0):
+    def __init__(
+        self, keyword: str = "ironcore", case_sensitive: bool = False, min_score: float = 0.0
+    ):
         self.keyword = keyword
         self.case_sensitive = case_sensitive
         self.min_score = min_score
@@ -238,8 +240,9 @@ class SoftKeywordRewardFunction(RewardFunction):
         best_score = 0.0
         for i in range(len(text) - n + 1):
             ngram = text[i : i + n]
-            matches = sum(1 for a, b in zip(ngram, target) if a == b)
+            matches = sum(1 for a, b in zip(ngram, target, strict=True) if a == b)
             score = matches / n
+
             best_score = max(best_score, score)
 
         return max(best_score, self.min_score)
@@ -369,13 +372,23 @@ Score:""",
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
         # Use JSON for faster hashing of complex metadata
         metadata_str = json.dumps(metadata, sort_keys=True)
-        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata)
+        return self._compute_cached(
+            hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata
+        )
 
     def _make_hashable(self, obj):
         """Deprecated: use json.dumps for hashing metadata."""
         return json.dumps(obj, sort_keys=True)
 
-    def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
+    def _compute_cached(
+        self,
+        _prompt_hash: int,
+        _completion_hash: int,
+        _metadata_hash: int,
+        prompt: str,
+        completion: str,
+        metadata: dict,
+    ) -> float:
         """Cached computation. Hash args are for cache key only."""
         # Rate limiting
         elapsed = time.time() - self._last_call_time
@@ -489,13 +502,23 @@ class LocalEndpointRewardFunction(RewardFunction):
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
         # Use JSON for faster hashing of complex metadata
         metadata_str = json.dumps(metadata, sort_keys=True)
-        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata)
+        return self._compute_cached(
+            hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata
+        )
 
     def _make_hashable(self, obj):
         """Deprecated: use json.dumps for hashing metadata."""
         return json.dumps(obj, sort_keys=True)
 
-    def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
+    def _compute_cached(
+        self,
+        _prompt_hash: int,
+        _completion_hash: int,
+        _metadata_hash: int,
+        prompt: str,
+        completion: str,
+        metadata: dict,
+    ) -> float:
         try:
             eval_prompt = self._prompt_template.format(
                 prompt=prompt,
@@ -595,13 +618,23 @@ class LocalInferenceRewardFunction(RewardFunction):
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
         # Use JSON for faster hashing of complex metadata
         metadata_str = json.dumps(metadata, sort_keys=True)
-        return self._compute_cached(hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata)
+        return self._compute_cached(
+            hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata
+        )
 
     def _make_hashable(self, obj):
         """Deprecated: use json.dumps for hashing metadata."""
         return json.dumps(obj, sort_keys=True)
 
-    def _compute_cached(self, _prompt_hash: int, _completion_hash: int, _metadata_hash: int, prompt: str, completion: str, metadata: dict) -> float:
+    def _compute_cached(
+        self,
+        _prompt_hash: int,
+        _completion_hash: int,
+        _metadata_hash: int,
+        prompt: str,
+        completion: str,
+        metadata: dict,
+    ) -> float:
         try:
             eval_prompt = self._prompt_template.format(
                 prompt=prompt,
@@ -635,7 +668,9 @@ class LocalInferenceRewardFunction(RewardFunction):
         if token_ids:
             probs = torch.softmax(logits[0], dim=-1)
             number_probs = probs[token_ids]
-            scores = torch.tensor([float(t) / 10.0 for t in number_tokens[: len(token_ids)]], device=probs.device)
+            scores = torch.tensor(
+                [float(t) / 10.0 for t in number_tokens[: len(token_ids)]], device=probs.device
+            )
             return (number_probs * scores).sum().item()
 
         next_token = logits.argmax(dim=-1).item()

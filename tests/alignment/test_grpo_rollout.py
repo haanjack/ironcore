@@ -18,17 +18,23 @@ from torch import nn
 class MockLanguageModel(nn.Module):
     """Mock model for testing rollout logic without full model."""
 
-    def __init__(self, vocab_size: int = 100, hidden_size: int = 64, num_layers: int = 2, num_heads: int = 4):
+    def __init__(
+        self, vocab_size: int = 100, hidden_size: int = 64, num_layers: int = 2, num_heads: int = 4
+    ):
         super().__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
         self.embedding = nn.Embedding(vocab_size, hidden_size)
-        self.layers = nn.ModuleList([
-            nn.TransformerEncoderLayer(hidden_size, num_heads, hidden_size * 4, batch_first=True)
-            for _ in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                nn.TransformerEncoderLayer(
+                    hidden_size, num_heads, hidden_size * 4, batch_first=True
+                )
+                for _ in range(num_layers)
+            ]
+        )
         self.output_proj = nn.Linear(hidden_size, vocab_size, bias=False)
 
     def forward(self, input_ids, labels=None, use_cache=False, past_key_values=None):
@@ -102,7 +108,8 @@ class TestKVCacheExpansion:
         past_kv = [
             (
                 torch.arange(B).float().view(B, 1, 1, 1).expand(B, num_heads, seq_len, head_dim),
-                torch.arange(B).float().view(B, 1, 1, 1).expand(B, num_heads, seq_len, head_dim) + 100,
+                torch.arange(B).float().view(B, 1, 1, 1).expand(B, num_heads, seq_len, head_dim)
+                + 100,
             )
         ]
 
@@ -147,7 +154,9 @@ class TestBatchedSampling:
         logits = torch.randn(4, 100)
 
         # Greedy sampling
-        tokens = _sample_tokens_batched(logits, temperature=1.0, top_p=1.0, top_k=0, do_sample=False)
+        tokens = _sample_tokens_batched(
+            logits, temperature=1.0, top_p=1.0, top_k=0, do_sample=False
+        )
 
         expected = logits.argmax(dim=-1, keepdim=True)
         assert torch.equal(tokens, expected), "Greedy sampling should return argmax"
@@ -161,9 +170,7 @@ class TestBatchedSampling:
         logits[0, 0] = 10.0  # Strong preference for token 0
 
         # Low temperature should concentrate probability on token 0
-        _sample_tokens_batched(
-            logits.clone(), temperature=0.1, top_p=1.0, top_k=0, do_sample=True
-        )
+        _sample_tokens_batched(logits.clone(), temperature=0.1, top_p=1.0, top_k=0, do_sample=True)
 
         # High temperature should spread probability more
         # Sample many times to check distribution

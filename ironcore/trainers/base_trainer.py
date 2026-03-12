@@ -118,10 +118,7 @@ class BaseTrainer(ABC):
         )
 
         # Initialize expert parallelism if MoE is enabled with EP > 1
-        if (
-            self.config.model.moe.use_moe
-            and self.config.model.moe.expert_model_parallel_size > 1
-        ):
+        if self.config.model.moe.use_moe and self.config.model.moe.expert_model_parallel_size > 1:
             from ironcore.parallel.expert_parallel import initialize_expert_parallel
 
             initialize_expert_parallel(
@@ -164,9 +161,7 @@ class BaseTrainer(ABC):
                 device_type=get_device(), dtype=get_model_dtype(self.config)
             )
 
-        self.scaler = torch.amp.GradScaler(
-            enabled=(get_model_dtype(self.config) == torch.float16)
-        )
+        self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(self.config) == torch.float16))
 
         self._initialized = True
         self.logger.info("Resources acquired successfully.")
@@ -415,9 +410,7 @@ class BaseTrainer(ABC):
 
             if self.control.do_checkpoint(step):
                 self._on_checkpoint_save(step)
-                save_checkpoint(
-                    self.config, self.model, self.optimizer, self.lr_scheduler, step
-                )
+                save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
                 if self.control.do_eval(step):
                     self.evaluate(step)
@@ -434,16 +427,12 @@ class BaseTrainer(ABC):
 
         # Final checkpoint if needed
         if self.control.do_final_checkpoint(step, last_step):
-            save_checkpoint(
-                self.config, self.model, self.optimizer, self.lr_scheduler, step
-            )
+            save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
         if self.config.trainer.do_test:
             self.test()
 
-        self.logger.info(
-            f"Total training time: {(self.timer.get('total') / 3600):.2f} hours"
-        )
+        self.logger.info(f"Total training time: {(self.timer.get('total') / 3600):.2f} hours")
         self.logger.info("Finishing training")
 
     @abstractmethod
@@ -484,9 +473,7 @@ class BaseTrainer(ABC):
         total_metrics: dict[str, float] = {}
 
         for i in range(self.config.trainer.gradient_accumulation_steps):
-            is_last_accum_step = (
-                i == self.config.trainer.gradient_accumulation_steps - 1
-            )
+            is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
 
             # Disable gradient sync for intermediate accumulation steps (DDP/FSDP)
             backward_sync_ctx = (
@@ -500,9 +487,7 @@ class BaseTrainer(ABC):
                     loss, metrics = self._forward_micro_batch(step)
 
                     total_loss += loss.item()
-                    scaled_loss = (
-                        loss / self.config.trainer.gradient_accumulation_steps
-                    )
+                    scaled_loss = loss / self.config.trainer.gradient_accumulation_steps
 
                     # Accumulate metrics if provided
                     if metrics:
@@ -514,9 +499,7 @@ class BaseTrainer(ABC):
 
         return total_loss, total_metrics
 
-    def _forward_micro_batch(
-        self, step: int
-    ) -> tuple[torch.Tensor, dict[str, float] | None]:
+    def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
         """Forward pass for a single micro-batch.
 
         Subclasses must implement this method to define their forward logic.
@@ -552,9 +535,7 @@ class BaseTrainer(ABC):
 
         grad_norm = 0.0
         if self.config.optim.clip_grad > 0.0:
-            grad_norm = clip_grad_norm_tp(
-                self.model.parameters(), self.config.optim.clip_grad
-            )
+            grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
         elif self.control.do_grad_norm(step):
             grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
 
@@ -631,9 +612,7 @@ class BaseTrainer(ABC):
         # Try to save emergency checkpoint
         try:
             emergency_path = f"{self.config.trainer.model_path}_emergency_step{step}"
-            self.logger.info(
-                f"Attempting to save emergency checkpoint to {emergency_path}"
-            )
+            self.logger.info(f"Attempting to save emergency checkpoint to {emergency_path}")
             # Note: We intentionally don't save here to avoid overwriting good checkpoints
             # Users can manually save if needed
         except Exception as e:
@@ -688,26 +667,18 @@ class BaseTrainer(ABC):
             metrics["iter_time"] = iter_time
             if iter_time > 0:
                 tokens_per_sec = (
-                    self.config.trainer.train_batch_size
-                    * self.config.model.max_seq_len
-                    / iter_time
+                    self.config.trainer.train_batch_size * self.config.model.max_seq_len / iter_time
                 )
                 metrics["tokens_per_sec"] = tokens_per_sec
 
                 if self.mfu_calculator is not None:
-                    dp_world_size = (
-                        get_data_parallel_world_size()
-                        if dist.is_initialized()
-                        else 1
-                    )
+                    dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
                     micro_batch_size = self.config.trainer.micro_batch_size or 1
                     gradient_accumulation_steps = (
                         self.config.trainer.gradient_accumulation_steps or 1
                     )
                     global_batch_size = (
-                        micro_batch_size
-                        * gradient_accumulation_steps
-                        * dp_world_size
+                        micro_batch_size * gradient_accumulation_steps * dp_world_size
                     )
                     tflops = self.mfu_calculator.compute_tflops(
                         batch_size=global_batch_size,
@@ -731,9 +702,7 @@ class BaseTrainer(ABC):
                 get_detailed_memory_breakdown,
             )
 
-            breakdown = get_detailed_memory_breakdown(
-                self.model, self.optimizer, in_mib=True
-            )
+            breakdown = get_detailed_memory_breakdown(self.model, self.optimizer, in_mib=True)
             report = format_memory_report(breakdown, "Memory Breakdown")
             print(report, flush=True)
             self._memory_reported = True
@@ -744,13 +713,11 @@ class BaseTrainer(ABC):
             if self.config.profiler.data_load_profiler:
                 dl_stats = self.profiler.get_data_load_stats()
                 if dl_stats is not None and dl_stats["count"] > 0:
-                    metrics["data_load_ms_per_step"] = (
-                        dl_stats["total_ms"] / dl_stats["count"]
-                    )
+                    metrics["data_load_ms_per_step"] = dl_stats["total_ms"] / dl_stats["count"]
                     if timer is not None and iter_time > 0:
-                        metrics["data_load_ratio"] = metrics[
-                            "data_load_ms_per_step"
-                        ] / (iter_time * 1000.0)
+                        metrics["data_load_ratio"] = metrics["data_load_ms_per_step"] / (
+                            iter_time * 1000.0
+                        )
 
             log_msg = f"step: {step}, loss: {loss:.4f}, lr: {metrics['lr']:.6f}"
             if grad_norm > 0:
@@ -764,9 +731,7 @@ class BaseTrainer(ABC):
             if "data_load_ms_per_step" in metrics:
                 log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:
-                    log_msg += (
-                        f" ({metrics['data_load_ratio'] * 100:.1f}%)"
-                    )
+                    log_msg += f" ({metrics['data_load_ratio'] * 100:.1f}%)"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system
@@ -801,10 +766,7 @@ class BaseTrainer(ABC):
         if "eval" in self.data_iterator:
             total_loss = 0.0
             total_accuracy = 0.0
-            num_batches = (
-                self.config.operation.eval_samples
-                // self.config.trainer.eval_batch_size
-            )
+            num_batches = self.config.operation.eval_samples // self.config.trainer.eval_batch_size
             if num_batches == 0:
                 num_batches = 1
 

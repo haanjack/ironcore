@@ -193,7 +193,9 @@ class MockTokenizer:
             return "The answer is 42."
         return "Some response."
 
-    def batch_decode(self, batch_ids: list[list[int]], skip_special_tokens: bool = True) -> list[str]:
+    def batch_decode(
+        self, batch_ids: list[list[int]], skip_special_tokens: bool = True
+    ) -> list[str]:
         """Batch decode."""
         return [self.decode(ids, skip_special_tokens) for ids in batch_ids]
 
@@ -395,7 +397,9 @@ def main():
     parser.add_argument("--batch-size", type=int, default=4, help="Batch size")
     parser.add_argument("--group-size", type=int, default=4, help="Group size")
     parser.add_argument("--num-steps", type=int, default=100, help="Number of steps")
-    parser.add_argument("--output-dir", type=str, default="smoke_test_output", help="Output directory")
+    parser.add_argument(
+        "--output-dir", type=str, default="smoke_test_output", help="Output directory"
+    )
     args = parser.parse_args()
 
     # Create config

@@ -140,7 +140,9 @@ class TestExpertMLP:
         """Test expert with bias enabled."""
         num_tokens, hidden_size, intermediate_size = 32, 256, 512
 
-        config = create_test_config(hidden_size, intermediate_size, attention_bias=True, mlp_bias=True, layernorm_bias=True)
+        config = create_test_config(
+            hidden_size, intermediate_size, attention_bias=True, mlp_bias=True, layernorm_bias=True
+        )
         expert = ExpertMLP(config, hidden_size, intermediate_size, expert_id=0)
 
         assert expert.up_proj.bias is not None
@@ -154,7 +156,13 @@ class TestExpertMLP:
         """Test expert with bias disabled."""
         num_tokens, hidden_size, intermediate_size = 32, 256, 512
 
-        config = create_test_config(hidden_size, intermediate_size, attention_bias=False, mlp_bias=False, layernorm_bias=False)
+        config = create_test_config(
+            hidden_size,
+            intermediate_size,
+            attention_bias=False,
+            mlp_bias=False,
+            layernorm_bias=False,
+        )
         expert = ExpertMLP(config, hidden_size, intermediate_size, expert_id=0)
 
         assert expert.up_proj.bias is None

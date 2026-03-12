@@ -88,7 +88,9 @@ def create_config(
         max_seq_len=seq_len,
         max_position_embeddings=seq_len,
         dropout_attn=dropout,
-        attention_bias=True, mlp_bias=True, layernorm_bias=True,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
     )
 
     trainer_config = TrainerConfig(

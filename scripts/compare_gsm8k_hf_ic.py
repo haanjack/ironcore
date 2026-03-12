@@ -5,12 +5,10 @@
 """Compare GSM8K evaluation between HuggingFace and IronCore inference."""
 
 import argparse
-import json
 import os
 import re
 import sys
 import time
-from pathlib import Path
 
 import torch
 from datasets import load_dataset
@@ -30,10 +28,10 @@ def extract_answer(text: str, strict: bool = False) -> str | None:
     match = re.search(r"####\s*(-?\d[\d,]*)", text)
     if match:
         return match.group(1).replace(",", "")
-    
+
     if strict:
         return None
-        
+
     numbers = re.findall(r"-?\d[\d,]*", text)
     return numbers[-1].replace(",", "") if numbers else None
 
@@ -78,6 +76,7 @@ That means he writes 12*52=624 pages a year
 
 """
 
+
 def evaluate_huggingface(
     model_name: str,
     dataset,
@@ -87,9 +86,9 @@ def evaluate_huggingface(
     strict: bool = False,
 ) -> dict:
     """Evaluate using HuggingFace transformers."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Evaluating with HuggingFace (few_shot={few_shot}, strict={strict})")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
@@ -100,7 +99,9 @@ def evaluate_huggingface(
     )
     model.eval()
 
-    system_prompt = "Solve the math problem step by step. Put your final numerical answer after ####."
+    system_prompt = (
+        "Solve the math problem step by step. Put your final numerical answer after ####."
+    )
 
     correct = 0
     total = 0
@@ -132,7 +133,7 @@ def evaluate_huggingface(
                 input_ids = torch.tensor(result, dtype=torch.long).unsqueeze(0)
             else:
                 input_ids = result
-        
+
         input_ids = input_ids.to(model.device)
 
         with torch.no_grad():
@@ -144,7 +145,7 @@ def evaluate_huggingface(
                 repetition_penalty=1.0,
             )
 
-        generated_ids = output[0][input_ids.shape[1]:].tolist()
+        generated_ids = output[0][input_ids.shape[1] :].tolist()
         response = tokenizer.batch_decode([generated_ids], skip_special_tokens=True)[0]
         pred = extract_answer(response, strict=strict)
         is_correct = pred == gold_answer
@@ -153,14 +154,16 @@ def evaluate_huggingface(
             correct += 1
         total += 1
 
-        results.append({
-            "gold": gold_answer,
-            "pred": pred,
-            "correct": is_correct,
-            "response": response,
-        })
+        results.append(
+            {
+                "gold": gold_answer,
+                "pred": pred,
+                "correct": is_correct,
+                "response": response,
+            }
+        )
 
-    elapsed = time.time() - start_time
+    time.time() - start_time
     accuracy = 100 * correct / total
     return {
         "accuracy": accuracy,
@@ -179,9 +182,9 @@ def evaluate_ironcore(
     strict: bool = False,
 ) -> dict:
     """Evaluate using IronCore inference."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Evaluating with IronCore (few_shot={few_shot}, strict={strict})")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     from ironcore import get_tokenizer
     from ironcore.checkpointing import load_from_huggingface
@@ -192,14 +195,16 @@ def evaluate_ironcore(
 
     try:
         initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10)
-    except:
+    except Exception as e:
+        print(f"Warning: Failed to initialize model parallel: {e}")
         pass
 
     sys.argv = ["eval", "--config-path", config_path]
     config = load_trainer_config()
     try:
         set_global_states(config)
-    except:
+    except Exception as e:
+        print(f"Warning: Failed to set global states: {e}")
         pass
 
     cache_dir = snapshot_download(model_name)
@@ -208,7 +213,9 @@ def evaluate_ironcore(
     model.eval()
 
     tokenizer = get_tokenizer()
-    system_prompt = "Solve the math problem step by step. Put your final numerical answer after ####."
+    system_prompt = (
+        "Solve the math problem step by step. Put your final numerical answer after ####."
+    )
 
     correct = 0
     total = 0
@@ -238,7 +245,7 @@ def evaluate_ironcore(
                 input_ids = enc["input_ids"]
             else:
                 input_ids = enc
-        
+
         input_ids = input_ids.to(device=model.device, dtype=torch.long)
 
         with torch.no_grad():
@@ -249,7 +256,7 @@ def evaluate_ironcore(
                 eos_token_id=tokenizer.eos_token_id,
             )
 
-        generated_ids = output[0][input_ids.shape[1]:].tolist()
+        generated_ids = output[0][input_ids.shape[1] :].tolist()
         response = tokenizer.batch_decode([generated_ids], skip_special_tokens=True)[0]
         pred = extract_answer(response, strict=strict)
         is_correct = pred == gold_answer
@@ -258,14 +265,16 @@ def evaluate_ironcore(
             correct += 1
         total += 1
 
-        results.append({
-            "gold": gold_answer,
-            "pred": pred,
-            "correct": is_correct,
-            "response": response,
-        })
+        results.append(
+            {
+                "gold": gold_answer,
+                "pred": pred,
+                "correct": is_correct,
+                "response": response,
+            }
+        )
 
-    elapsed = time.time() - start_time
+    time.time() - start_time
     accuracy = 100 * correct / total
     return {
         "accuracy": accuracy,

@@ -248,7 +248,18 @@ class TestChunkedValidation(unittest.TestCase):
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
-    def _run_suite(self, seq_len, chunk_sizes, dtype, use_flash_attn, attention_bias, mlp_bias, layernorm_bias, section, tp_size=1):
+    def _run_suite(
+        self,
+        seq_len,
+        chunk_sizes,
+        dtype,
+        use_flash_attn,
+        attention_bias,
+        mlp_bias,
+        layernorm_bias,
+        section,
+        tp_size=1,
+    ):
         precision = "float32" if dtype == torch.float32 else "bfloat16"
         config = create_config(
             seq_len=seq_len,
@@ -439,7 +450,17 @@ class TestChunkedValidationTP2(unittest.TestCase):
             timeout_in_minutes=30,
         )
 
-    def _run_suite(self, seq_len, chunk_sizes, dtype, use_flash_attn, attention_bias, mlp_bias, layernorm_bias, section):
+    def _run_suite(
+        self,
+        seq_len,
+        chunk_sizes,
+        dtype,
+        use_flash_attn,
+        attention_bias,
+        mlp_bias,
+        layernorm_bias,
+        section,
+    ):
         rank = dist.get_rank()
 
         precision = "float32" if dtype == torch.float32 else "bfloat16"
