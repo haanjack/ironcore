@@ -104,6 +104,18 @@ class GRPODataset(IterableDataset):
     def __iter__(self) -> Iterator[GRPOSample]:
         """Iterate over samples infinitely (cycles through dataset)."""
         import itertools
+        import math
+
+        world_size = 1
+        rank = 0
+        if torch.distributed.is_initialized():
+            try:
+                from ironcore.parallel import parallel_states
+                rank = parallel_states.get_data_parallel_group_rank()
+                world_size = parallel_states.get_data_parallel_world_size()
+            except (AssertionError, ImportError, AttributeError):
+                rank = torch.distributed.get_rank()
+                world_size = torch.distributed.get_world_size()
 
         indices = list(range(len(self.samples)))
 
@@ -115,9 +127,21 @@ class GRPODataset(IterableDataset):
                 shuffled_indices = indices.copy()
                 rng.shuffle(shuffled_indices)
             else:
-                shuffled_indices = indices
+                shuffled_indices = indices.copy()
 
-            for idx in shuffled_indices:
+            # Shard indices for distributed training
+            # We pad to make sure all ranks get the exact same number of samples per epoch
+            # This ensures that distributed batches remain aligned across ranks.
+            if world_size > 1:
+                num_samples = len(shuffled_indices)
+                num_samples_per_rank = math.ceil(num_samples / world_size)
+                total_size = num_samples_per_rank * world_size
+                shuffled_indices += shuffled_indices[:(total_size - num_samples)]
+                sharded_indices = shuffled_indices[rank:total_size:world_size]
+            else:
+                sharded_indices = shuffled_indices
+
+            for idx in sharded_indices:
                 sample = self.samples[idx]
 
                 # Get prompt using configurable column name with fallback

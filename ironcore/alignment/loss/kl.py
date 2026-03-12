@@ -46,8 +46,8 @@ def kl_divergence_approx(
 ) -> torch.Tensor:
     """Compute memory-efficient approximation of KL divergence.
 
-    Uses the estimator: KL = log(policy) - log(ref).
-    This only requires log probs of the generated tokens, not full distributions.
+    Uses the Schulman estimator: KL = exp(ref - policy) - (ref - policy) - 1.
+    This estimator is non-negative and unbiased.
 
     Args:
         policy_log_probs: Log probs of response tokens from current policy [batch, seq_len]
@@ -57,8 +57,9 @@ def kl_divergence_approx(
     Returns:
         [batch] - Approximate KL divergence per sequence
     """
-    # log(P/Q) = log P - log Q
-    kl_per_token = policy_log_probs - ref_log_probs
+    # Schulman estimator: k3 = exp(log_q - log_p) - (log_q - log_p) - 1
+    log_ratio = ref_log_probs - policy_log_probs
+    kl_per_token = torch.exp(log_ratio) - log_ratio - 1
 
     if mask is not None:
         kl_per_token = kl_per_token * mask.float()

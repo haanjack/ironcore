@@ -175,6 +175,44 @@ Logging and profiling utilities.
 | `deterministic` | `false` | Enable deterministic mode |
 | `report_memory_usage` | `true` | Report memory usage |
 
+### alignment
+
+Alignment training configuration for DPO and GRPO. See [docs/alignment_config.md](../docs/alignment_config.md) for full documentation.
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `method` | `"dpo"` | Alignment method (`dpo`, `grpo`) |
+| `dpo_beta` | `0.5` | DPO KL penalty coefficient |
+| `dpo_label_smoothing` | `0.0` | DPO label smoothing |
+| `grpo_group_size` | `4` | GRPO completions per prompt |
+| `grpo_beta` | `0.1` | GRPO KL penalty coefficient |
+| `grpo_eps` | `1e-8` | Advantage normalization epsilon |
+| `grpo_num_epochs` | `1` | Gradient steps per rollout batch |
+| `grpo_clip_eps` | `0.2` | PPO-style ratio clipping range |
+| `grpo_rollout_chunks` | `1` | Chunks for memory-efficient rollout generation |
+| `concat_forward_passes` | `true` | Concat policy/ref forward passes |
+| `metrics_interval` | `0` | Detailed metrics interval (0 = every step) |
+
+#### generation (nested in alignment)
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `max_new_tokens` | `512` | Max tokens to generate |
+| `temperature` | `1.0` | Sampling temperature |
+| `top_p` | `0.9` | Nucleus sampling threshold |
+| `top_k` | `0` | Top-k sampling (0 = disabled) |
+| `do_sample` | `true` | Sample vs greedy decoding |
+| `use_chat_template` | `false` | Apply model chat template |
+| `system_prompt` | `None` | System prompt for all inputs |
+
+#### reward (nested in alignment)
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `type` | `"math"` | Reward type (`math`, `code`, `api`, `local_endpoint`, `local_inference`, `format`, `keyword`) |
+| `num_workers` | `4` | Parallel reward workers |
+| `timeout` | `30` | Reward computation timeout (s) |
+
 ## Example Configuration
 
 See `example.yaml` for a complete training configuration:

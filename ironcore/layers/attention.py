@@ -10,6 +10,7 @@ try:
 except ImportError:
     flash_attn_varlen_func = None
 
+from einops import rearrange
 
 from ironcore.config import MainConfig
 from ironcore.layers.kv_cache_utils import expand_for_gqa
@@ -79,9 +80,53 @@ class Attention(BaseModule):
             context_output = torch.einsum("bnqk,bknd->bqnd", attention_probs, value)
 
         # Reshape to [b, sq, n*d]
-        from einops import rearrange
-
         context_output = rearrange(context_output, "b q n d -> b q (n d)")
+        return context_output
+
+    def _flash_attention(
+        self,
+        query,
+        key,
+        value,
+        seq_len_q,
+        seq_len_kv,
+        causal=True,
+    ):
+        """Flash attention implementation using flash_attn_varlen_func.
+
+        Args:
+            query: [b, sq, hn, hd]
+            key:   [b, sk, gn, hd]  (gn = num_local_attention_groups for GQA)
+            value: [b, sk, gn, hd]
+        """
+        batch_size = query.size(0)
+
+        # Flatten batch+seq: [b*sq, hn, hd] / [b*sk, gn, hd]
+        query = query.reshape(-1, self.num_local_attention_heads, self.head_dimension)
+        key = key.reshape(-1, self.num_local_attention_groups, self.head_dimension)
+        value = value.reshape(-1, self.num_local_attention_groups, self.head_dimension)
+
+        cu_seqlens_q = torch.arange(
+            0, (batch_size + 1) * seq_len_q, step=seq_len_q, dtype=torch.int32, device=query.device
+        )
+        cu_seqlens_k = torch.arange(
+            0, (batch_size + 1) * seq_len_kv, step=seq_len_kv, dtype=torch.int32, device=key.device
+        )
+
+        context_output = flash_attn_varlen_func(  # type: ignore
+            query,
+            key,
+            value,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            seq_len_q,
+            seq_len_kv,
+            self.config.model.dropout_attn,
+            causal=causal,
+        )
+
+        # [b*sq, hn, hd] -> [b, sq, hn*hd]
+        context_output = rearrange(context_output, "(b s) h d -> b s (h d)", b=batch_size)
         return context_output
 
     def forward(
@@ -99,13 +144,13 @@ class Attention(BaseModule):
             key = torch.cat([past_key, key], dim=1)
             value = torch.cat([past_value, value], dim=1)
 
-        # Use standard attention path
-        context_output = self._attention(
-            query,
-            key,
-            value,
-            attention_mask,
-        )
+        seq_len_q = query.size(1)
+        seq_len_kv = key.size(1)
+
+        if self.config.trainer.use_flash_attn and flash_attn_varlen_func is not None:
+            context_output = self._flash_attention(query, key, value, seq_len_q, seq_len_kv)
+        else:
+            context_output = self._attention(query, key, value, attention_mask)
 
         if use_cache:
             return context_output, (key, value)

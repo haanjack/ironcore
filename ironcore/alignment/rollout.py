@@ -98,8 +98,7 @@ def _sample_tokens_batched(
 
         # Remove tokens whose cumulative probability exceeds top_p
         # Keep the token that first pushes over the threshold
-        sorted_probs_for_mask = sorted_logits.softmax(dim=-1)
-        remove = cumprobs - sorted_probs_for_mask > top_p
+        remove = cumprobs - sorted_probs > top_p
         sorted_logits = sorted_logits.masked_fill(remove, float("-inf"))
 
         # Scatter back to original order

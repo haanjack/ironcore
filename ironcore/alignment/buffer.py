@@ -78,6 +78,7 @@ class RolloutBuffer:
 
     @property
     def group_size(self) -> int:
+        """Total completions per prompt across all chunks (G_total = chunk_group_size * rollout_chunks)."""
         return len(self.metadata) // self.batch_size
 
     @property
@@ -217,6 +218,22 @@ class RolloutBuffer:
             "mean_log_prob": self.old_log_probs.mean().item(),
             "step": self.step,
         }
+
+    def select(self, indices: torch.Tensor) -> "RolloutBuffer":
+        """Select a subset of samples from the buffer (for micro-batching)."""
+        return RolloutBuffer(
+            prompt_ids=self.prompt_ids,  # Keep original prompts
+            prompt_attention_mask=self.prompt_attention_mask,
+            completion_ids=self.completion_ids[indices],
+            response_ids=self.response_ids[indices],
+            old_log_probs=self.old_log_probs[indices],
+            rewards=self.rewards[indices],
+            advantages=self.advantages[indices],
+            group_ids=self.group_ids[indices],
+            metadata=[self.metadata[i] for i in indices.tolist()],
+            step=self.step,
+            generation_config=self.generation_config,
+        )
 
     def cat(self, other: "RolloutBuffer") -> "RolloutBuffer":
         """Concatenate two buffers (same batch_size required).

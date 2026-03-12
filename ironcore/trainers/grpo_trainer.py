@@ -166,27 +166,28 @@ class GRPOTrainer(BaseTrainer):
         # Get the underlying model (handle FSDP wrapping)
         if isinstance(self.model, FSDP):
             from torch.distributed.fsdp import StateDictType
+            from ironcore.parallel.parallel import initialize_parallelism
 
-            # For FSDP, gather full state dict to create non-sharded reference
-            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
-                full_state_dict = self.model.state_dict()
-
-            # Create reference model and store parameters on GPU for faster inference
+            # For FSDP, we must shard the reference model as well to save memory.
+            # 1. Create a raw model instance
             unwrapped = self.model.module
             reference_model = unwrapped.__class__(unwrapped.config)
-            reference_model.load_state_dict(full_state_dict, strict=False)
-            reference_model = reference_model.to(device)
-
-            # Free the gathered state dict
-            del full_state_dict
-            torch.cuda.empty_cache()
-
-            # Ensure eval mode and no grads immediately
+            
+            # 2. Disable gradients before wrapping (saves memory/compute)
             reference_model.eval()
             for param in reference_model.parameters():
                 param.requires_grad = False
+                
+            # 3. Wrap identically to policy model
+            reference_model = initialize_parallelism(self.config, reference_model)
+            
+            # 4. Copy local sharded state dict directly (no gathering needed)
+            with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
+                local_state_dict = self.model.state_dict()
+            with FSDP.state_dict_type(reference_model, StateDictType.LOCAL_STATE_DICT):
+                reference_model.load_state_dict(local_state_dict, strict=False)
 
-            self.logger.info(f"Reference model created on GPU (FSDP mode, device={device})")
+            self.logger.info(f"Reference model created on GPU (FSDP mode, local sharded copy)")
         else:
             # Handle DDP or unwrapped model - store on GPU for faster inference
             model = getattr(self.model, "module", self.model)
@@ -210,20 +211,46 @@ class GRPOTrainer(BaseTrainer):
             raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
 
         device = self._get_compute_device()
-        labels, response_mask = self._prepare_labels_and_mask(rollout)
+        total_samples = rollout.total_samples
+        
+        # Determine micro-batch size for reference inference
+        # Match rollout chunk size for memory consistency
+        micro_batch_size = rollout.batch_size * (self.group_size // self.rollout_chunks)
+        
+        all_ref_log_probs = []
+        
+        for i in range(0, total_samples, micro_batch_size):
+            stop = min(i + micro_batch_size, total_samples)
+            mb_completion_ids = rollout.completion_ids[i:stop].to(device)
+            mb_response_ids = rollout.response_ids[i:stop]
+            
+            # Prepare labels and mask for this micro-batch
+            # We can't use _prepare_labels_and_mask directly as it expects a RolloutBuffer
+            prompt_len = rollout.prompt_ids.size(1)
+            mb_labels = mb_completion_ids.clone()
+            mb_labels[:, :-1] = mb_completion_ids[:, 1:]
+            mb_labels[:, -1] = -100
+            mb_labels[:, : prompt_len - 1] = -100
+            
+            mb_response_mask = torch.zeros_like(mb_labels, dtype=torch.float)
+            mb_response_mask[:, prompt_len - 1 : -1] = 1.0
 
-        # Reference model is on GPU - direct inference
-        ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
-        ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-        ref_log_probs_token = self._compute_token_log_probs_from_logits(
-            ref_logits, labels, response_mask
-        )
+            # Reference model is on GPU - direct inference
+            ref_output = self.reference_model(mb_completion_ids, labels=None)
+            ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
+            
+            mb_ref_log_probs = self._compute_token_log_probs_from_logits(
+                ref_logits, mb_labels, mb_response_mask
+            )
+            
+            all_ref_log_probs.append(mb_ref_log_probs.detach().cpu())
+            
+            # Free reference logits immediately
+            del ref_logits
+            del mb_completion_ids
+            torch.cuda.empty_cache()
 
-        # Free reference logits immediately (~4.5GB for 0.5B model)
-        del ref_logits
-        torch.cuda.empty_cache()
-
-        return ref_log_probs_token.detach()
+        return torch.cat(all_ref_log_probs, dim=0).to(device)
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
         """Centralized logic for label shifting and response masking."""
@@ -369,6 +396,9 @@ class GRPOTrainer(BaseTrainer):
                 else:
                     rollout = rollout.cat(chunk_rollout)
 
+        # Explicitly clear generation cache before starting training phase
+        torch.cuda.empty_cache()
+
         self.model.train()
 
         # Safety check - rollout should never be None here
@@ -390,8 +420,16 @@ class GRPOTrainer(BaseTrainer):
             (rollout.response_ids != self._tokenizer.pad_token_id).sum(dim=1).float()
         )
 
-        # Correctly repeat each prompt G times to match response expansion order
-        repeated_prompts = [p for p in prompts_text for _ in range(G)]
+        # Match chunk-interleaved response layout:
+        # cat() output: [chunk0_B0*, chunk0_B1*, ..., chunk1_B0*, chunk1_B1*, ...]
+        # repeated_prompts must follow the same order.
+        chunk_group_size = G // self.rollout_chunks
+        repeated_prompts = [
+            p
+            for _ in range(self.rollout_chunks)
+            for p in prompts_text
+            for _ in range(chunk_group_size)
+        ]
         rewards = self.reward_worker.score_batch(
             prompts=repeated_prompts,
             completions=responses_text,
@@ -399,7 +437,7 @@ class GRPOTrainer(BaseTrainer):
         )
         rewards = rewards.to(prompt_ids.device)
 
-        advantages = compute_advantages(rewards, rollout.group_ids, self.eps)
+        advantages = compute_advantages(rewards, rollout.group_ids, self.eps, distributed=False)
 
         # old_log_probs frozen at generation time — used for IS in offline epochs
         old_log_probs = rollout.old_log_probs.detach()
@@ -411,21 +449,42 @@ class GRPOTrainer(BaseTrainer):
         # === Phase 2: Multi-epoch update ===
         metrics: dict[str, float] = {}
         grad_norm = param_norm = 0.0
+        
+        # Determine micro-batch size for update phase
+        # We want to process at most B * (G / chunks) at once to match rollout memory
+        micro_batch_size = prompt_ids.size(0) * (G // self.rollout_chunks)
+        total_samples = rollout.total_samples
 
         for epoch in range(self.num_epochs):
-            # Pass old_log_probs only when IS is meaningful:
-            # epoch 0 with num_epochs=1  → online (ratio=1, skip IS overhead)
-            # epoch 0 with num_epochs>1  → IS still correct (ratio≈1 but sets up clipping)
-            # epoch 1+                   → IS required (policy has drifted)
-            use_is = self.num_epochs > 1
-            loss, metrics = self._compute_grpo_loss(
-                rollout,
-                advantages,
-                ref_log_probs,
-                old_log_probs=old_log_probs if use_is else None,
-            )
+            # Shuffle indices within the rollout to ensure varied micro-batches
+            perm = torch.randperm(total_samples, device=device)
+            
+            for i in range(0, total_samples, micro_batch_size):
+                stop = min(i + micro_batch_size, total_samples)
+                mb_indices = perm[i:stop]
+                
+                # Create a temporary micro-batch buffer
+                # Note: We need a lightweight way to slice the rollout
+                mb_rollout = rollout.select(mb_indices)
+                mb_advantages = advantages[mb_indices]
+                mb_ref_log_probs = ref_log_probs[mb_indices]
+                mb_old_log_probs = old_log_probs[mb_indices] if self.num_epochs > 1 else None
 
-            self.scaler.scale(loss).backward()
+                loss, mb_metrics = self._compute_grpo_loss(
+                    mb_rollout,
+                    mb_advantages,
+                    mb_ref_log_probs,
+                    old_log_probs=mb_old_log_probs,
+                )
+                
+                # Scale loss by micro-batch fraction
+                scaled_loss = loss * (len(mb_indices) / total_samples)
+                self.scaler.scale(scaled_loss).backward()
+                
+                # Accumulate metrics
+                for k, v in mb_metrics.items():
+                    metrics[k] = metrics.get(k, 0.0) + v * (len(mb_indices) / total_samples)
+
             grad_norm, param_norm = self._compute_grad_and_param_norms(step)
             self._optimizer_step()
 
@@ -464,10 +523,6 @@ class GRPOTrainer(BaseTrainer):
             policy_logits, labels, response_mask
         )
 
-        # Free policy logits immediately (~4.5 GB for 0.5B model with B*G=8)
-        del policy_logits
-        torch.cuda.empty_cache()
-
         # Compute approximate KL divergence using token-level log probs
         # kl_divergence_approx: (policy_log_probs - ref_log_probs).sum(dim=-1)
         kl_per_seq = kl_divergence_approx(
@@ -504,8 +559,8 @@ class GRPOTrainer(BaseTrainer):
         per_token_logps = torch.zeros(batch_size, seq_len, dtype=torch.float, device=logits.device)
 
         # Process in chunks along sequence dimension to reduce peak memory
-        # log_softmax creates [chunk, vocab] float32 tensor, so larger chunks = more memory
-        chunk_size = min(32, seq_len)  # Process 32 positions at a time
+        # 128-256 is a good balance between memory and kernel efficiency
+        chunk_size = min(128, seq_len)
 
         for start in range(0, seq_len, chunk_size):
             end = min(start + chunk_size, seq_len)
@@ -520,11 +575,7 @@ class GRPOTrainer(BaseTrainer):
             if valid_mask.any():
                 indices = labels_chunk[valid_mask].unsqueeze(-1)
                 token_logps = log_probs_chunk[valid_mask].gather(dim=-1, index=indices).squeeze(-1)
-                # Assign to the output tensor using the flattened indices
                 per_token_logps[:, start:end][valid_mask] = token_logps
-
-            # Free chunk memory immediately
-            del log_probs_chunk
 
         return per_token_logps
 
