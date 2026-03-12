@@ -13,6 +13,7 @@ This module provides:
 # Native checkpointing (training resume)
 # HuggingFace interop (import/export)
 from ironcore.checkpointing.hf_interop import (
+    detect_bias_from_hf_state_dict,
     detect_checkpoint_format,
     export_to_huggingface,
     load_from_huggingface,
@@ -40,6 +41,7 @@ __all__ = [
     "load_from_huggingface",
     "export_to_huggingface",
     "detect_checkpoint_format",
+    "detect_bias_from_hf_state_dict",
     "load_hf_config",
     # Weight mapping
     "WeightMapper",
