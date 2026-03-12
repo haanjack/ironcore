@@ -1,8 +1,8 @@
 # GRPO Implementation Plan
 
-## Status (as of 2026-03-11)
+## Status (as of 2026-03-12)
 
-**GRPO is fully implemented.** All core components below have been built and are in production on `feature/grpo`.
+**GRPO is fully implemented and ready for training.**
 
 Completed:
 - [x] KL divergence utilities (`alignment/loss/kl.py`)
@@ -11,12 +11,22 @@ Completed:
 - [x] Rollout buffer (`alignment/buffer.py`)
 - [x] GRPO dataset / data iterator (`alignment/dataset.py`)
 - [x] Reward functions: math, code, API (multi-provider), local endpoint, local model, format, keyword, soft_keyword (`alignment/rewards.py`)
+- [x] **Strict math reward** - only accepts explicit answer markers (####, \boxed, etc.)
+- [x] **Strict format reward** - validates regex patterns for reasoning formats
 - [x] Reward worker pool (`alignment/rewards.py`)
 - [x] `GRPOTrainer` with online rollout loop, multi-epoch support, IS clipping (`trainers/grpo_trainer.py`)
 - [x] Alignment config: `AlignmentConfig`, `GenerationConfig`, `RewardConfig` (`config/config_alignment.py`)
 - [x] GSM8K training configs (`configs/grpo_gsm8k.yaml`, `configs/data/grpo_gsm8k.yaml`)
 - [x] Chat template + system prompt support for rollout generation
 - [x] HF checkpoint fix for LLaMA weight transpose (`checkpointing/hf_interop.py`)
+- [x] **FP32 precision for RoPE and attention softmax** (numerical stability)
+- [x] **Granular bias control with auto-detection from HF checkpoints**
+- [x] **Evaluation pipeline validated** (IC ≈ HF ≈ lm-eval baseline)
+
+Ready for:
+- [ ] Smoke test validation (20 steps)
+- [ ] Full GRPO training run
+- [ ] Evaluation and iteration
 
 Remaining / out of scope for Phase 1:
 - [ ] PPO (separate algorithm)

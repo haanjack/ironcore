@@ -175,6 +175,16 @@ def generate_rollouts_batched(
     device = prompt_ids.device
     total_samples = B * G
 
+    # Initialize KV cache if model supports it
+    # Handle wrapped models (DDP, FSDP)
+    # Note: Initialize with B (prompt batch size), not total_samples
+    # The expanded KV for group generation is handled via past_key_values
+    unwrapped_model = model
+    if hasattr(model, "module"):
+        unwrapped_model = model.module
+    if hasattr(unwrapped_model, "initialize_cache"):
+        unwrapped_model.initialize_cache(B, device)
+
     # Get TP group if applicable
     tp_group = None
     if dist.is_initialized():

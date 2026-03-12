@@ -44,14 +44,16 @@
 
 ## Alignment / RL
 - [x] DPO (Direct Preference Optimization)
-- [ ] GRPO (Group Relative Policy Optimization) - WIP
+- [x] GRPO (Group Relative Policy Optimization)
   - [x] Online rollout generation (batched, prefix-cached)
   - [x] Group-relative advantage computation
   - [x] KL penalty (approximate + full)
   - [x] PPO-style IS ratio clipping
   - [x] Multi-epoch (offline) training support
   - [x] Reward backends: math, code, API (OpenAI/Anthropic/Google/Zhipu), local endpoint, local model, format, keyword
-  - [x] GSM8K training config\
+  - [x] GSM8K training config
+  - [x] Strict math reward + strict format reward
+  - [ ] Training validation and benchmarking
 - [ ] RLAIF (Reinforcement Learning with AI Feedback)
 - [ ] RLVR (Reinforcement Learning with Verifiable Rewards)
 

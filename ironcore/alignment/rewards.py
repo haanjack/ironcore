@@ -54,6 +54,9 @@ class RewardFunction(ABC):
 class MathRewardFunction(RewardFunction):
     """Reward for math problems with verifiable answers."""
 
+    def __init__(self, strict: bool = True):
+        self.strict = strict
+
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
         answer = metadata.get("answer", "")
         if not answer:
@@ -83,9 +86,13 @@ class MathRewardFunction(RewardFunction):
             match = re.search(pattern, text)
             if match:
                 return match.group(1).strip()
-        # Fallback: last number in text
-        numbers = re.findall(r"-?\d+\.?\d*", text)
-        return numbers[-1] if numbers else ""
+                
+        if not self.strict:
+            # Fallback: last number in text
+            numbers = re.findall(r"-?\d+\.?\d*", text)
+            return numbers[-1] if numbers else ""
+            
+        return ""
 
     def _normalize_answer(self, answer: str) -> str:
         """Normalize answer for comparison."""
@@ -158,6 +165,28 @@ class FormatRewardFunction(RewardFunction):
         if missing > 0:
             return self.penalty * (missing / len(self.required_tags))
         return self.reward_for_present
+
+
+class StrictFormatRewardFunction(RewardFunction):
+    """Reward for enforcing exact regex format matching.
+    
+    Useful for strict reasoning protocols (e.g. DeepSeekMath format).
+    """
+    
+    def __init__(
+        self,
+        pattern: str = r"<think>.*?</think>\s*####\s*.*",
+        reward: float = 1.0,
+        penalty: float = 0.0,
+    ):
+        self.pattern = re.compile(pattern, re.DOTALL)
+        self.reward = reward
+        self.penalty = penalty
+
+    def compute(self, prompt: str, completion: str, metadata: dict) -> float:
+        if self.pattern.search(completion):
+            return self.reward
+        return self.penalty
 
 
 class KeywordRewardFunction(RewardFunction):
@@ -708,7 +737,7 @@ class RewardWorkerPool:
 def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: PLR0911
     """Factory function to create reward functions."""
     if reward_type == "math":
-        return MathRewardFunction()
+        return MathRewardFunction(strict=kwargs.get("strict", True))
     if reward_type == "code":
         return CodeRewardFunction(timeout=kwargs.get("timeout", 5))
     if reward_type == "keyword":
@@ -730,10 +759,16 @@ def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: 
         return LocalInferenceRewardFunction(**kwargs)
     if reward_type == "format":
         return FormatRewardFunction(**kwargs)
+    if reward_type == "strict_format":
+        return StrictFormatRewardFunction(
+            pattern=kwargs.get("pattern", r"<think>.*?</think>\s*####\s*.*"),
+            reward=kwargs.get("reward", 1.0),
+            penalty=kwargs.get("penalty", 0.0),
+        )
     if reward_type == "reward_model":
         return LocalInferenceRewardFunction(**kwargs)
 
     raise ValueError(
         f"Unknown reward type: {reward_type}. "
-        f"Supported: math, code, keyword, api, local_endpoint, local_inference, format"
+        f"Supported: math, code, keyword, api, local_endpoint, local_inference, format, strict_format"
     )

@@ -137,13 +137,12 @@ class TransformerLayer(BaseModule):
             query = rotary_pos_emb.forward(query, position_ids)
             key = rotary_pos_emb.forward(key, position_ids)
 
-        if kv_cache_manager is not None and cache_position is not None:
-            full_key, full_value = kv_cache_manager.update_layer(
-                self.layer_idx, key, value, position=cache_position
-            )
-            attn_output = self.self_attention(query, full_key, full_value, attention_mask)
-            new_kv = None
-        else:
+        # KV cache handling:
+        # 1. If use_cache=True: return new KV for explicit caching (prefill/generation)
+        # 2. If past_key_value provided: use it for attention
+        # 3. If kv_cache_manager initialized and not using explicit cache: use manager
+        if use_cache or past_key_value is not None:
+            # Explicit KV cache path - either generating new KV or using existing
             attn_output = self.self_attention(
                 query, key, value, attention_mask, use_cache=use_cache, past_kv=past_key_value
             )
@@ -151,6 +150,23 @@ class TransformerLayer(BaseModule):
                 attn_output, new_kv = attn_output
             else:
                 new_kv = None
+        elif (
+            kv_cache_manager is not None
+            and cache_position is not None
+            and kv_cache_manager.is_initialized
+        ):
+            # KV cache manager path (for managed inference)
+            full_key, full_value = kv_cache_manager.update_layer(
+                self.layer_idx, key, value, position=cache_position
+            )
+            attn_output = self.self_attention(query, full_key, full_value, attention_mask)
+            new_kv = None
+        else:
+            # No caching
+            attn_output = self.self_attention(
+                query, key, value, attention_mask, use_cache=False, past_kv=None
+            )
+            new_kv = None
 
         # output projection
         attention_output = self.attn_output(attn_output)

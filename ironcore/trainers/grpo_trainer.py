@@ -405,7 +405,9 @@ class GRPOTrainer(BaseTrainer):
         labels, response_mask = self._prepare_labels_and_mask(rollout)
 
         # Compute reference log probs for completion tokens
-        ref_logits = self.reference_model(rollout.completion_ids.to(device), labels=None)
+        ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
+        # Handle tuple return (logits, kv_cache) when model is in eval mode
+        ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
         ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
 
         return ref_log_probs_token.detach()
@@ -422,7 +424,9 @@ class GRPOTrainer(BaseTrainer):
         labels, response_mask = self._prepare_labels_and_mask(rollout)
 
         # Compute policy log probs for generated tokens
-        policy_logits = self.model(rollout.completion_ids.to(device), labels=None)
+        policy_output = self.model(rollout.completion_ids.to(device), labels=None)
+        # Handle tuple return (logits, kv_cache) when model is in eval mode
+        policy_logits = policy_output[0] if isinstance(policy_output, tuple) else policy_output
         policy_log_probs_token = self._compute_token_log_probs_from_logits(policy_logits, labels, response_mask)
 
         # Compute approximate KL divergence using token-level log probs
