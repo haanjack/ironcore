@@ -69,7 +69,9 @@ def create_test_config(
         max_seq_len=max_seq_len,
         max_position_embeddings=max_seq_len,
         dropout_attn=dropout_attn,
-        no_bias=False,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
         num_layers=num_layers,
         d_ffn=d_ffn,
     )

@@ -54,7 +54,7 @@ def create_model_config(tp_size=1, chunk_size=None):
         max_position_embeddings=128,
         dropout_attn=0.0,
         dropout_mlp=0.0,
-        no_bias=False,
+        attention_bias=True, mlp_bias=True, layernorm_bias=True,
     )
     model_config.name = "gpt2"
 
