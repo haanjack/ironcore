@@ -33,20 +33,20 @@ def _expand_kv_cache(
 
     Args:
         past_key_values: List of (key, value) tuples per layer
-            key: [B, num_heads, prompt_len, head_dim]
+            key: [B, prompt_len, num_heads, head_dim]
         group_size: Number of completions per prompt (G)
 
     Returns:
-        Expanded KV-cache list with [B×G, num_heads, prompt_len, head_dim]
+        Expanded KV-cache list with [B×G, prompt_len, num_heads, head_dim]
     """
     expanded_kv = []
 
     for layer_kv in past_key_values:
         key, value = layer_kv
-        # key: [B, num_heads, prompt_len, head_dim]
+        # key: [B, prompt_len, num_heads, head_dim]
 
         # Expand: repeat each sample G times
-        # [B, num_heads, prompt_len, head_dim] -> [B*G, num_heads, prompt_len, head_dim]
+        # [B, prompt_len, num_heads, head_dim] -> [B*G, prompt_len, num_heads, head_dim]
         # repeat_interleave ensures contiguous layout which is safer for some backends
         expanded_key = key.repeat_interleave(group_size, dim=0)
         expanded_value = value.repeat_interleave(group_size, dim=0)
