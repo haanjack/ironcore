@@ -4,8 +4,8 @@
 model: qwen2.5-0.5B
 
 trainer:
-  micro_batch_size: 2
-  train_batch_size: 8
+  micro_batch_size: 4
+  train_batch_size: 16
   gradient_accumulation_steps: 2
   log_interval: 10
   use_flash_attn: true
@@ -39,7 +39,7 @@ parallel:
 
 alignment:
   method: grpo
-  grpo_group_size: 4
+  grpo_group_size: 8
   grpo_beta: 0.04
   grpo_eps: 1.0e-8
   grpo_num_epochs: 1
