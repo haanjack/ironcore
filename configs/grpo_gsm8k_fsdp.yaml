@@ -1,15 +1,17 @@
-# GRPO smoke test config for GSM8K (reduced scale for quick validation)
-# Just 20 steps to verify the pipeline works
+# GRPO training config for GSM8K math reasoning with FSDP
+# Full training pipeline with memory-efficient FSDP sharding
 
 model: qwen2.5-0.5B
 
 trainer:
-  micro_batch_size: 1
-  train_batch_size: 4
+  micro_batch_size: 2
+  train_batch_size: 8
   gradient_accumulation_steps: 2
-  log_interval: 1
+  log_interval: 10
   use_flash_attn: true
   load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+  save_checkpoint_steps: 100
+  checkpoint_dir: outputs/grpo_gsm8k_fsdp
 
 data:
   config_path: configs/data/grpo_gsm8k.yaml
@@ -20,31 +22,35 @@ optim:
   lr_scheduler: cosine
   max_lr: 1.0e-5
   min_lr: 1.0e-6
-  warmup_steps: 5
-  annealing_steps: 20
+  warmup_steps: 50
+  annealing_steps: 1000
   weight_decay: 0.01
   clip_grad: 1.0
 
 operation:
-  train_steps: 20
-  eval_interval: 10
+  train_steps: 1000
+  eval_interval: 100
 
 init:
   seed: 42
 
 parallel:
   world_size: 2
+  use_fsdp: true
+  fsdp_sharding_strategy: "full"
+  fsdp_mixed_precision: "bf16"
+  fsdp_state_dict_type: "sharded"
 
 alignment:
   method: grpo
-  grpo_group_size: 2
+  grpo_group_size: 4
   grpo_beta: 0.04
   grpo_eps: 1.0e-8
   grpo_num_epochs: 1
   grpo_clip_eps: 0.0
   generation:
-    max_new_tokens: 128
-    temperature: 0.6
+    max_new_tokens: 512
+    temperature: 0.7
     top_p: 0.95
     top_k: 50
     do_sample: true
@@ -54,4 +60,4 @@ alignment:
     type: math
     num_workers: 4
     timeout: 30
-  metrics_interval: 5
+  metrics_interval: 50

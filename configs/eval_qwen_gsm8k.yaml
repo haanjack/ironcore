@@ -1,31 +1,7 @@
 # Evaluation-only config for Qwen2.5-0.5B on GSM8K
 # Used for comparing HF vs IronCore inference
 
-model:
-  # Qwen2.5-0.5B parameters
-  d_model: 896
-  num_attention_heads: 14
-  num_attention_groups: 2
-  d_ffn: 4864
-  num_layers: 24
-  max_seq_len: 32768
-  head_dim: 64
-  ln_type: rmsnorm
-  ln_eps: 1e-6
-  activation_type: swiglu
-  tokenizer_type: sentencepiece
-  vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
-  kv_cache:
-    enabled: true
-    max_seq_length: 1024
-  bias:
-    q: true
-    k: true
-    v: true
-    o: false
-    gate: false
-    up: false
-    down: false
+model: qwen2.5-0.5B
 
 trainer:
   micro_batch_size: 1
@@ -42,8 +18,6 @@ data:
   task_type: sft
   train_path: data/gsm8k_train.jsonl
   eval_path: data/gsm8k_test.jsonl
-  vocab_size: 151936
-  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
 
 optim:
   optimizer: adamw
@@ -58,4 +32,4 @@ init:
   seed: 42
 
 parallel:
-  world_size: 2
+  world_size: 1

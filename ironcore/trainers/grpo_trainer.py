@@ -153,7 +153,12 @@ class GRPOTrainer(BaseTrainer):
             dist.barrier()
 
     def _create_reference_model(self) -> nn.Module:
-        """Create frozen reference model from current policy."""
+        """Create frozen reference model from current policy.
+
+        For FSDP, we gather the full state dict and create a non-FSDP reference
+        model on GPU. This is faster than CPU offloading since the reference model
+        is used for inference during every training step.
+        """
 
         self.logger.info("Creating reference model from policy weights...")
 
@@ -161,30 +166,28 @@ class GRPOTrainer(BaseTrainer):
         if isinstance(self.model, FSDP):
             from torch.distributed.fsdp import StateDictType
 
-            # For FSDP, we wrap the reference model as well to keep it sharded
-            # Access the unwrapped module config
+            # For FSDP, gather full state dict to create non-sharded reference
+            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
+                full_state_dict = self.model.state_dict()
+
+            # Create reference model on GPU (faster inference)
             unwrapped = self.model.module
             reference_model = unwrapped.__class__(unwrapped.config)
+            reference_model.load_state_dict(full_state_dict, strict=False)
+            reference_model = reference_model.to(torch.cuda.current_device())
 
-            # Use sharded state dict to avoid gathering full model on one node
-            with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT):
-                sharded_state_dict = self.model.state_dict()
-
-            # Wrap reference model in FSDP (same settings)
-            reference_model = FSDP(
-                reference_model,
-                device_id=torch.cuda.current_device(),
-                # Use same mixed precision as policy
-                mixed_precision=getattr(self.model, "mixed_precision", None),
-            )
-            reference_model.load_state_dict(sharded_state_dict)
+            # Free the gathered state dict
+            del full_state_dict
+            torch.cuda.empty_cache()
 
             # Ensure eval mode and no grads immediately
             reference_model.eval()
             for param in reference_model.parameters():
                 param.requires_grad = False
+
+            self.logger.info("Reference model created on GPU (FSDP mode)")
         else:
-            # Handle DDP or unwrapped model
+            # Handle DDP or unwrapped model - keep on GPU
             model = getattr(self.model, "module", self.model)
             reference_model = copy.deepcopy(model)
             reference_model.eval()
@@ -192,6 +195,24 @@ class GRPOTrainer(BaseTrainer):
                 param.requires_grad = False
 
         return reference_model
+
+    def _get_ref_log_probs(self, rollout: RolloutBuffer) -> torch.Tensor:
+        """Pre-compute reference model log probabilities for generated completions.
+
+        Reference model is kept on GPU for fast inference during GRPO training.
+        """
+        if self.reference_model is None:
+            raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
+
+        device = self._get_compute_device()
+        labels, response_mask = self._prepare_labels_and_mask(rollout)
+
+        # Reference model is on GPU - direct inference
+        ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
+        ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
+        ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
+
+        return ref_log_probs_token.detach()
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
         """Centralized logic for label shifting and response masking."""
@@ -397,20 +418,39 @@ class GRPOTrainer(BaseTrainer):
 
         To save memory, we only store the log probs of the generated tokens [B*G, L],
         not the full distributions [B*G, L, V].
+
+        For FSDP, the reference model is on CPU. We move batch to CPU, compute,
+        then move results back to GPU.
         """
         if self.reference_model is None:
             raise RuntimeError("Reference model not initialized. Call _post_checkpoint_load first.")
 
-        device = self._get_compute_device()
         labels, response_mask = self._prepare_labels_and_mask(rollout)
 
-        # Compute reference log probs for completion tokens
-        ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
-        # Handle tuple return (logits, kv_cache) when model is in eval mode
-        ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-        ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
+        # Check if reference model is on CPU (FSDP mode with CPU offloading)
+        ref_device = next(self.reference_model.parameters()).device
+        is_cpu_ref = ref_device.type == "cpu"
 
-        return ref_log_probs_token.detach()
+        if is_cpu_ref:
+            # Move batch to CPU for reference model inference
+            completion_ids_cpu = rollout.completion_ids.cpu()
+            labels_cpu = labels.cpu()
+            response_mask_cpu = response_mask.cpu()
+
+            ref_output = self.reference_model(completion_ids_cpu, labels=None)
+            ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
+            ref_log_probs_token = self._compute_token_log_probs_from_logits(
+                ref_logits, labels_cpu, response_mask_cpu
+            )
+            # Move result back to GPU
+            return ref_log_probs_token.to(rollout.completion_ids.device).detach()
+        else:
+            # Standard GPU inference
+            device = self._get_compute_device()
+            ref_output = self.reference_model(rollout.completion_ids.to(device), labels=None)
+            ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
+            ref_log_probs_token = self._compute_token_log_probs_from_logits(ref_logits, labels, response_mask)
+            return ref_log_probs_token.detach()
 
     def _compute_grpo_loss(
         self,

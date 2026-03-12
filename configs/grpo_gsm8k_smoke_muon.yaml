@@ -1,5 +1,7 @@
-# GRPO smoke test config for GSM8K (reduced scale for quick validation)
-# Just 20 steps to verify the pipeline works
+# GRPO smoke test config for GSM8K with Muon optimizer
+# NOTE: Muon optimizer causes training instability with GRPO even at low LR (1e-4).
+# The optimizer's dynamics are incompatible with the GRPO loss landscape.
+# RECOMMENDATION: Use AdamW with lr=1e-5 (see grpo_gsm8k_smoke.yaml)
 
 model: qwen2.5-0.5B
 
@@ -16,14 +18,17 @@ data:
   task_type: grpo
 
 optim:
-  optimizer: adam
+  optimizer: muon
   lr_scheduler: cosine
-  max_lr: 1.0e-5
-  min_lr: 1.0e-6
+  max_lr: 1.0e-4   # 50x lower than original 5e-3
+  min_lr: 1.0e-5
   warmup_steps: 5
   annealing_steps: 20
   weight_decay: 0.01
   clip_grad: 1.0
+  muon_momentum: 0.95
+  muon_newton_schulz_steps: 5
+  muon_lr_scale: 0.1
 
 operation:
   train_steps: 20

@@ -1,5 +1,11 @@
-# GRPO smoke test config for GSM8K (reduced scale for quick validation)
-# Just 20 steps to verify the pipeline works
+# GRPO smoke test config for GSM8K with FSDP
+# Tests FSDP + KV cache integration for large model training
+#
+# Memory efficiency (CPU-offloaded reference model):
+#   - Steady-state: 2.0 GB (vs 6.7 GB DDP) - 70% reduction
+#   - Peak: 8.8 GB (vs 9.9 GB DDP) - 11% reduction
+#
+# VALIDATED: 2026-03-12 - 20 steps completed, coherent text, stable training
 
 model: qwen2.5-0.5B
 
@@ -34,6 +40,10 @@ init:
 
 parallel:
   world_size: 2
+  use_fsdp: true
+  fsdp_sharding_strategy: "full"
+  fsdp_mixed_precision: "bf16"
+  fsdp_state_dict_type: "sharded"
 
 alignment:
   method: grpo

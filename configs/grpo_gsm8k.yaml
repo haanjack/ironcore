@@ -1,5 +1,5 @@
 # GRPO training config for GSM8K math reasoning
-# Tests the full GRPO pipeline: data loading, chat templates, math reward, training
+# Full training pipeline: data loading, chat templates, math reward, training
 
 model: qwen2.5-0.5B
 
@@ -10,23 +10,22 @@ trainer:
   log_interval: 10
   use_flash_attn: true
   load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+  save_checkpoint_steps: 100
+  checkpoint_dir: outputs/grpo_gsm8k
 
 data:
   config_path: configs/data/grpo_gsm8k.yaml
   task_type: grpo
 
 optim:
-  optimizer: muon
+  optimizer: adam
   lr_scheduler: cosine
-  max_lr: 5.0e-3  # Muon uses higher LR
-  min_lr: 5.0e-4
+  max_lr: 1.0e-5
+  min_lr: 1.0e-6
   warmup_steps: 50
   annealing_steps: 1000
   weight_decay: 0.01
   clip_grad: 1.0
-  muon_momentum: 0.95
-  muon_newton_schulz_steps: 5
-  muon_lr_scale: 0.1  # Scale down for embedding/head params (use AdamW)
 
 operation:
   train_steps: 1000
@@ -40,16 +39,16 @@ parallel:
 
 alignment:
   method: grpo
-  grpo_group_size: 8
+  grpo_group_size: 4
   grpo_beta: 0.04
   grpo_eps: 1.0e-8
   grpo_num_epochs: 1
   grpo_clip_eps: 0.0
   generation:
     max_new_tokens: 512
-    temperature: 1.0
-    top_p: 1.0
-    top_k: 0
+    temperature: 0.7
+    top_p: 0.95
+    top_k: 50
     do_sample: true
     use_chat_template: true
     system_prompt: "Solve the math problem step by step. Put your final numerical answer after ####."

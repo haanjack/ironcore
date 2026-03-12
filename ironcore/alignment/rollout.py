@@ -205,7 +205,7 @@ def generate_rollouts_batched(
     )
     # prefill_logits: [B, prompt_len, vocab]
     # prefix_kv: List of (key, value) per layer
-    #   key: [B, num_heads, prompt_len, head_dim]
+    #   key: [B, prompt_len, num_heads, head_dim]
 
     # === Step 2: Expand KV-cache to [B×G, ...] ===
     expanded_kv = _expand_kv_cache(prefix_kv, G)

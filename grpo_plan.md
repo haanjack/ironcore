@@ -2,7 +2,7 @@
 
 ## Status (as of 2026-03-12)
 
-**GRPO is fully implemented and ready for training.**
+**GRPO is fully implemented. Smoke test validated with AdamW optimizer.**
 
 Completed:
 - [x] KL divergence utilities (`alignment/loss/kl.py`)
@@ -22,9 +22,22 @@ Completed:
 - [x] **FP32 precision for RoPE and attention softmax** (numerical stability)
 - [x] **Granular bias control with auto-detection from HF checkpoints**
 - [x] **Evaluation pipeline validated** (IC ≈ HF ≈ lm-eval baseline)
+- [x] **Smoke test validated** (20 steps with AdamW lr=1e-5, coherent text, rewards earned)
+- [x] **FSDP + KV cache validated** (20 steps, prefix cache expansion works with FSDP sharding)
+
+Parallelism Notes:
+- **DDP**: Working - smoke test with 2 GPUs validated
+  - Memory: 6.7GB steady-state, 9.9GB peak
+  - Speed: ~4s/step
+- **FSDP**: Working with GPU reference model
+  - Config: `configs/grpo_gsm8k_smoke_fsdp.yaml`
+  - Memory: 3.9GB steady-state, 10.6GB peak
+  - Speed: ~4s/step (same as DDP - GPU reference model is fast)
+  - Uses FULL_STATE_DICT to gather weights for non-sharded reference model
+- **Muon**: Incompatible with GRPO - causes training instability at all tested LRs (5e-3, 5e-4, 1e-4)
+- **AdamW**: Working at lr=1e-5 - recommended for GRPO training
 
 Ready for:
-- [ ] Smoke test validation (20 steps)
 - [ ] Full GRPO training run
 - [ ] Evaluation and iteration
 

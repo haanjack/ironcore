@@ -53,7 +53,8 @@
   - [x] Reward backends: math, code, API (OpenAI/Anthropic/Google/Zhipu), local endpoint, local model, format, keyword
   - [x] GSM8K training config
   - [x] Strict math reward + strict format reward
-  - [ ] Training validation and benchmarking
+  - [x] Smoke test validation (AdamW lr=1e-5, 20 steps)
+  - [ ] Full training and benchmarking
 - [ ] RLAIF (Reinforcement Learning with AI Feedback)
 - [ ] RLVR (Reinforcement Learning with Verifiable Rewards)
 
