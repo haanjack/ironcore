@@ -106,6 +106,7 @@ class Attention(BaseModule):
         key = key.reshape(-1, self.num_local_attention_groups, self.head_dimension)
         value = value.reshape(-1, self.num_local_attention_groups, self.head_dimension)
 
+        # Optimization: Cache these if batch_size and seq_len are constant
         cu_seqlens_q = torch.arange(
             0, (batch_size + 1) * seq_len_q, step=seq_len_q, dtype=torch.int32, device=query.device
         )

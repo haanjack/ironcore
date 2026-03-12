@@ -136,7 +136,8 @@ class GRPODataset(IterableDataset):
                 num_samples = len(shuffled_indices)
                 num_samples_per_rank = math.ceil(num_samples / world_size)
                 total_size = num_samples_per_rank * world_size
-                shuffled_indices += shuffled_indices[:(total_size - num_samples)]
+                padding = [shuffled_indices[i % num_samples] for i in range(total_size - num_samples)]
+                shuffled_indices += padding
                 sharded_indices = shuffled_indices[rank:total_size:world_size]
             else:
                 sharded_indices = shuffled_indices

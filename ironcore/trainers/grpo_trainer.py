@@ -170,7 +170,7 @@ class GRPOTrainer(BaseTrainer):
 
             # For FSDP, we must shard the reference model as well to save memory.
             # 1. Create a raw model instance
-            unwrapped = self.model.module
+            unwrapped = getattr(self.model, "module", self.model)
             reference_model = unwrapped.__class__(unwrapped.config)
             
             # 2. Disable gradients before wrapping (saves memory/compute)
@@ -227,7 +227,7 @@ class GRPOTrainer(BaseTrainer):
             # Prepare labels and mask for this micro-batch
             # We can't use _prepare_labels_and_mask directly as it expects a RolloutBuffer
             prompt_len = rollout.prompt_ids.size(1)
-            mb_labels = mb_completion_ids.clone()
+            mb_labels = mb_completion_ids.detach().clone()
             mb_labels[:, :-1] = mb_completion_ids[:, 1:]
             mb_labels[:, -1] = -100
             mb_labels[:, : prompt_len - 1] = -100
@@ -477,7 +477,7 @@ class GRPOTrainer(BaseTrainer):
                     old_log_probs=mb_old_log_probs,
                 )
                 
-                # Scale loss by micro-batch fraction
+                # Scale loss by micro-batch fraction (accumulation is defined by rollout batch size)
                 scaled_loss = loss * (len(mb_indices) / total_samples)
                 self.scaler.scale(scaled_loss).backward()
                 

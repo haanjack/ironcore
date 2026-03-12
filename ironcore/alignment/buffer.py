@@ -230,7 +230,7 @@ class RolloutBuffer:
             rewards=self.rewards[indices],
             advantages=self.advantages[indices],
             group_ids=self.group_ids[indices],
-            metadata=[self.metadata[i] for i in indices.tolist()],
+            metadata=[self.metadata[i].copy() for i in indices.tolist()],
             step=self.step,
             generation_config=self.generation_config,
         )
