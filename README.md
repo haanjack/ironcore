@@ -4,21 +4,26 @@
 
 A personal project for practicing AI development and testing training algorithms. Built from scratch to understand LLM training internals — distributed training, parallelism, alignment, and optimization.
 
-Inspired by NVIDIA Megatron-LM and HuggingFace Transformers.
+Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experiences.
 
 ## Features
 
 - **Training modes**: Pretraining, SFT, FIM, DPO, and GRPO (Group Relative Policy Optimization)
-- **Parallelism**: Tensor Parallelism (TP) and Data Parallelism (DP), including multi-node and FSDP
+- **Parallelism**: Tensor Parallelism (TP), Expert Parallelism (EP) and Data Parallelism (DP), including multi-node and FSDP
 - **Model architectures**: GPT-2/3, LLaMA, Gemma, Qwen, Phi via unified `TransformerModel`
 - **Mixture of Experts (MoE)**: Expert routing with load-balance loss and expert parallelism
 - **PEFT / LoRA**: Parameter-efficient fine-tuning with TP-correct implementations
-- **GRPO / RL alignment**: Online rollout generation, group-relative advantage, KL penalty, multi-backend rewards (math, code, API, local model)
+- **GRPO (WIP) / RL alignment**: Online rollout generation, group-relative advantage, KL penalty, multi-backend rewards (math, code, API, local model)
 - **Checkpointing**: Native and HuggingFace-interop checkpoint save/load
 - **KV cache**: Paged KV cache with prefix caching for efficient rollout generation
 - **MFU tracking**: Model FLOP utilization monitoring during training
 - **Logging**: WandB integration via `WandbLogger`
-- Runs on dual RTX 3090 (with NVLink)
+- Runs on my precious dual RTX 3090 (with NVLink)
+<details>
+<summary>My test Machine</summary>
+<!-- <image src="https://raw.githubusercontent.com/hanjack/ironcore/main/docs/assets/my_rig.png" alt="My Rig" width="600"/> -->
+<image src="docs/assets/my_rig.png" alt="My Rig" width="600"/>
+</details>
 
 ## Installation
 

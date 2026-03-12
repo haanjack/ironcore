@@ -44,7 +44,7 @@
 
 ## Alignment / RL
 - [x] DPO (Direct Preference Optimization)
-- [x] GRPO (Group Relative Policy Optimization)
+- [ ] GRPO (Group Relative Policy Optimization) - WIP
   - [x] Online rollout generation (batched, prefix-cached)
   - [x] Group-relative advantage computation
   - [x] KL penalty (approximate + full)
