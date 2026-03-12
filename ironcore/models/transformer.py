@@ -4,6 +4,7 @@
 
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 
 from ironcore.config import MainConfig
 from ironcore.layers import BaseModule
@@ -215,6 +216,25 @@ class TransformerModel(BaseModule):
             layer.layer_idx = i
             self.layers.append(layer)
 
+        # Activation checkpointing configuration
+        self.activation_recompute = config.operation.activation_recompute
+        self.use_reentrant = config.operation.recompute_strategy == "optimized"
+
+    def _is_fsdp_enabled(self) -> bool:
+        """Check if this module is being used with FSDP (FSDP wrapper in parent chain)."""
+        # Note: Layer-level checkpointing via torch.utils.checkpoint is incompatible
+        # with FSDP's parameter sharding. When FSDP is enabled, use FSDP's native
+        # apply_activation_checkpointing() instead (applied in parallel.py).
+        try:
+            import torch.distributed as dist
+            if dist.is_initialized():
+                # Check if FSDP is likely in use by checking world size > 1
+                # and the config specifies FSDP
+                return getattr(self.config.parallel, 'use_fsdp', False)
+        except (ImportError, AttributeError):
+            pass
+        return False
+
     def forward(
         self,
         hidden_states,
@@ -228,18 +248,48 @@ class TransformerModel(BaseModule):
     ):
         new_key_values = [] if use_cache else None
 
+        # Determine if we should use activation checkpointing
+        # Note: For DDP, use layer-level checkpointing via torch.utils.checkpoint.
+        # For FSDP, skip here and use apply_activation_checkpointing() in parallel.py
+        # to avoid "tensor data not allocated" errors with FSDP's parameter sharding.
+        is_fsdp = self._is_fsdp_enabled()
+        use_layer_checkpointing = (
+            self.activation_recompute
+            and self.training
+            and not use_cache
+            and kv_cache_manager is None
+            and not is_fsdp  # Skip for FSDP - uses module-level checkpointing instead
+        )
+
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
-            layer_out = layer(
-                hidden_states,
-                attention_mask,
-                rotary_pos_emb,
-                position_ids=position_ids,
-                use_cache=use_cache,
-                past_key_value=past_kv,
-                kv_cache_manager=kv_cache_manager,
-                cache_position=cache_position,
-            )
+
+            if use_layer_checkpointing:
+                # Layer-level checkpointing for DDP
+                layer_out = checkpoint(
+                    layer.custom_forward,
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    position_ids,
+                    False,  # use_cache
+                    None,   # past_key_value
+                    None,   # kv_cache_manager
+                    None,   # cache_position
+                    use_reentrant=self.use_reentrant,
+                )
+            else:
+                layer_out = layer(
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    position_ids=position_ids,
+                    use_cache=use_cache,
+                    past_key_value=past_kv,
+                    kv_cache_manager=kv_cache_manager,
+                    cache_position=cache_position,
+                )
+
             if use_cache or kv_cache_manager is not None:
                 hidden_states, new_kv = layer_out
                 if use_cache:
