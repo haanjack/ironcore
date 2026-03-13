@@ -71,6 +71,12 @@ class MathRewardFunction(RewardFunction):
 
         if self._normalize_answer(extracted) == self._normalize_answer(gold):
             return 1.0
+
+        # Partial credit: extracted a number but it's wrong
+        # Gives gradient signal that answer extraction is on the right track
+        if extracted:
+            return 0.1
+
         return 0.0
 
     def _extract_answer(self, text: str) -> str:
@@ -246,6 +252,28 @@ class SoftKeywordRewardFunction(RewardFunction):
             best_score = max(best_score, score)
 
         return max(best_score, self.min_score)
+
+
+class CompositeRewardFunction(RewardFunction):
+    """Weighted combination of multiple reward functions.
+
+    Provides dense reward signal by combining sparse correctness rewards
+    with easier-to-achieve format/structure rewards. This prevents the
+    zero-advantage death spiral where all completions in a group score 0.
+    """
+
+    def __init__(self, reward_fns: list[tuple[float, RewardFunction]]):
+        """
+        Args:
+            reward_fns: List of (weight, reward_fn) tuples. Weights should sum to 1.0.
+        """
+        self.reward_fns = reward_fns
+
+    def compute(self, prompt: str, completion: str, metadata: dict) -> float:
+        total = 0.0
+        for weight, fn in self.reward_fns:
+            total += weight * fn.compute(prompt, completion, metadata)
+        return total
 
 
 class APIRewardFunction(RewardFunction):
@@ -773,6 +801,21 @@ def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: 
     """Factory function to create reward functions."""
     if reward_type == "math":
         return MathRewardFunction(strict=kwargs.get("strict", True))
+    if reward_type == "composite_math":
+        # Dense reward: format compliance + correctness
+        # Breaks zero-advantage death spiral for small models on GSM8K
+        format_weight = kwargs.get("format_weight", 0.2)
+        correctness_weight = 1.0 - format_weight
+        format_fn = StrictFormatRewardFunction(
+            pattern=kwargs.get("format_pattern", r"####\s*-?\d"),
+            reward=1.0,
+            penalty=0.0,
+        )
+        math_fn = MathRewardFunction(strict=kwargs.get("strict", False))
+        return CompositeRewardFunction([
+            (format_weight, format_fn),
+            (correctness_weight, math_fn),
+        ])
     if reward_type == "code":
         return CodeRewardFunction(timeout=kwargs.get("timeout", 5))
     if reward_type == "keyword":

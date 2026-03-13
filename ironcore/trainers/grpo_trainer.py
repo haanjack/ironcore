@@ -67,7 +67,8 @@ class GRPOTrainer(BaseTrainer):
         self.eps = config.alignment.grpo_eps
         self.num_epochs = config.alignment.grpo_num_epochs
         self.clip_eps = config.alignment.grpo_clip_eps
-        self.rollout_chunks = config.alignment.grpo_rollout_chunks
+        self.rollout_micro_group_size = config.alignment.grpo_rollout_micro_group_size
+        self.rollout_chunks = self.group_size // self.rollout_micro_group_size
 
         # Generation config
         gen_config = config.alignment.generation
@@ -215,25 +216,19 @@ class GRPOTrainer(BaseTrainer):
         
         # Determine micro-batch size for reference inference
         # Match rollout chunk size for memory consistency
-        micro_batch_size = rollout.batch_size * (self.group_size // self.rollout_chunks)
+        micro_batch_size = rollout.batch_size * self.rollout_micro_group_size
         
         all_ref_log_probs = []
         
         for i in range(0, total_samples, micro_batch_size):
             stop = min(i + micro_batch_size, total_samples)
             mb_completion_ids = rollout.completion_ids[i:stop].to(device)
-            mb_response_ids = rollout.response_ids[i:stop]
-            
-            # Prepare labels and mask for this micro-batch
-            # We can't use _prepare_labels_and_mask directly as it expects a RolloutBuffer
-            prompt_len = rollout.prompt_ids.size(1)
-            mb_labels = mb_completion_ids.detach().clone()
-            mb_labels[:, :-1] = mb_completion_ids[:, 1:]
-            mb_labels[:, -1] = -100
-            mb_labels[:, : prompt_len - 1] = -100
-            
-            mb_response_mask = torch.zeros_like(mb_labels, dtype=torch.float)
-            mb_response_mask[:, prompt_len - 1 : -1] = 1.0
+
+            # Use select() to get a proper sub-buffer, then reuse _prepare_labels_and_mask
+            # for consistent EOS-aware masking between policy and reference
+            mb_indices = torch.arange(i, stop, device=device)
+            mb_rollout = rollout.select(mb_indices)
+            mb_labels, mb_response_mask = self._prepare_labels_and_mask(mb_rollout)
 
             # Reference model is on GPU - direct inference
             ref_output = self.reference_model(mb_completion_ids, labels=None)
@@ -374,7 +369,6 @@ class GRPOTrainer(BaseTrainer):
 
         prompts = batch["prompts"]  # Raw text prompts
         metadata = batch["metadata"]
-        G = self.group_size
 
         # Prepare prompt IDs (with optional chat template / system prompt)
         device = self._get_compute_device()
@@ -385,11 +379,10 @@ class GRPOTrainer(BaseTrainer):
 
         self.model.eval()
         with torch.no_grad():
-            # Chunked rollout generation for larger effective group sizes
-            # When rollout_chunks > 1, generate group_size/rollout_chunks per chunk
-            # This keeps memory constant while allowing larger total group sizes
+            # Chunked rollout: generate rollout_micro_group_size completions per chunk
+            # chunks = group_size / micro_group_size (derived at init)
             rollout = None
-            chunk_group_size = G // self.rollout_chunks
+            chunk_group_size = self.rollout_micro_group_size
             chunk_metadata = metadata  # Same metadata for each chunk (will be expanded)
 
             for chunk_idx in range(self.rollout_chunks):
@@ -433,12 +426,11 @@ class GRPOTrainer(BaseTrainer):
         # Match chunk-interleaved response layout:
         # cat() output: [chunk0_B0*, chunk0_B1*, ..., chunk1_B0*, chunk1_B1*, ...]
         # repeated_prompts must follow the same order.
-        chunk_group_size = G // self.rollout_chunks
         repeated_prompts = [
             p
             for _ in range(self.rollout_chunks)
             for p in prompts_text
-            for _ in range(chunk_group_size)
+            for _ in range(self.rollout_micro_group_size)
         ]
         rewards = self.reward_worker.score_batch(
             prompts=repeated_prompts,
@@ -461,8 +453,8 @@ class GRPOTrainer(BaseTrainer):
         grad_norm = param_norm = 0.0
         
         # Determine micro-batch size for update phase
-        # We want to process at most B * (G / chunks) at once to match rollout memory
-        micro_batch_size = prompt_ids.size(0) * (G // self.rollout_chunks)
+        # Process B_local * micro_group_size samples at once (matches rollout memory)
+        micro_batch_size = prompt_ids.size(0) * self.rollout_micro_group_size
         total_samples = rollout.total_samples
 
         for epoch in range(self.num_epochs):
@@ -539,9 +531,10 @@ class GRPOTrainer(BaseTrainer):
             policy_log_probs_token, ref_log_probs.to(device), response_mask
         )
 
-        # Sum token-level log probs for sequence-level advantage multiplication
-        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1)
-        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1)
+        # Sum token-level log probs, normalized by response length to remove length bias
+        response_len = response_mask.sum(dim=-1).clamp(min=1)
+        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1) / response_len
+        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1) / response_len
 
         # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
         loss, metrics = grpo_loss(

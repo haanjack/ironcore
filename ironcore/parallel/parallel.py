@@ -42,10 +42,13 @@ def initialize_process(config: MainConfig):
         )
         return
 
-    # initialize cuda
+    # Set device BEFORE any CUDA call to avoid creating a stale context on cuda:0.
+    # torch.cuda.is_available() itself initializes a CUDA context on the default device.
+    if config.parallel.local_rank >= 0:
+        torch.cuda.set_device(config.parallel.local_rank)
+
     if torch.cuda.is_available():
         torch.backends.cudnn.enabled = True
-        torch.cuda.set_device(config.parallel.local_rank)
 
         if config.profiler.gpu_profiler:
             torch.backends.cudnn.benchmark = True

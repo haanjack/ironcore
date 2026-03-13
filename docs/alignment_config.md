@@ -22,7 +22,7 @@ alignment:
   grpo_eps: 1e-8
   grpo_num_epochs: 1
   grpo_clip_eps: 0.2
-  grpo_rollout_chunks: 1
+  grpo_rollout_micro_group_size: 1
 
   # Generation config (GRPO only)
   generation:
@@ -103,14 +103,14 @@ Group Relative Policy Optimization (GRPO) generates multiple completions per pro
   - `>0`: Clip ratios outside `[1 - eps, 1 + eps]`
 - **Range**: `>= 0`
 
-### `grpo_rollout_chunks`
+### `grpo_rollout_micro_group_size`
 - **Type**: `int`
 - **Default**: `1`
-- **Description**: Number of chunks for rollout generation. Enables memory-efficient training with large group sizes.
-  - `1`: Generate all completions in one forward pass
-  - `>1`: Split generation across multiple forward passes
+- **Description**: Max completions generated in parallel per prompt per GPU (hardware knob, like `micro_batch_size`). Chunks are derived internally: `group_size / micro_group_size`.
+  - `1`: Generate one completion at a time (minimum memory)
+  - `group_size`: Generate all completions in one forward pass (maximum memory)
 - **Range**: `>= 1`, must divide `grpo_group_size` evenly
-- **Example**: `group_size=8, rollout_chunks=2` generates 4 completions per chunk
+- **Example**: `group_size=8, rollout_micro_group_size=2` → 4 chunks of 2 completions each
 
 ---
 
@@ -254,7 +254,7 @@ alignment:
   method: grpo
   grpo_group_size: 4
   grpo_beta: 0.04
-  grpo_rollout_chunks: 1
+  grpo_rollout_micro_group_size: 1
   generation:
     max_new_tokens: 128
     temperature: 0.7
@@ -272,7 +272,7 @@ alignment:
 alignment:
   method: grpo
   grpo_group_size: 8
-  grpo_rollout_chunks: 2  # Generate 4 per chunk
+  grpo_rollout_micro_group_size: 2  # Generate 2 per chunk, 4 chunks
   generation:
     max_new_tokens: 256
 ```

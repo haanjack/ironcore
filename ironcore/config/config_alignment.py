@@ -80,12 +80,15 @@ class AlignmentConfig(BaseConfig):
     dpo_label_smoothing: float = 0.0
 
     # GRPO specific parameters
-    grpo_group_size: int = 4  # G completions per prompt
+    # grpo_group_size: total completions per prompt (world-size agnostic, like train_batch_size)
+    # grpo_rollout_micro_group_size: completions generated in parallel per prompt per GPU
+    #   (hardware knob, like micro_batch_size). chunks derived: group_size / micro_group_size
+    grpo_group_size: int = 4  # Total completions per prompt
+    grpo_rollout_micro_group_size: int = 1  # Per-GPU parallel completions per prompt
     grpo_beta: float = 0.1  # KL penalty coefficient
     grpo_eps: float = 1e-8  # Advantage normalization epsilon
     grpo_num_epochs: int = 1  # Gradient steps per rollout batch (>1 = offline/multi-epoch)
     grpo_clip_eps: float = 0.2  # PPO-style IS ratio clip range (0.0 = no clipping)
-    grpo_rollout_chunks: int = 1  # Number of chunks for rollout generation (1 = no chunking)
 
     # GRPO generation and reward config
     generation: GenerationConfig = field(default_factory=GenerationConfig)
@@ -121,15 +124,18 @@ class AlignmentConfig(BaseConfig):
                 raise ValueError(f"grpo_num_epochs must be >= 1, got {self.grpo_num_epochs}")
             if self.grpo_clip_eps < 0:
                 raise ValueError(f"grpo_clip_eps must be >= 0, got {self.grpo_clip_eps}")
-            if self.grpo_rollout_chunks < 1:
-                raise ValueError(f"grpo_rollout_chunks must be >= 1, got {self.grpo_rollout_chunks}")
-            if self.grpo_group_size % self.grpo_rollout_chunks != 0:
+            if self.grpo_rollout_micro_group_size < 1:
+                raise ValueError(
+                    f"grpo_rollout_micro_group_size must be >= 1, got {self.grpo_rollout_micro_group_size}"
+                )
+            if self.grpo_group_size % self.grpo_rollout_micro_group_size != 0:
                 raise ValueError(
                     f"grpo_group_size ({self.grpo_group_size}) must be divisible by "
-                    f"grpo_rollout_chunks ({self.grpo_rollout_chunks})"
+                    f"grpo_rollout_micro_group_size ({self.grpo_rollout_micro_group_size})"
                 )
             valid_reward_types = (
                 "math",
+                "composite_math",
                 "code",
                 "api",
                 "local_endpoint",

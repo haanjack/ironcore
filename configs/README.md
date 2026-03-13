@@ -189,7 +189,7 @@ Alignment training configuration for DPO and GRPO. See [docs/alignment_config.md
 | `grpo_eps` | `1e-8` | Advantage normalization epsilon |
 | `grpo_num_epochs` | `1` | Gradient steps per rollout batch |
 | `grpo_clip_eps` | `0.2` | PPO-style ratio clipping range |
-| `grpo_rollout_chunks` | `1` | Chunks for memory-efficient rollout generation |
+| `grpo_rollout_micro_group_size` | `1` | Per-GPU parallel completions per prompt (like micro_batch_size) |
 | `concat_forward_passes` | `true` | Concat policy/ref forward passes |
 | `metrics_interval` | `0` | Detailed metrics interval (0 = every step) |
 

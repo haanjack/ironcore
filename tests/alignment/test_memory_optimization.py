@@ -202,49 +202,49 @@ class TestRolloutBufferCat:
 
 
 class TestConfigValidation:
-    """Tests for config validation of grpo_rollout_chunks."""
+    """Tests for config validation of grpo_rollout_micro_group_size."""
 
-    def test_valid_rollout_chunks_config(self):
-        """Test valid rollout_chunks configurations."""
+    def test_valid_micro_group_size_config(self):
+        """Test valid rollout_micro_group_size configurations."""
         from ironcore.config.config_alignment import AlignmentConfig
 
         # Default config should be valid
         config = AlignmentConfig(method="grpo")
-        assert config.grpo_rollout_chunks == 1
+        assert config.grpo_rollout_micro_group_size == 1
 
-        # Various valid combinations
+        # Various valid combinations (micro_group_size must divide group_size)
         valid_configs = [
-            {"grpo_group_size": 4, "grpo_rollout_chunks": 1},
-            {"grpo_group_size": 4, "grpo_rollout_chunks": 2},
-            {"grpo_group_size": 4, "grpo_rollout_chunks": 4},
-            {"grpo_group_size": 8, "grpo_rollout_chunks": 1},
-            {"grpo_group_size": 8, "grpo_rollout_chunks": 2},
-            {"grpo_group_size": 8, "grpo_rollout_chunks": 4},
-            {"grpo_group_size": 8, "grpo_rollout_chunks": 8},
+            {"grpo_group_size": 4, "grpo_rollout_micro_group_size": 1},
+            {"grpo_group_size": 4, "grpo_rollout_micro_group_size": 2},
+            {"grpo_group_size": 4, "grpo_rollout_micro_group_size": 4},
+            {"grpo_group_size": 8, "grpo_rollout_micro_group_size": 1},
+            {"grpo_group_size": 8, "grpo_rollout_micro_group_size": 2},
+            {"grpo_group_size": 8, "grpo_rollout_micro_group_size": 4},
+            {"grpo_group_size": 8, "grpo_rollout_micro_group_size": 8},
         ]
 
         for cfg in valid_configs:
             config = AlignmentConfig(method="grpo", **cfg)
-            assert config.grpo_rollout_chunks == cfg["grpo_rollout_chunks"]
+            assert config.grpo_rollout_micro_group_size == cfg["grpo_rollout_micro_group_size"]
 
-    def test_invalid_rollout_chunks_zero(self):
-        """Test that rollout_chunks=0 raises error."""
+    def test_invalid_micro_group_size_zero(self):
+        """Test that rollout_micro_group_size=0 raises error."""
         from ironcore.config.config_alignment import AlignmentConfig
 
-        with pytest.raises(ValueError, match="grpo_rollout_chunks must be >= 1"):
-            AlignmentConfig(method="grpo", grpo_rollout_chunks=0)
+        with pytest.raises(ValueError, match="grpo_rollout_micro_group_size must be >= 1"):
+            AlignmentConfig(method="grpo", grpo_rollout_micro_group_size=0)
 
-    def test_invalid_rollout_chunks_not_divisible(self):
-        """Test that non-divisible group_size/rollout_chunks raises error."""
+    def test_invalid_micro_group_size_not_divisible(self):
+        """Test that non-divisible group_size/micro_group_size raises error."""
         from ironcore.config.config_alignment import AlignmentConfig
 
-        # 8 / 3 is not divisible
+        # 8 % 3 != 0
         with pytest.raises(ValueError, match="must be divisible"):
-            AlignmentConfig(method="grpo", grpo_group_size=8, grpo_rollout_chunks=3)
+            AlignmentConfig(method="grpo", grpo_group_size=8, grpo_rollout_micro_group_size=3)
 
-        # 4 / 3 is not divisible
+        # 4 % 3 != 0
         with pytest.raises(ValueError, match="must be divisible"):
-            AlignmentConfig(method="grpo", grpo_group_size=4, grpo_rollout_chunks=3)
+            AlignmentConfig(method="grpo", grpo_group_size=4, grpo_rollout_micro_group_size=3)
 
 
 class TestTransformerModelActivationCheckpointing:
