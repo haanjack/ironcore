@@ -253,7 +253,11 @@ class GRPOTrainer(BaseTrainer):
         return torch.cat(all_ref_log_probs, dim=0).to(device)
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
-        """Centralized logic for label shifting and response masking."""
+        """Centralized logic for label shifting and response masking.
+
+        Uses per-sequence response_lengths when available so that padding tokens
+        after EOS are correctly excluded from the loss.
+        """
         prompt_len = rollout.prompt_ids.size(1)
 
         # Create labels (shift by 1 for next-token prediction)
@@ -262,9 +266,15 @@ class GRPOTrainer(BaseTrainer):
         labels[:, -1] = -100
         labels[:, : prompt_len - 1] = -100
 
-        # Mask: only compute loss on response tokens
+        # Mask: only compute loss on actual response tokens (EOS-aware)
         response_mask = torch.zeros_like(labels, dtype=torch.float)
-        response_mask[:, prompt_len - 1 : -1] = 1.0
+        if rollout.response_lengths is not None:
+            # Per-sequence mask: [prompt_len-1 : prompt_len-1 + resp_len] for each row
+            for i, resp_len in enumerate(rollout.response_lengths.tolist()):
+                resp_len = int(resp_len)
+                response_mask[i, prompt_len - 1 : prompt_len - 1 + resp_len] = 1.0
+        else:
+            response_mask[:, prompt_len - 1 : -1] = 1.0
 
         return labels, response_mask
 
@@ -499,7 +509,7 @@ class GRPOTrainer(BaseTrainer):
             metrics_interval = self.config.alignment.metrics_interval
             if metrics_interval > 0 and step % metrics_interval == 0:
                 self._log_qualitative_samples(
-                    prompts_text, responses_text, rollout.metadata, rewards, G, step
+                    prompts_text, responses_text, rollout.metadata, rewards, rollout.group_ids, step
                 )
 
         return metrics["grpo_loss"], grad_norm, param_norm
@@ -655,22 +665,22 @@ class GRPOTrainer(BaseTrainer):
         responses_text: list[str],
         metadata: list[dict],
         rewards: torch.Tensor,
-        group_size: int,
+        group_ids: torch.Tensor,
         step: int,
     ) -> None:
         """Log qualitative samples for debugging.
 
         Logs the first prompt and its best/worst completions.
+        Uses group_ids for correct indexing regardless of rollout_chunks layout.
         """
         num_prompts = len(prompts_text)
 
         # Log up to 3 prompts
         for i in range(min(3, num_prompts)):
-            # Get responses and rewards for this prompt's group
-            start_idx = i * group_size
-            end_idx = start_idx + group_size
-            group_responses = responses_text[start_idx:end_idx]
-            group_rewards = rewards[start_idx:end_idx]
+            # Use group_ids to find all completions belonging to prompt i
+            group_indices = (group_ids == i).nonzero(as_tuple=True)[0]
+            group_responses = [responses_text[idx] for idx in group_indices.tolist()]
+            group_rewards = rewards[group_indices]
 
             # Find best and worst in group
             best_idx = int(group_rewards.argmax().item())
@@ -681,7 +691,7 @@ class GRPOTrainer(BaseTrainer):
             )
             best_response = group_responses[best_idx]
             worst_response = group_responses[worst_idx]
-            ground_truth = metadata[start_idx].get("answer", "N/A")
+            ground_truth = metadata[int(group_indices[0].item())].get("answer", "N/A")
 
             self.logger.info(
                 f"\n{'=' * 60}\n"

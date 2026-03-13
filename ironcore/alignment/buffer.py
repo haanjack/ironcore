@@ -68,6 +68,10 @@ class RolloutBuffer:
     # Metadata for reward computation
     metadata: list[dict]  # [B*G]
 
+    # Per-sequence actual response lengths (in tokens, excluding padding after EOS)
+    # None if not tracked (e.g., loaded from old checkpoints)
+    response_lengths: torch.Tensor | None = None  # [B*G]
+
     # Optional tracking
     step: int = 0
     generation_config: dict = field(default_factory=dict)
@@ -105,6 +109,7 @@ class RolloutBuffer:
             advantages=self.advantages.to(device),
             group_ids=self.group_ids.to(device),
             metadata=self.metadata,
+            response_lengths=self.response_lengths.to(device) if self.response_lengths is not None else None,
             step=self.step,
             generation_config=self.generation_config,
         )
@@ -121,6 +126,7 @@ class RolloutBuffer:
             advantages=self.advantages.pin_memory(),
             group_ids=self.group_ids.pin_memory(),
             metadata=self.metadata,
+            response_lengths=self.response_lengths.pin_memory() if self.response_lengths is not None else None,
             step=self.step,
             generation_config=self.generation_config,
         )
@@ -131,19 +137,19 @@ class RolloutBuffer:
         path.mkdir(parents=True, exist_ok=True)
 
         # Save tensors
-        torch.save(
-            {
-                "prompt_ids": self.prompt_ids.cpu(),
-                "prompt_attention_mask": self.prompt_attention_mask.cpu(),
-                "completion_ids": self.completion_ids.cpu(),
-                "response_ids": self.response_ids.cpu(),
-                "old_log_probs": self.old_log_probs.cpu(),
-                "rewards": self.rewards.cpu(),
-                "advantages": self.advantages.cpu(),
-                "group_ids": self.group_ids.cpu(),
-            },
-            path / "tensors.pt",
-        )
+        tensors = {
+            "prompt_ids": self.prompt_ids.cpu(),
+            "prompt_attention_mask": self.prompt_attention_mask.cpu(),
+            "completion_ids": self.completion_ids.cpu(),
+            "response_ids": self.response_ids.cpu(),
+            "old_log_probs": self.old_log_probs.cpu(),
+            "rewards": self.rewards.cpu(),
+            "advantages": self.advantages.cpu(),
+            "group_ids": self.group_ids.cpu(),
+        }
+        if self.response_lengths is not None:
+            tensors["response_lengths"] = self.response_lengths.cpu()
+        torch.save(tensors, path / "tensors.pt")
 
         # Save metadata
         with open(path / "metadata.json", "w") as f:
@@ -175,6 +181,7 @@ class RolloutBuffer:
             advantages=tensors["advantages"],
             group_ids=tensors["group_ids"],
             metadata=meta["metadata"],
+            response_lengths=tensors.get("response_lengths"),
             step=meta["step"],
             generation_config=meta["generation_config"],
         )
@@ -231,6 +238,7 @@ class RolloutBuffer:
             advantages=self.advantages[indices],
             group_ids=self.group_ids[indices],
             metadata=[self.metadata[i].copy() for i in indices.tolist()],
+            response_lengths=self.response_lengths[indices] if self.response_lengths is not None else None,
             step=self.step,
             generation_config=self.generation_config,
         )
@@ -253,16 +261,38 @@ class RolloutBuffer:
                 f"{self.batch_size} vs {other.batch_size}"
             )
 
+        def _pad_seq(a: torch.Tensor, b: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+            """Pad the shorter tensor along dim=1 with zeros so shapes match."""
+            la, lb = a.size(1), b.size(1)
+            if la == lb:
+                return a, b
+            if la < lb:
+                pad = a.new_zeros(a.size(0), lb - la)
+                a = torch.cat([a, pad], dim=1)
+            else:
+                pad = b.new_zeros(b.size(0), la - lb)
+                b = torch.cat([b, pad], dim=1)
+            return a, b
+
+        completion_ids_a, completion_ids_b = _pad_seq(self.completion_ids, other.completion_ids)
+        response_ids_a, response_ids_b = _pad_seq(self.response_ids, other.response_ids)
+
+        if self.response_lengths is not None and other.response_lengths is not None:
+            merged_response_lengths = torch.cat([self.response_lengths, other.response_lengths], dim=0)
+        else:
+            merged_response_lengths = None
+
         return RolloutBuffer(
             prompt_ids=self.prompt_ids,
             prompt_attention_mask=self.prompt_attention_mask,
-            completion_ids=torch.cat([self.completion_ids, other.completion_ids], dim=0),
-            response_ids=torch.cat([self.response_ids, other.response_ids], dim=0),
+            completion_ids=torch.cat([completion_ids_a, completion_ids_b], dim=0),
+            response_ids=torch.cat([response_ids_a, response_ids_b], dim=0),
             old_log_probs=torch.cat([self.old_log_probs, other.old_log_probs], dim=0),
             rewards=torch.cat([self.rewards, other.rewards], dim=0),
             advantages=torch.cat([self.advantages, other.advantages], dim=0),
             group_ids=torch.cat([self.group_ids, other.group_ids], dim=0),
             metadata=self.metadata + other.metadata,
+            response_lengths=merged_response_lengths,
             step=self.step,
             generation_config=self.generation_config,
         )

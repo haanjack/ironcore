@@ -232,7 +232,15 @@ def generate_rollouts_batched(
 
     log_probs_list = [first_log_probs]
     done_mask = torch.zeros(total_samples, dtype=torch.bool, device=device)
+    # response_lengths[i] = number of tokens generated for sequence i (EOS inclusive, padding exclusive)
+    response_lengths = torch.full((total_samples,), max_new_tokens, dtype=torch.long, device=device)
     past_kv = expanded_kv
+
+    # Check if any first tokens are EOS
+    if eos_token_id is not None:
+        newly_done = first_tokens.squeeze(-1) == eos_token_id
+        response_lengths[newly_done] = 1
+        done_mask = done_mask | newly_done
 
     for t in range(1, max_new_tokens):
         if done_mask.all():
@@ -259,8 +267,10 @@ def generate_rollouts_batched(
 
         # Mask log probs for sequences that are already done
         if eos_token_id is not None:
+            newly_done = (~done_mask) & (next_tokens.squeeze(-1) == eos_token_id)
+            response_lengths[newly_done] = t + 1  # +1: EOS token is included
             log_probs_list.append(next_log_probs * (~done_mask).float())
-            done_mask = done_mask | (next_tokens.squeeze(-1) == eos_token_id)
+            done_mask = done_mask | newly_done
         else:
             log_probs_list.append(next_log_probs)
 
@@ -269,6 +279,8 @@ def generate_rollouts_batched(
     # Trim to actual length if all sequences reached EOS early
     actual_len = len(log_probs_list)
     generated = generated[:, :actual_len]
+    # Clamp response_lengths to actual_len (sequences that never hit EOS)
+    response_lengths = response_lengths.clamp(max=actual_len)
 
     # === Step 5: Build output ===
     # Expand prompt_ids to [B×G, prompt_len]
@@ -299,6 +311,7 @@ def generate_rollouts_batched(
         advantages=torch.zeros(total_samples, device=device),
         group_ids=group_ids,
         metadata=expanded_metadata,
+        response_lengths=response_lengths,
     )
 
 
