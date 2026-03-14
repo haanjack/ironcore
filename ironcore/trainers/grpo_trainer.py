@@ -238,14 +238,14 @@ class GRPOTrainer(BaseTrainer):
                 ref_logits, mb_labels, mb_response_mask
             )
             
-            all_ref_log_probs.append(mb_ref_log_probs.detach().cpu())
+            all_ref_log_probs.append(mb_ref_log_probs.detach())
             
             # Free reference logits immediately
             del ref_logits
             del mb_completion_ids
             torch.cuda.empty_cache()
 
-        return torch.cat(all_ref_log_probs, dim=0).to(device)
+        return torch.cat(all_ref_log_probs, dim=0)
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
         """Centralized logic for label shifting and response masking.
