@@ -1,0 +1,25 @@
+# GRPO Toy Dataset Configuration
+# Simple test dataset for GRPO validation
+
+# Tokenizer configuration
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+
+# Sequence parameters
+seq_length: 256
+
+# Data splits
+splits: [1.0, 0.0, 0.0]
+
+# Datasets to use
+train_datasets:
+  - name: grpo_toy
+    source: data/grpo_toy.jsonl
+    task_type: grpo
+    ratio: 1.0
+    split: train
+
+# Preprocessing settings
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

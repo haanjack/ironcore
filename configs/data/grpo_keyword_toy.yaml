@@ -1,0 +1,18 @@
+# GRPO Keyword Toy Dataset Configuration
+# Trains model to include "ironcore" keyword in responses
+
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+seq_length: 256
+splits: [1.0, 0.0, 0.0]
+
+train_datasets:
+  - name: grpo_keyword_toy
+    source: data/grpo_keyword_toy.jsonl
+    task_type: grpo
+    ratio: 1.0
+    split: train
+
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

@@ -29,9 +29,11 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
             self.tensor_model_parallel_rank = parallel_states.get_tensor_model_parallel_rank()
 
         # Divide the weight matrix
-        self.weight = nn.Parameter(torch.Tensor(input_size, output_size))
+        # Initialize with zeros to avoid garbage values from uninitialized memory
+        # Weights will be properly initialized later by init_weights() or loaded from checkpoint
+        self.weight = nn.Parameter(torch.zeros(input_size, output_size))
         if bias:
-            self.bias = nn.Parameter(torch.Tensor(output_size))
+            self.bias = nn.Parameter(torch.zeros(output_size))
         else:
             self.bias = None
 

@@ -4,24 +4,26 @@
 
 A personal project for practicing AI development and testing training algorithms. Built from scratch to understand LLM training internals — distributed training, parallelism, alignment, and optimization.
 
-Inspired by NVIDIA Megatron-LM and HuggingFace Transformers.
+Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experiences.
 
 ## Features
 
-- **Training modes**: Pretraining, SFT, FIM, and DPO (Direct Preference Optimization)
-- **Parallelism**: Tensor Parallelism (TP) and Data Parallelism (DP), including multi-node
+- **Training modes**: Pretraining, SFT, FIM, DPO, and GRPO (Group Relative Policy Optimization)
+- **Parallelism**: Tensor Parallelism (TP), Expert Parallelism (EP) and Data Parallelism (DP), including multi-node and FSDP
 - **Model architectures**: GPT-2/3, LLaMA, Gemma, Qwen, Phi via unified `TransformerModel`
 - **Mixture of Experts (MoE)**: Expert routing with load-balance loss and expert parallelism
-- **PEFT / LoRA**: Parameter-efficient fine-tuning with async and TP-correct implementations
+- **PEFT / LoRA**: Parameter-efficient fine-tuning with TP-correct implementations
+- **GRPO (WIP) / RL alignment**: Online rollout generation, group-relative advantage, KL penalty, multi-backend rewards (math, code, API, local model)
 - **Checkpointing**: Native and HuggingFace-interop checkpoint save/load
+- **KV cache**: Paged KV cache with prefix caching for efficient rollout generation
 - **MFU tracking**: Model FLOP utilization monitoring during training
 - **Logging**: WandB integration via `WandbLogger`
-- Runs on dual RTX 3090 (with NVLink)
-
-**Planned:**
-- RL integration (RLHF / RLAIF / PPO)
-- Inference engine for rollout and evaluation
-- Triton kernels and low-level optimizations
+- Runs on my precious dual RTX 3090 (with NVLink)
+<details>
+<summary>My test Machine</summary>
+<!-- <image src="https://raw.githubusercontent.com/hanjack/ironcore/main/docs/assets/my_rig.png" alt="My Rig" width="600"/> -->
+<image src="docs/assets/my_rig.png" alt="My Rig" width="600"/>
+</details>
 
 ## Installation
 
@@ -80,6 +82,16 @@ torchrun --nproc_per_node 8 --nnodes 2 --node_rank 0 \
 ironcore train --config configs/alignment/dpo_default.yaml
 ```
 
+**GRPO Training (GSM8K math reasoning):**
+```bash
+ironcore train --config configs/grpo_gsm8k.yaml
+```
+
+**GRPO Training (toy/smoke test):**
+```bash
+ironcore train --config configs/grpo_toy.yaml
+```
+
 **LoRA Fine-tuning:**
 ```bash
 ironcore train --config configs/train_lora_example.yaml
@@ -95,7 +107,9 @@ ironcore train --config configs/train_lora_example.yaml
 | `optim` | Optimizer, learning rate, scheduler |
 | `operation` | Training steps, eval intervals |
 | `peft` | LoRA rank, alpha, target modules |
-| `alignment` | DPO beta and reference model settings |
+| `alignment` | DPO/GRPO method, beta, group size |
+| `alignment.generation` | Rollout generation (temperature, top-p, chat template) |
+| `alignment.reward` | Reward backend (math, code, API, local model) |
 
 ### Supported Model Architectures
 
@@ -143,17 +157,18 @@ ironcore/
 │   ├── model/              # Model architecture configs
 │   ├── data/               # Data preprocessing configs
 │   ├── peft/               # LoRA configs
-│   ├── alignment/          # DPO configs
-│   └── *.yaml              # Training configs
+│   ├── alignment/          # DPO/GRPO configs
+│   └── *.yaml              # Training configs (incl. grpo_gsm8k, grpo_toy)
 ├── ironcore/
 │   ├── cli/                # CLI entrypoints (train, preprocess, inspect)
 │   ├── config/             # Dataclass configs for all subsystems
 │   ├── models/             # TransformerModel implementation
-│   ├── layers/             # Attention, MLP, embedding, parallel MLP
-│   ├── trainers/           # BaseTrainer, LMTrainer, DPOTrainer
+│   ├── layers/             # Attention, MLP, embedding, KV cache
+│   ├── trainers/           # BaseTrainer, LMTrainer, DPOTrainer, GRPOTrainer
+│   ├── alignment/          # Rollout, rewards, GRPO/DPO loss, buffer, dataset
 │   ├── dataloader/         # Dataset, collator, data config
 │   ├── optimizer/          # Optimizer, LR scheduler, distributed optimizer
-│   ├── parallel/           # TP/DP process groups and utilities
+│   ├── parallel/           # TP/DP/EP process groups and utilities
 │   ├── peft/               # LoRA implementation and utilities
 │   ├── checkpointing/      # Native and HF-interop checkpointing
 │   ├── eval/               # Evaluator and scoring utilities
@@ -165,7 +180,7 @@ ironcore/
 ├── examples/               # Standalone usage examples
 ├── scripts/
 │   ├── docker/             # Docker build and launch scripts
-│   └── *.py                # Data preparation scripts
+│   └── *.py                # Data preparation and debug scripts
 ├── tests/                  # Unit, integration, performance, and property tests
 └── docs/                   # Guides and reports
 ```

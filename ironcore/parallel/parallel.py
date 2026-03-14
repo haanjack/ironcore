@@ -14,6 +14,10 @@ from torch.distributed.fsdp import (
     ShardingStrategy,
     StateDictType,
 )
+from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+    CheckpointImpl,
+    apply_activation_checkpointing,
+)
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from ironcore import get_logger
@@ -38,10 +42,13 @@ def initialize_process(config: MainConfig):
         )
         return
 
-    # initialize cuda
+    # Set device BEFORE any CUDA call to avoid creating a stale context on cuda:0.
+    # torch.cuda.is_available() itself initializes a CUDA context on the default device.
+    if config.parallel.local_rank >= 0:
+        torch.cuda.set_device(config.parallel.local_rank)
+
     if torch.cuda.is_available():
         torch.backends.cudnn.enabled = True
-        torch.cuda.set_device(config.parallel.local_rank)
 
         if config.profiler.gpu_profiler:
             torch.backends.cudnn.benchmark = True
@@ -150,6 +157,30 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
             forward_prefetch=use_forward_prefetch,
             use_orig_params=config.parallel.fsdp_use_orig_params,
         )
+
+        # Apply FSDP-compatible activation checkpointing
+        # Uses module-level checkpointing on TransformerLayer (vs layer-level in transformer.py)
+        if config.operation.activation_recompute:
+            from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+                checkpoint_wrapper,
+            )
+
+            if config.parallel.rank == 0:
+                logger.info("Applying FSDP activation checkpointing to TransformerLayer modules")
+
+            # Selective checkpointing: only checkpoint TransformerLayer modules
+            def check_fn(submodule):
+                return isinstance(submodule, TransformerLayer)
+
+            # Use non-reentrant implementation for better FSDP compatibility
+            def wrapper_fn(module):
+                return checkpoint_wrapper(module, checkpoint_impl=CheckpointImpl.NO_REENTRANT)
+
+            apply_activation_checkpointing(
+                model,
+                checkpoint_wrapper_fn=wrapper_fn,
+                check_fn=check_fn,
+            )
 
         # Set state dict type separately
         _state_dict_type = {

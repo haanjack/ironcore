@@ -22,6 +22,7 @@ from ironcore.config import (
     UtilsConfig,
 )
 from ironcore.config.config_alignment import AlignmentConfig
+from ironcore.config.config_model import BiasConfig
 
 # =============================================================================
 # Configuration Presets
@@ -39,7 +40,9 @@ SMALL_MODEL_CONFIG = {
     "dropout_attn": 0.0,
     "dropout_mlp": 0.0,
     "dropout_embd": 0.0,
-    "no_bias": False,
+    "attention_bias": True,
+    "mlp_bias": True,
+    "layernorm_bias": True,
     "precision": "float32",
 }
 
@@ -55,7 +58,9 @@ STANDARD_MODEL_CONFIG = {
     "dropout_attn": 0.0,
     "dropout_mlp": 0.0,
     "dropout_embd": 0.0,
-    "no_bias": False,
+    "attention_bias": True,
+    "mlp_bias": True,
+    "layernorm_bias": True,
     "precision": "float32",
 }
 
@@ -77,7 +82,9 @@ def create_test_config(
     dropout_attn: float = 0.0,
     dropout_mlp: float = 0.0,
     dropout_embd: float = 0.0,
-    no_bias: bool = False,
+    attention_bias: bool = True,
+    mlp_bias: bool = True,
+    layernorm_bias: bool = True,
     precision: str = "float32",
     use_flash_attn: bool = False,
     tensor_model_parallel_size: int = 1,
@@ -86,6 +93,15 @@ def create_test_config(
     init_std: float = 0.02,
 ) -> MainConfig:
     """Create a test configuration with sensible defaults."""
+    bias_config = BiasConfig(
+        q=attention_bias,
+        k=attention_bias,
+        v=attention_bias,
+        o=attention_bias,
+        gate=mlp_bias,
+        up=mlp_bias,
+        down=mlp_bias,
+    )
     model_config = ModelConfig(
         d_model=d_model,
         num_attention_heads=num_attention_heads,
@@ -98,7 +114,8 @@ def create_test_config(
         dropout_attn=dropout_attn,
         dropout_mlp=dropout_mlp,
         dropout_embd=dropout_embd,
-        no_bias=no_bias,
+        bias=bias_config,
+        layernorm_bias=layernorm_bias,
         precision=precision,
     )
 

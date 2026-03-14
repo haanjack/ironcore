@@ -1,0 +1,50 @@
+# GRPO Keyword Toy Test Configuration
+# Train GPT-2-small to include "ironcore" keyword in responses
+# This validates the GRPO pipeline end-to-end
+
+model: gpt2-small
+
+trainer:
+  micro_batch_size: 4
+  train_batch_size: 8
+  gradient_accumulation_steps: 2
+  log_interval: 1
+  use_flash_attn: true
+
+data:
+  config_path: configs/data/grpo_keyword_toy.yaml
+  task_type: grpo
+
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+  max_lr: 1.0e-6
+  min_lr: 1.0e-7
+  warmup_steps: 10
+  annealing_steps: 500
+  weight_decay: 0.0
+  clip_grad: 1.0
+
+operation:
+  train_steps: 500
+  eval_interval: 100
+
+init:
+  seed: 42
+
+alignment:
+  method: grpo
+  grpo_group_size: 8
+  grpo_beta: 0.04
+  grpo_eps: 1.0e-8
+  generation:
+    max_new_tokens: 32
+    temperature: 0.7
+    top_p: 0.9
+    top_k: 40
+    do_sample: true
+  reward:
+    type: soft_keyword
+    keyword: ironcore
+    num_workers: 4
+    timeout: 30

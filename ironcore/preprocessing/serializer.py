@@ -117,6 +117,8 @@ class DataSerializer:
             self._serialize_sft(dataset, dataset_config, bin_path, idx_path)
         elif dataset_config.task_type == "dpo":
             self._serialize_dpo(dataset, dataset_config, bin_path, idx_path)
+        elif dataset_config.task_type == "grpo":
+            self._serialize_grpo(dataset, dataset_config, bin_path, idx_path)
         else:
             raise ValueError(f"Unknown task type: {dataset_config.task_type}")
 
@@ -444,6 +446,92 @@ class DataSerializer:
         if self.verbose:
             print(f"  Tokens: {len(tokens_array):,}")
             print(f"  Pairs: {len(dataset):,}")
+
+    def _serialize_grpo(
+        self, dataset, dataset_config: DatasetConfig, bin_path: Path, idx_path: Path
+    ):
+        """
+        Serialize GRPO dataset.
+
+        For GRPO, we only store prompts. The model generates completions during training.
+        Metadata (answer, test_cases, etc.) is stored in mask_ranges as JSON.
+
+        Expected input format (JSON/JSONL):
+        {
+            "prompt": "Solve: 2x + 3 = 7",
+            "answer": "x = 2",
+            "type": "math"
+        }
+
+        Or for code:
+        {
+            "prompt": "def fibonacci(n):\\n    ",
+            "test_cases": ["assert fib(5)==5"],
+            "type": "code"
+        }
+        """
+        all_tokens = []
+        metadata = []
+        current_offset = 0
+
+        if self.verbose:
+            dataset_iter = tqdm(dataset, desc="  Tokenizing prompts", unit="prompts")
+        else:
+            dataset_iter = dataset
+
+        for sample in dataset_iter:
+            # Get prompt using configurable column name
+            prompt = sample.get(dataset_config.prompt_column, sample.get("prompt", ""))
+            if not prompt:
+                continue
+
+            # Tokenize prompt only (no completion - model generates during training)
+            token_ids = self._tokenize(prompt)
+
+            # Add EOS token
+            token_ids.append(self.tokenizer.eos_token_id)
+
+            # Build metadata dict for reward computation
+            sample_metadata = {}
+            # Use configurable answer column, fallback to "answer"
+            answer = sample.get(dataset_config.answer_column, sample.get("answer", ""))
+            if answer:
+                sample_metadata["answer"] = answer
+
+            for key in ["test_cases", "type", "difficulty", "category"]:
+                if key in sample:
+                    sample_metadata[key] = sample[key]
+
+            # Append to token stream
+            all_tokens.extend(token_ids)
+
+            # Record metadata with sample info in mask_ranges
+            metadata.append(
+                (
+                    current_offset,  # offset
+                    len(token_ids),  # length
+                    "grpo",  # type
+                    -1,  # group_id (not used)
+                    json.dumps(sample_metadata),  # metadata as JSON
+                )
+            )
+
+            current_offset += len(token_ids)
+
+        # Save .bin file
+        tokens_array = np.array(
+            all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32
+        )
+        with open(bin_path, "wb") as f:
+            tokens_array.tofile(f)
+
+        # Save .idx file
+        metadata_array = np.array(metadata, dtype=self.METADATA_DTYPE)
+        np.save(idx_path, metadata_array)
+
+        if self.verbose:
+            print(f"  Tokens: {len(tokens_array):,}")
+            print(f"  Prompts: {len(metadata):,}")
 
     def _tokenize(self, text: str) -> list[int]:
         """

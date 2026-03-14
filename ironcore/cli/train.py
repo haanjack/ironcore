@@ -5,14 +5,26 @@
 
 import os
 import sys
+from argparse import Namespace
 from pathlib import Path
 
-from ironcore.config import MainConfig
-from ironcore.config.config_alignment import AlignmentConfig
-from ironcore.config.config_data import DataConfig  # Old-style config for MainConfig
-from ironcore.config.config_peft import PEFTConfig
-from ironcore.config.config_utils import ProfilerConfig
-from ironcore.trainers import DPOTrainer, LanguageModelTrainer
+from ironcore.config import (
+    AlignmentConfig,
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    PEFTConfig,
+    ProfilerConfig,
+    TrainerConfig,
+    UtilsConfig,
+    _config_validation,
+    _load_config_from_yaml,
+)
+from ironcore.trainers import DPOTrainer, GRPOTrainer, LanguageModelTrainer
 from ironcore.training_utils import forward_step, get_loss_func
 
 # Get rank early for conditional printing
@@ -39,24 +51,8 @@ def run_train(args):
         sys.exit(1)
 
     _print(f"Loading training configuration from: {config_path}")
-    # Convert Path to string for config loading
-    args.config_path = str(config_path)
 
-    # Use the proper config loading function that handles nested configs
-    from argparse import Namespace
-
-    from ironcore.config import (
-        InitConfig,
-        ModelConfig,
-        OperationConfig,
-        OptimConfig,
-        ParallelConfig,
-        TrainerConfig,
-        UtilsConfig,
-        _load_config_from_yaml,
-    )
-
-    # Create a namespace with the config path
+    # Create a namespace with the config path for _load_config_from_yaml
     config_args = Namespace(config_path=str(config_path))
 
     # Initialize default config
@@ -83,8 +79,6 @@ def run_train(args):
     config.parallel.world_size = int(os.getenv("WORLD_SIZE", "1"))
 
     # Validate config
-    from ironcore.config import _config_validation
-
     _config_validation(config)
 
     # Select loss function based on task type (now a declared field in DataConfig)
@@ -111,33 +105,34 @@ def run_train(args):
             _print(f"Error: alignment.dpo_beta must be positive, got {config.alignment.dpo_beta}")
             sys.exit(1)
 
-        if not (0.0 <= config.alignment.dpo_label_smoothing < 1.0):
+        _print("Using DPOTrainer for preference optimization")
+        trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+    elif task_type == "grpo":
+        # Validate alignment config for GRPO
+        if config.alignment is None or config.alignment == AlignmentConfig():
             _print(
-                f"Error: alignment.dpo_label_smoothing must be in [0, 1), "
-                f"got {config.alignment.dpo_label_smoothing}"
+                "Error: GRPO requires 'alignment' configuration section in config file. "
+                "Please define alignment hyperparameters (e.g., grpo_beta, grpo_group_size)."
             )
             sys.exit(1)
 
-        _print("Using DPOTrainer for Direct Preference Optimization")
-        _print(f"  - beta: {config.alignment.dpo_beta}")
-        _print(f"  - label_smoothing: {config.alignment.dpo_label_smoothing}")
-        trainer = DPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
+        # Validate GRPO-specific parameters
+        if config.alignment.grpo_beta <= 0:
+            _print(
+                f"Error: alignment.grpo_beta should be positive, got {config.alignment.grpo_beta}"
+            )
+            sys.exit(1)
+        if config.alignment.grpo_group_size <= 0:
+            _print(
+                f"Error: alignment.grpo_group_size should be positive, got {config.alignment.grpo_group_size}"
+            )
+            sys.exit(1)
+
+        _print("Using GRPOTrainer for Group Relative Policy Optimization")
+        trainer = GRPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn)
     else:
-        _print(f"Error: Unsupported task type: {task_type}")
+        _print(f"Error: Unknown task type: {task_type}")
         sys.exit(1)
 
-    # Run training
     _print("\nStarting training...")
-    try:
-        with trainer:
-            trainer.train()
-        _print("\nTraining completed successfully!")
-    except KeyboardInterrupt:
-        _print("\nTraining interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        _print(f"\nError during training: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+    trainer.train()

@@ -79,7 +79,9 @@ def create_config(
         max_seq_len=seq_len,
         max_position_embeddings=seq_len,
         dropout_attn=dropout,
-        no_bias=False,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
     )
     trainer_config = TrainerConfig(
         tensor_model_parallel_size=tp_size, use_flash_attn=use_flash_attn

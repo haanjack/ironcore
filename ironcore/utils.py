@@ -349,8 +349,14 @@ def format_memory_report(breakdown: dict, title: str = "Memory Report") -> str:
 
 def profile_function(tag):
     """Decorator for profiling function"""
+    import os
+
+    enabled = os.environ.get("IRONCORE_PROFILE", "0") == "1"
 
     def decorator(func):
+        if not enabled:
+            return func
+
         def wrapper(*args, **kwargs):
             with torch.profiler.record_function(tag):
                 if hasattr(torch.cuda, "nvtx"):
@@ -368,6 +374,12 @@ def profile_function(tag):
 @contextmanager
 def profile_context(tag):
     """Context manager for profiling"""
+    import os
+
+    if os.environ.get("IRONCORE_PROFILE", "0") != "1":
+        yield
+        return
+
     if hasattr(torch.cuda, "nvtx"):
         torch.cuda.nvtx.range_push(tag)
     with torch.profiler.record_function(tag):

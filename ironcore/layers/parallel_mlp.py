@@ -86,26 +86,47 @@ class ParallelMLP(BaseModule):
         self.activation = get_activation(model_config.activation_type, hidden_size)
 
         # Adjust intermediate size for GLU activations
+        is_glu = isinstance(self.activation, GLUActivation)
         d_ffn = intermediate_size
-        if isinstance(self.activation, GLUActivation):
+        if is_glu:
             d_ffn = d_ffn * 2
+
+        # Determine bias for up projection
+        # For GLU activations, d_ffn contains [gate, up] concatenated
+        up_has_bias = (
+            (model_config.bias.gate or model_config.bias.up) if is_glu else model_config.bias.up
+        )
 
         # Up projection: hidden -> intermediate (ColumnParallel for TP)
         self.up_proj = ColumnParallelLinear(
             config,
             hidden_size,
             d_ffn,
-            bias=not model_config.no_bias,
+            bias=up_has_bias,
             gather_output=gather_output,
             concatenated_weights=concatenated_weights,
         )
+
+        # For GLU: if gate and up have asymmetric bias, zero-mask the inactive half
+        if is_glu and up_has_bias and model_config.bias.gate != model_config.bias.up:
+            local_up_size = self.up_proj.bias.shape[0]
+            local_half = local_up_size // 2
+            mask = torch.ones(local_up_size)
+            if not model_config.bias.gate:
+                mask[:local_half] = 0.0  # zero out gate portion
+            else:
+                mask[local_half:] = 0.0  # zero out up portion
+            self.register_buffer("_up_bias_mask", mask, persistent=False)
+            with torch.no_grad():
+                self.up_proj.bias.data.mul_(mask)
+            self.up_proj.bias.register_hook(lambda grad: grad * self._up_bias_mask)
 
         # Down projection: intermediate -> hidden (RowParallel for TP)
         self.down_proj = RowParallelLinear(
             config,
             intermediate_size,
             hidden_size,
-            bias=not model_config.no_bias,
+            bias=model_config.bias.down,
             input_is_parallel=True,  # Input comes from ColumnParallel
         )
 

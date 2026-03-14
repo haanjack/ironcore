@@ -27,6 +27,49 @@ from ironcore.checkpointing.weight_mapping import (
     WeightMapper,
     get_architecture,
 )
+from ironcore.config.config_model import BiasConfig
+
+
+def detect_bias_from_hf_state_dict(hf_state_dict: dict) -> "BiasConfig":
+    """Detect which projections have bias by inspecting HF checkpoint keys.
+
+    Supports LLaMA/Qwen-style (q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj)
+    and GPT-2-style (c_attn, c_proj, c_fc) naming conventions.
+
+    Call this BEFORE building the model so the returned BiasConfig can be used
+    to initialize the correct layer structure.
+
+    Args:
+        hf_state_dict: State dict loaded from a HuggingFace checkpoint
+
+    Returns:
+        BiasConfig reflecting which projections have bias in the checkpoint
+    """
+    keys = set(hf_state_dict.keys())
+
+    def _has(suffix: str) -> bool:
+        return any(k.endswith(suffix) for k in keys)
+
+    # LLaMA/Qwen style
+    q = _has(".q_proj.bias") or _has(".query.bias")
+    k_val = _has(".k_proj.bias") or _has(".key.bias")
+    v = _has(".v_proj.bias") or _has(".value.bias")
+    o = _has(".o_proj.bias") or _has(".out_proj.bias")
+    gate = _has(".gate_proj.bias")
+    up = _has(".up_proj.bias") or _has(".fc_in.bias")
+    down = _has(".down_proj.bias") or _has(".fc_out.bias")
+
+    # GPT-2 style: fused QKV in c_attn
+    if _has(".c_attn.bias"):
+        q = k_val = v = True
+    if _has(".attn.c_proj.bias") or _has(".attention.c_proj.bias"):
+        o = True
+    if _has(".c_fc.bias") or _has(".mlp.c_fc.bias"):
+        up = True
+    if _has(".mlp.c_proj.bias"):
+        down = True
+
+    return BiasConfig(q=q, k=k_val, v=v, o=o, gate=gate, up=up, down=down)
 
 
 def detect_checkpoint_format(checkpoint_path: Path) -> dict:
@@ -150,6 +193,7 @@ def load_from_huggingface(
     architecture: str | None = None,
     strict: bool = False,
     device: str | None = None,
+    model_config=None,
 ) -> dict:
     """
     Load weights from a HuggingFace checkpoint into an ironcore model.
@@ -203,6 +247,12 @@ def load_from_huggingface(
 
     # Load HuggingFace state dict
     hf_state_dict = load_hf_state_dict(checkpoint_path, device=device)
+
+    # Update model_config.bias to match what the checkpoint actually contains.
+    # NOTE: Call this BEFORE building the model when possible; updating after init
+    # adjusts the stored config but does not change already-created layer structure.
+    if model_config is not None:
+        model_config.bias = detect_bias_from_hf_state_dict(hf_state_dict)
 
     # Convert to ironcore format
     ironcore_state_dict = mapper.hf_to_ironcore(hf_state_dict, strict=False)

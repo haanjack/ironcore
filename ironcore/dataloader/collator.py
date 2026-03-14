@@ -22,11 +22,12 @@ class UniversalCollator:
 
     For pretrain: Simple stacking of sequences
     For SFT: Bin-packing with attention masks and position IDs
+    For GRPO: Return prompts with metadata for online generation
     """
 
     def __init__(
         self,
-        mode: Literal["pretrain", "sft", "dpo"],
+        mode: Literal["pretrain", "sft", "dpo", "grpo"],
         max_seq_len: int,
         pad_token_id: int = 0,
         use_flash_attention: bool = True,
@@ -65,6 +66,8 @@ class UniversalCollator:
             return self._collate_sft(batch)
         elif self.mode == "dpo":
             return self._collate_dpo(batch)
+        elif self.mode == "grpo":
+            return self._collate_grpo(batch)
         else:
             raise ValueError(f"Invalid mode: {self.mode}")
 
@@ -207,6 +210,59 @@ class UniversalCollator:
 
         return output
 
+    def _collate_grpo(self, batch: list[dict]) -> dict[str, torch.Tensor]:
+        """
+        Collate GRPO batch.
+
+        For GRPO, we only need prompts with their metadata.
+        The model generates completions during training.
+
+        Returns:
+            Dict with:
+            - input_ids: [batch_size, prompt_len] tokenized prompts
+            - attention_mask: [batch_size, prompt_len] mask for valid tokens
+            - metadata: list of dicts with answer/test_cases/type/etc.
+        """
+        # Extract prompts and metadata
+        prompts = []
+        metadata_list = []
+
+        for sample in batch:
+            token_ids = sample["token_ids"]
+            meta = sample.get("metadata", {})
+
+            # Convert to list if tensor
+            if isinstance(token_ids, torch.Tensor):
+                token_ids = token_ids.tolist()
+
+            # Pad to max_seq_len
+            if len(token_ids) < self.max_seq_len:
+                token_ids = token_ids + [self.pad_token_id] * (self.max_seq_len - len(token_ids))
+            else:
+                token_ids = token_ids[: self.max_seq_len]
+
+            prompts.append(token_ids)
+            metadata_list.append(meta)
+
+        # Stack prompts
+        input_ids = torch.tensor(prompts, dtype=torch.long)
+
+        # Create attention mask (1 for valid tokens, 0 for padding)
+        # Use the original lengths before padding
+        attention_mask = torch.zeros_like(input_ids)
+        for i, sample in enumerate(batch):
+            orig_token_ids = sample["token_ids"]
+            if isinstance(orig_token_ids, torch.Tensor):
+                orig_token_ids = orig_token_ids.tolist()
+            original_len = min(len(orig_token_ids), self.max_seq_len)
+            attention_mask[i, :original_len] = 1
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "metadata": metadata_list,
+        }
+
     def _collate_dpo(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         """
         Collate DPO batch.
@@ -262,7 +318,10 @@ class UniversalCollator:
 
 
 def create_collator(
-    mode: Literal["pretrain", "sft", "dpo"], max_seq_len: int, pad_token_id: int = 0, **kwargs
+    mode: Literal["pretrain", "sft", "dpo", "grpo"],
+    max_seq_len: int,
+    pad_token_id: int = 0,
+    **kwargs,
 ) -> UniversalCollator:
     """
     Factory function to create collator.

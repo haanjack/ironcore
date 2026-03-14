@@ -53,7 +53,9 @@ def create_model_config(tp_size=1, use_flash_attn=False):
         max_seq_len=64,
         max_position_embeddings=64,
         dropout_attn=0.0,
-        no_bias=False,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
     )
     # Add name attribute for model provider selection
     model_config.name = "gpt2"

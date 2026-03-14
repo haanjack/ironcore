@@ -84,7 +84,7 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
     use_fused = fused_available and "cuda" in device_type
     extra_args = dict(fused=False) if use_fused else dict()
 
-    if config.optim.optimizer == "adam":
+    if config.optim.optimizer in ("adam", "adamw"):
         optimizer = AdamWOptimizer(
             optimizer_grouped_parameters,
             lr=max_lr,

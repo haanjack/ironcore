@@ -16,9 +16,9 @@ Tests:
 8. Reference comparison with HuggingFace
 """
 
+import math
 import os
 import sys
-import math
 import unittest
 
 import torch
@@ -26,7 +26,6 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.layers.positional_embedding.rotary import RotaryPositionalEmbedding
-
 
 # =============================================================================
 # Helper Functions
@@ -250,7 +249,9 @@ class TestRoPERotation(unittest.TestCase):
         expected_second_half_0 = expected_sin  # x[0] * sin
 
         self.assertAlmostEqual(x_rotated[0, 0, 0, 0].item(), expected_first_half_0, places=5)
-        self.assertAlmostEqual(x_rotated[0, 0, 0, self.head_dim // 2].item(), expected_second_half_0, places=5)
+        self.assertAlmostEqual(
+            x_rotated[0, 0, 0, self.head_dim // 2].item(), expected_second_half_0, places=5
+        )
 
     def test_rotation_against_reference(self):
         """Test that rotation matches reference implementation."""
@@ -264,8 +265,8 @@ class TestRoPERotation(unittest.TestCase):
         x = torch.randn(
             self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
-        position_ids = torch.arange(self.seq_len, device=self.device).unsqueeze(0).expand(
-            self.batch_size, -1
+        position_ids = (
+            torch.arange(self.seq_len, device=self.device).unsqueeze(0).expand(self.batch_size, -1)
         )
 
         # Our implementation
@@ -291,8 +292,8 @@ class TestRoPERotation(unittest.TestCase):
         x = torch.randn(
             self.batch_size, self.seq_len, self.num_heads, self.head_dim, device=self.device
         )
-        position_ids = torch.arange(self.seq_len, device=self.device).unsqueeze(0).expand(
-            self.batch_size, -1
+        position_ids = (
+            torch.arange(self.seq_len, device=self.device).unsqueeze(0).expand(self.batch_size, -1)
         )
 
         x_rotated = rope(x, position_ids)
@@ -452,7 +453,7 @@ class TestRoPEEdgeCases(unittest.TestCase):
         # This will fail due to size mismatch between x1 (31) and sin_emb (32)
         # This test documents expected behavior - odd head_dim is not supported
         with self.assertRaises(RuntimeError):
-            x_rotated = rope(x, position_ids)
+            rope(x, position_ids)
 
 
 class TestRoPENumericalPrecision(unittest.TestCase):
@@ -579,9 +580,7 @@ class TestRoPEGradients(unittest.TestCase):
             base=self.base,
         ).to(self.device)
 
-        x = torch.randn(
-            2, 16, 8, self.head_dim, device=self.device, requires_grad=True
-        )
+        x = torch.randn(2, 16, 8, self.head_dim, device=self.device, requires_grad=True)
         position_ids = torch.arange(16, device=self.device).unsqueeze(0).expand(2, -1)
 
         x_rotated = rope(x, position_ids)
@@ -600,9 +599,7 @@ class TestRoPEGradients(unittest.TestCase):
             base=self.base,
         ).to(self.device)
 
-        x = torch.randn(
-            2, 16, 8, self.head_dim, device=self.device, requires_grad=True
-        )
+        x = torch.randn(2, 16, 8, self.head_dim, device=self.device, requires_grad=True)
         position_ids = torch.arange(16, device=self.device).unsqueeze(0).expand(2, -1)
 
         x_rotated = rope(x, position_ids)
@@ -619,9 +616,7 @@ class TestRoPEGradients(unittest.TestCase):
             base=self.base,
         ).to(self.device)
 
-        x = torch.randn(
-            1, 1, 1, self.head_dim, device=self.device, requires_grad=True
-        )
+        x = torch.randn(1, 1, 1, self.head_dim, device=self.device, requires_grad=True)
         position_ids = torch.tensor([[0]], device=self.device)
 
         # Analytical gradient
@@ -675,11 +670,11 @@ class TestRoPEHuggingFaceComparison(unittest.TestCase):
         HuggingFace/Megatron/Llama implementations.
         """
         try:
+            from transformers.models.llama.configuration_llama import LlamaConfig
             from transformers.models.llama.modeling_llama import (
                 LlamaRotaryEmbedding,
                 apply_rotary_pos_emb,
             )
-            from transformers.models.llama.configuration_llama import LlamaConfig
         except ImportError:
             self.skipTest("transformers library not installed")
 
@@ -705,12 +700,8 @@ class TestRoPEHuggingFaceComparison(unittest.TestCase):
 
         # Test input
         batch_size, seq_len, num_heads = 2, 16, 8
-        x = torch.randn(
-            batch_size, seq_len, num_heads, self.head_dim, device=self.device
-        )
-        position_ids = torch.arange(seq_len, device=self.device).unsqueeze(0).expand(
-            batch_size, -1
-        )
+        x = torch.randn(batch_size, seq_len, num_heads, self.head_dim, device=self.device)
+        position_ids = torch.arange(seq_len, device=self.device).unsqueeze(0).expand(batch_size, -1)
 
         # Our output
         x_our = our_rope(x.clone(), position_ids)
@@ -736,12 +727,10 @@ class TestRoPEHuggingFaceComparison(unittest.TestCase):
         hf_norm = q_hf.norm(dim=-1)
 
         self.assertTrue(
-            torch.allclose(input_norm, our_norm, rtol=1e-5),
-            "IronCore RoPE doesn't preserve norms"
+            torch.allclose(input_norm, our_norm, rtol=1e-5), "IronCore RoPE doesn't preserve norms"
         )
         self.assertTrue(
-            torch.allclose(input_norm, hf_norm, rtol=1e-5),
-            "HF RoPE doesn't preserve norms"
+            torch.allclose(input_norm, hf_norm, rtol=1e-5), "HF RoPE doesn't preserve norms"
         )
 
         # Verify outputs match (now using same half/half split pattern)
@@ -778,11 +767,9 @@ class TestRoPEIntegration(unittest.TestCase):
         # Create Q, K, V
         query = torch.randn(batch_size, seq_len, num_heads, self.head_dim, device=self.device)
         key = torch.randn(batch_size, seq_len, num_heads, self.head_dim, device=self.device)
-        value = torch.randn(batch_size, seq_len, num_heads, self.head_dim, device=self.device)
+        torch.randn(batch_size, seq_len, num_heads, self.head_dim, device=self.device)
 
-        position_ids = torch.arange(seq_len, device=self.device).unsqueeze(0).expand(
-            batch_size, -1
-        )
+        position_ids = torch.arange(seq_len, device=self.device).unsqueeze(0).expand(batch_size, -1)
 
         # Apply RoPE to Q and K only (standard practice)
         query_rotated = rope(query.clone(), position_ids)

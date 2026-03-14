@@ -51,7 +51,9 @@ def create_test_config(
     hidden_size: int = 256,
     intermediate_size: int = 512,
     dropout: float = 0.0,
-    no_bias: bool = False,
+    attention_bias: bool = True,
+    mlp_bias: bool = True,
+    layernorm_bias: bool = True,
 ):
     """Create a test configuration."""
     config = MainConfig(
@@ -59,7 +61,9 @@ def create_test_config(
             d_model=hidden_size,
             d_ffn=intermediate_size,
             dropout_mlp=dropout,
-            no_bias=no_bias,
+            attention_bias=attention_bias,
+            mlp_bias=mlp_bias,
+            layernorm_bias=layernorm_bias,
             activation_type="gelu",
         ),
         init=InitConfig(),
@@ -136,7 +140,9 @@ class TestExpertMLP:
         """Test expert with bias enabled."""
         num_tokens, hidden_size, intermediate_size = 32, 256, 512
 
-        config = create_test_config(hidden_size, intermediate_size, no_bias=False)
+        config = create_test_config(
+            hidden_size, intermediate_size, attention_bias=True, mlp_bias=True, layernorm_bias=True
+        )
         expert = ExpertMLP(config, hidden_size, intermediate_size, expert_id=0)
 
         assert expert.up_proj.bias is not None
@@ -150,7 +156,13 @@ class TestExpertMLP:
         """Test expert with bias disabled."""
         num_tokens, hidden_size, intermediate_size = 32, 256, 512
 
-        config = create_test_config(hidden_size, intermediate_size, no_bias=True)
+        config = create_test_config(
+            hidden_size,
+            intermediate_size,
+            attention_bias=False,
+            mlp_bias=False,
+            layernorm_bias=False,
+        )
         expert = ExpertMLP(config, hidden_size, intermediate_size, expert_id=0)
 
         assert expert.up_proj.bias is None

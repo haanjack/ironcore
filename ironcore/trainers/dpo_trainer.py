@@ -103,23 +103,26 @@ class DPOTrainer(BaseTrainer):
 
         # Check if policy model is FSDP-wrapped
         if isinstance(self.model, FSDP):
-            # FSDP model: use state dict approach
-            # Get full state dict from FSDP model (rank 0 gathers all)
             from torch.distributed.fsdp import StateDictType
+            from ironcore.parallel.parallel import initialize_parallelism
 
-            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT):
-                full_state_dict = self.model.state_dict()
-
-            # Get the underlying model class to create a new instance
-            unwrapped_model = self.model.module if hasattr(self.model, "module") else self.model
-
-            # Create a new model instance with same config
-            # Use __class__ to get the model class dynamically
-            model_class = unwrapped_model.__class__
-            reference_model = model_class(unwrapped_model.config)
-
-            # Load the state dict
-            reference_model.load_state_dict(full_state_dict, strict=False)
+            # For FSDP, we must shard the reference model as well to save memory.
+            unwrapped = self.model.module if hasattr(self.model, "module") else self.model
+            reference_model = unwrapped.__class__(unwrapped.config)
+            
+            # Disable gradients before wrapping
+            reference_model.eval()
+            for param in reference_model.parameters():
+                param.requires_grad = False
+                
+            # Wrap identically to policy model
+            reference_model = initialize_parallelism(self.config, reference_model)
+            
+            # Copy local sharded state dict directly
+            with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
+                local_state_dict = self.model.state_dict()
+            with FSDP.state_dict_type(reference_model, StateDictType.LOCAL_STATE_DICT):
+                reference_model.load_state_dict(local_state_dict, strict=False)
         else:
             # Non-FSDP model: use deepcopy approach
             model_to_copy = self.model.module if hasattr(self.model, "module") else self.model

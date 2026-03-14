@@ -67,7 +67,9 @@ def tiny_model_config():
         dropout_attn=0.0,
         dropout_mlp=0.0,
         dropout_embd=0.0,
-        no_bias=False,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
         precision="float32",
     )
 

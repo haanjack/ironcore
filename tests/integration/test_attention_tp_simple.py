@@ -43,7 +43,9 @@ def create_config(tensor_model_parallel_size=1):
         max_seq_len=128,
         max_position_embeddings=128,
         dropout_attn=0.0,
-        no_bias=False,
+        attention_bias=True,
+        mlp_bias=True,
+        layernorm_bias=True,
     )
 
     trainer_config = TrainerConfig(

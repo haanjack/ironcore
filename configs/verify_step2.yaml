@@ -1,0 +1,20 @@
+
+model: qwen2.5-0.5B
+trainer:
+  micro_batch_size: 1
+  train_batch_size: 1
+  gradient_accumulation_steps: 1
+  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+data:
+  task_type: grpo
+optim:
+  optimizer: adamw
+  lr_scheduler: constant
+operation:
+  train_steps: 1
+init:
+  seed: 42
+parallel:
+  world_size: 1
+alignment:
+  method: grpo

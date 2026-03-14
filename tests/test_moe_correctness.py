@@ -60,7 +60,9 @@ def create_test_config(
             d_model=hidden_size,
             d_ffn=intermediate_size,
             dropout_mlp=0.0,
-            no_bias=True,  # Simplify comparison
+            attention_bias=False,
+            mlp_bias=False,
+            layernorm_bias=False,  # Simplify comparison
             activation_type="gelu",
             moe=MoEConfig(
                 use_moe=True,
