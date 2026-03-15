@@ -225,10 +225,10 @@ def grpo_loss(
     total_loss = policy_loss + kl_loss
 
     # Entropy bonus: subtract to encourage exploration
-    entropy_loss = torch.tensor(0.0, device=policy_log_probs.device)
+    mean_entropy: float = 0.0
     if entropy is not None and entropy_coef > 0.0:
-        entropy_loss = entropy_coef * entropy.mean()
-        total_loss = total_loss - entropy_loss
+        mean_entropy = entropy.mean().item()
+        total_loss = total_loss - entropy_coef * entropy.mean()
 
     with torch.no_grad():
         metrics = {
@@ -236,7 +236,7 @@ def grpo_loss(
             "policy_loss": policy_loss.item(),
             "kl_loss": kl_loss.item(),
             "kl_per_seq": kl_per_seq.mean().item(),
-            "entropy": entropy_loss.item(),
+            "entropy": mean_entropy,
             "mean_advantage": adv.mean().item(),
             "std_advantage": adv.std().item() if len(adv) > 1 else 0.0,
             "mean_ratio": mean_ratio,
