@@ -351,6 +351,7 @@ Score:""",
         self._client = self._init_client()
         self._cache_size = cache_size
         from collections import OrderedDict
+
         self._cache: OrderedDict[tuple, float] = OrderedDict()
 
     def _init_client(self):
@@ -427,7 +428,7 @@ Score:""",
             # Remove first key (oldest inserted)
             first_key = next(iter(self._cache))
             self._cache.pop(first_key)
-            
+
         self._cache[cache_key] = score
         return score
 

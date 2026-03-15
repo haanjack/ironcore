@@ -109,7 +109,6 @@ def compute_advantages(
                 all_group_ids_list = []
 
                 current_offset = 0
-                current_group_offset = 0
                 local_start = 0
                 local_end = 0
 
@@ -118,7 +117,7 @@ def compute_advantages(
                 ):
                     size = all_sizes[i]
                     # Extract active portion.
-                    # Note: We assume group_ids are already globally consistent if prompts 
+                    # Note: We assume group_ids are already globally consistent if prompts
                     # are shared across ranks. If prompts are unique per rank, normalization
                     # will still be correct as unique group IDs remain unique.
                     rank_group_ids = g_g[:size]

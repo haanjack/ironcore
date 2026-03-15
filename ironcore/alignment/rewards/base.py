@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 
 import torch
 
@@ -83,6 +82,7 @@ class RewardWorkerPool:
 
         # Collect results with global timeout
         from concurrent.futures import wait
+
         done, not_done = wait(futures, timeout=self.timeout)
 
         rewards = []
