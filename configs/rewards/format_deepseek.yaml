@@ -1,5 +1,5 @@
 mode: regex_match
-pattern: "<currwork>.*?</currwork>\\s*####\\s*.*"
+pattern: "<think>.*?</think>\\s*####\\s*.*"
 pattern_flags:
   - DOTALL
 scoring:

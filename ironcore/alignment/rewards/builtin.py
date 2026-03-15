@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import time
 from typing import TYPE_CHECKING
 
@@ -97,48 +96,12 @@ class CodeRewardFunction(RewardFunction):
         self.timeout = timeout
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        test_cases = metadata.get("test_cases", [])
-        if not test_cases:
-            return 0.5
-
-        full_code = prompt + "\n" + completion
-        passed = 0
-
-        # SECURITY: This executes untrusted model-generated code.
-        # In production, this MUST be wrapped in a secure sandbox (e.g. gVisor).
-        # Bundle tests into a single script to reduce process overhead.
-        test_script = f"""
-{full_code}
-passed = 0
-# SECURITY: Direct exec() of untrusted code is prohibited.
-        # This block requires a robust sandbox (e.g., gVisor, NSJail) to be implemented.
-        # tests = {test_cases}
-        # for t in tests:
-        #     try:
-        #         exec(t)
-        #         passed += 1
-        #     except Exception:
-        #         pass
-        passed = 0 # Placeholder until sandboxed
-print(passed)
-"""
-        try:
-            result = subprocess.run(
-                ["python", "-c", test_script],
-                capture_output=True,
-                timeout=self.timeout,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0:
-                try:
-                    passed = int(result.stdout.strip())
-                except (ValueError, TypeError):
-                    passed = 0
-        except Exception:
-            pass
-
-        return passed / len(test_cases)
+        # SECURITY: Executing untrusted model-generated code requires a secure
+        # sandbox (e.g., gVisor, NSJail). Not yet implemented.
+        raise NotImplementedError(
+            "CodeRewardFunction requires a sandboxed execution environment. "
+            "Implement sandbox support before using this reward function."
+        )
 
 
 class FormatRewardFunction(RewardFunction):
@@ -178,7 +141,7 @@ class StrictFormatRewardFunction(RewardFunction):
 
     def __init__(
         self,
-        pattern: str = r"<currwork>.*?</currwork>\s*####\s*.*",
+        pattern: str = r"<think>.*?</think>\s*####\s*.*",
         reward: float = 1.0,
         penalty: float = 0.0,
     ):
@@ -382,10 +345,6 @@ Score:""",
             hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata
         )
 
-    def _make_hashable(self, obj):
-        """Deprecated: use json.dumps for hashing metadata."""
-        return json.dumps(obj, sort_keys=True)
-
     def _compute_cached(
         self,
         prompt_hash: int,
@@ -515,30 +474,33 @@ class LocalEndpointRewardFunction(RewardFunction):
                 prompt_template, APIRewardFunction.PROMPT_TEMPLATES["default"]
             )
 
+        from collections import OrderedDict
+
         import openai
 
         self._client = openai.OpenAI(api_key=api_key, base_url=endpoint)
+        self._cache: OrderedDict[tuple, float] = OrderedDict()
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        # Use JSON for faster hashing of complex metadata
         metadata_str = json.dumps(metadata, sort_keys=True)
         return self._compute_cached(
             hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata
         )
 
-    def _make_hashable(self, obj):
-        """Deprecated: use json.dumps for hashing metadata."""
-        return json.dumps(obj, sort_keys=True)
-
     def _compute_cached(
         self,
-        _prompt_hash: int,
-        _completion_hash: int,
-        _metadata_hash: int,
+        prompt_hash: int,
+        completion_hash: int,
+        metadata_hash: int,
         prompt: str,
         completion: str,
         metadata: dict,
     ) -> float:
+        cache_key = (prompt_hash, completion_hash, metadata_hash)
+        if cache_key in self._cache:
+            self._cache.move_to_end(cache_key)
+            return self._cache[cache_key]
+
         try:
             eval_prompt = self._prompt_template.format(
                 prompt=prompt,
@@ -548,6 +510,7 @@ class LocalEndpointRewardFunction(RewardFunction):
         except KeyError:
             eval_prompt = self._prompt_template.format(prompt=prompt, completion=completion)
 
+        score = 0.5
         for attempt in range(self.max_retries):
             try:
                 response = self._client.chat.completions.create(
@@ -556,13 +519,15 @@ class LocalEndpointRewardFunction(RewardFunction):
                     max_tokens=32,
                     temperature=0.0,
                 )
-                return self._parse_response(response.choices[0].message.content or "")
+                score = self._parse_response(response.choices[0].message.content or "")
+                break
             except Exception:
                 if attempt == self.max_retries - 1:
-                    return 0.5
+                    score = 0.5
                 time.sleep(2**attempt)
 
-        return 0.5
+        self._cache[cache_key] = score
+        return score
 
     def _parse_response(self, response: str) -> float:
         numbers = re.findall(r"[\d.]+", response)
@@ -611,6 +576,9 @@ class LocalInferenceRewardFunction(RewardFunction):
             )
 
         self._load_model(load_in_8bit, load_in_4bit)
+        from collections import OrderedDict
+
+        self._cache: OrderedDict[tuple, float] = OrderedDict()
 
     def _load_model(self, load_in_8bit: bool, load_in_4bit: bool):
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -636,25 +604,25 @@ class LocalInferenceRewardFunction(RewardFunction):
         self.model.eval()
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        # Use JSON for faster hashing of complex metadata
         metadata_str = json.dumps(metadata, sort_keys=True)
         return self._compute_cached(
             hash(prompt), hash(completion), hash(metadata_str), prompt, completion, metadata
         )
 
-    def _make_hashable(self, obj):
-        """Deprecated: use json.dumps for hashing metadata."""
-        return json.dumps(obj, sort_keys=True)
-
     def _compute_cached(
         self,
-        _prompt_hash: int,
-        _completion_hash: int,
-        _metadata_hash: int,
+        prompt_hash: int,
+        completion_hash: int,
+        metadata_hash: int,
         prompt: str,
         completion: str,
         metadata: dict,
     ) -> float:
+        cache_key = (prompt_hash, completion_hash, metadata_hash)
+        if cache_key in self._cache:
+            self._cache.move_to_end(cache_key)
+            return self._cache[cache_key]
+
         try:
             eval_prompt = self._prompt_template.format(
                 prompt=prompt,
@@ -674,23 +642,25 @@ class LocalInferenceRewardFunction(RewardFunction):
 
             outputs = self.model(**inputs)
             last_logits = outputs.logits[:, -1, :]
+            score = self._extract_score_from_logits(last_logits)
 
-            return self._extract_score_from_logits(last_logits)
+        self._cache[cache_key] = score
+        return score
 
     def _extract_score_from_logits(self, logits: torch.Tensor) -> float:
         number_tokens = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
         token_ids = []
+        token_scores = []
         for tok in number_tokens:
             tid = self.tokenizer.convert_tokens_to_ids(tok)
             if tid is not None:
                 token_ids.append(tid)
+                token_scores.append(float(tok) / 10.0)
 
         if token_ids:
             probs = torch.softmax(logits[0], dim=-1)
             number_probs = probs[token_ids]
-            scores = torch.tensor(
-                [float(t) / 10.0 for t in number_tokens[: len(token_ids)]], device=probs.device
-            )
+            scores = torch.tensor(token_scores, device=probs.device)
             return (number_probs * scores).sum().item()
 
         next_token = logits.argmax(dim=-1).item()
