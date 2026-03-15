@@ -15,7 +15,7 @@ import time
 
 import torch
 
-from .rewards import RewardFunction
+from .base import RewardFunction
 
 
 class RewardModelFunction(RewardFunction):
@@ -50,7 +50,9 @@ class RewardModelFunction(RewardFunction):
         elif backend == "local_inference":
             self._init_local_inference(local_model_path, local_device, local_dtype)
         else:
-            raise ValueError(f"Unknown backend: {backend}. Use 'local_endpoint', 'api', or 'local_inference'.")
+            raise ValueError(
+                f"Unknown backend: {backend}. Use 'local_endpoint', 'api', or 'local_inference'."
+            )
 
     def _init_local_endpoint(self, endpoint: str):
         import requests

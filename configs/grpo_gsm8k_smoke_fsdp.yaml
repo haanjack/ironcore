@@ -11,7 +11,7 @@ model: qwen2.5-0.5B
 
 trainer:
   micro_batch_size: 2
-  train_batch_size: 4
+  train_batch_size: 8
   gradient_accumulation_steps: 2
   log_interval: 1
   use_flash_attn: true
@@ -60,8 +60,12 @@ alignment:
     do_sample: true
     use_chat_template: true
     system_prompt: "Solve the math problem step by step. Put your final numerical answer after ####."
-  reward:
-    type: math
+  reward_manager:
     num_workers: 4
     timeout: 30
+    functions:
+      - name: correctness
+        type: rule_template
+        weight: 1.0
+        rule_template: configs/rewards/math_gsm8k.yaml
   metrics_interval: 5

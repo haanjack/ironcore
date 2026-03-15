@@ -26,8 +26,7 @@ from ironcore.alignment.dataset import get_grpo_data_iterator
 from ironcore.alignment.loss.dpo import _compute_log_softmax_tp_safe, _extract_logps_from_log_probs
 from ironcore.alignment.loss.grpo import compute_advantages, compute_entropy, grpo_loss
 from ironcore.alignment.loss.kl import kl_divergence_approx
-from ironcore.alignment.reward_manager import RewardManager
-from ironcore.alignment.rewards import RewardWorkerPool
+from ironcore.alignment.rewards import RewardManager, RewardWorkerPool
 from ironcore.alignment.rollout import generate_rollouts_batched
 from ironcore.global_vars import log_metric
 from ironcore.utils import is_first_rank
@@ -86,7 +85,6 @@ class GRPOTrainer(BaseTrainer):
 
         # Reward worker (will be initialized after checkpoint load)
         self.reward_worker: RewardWorkerPool | None = None
-        self._reward_config = config.alignment.reward
 
         # Reference model (created after checkpoint load)
         self.reference_model: nn.Module | None = None
@@ -119,22 +117,18 @@ class GRPOTrainer(BaseTrainer):
         # reward_manager may arrive as a raw dict from the YAML loader. Normalize here.
         if isinstance(reward_manager_cfg, dict):
             from ironcore.config.config_alignment import RewardManagerConfig
-            reward_manager_cfg = RewardManagerConfig(**reward_manager_cfg)
-        if reward_manager_cfg is not None:
-            self.logger.info("Initializing reward worker via RewardManager (new-style config)...")
-            reward_fn = RewardManager.from_config(reward_manager_cfg)
-            num_workers = reward_manager_cfg.num_workers
-            timeout = reward_manager_cfg.timeout
-        else:
-            self.logger.info(f"Initializing reward worker via legacy config (type={self._reward_config.type})...")
-            reward_fn = RewardManager.from_legacy_config(self._reward_config)
-            num_workers = self._reward_config.num_workers
-            timeout = self._reward_config.timeout
 
+            reward_manager_cfg = RewardManagerConfig(**reward_manager_cfg)
+
+        if reward_manager_cfg is None:
+            raise ValueError("GRPO requires reward_manager configuration")
+
+        self.logger.info("Initializing reward worker via RewardManager...")
+        reward_fn = RewardManager.from_config(reward_manager_cfg)
         self.reward_worker = RewardWorkerPool(
             reward_fn=reward_fn,
-            num_workers=num_workers,
-            timeout=timeout,
+            num_workers=reward_manager_cfg.num_workers,
+            timeout=reward_manager_cfg.timeout,
         )
 
         # Setup GRPO-specific data iterators (overrides base trainer's)
@@ -157,12 +151,12 @@ class GRPOTrainer(BaseTrainer):
         if isinstance(self.model, FSDP):
             from torch.distributed.fsdp import StateDictType
 
-            from ironcore.parallel.parallel import initialize_parallelism
-
             # For FSDP, we must shard the reference model as well to save memory.
             # 1. Create a raw model instance
             # Use self.config.model directly as FSDP does not proxy .config
             from ironcore.language_model import LanguageModel
+            from ironcore.parallel.parallel import initialize_parallelism
+
             reference_model = LanguageModel(self.config)
 
             # 2. Cast to match policy model dtype before FSDP wrapping.
@@ -636,12 +630,13 @@ class GRPOTrainer(BaseTrainer):
             if dist.is_initialized():
                 # For FSDP/DDP, sum across DP group
                 from ironcore.parallel import parallel_states
+
                 dist.all_reduce(
                     param_norm_tensor,
                     op=dist.ReduceOp.SUM,
                     group=parallel_states.get_data_parallel_group(),
                 )
-            param_norm = param_norm_tensor.item()**0.5
+            param_norm = param_norm_tensor.item() ** 0.5
 
         return grad_norm, param_norm
 

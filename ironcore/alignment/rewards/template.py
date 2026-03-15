@@ -14,7 +14,7 @@ import re
 
 import yaml
 
-from .rewards import RewardFunction
+from .base import RewardFunction
 
 
 class TemplateRuleReward(RewardFunction):

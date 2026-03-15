@@ -4,33 +4,35 @@
 
 """Tests for RewardManager, TemplateRuleReward, and config integration."""
 
-import warnings
+import re
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
-from ironcore.alignment.reward_manager import RewardManager
-from ironcore.alignment.reward_model import RewardModelFunction
-from ironcore.alignment.reward_rules import TemplateRuleReward
 from ironcore.alignment.rewards import (
-    CompositeRewardFunction,
+    FormatRewardFunction,
+    KeywordRewardFunction,
     MathRewardFunction,
+    RewardManager,
+    RewardModelFunction,
     RewardWorkerPool,
-    get_reward_function,
+    StrictFormatRewardFunction,
+    TemplateRuleReward,
 )
 from ironcore.config.config_alignment import (
     AlignmentConfig,
-    RewardConfig,
     RewardFunctionEntry,
     RewardManagerConfig,
 )
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def math_gsm8k_yaml():
@@ -53,6 +55,7 @@ def format_deepseek_yaml():
 # =============================================================================
 # 1. TemplateRuleReward Tests (Tests 1-23)
 # =============================================================================
+
 
 class TestTemplateRuleRewardAnswerMatch:
     """Tests 1-11: answer_match mode."""
@@ -89,8 +92,6 @@ class TestTemplateRuleRewardAnswerMatch:
 
     def test_06_no_answer_extracted_strict(self):
         """Test 6: No answer extracted from completion (strict mode, no fallback) returns 0.0."""
-        # When completion has no extractable answer, returns no_answer_score.
-        # Ground truth extraction is used only for comparison, not as fallback.
         config = {
             "mode": "answer_match",
             "answer_patterns": [r"####\s*(.+)"],
@@ -99,7 +100,7 @@ class TestTemplateRuleRewardAnswerMatch:
         }
         fn = TemplateRuleReward(config)
         result = fn.compute("prompt", "no numbers here", {"answer": "#### 42"})
-        assert result == 0.0  # No answer extracted from completion = no_answer
+        assert result == 0.0
 
     def test_07_fallback_last_number(self):
         """Test 7: Fallback to last number in text."""
@@ -122,7 +123,6 @@ class TestTemplateRuleRewardAnswerMatch:
     def test_09_normalization_case_insensitive(self, math_gsm8k_yaml):
         """Test 9: Normalization - case insensitive."""
         fn = TemplateRuleReward.from_yaml(math_gsm8k_yaml)
-        # Both completion and answer must use extractable patterns
         result = fn.compute("prompt", "#### YES", {"answer": "#### yes"})
         assert result == 1.0
 
@@ -184,8 +184,8 @@ class TestTemplateRuleRewardRegexMatch:
     def test_16_pattern_matches(self, format_deepseek_yaml):
         """Test 16: Pattern matches returns 1.0."""
         fn = TemplateRuleReward.from_yaml(format_deepseek_yaml)
-        # format_deepseek.yaml pattern: <think>.*?</think>\s*####\s*.*
-        result = fn.compute("prompt", "<think>reasoning</think> #### 42", {})
+        # format_deepseek.yaml pattern: <currwork>.*?</currwork>\s*####\s*.*
+        result = fn.compute("prompt", "<currwork>reasoning</currwork> #### 42", {})
         assert result == 1.0
 
     def test_17_pattern_doesnt_match(self, format_deepseek_yaml):
@@ -195,9 +195,9 @@ class TestTemplateRuleRewardRegexMatch:
         assert result == 0.0
 
     def test_18_dotall_flag_works(self, format_deepseek_yaml):
-        """Test 18: DOTALL flag allows multiline content inside <think> tags."""
+        """Test 18: DOTALL flag allows multiline content inside currwork tags."""
         fn = TemplateRuleReward.from_yaml(format_deepseek_yaml)
-        result = fn.compute("prompt", "<think>\nmultiline\nreasoning\n</think> #### 42", {})
+        result = fn.compute("prompt", "<currwork>\nmultiline\nreasoning\n</currwork> #### 42", {})
         assert result == 1.0
 
     def test_19_custom_scoring(self):
@@ -234,7 +234,6 @@ class TestTemplateRuleRewardEdgeCases:
     def test_22_empty_completion(self, math_gsm8k_yaml):
         """Test 22: Empty completion is handled gracefully."""
         fn = TemplateRuleReward.from_yaml(math_gsm8k_yaml)
-        # Should not crash
         result = fn.compute("prompt", "", {"answer": "42"})
         assert isinstance(result, float)
 
@@ -247,6 +246,7 @@ class TestTemplateRuleRewardEdgeCases:
 # =============================================================================
 # 2. RewardModelFunction Tests (Tests 24-30)
 # =============================================================================
+
 
 class TestRewardModelFunction:
     """Tests 24-30: RewardModelFunction backends."""
@@ -270,7 +270,9 @@ class TestRewardModelFunction:
             mock_resp.json.return_value = {"reward": 0.8}
             mock_session.post.return_value = mock_resp
 
-            fn = RewardModelFunction(backend="local_endpoint", local_endpoint="http://localhost:8000/v1")
+            fn = RewardModelFunction(
+                backend="local_endpoint", local_endpoint="http://localhost:8000/v1"
+            )
             result = fn.compute("prompt", "completion", {})
         assert result == pytest.approx(0.8)
 
@@ -281,9 +283,13 @@ class TestRewardModelFunction:
             mock_session_cls.return_value = mock_session
             mock_session.post.side_effect = Exception("connection refused")
 
-            fn = RewardModelFunction(backend="local_endpoint", local_endpoint="http://localhost:8000/v1", max_retries=2, timeout=1)
-            # Patch time.sleep to avoid waiting
-            with patch("ironcore.alignment.reward_model.time.sleep"):
+            fn = RewardModelFunction(
+                backend="local_endpoint",
+                local_endpoint="http://localhost:8000/v1",
+                max_retries=2,
+                timeout=1,
+            )
+            with patch("ironcore.alignment.rewards.model.time.sleep"):
                 result = fn.compute("prompt", "completion", {})
         assert result == 0.5
         assert mock_session.post.call_count == 2
@@ -297,13 +303,16 @@ class TestRewardModelFunction:
             mock_resp.json.return_value = {"score": 0.7}
             mock_session.post.return_value = mock_resp
 
-            fn = RewardModelFunction(backend="local_endpoint", local_endpoint="http://localhost:8000/v1")
+            fn = RewardModelFunction(
+                backend="local_endpoint", local_endpoint="http://localhost:8000/v1"
+            )
             result = fn.compute("prompt", "completion", {})
         assert result == pytest.approx(0.7)
 
     def test_29_api_compute_mocked(self):
         """Test 29: api compute returns parsed scalar from mocked OpenAI client."""
         import sys
+
         mock_openai_module = MagicMock()
         mock_client = MagicMock()
         mock_openai_module.OpenAI.return_value = mock_client
@@ -319,10 +328,10 @@ class TestRewardModelFunction:
     def test_30_local_inference_compute_mocked(self):
         """Test 30: local_inference returns logits[0,0] value from mocked model."""
         import sys
+
         mock_transformers = MagicMock()
 
         mock_tokenizer = MagicMock()
-        # Tokenizer call returns a dict-like object with .to() that returns itself
         tok_output = MagicMock()
         tok_output.to.return_value = tok_output
         mock_tokenizer.return_value = tok_output
@@ -332,20 +341,25 @@ class TestRewardModelFunction:
         mock_outputs = MagicMock()
         mock_outputs.logits = torch.tensor([[0.75, 0.25]])
         mock_model.return_value = mock_outputs
-        mock_transformers.AutoModelForSequenceClassification.from_pretrained.return_value = mock_model
+        mock_transformers.AutoModelForSequenceClassification.from_pretrained.return_value = (
+            mock_model
+        )
 
         with patch.dict(sys.modules, {"transformers": mock_transformers}):
-            fn = RewardModelFunction(backend="local_inference", local_model_path="/fake/path", local_device="cpu")
+            fn = RewardModelFunction(
+                backend="local_inference", local_model_path="/fake/path", local_device="cpu"
+            )
             result = fn.compute("prompt", "completion", {})
         assert result == pytest.approx(0.75)
 
 
 # =============================================================================
-# 3. RewardManager Tests (Tests 31-40)
+# 3. RewardManager Tests (Tests 31-37)
 # =============================================================================
 
+
 class TestRewardManager:
-    """Tests 31-40: RewardManager core functionality."""
+    """Tests 31-37: RewardManager core functionality."""
 
     def test_31_register_single_compute(self, math_gsm8k_yaml):
         """Test 31: Register single function, compute returns score * weight."""
@@ -353,23 +367,19 @@ class TestRewardManager:
         fn = TemplateRuleReward.from_yaml(math_gsm8k_yaml)
         manager.register("correctness", fn, weight=0.6)
         result = manager.compute("prompt", "#### 42", {"answer": "42"})
-        assert result == 0.6  # 1.0 * 0.6
+        assert result == 0.6
 
     def test_32_register_multiple_weighted_sum(self, math_gsm8k_yaml, format_cot_yaml):
         """Test 32: Multiple functions return weighted sum."""
         manager = RewardManager()
         math_fn = TemplateRuleReward.from_yaml(math_gsm8k_yaml)
-        format_fn = TemplateRuleReward.from_yaml(format_cot_yaml)  # Uses tag_check
+        format_fn = TemplateRuleReward.from_yaml(format_cot_yaml)
 
         manager.register("correctness", math_fn, weight=0.6)
         manager.register("format", format_fn, weight=0.4)
 
-        # Correct answer with all format tags present
         completion = "<thought>reasoning</thought><answer>42</answer>"
         result = manager.compute("prompt", completion, {"answer": "42"})
-        # correctness: 1.0 * 0.6 = 0.6
-        # format: 0.0 * 0.4 = 0.0 (all_present)
-        # total: 0.6
         assert result == 0.6
 
     def test_33_no_functions_runtime_error(self):
@@ -403,18 +413,16 @@ class TestRewardManager:
                     type="reward_model",
                     weight=1.0,
                     rm_backend="local_endpoint",
-                    local_endpoint="http://localhost:9999",  # Non-existent
+                    local_endpoint="http://localhost:9999",
                 )
             ]
         )
         manager = RewardManager.from_config(cfg)
-        # Will fail to connect but shouldn't crash
         result = manager.compute("prompt", "completion", {})
-        # Returns default 0.5 after retries
         assert result == 0.5
 
-    def test_36_from_config_legacy_type(self):
-        """Test 36: from_config with legacy type delegates to get_reward_function()."""
+    def test_36_from_config_math_type(self, math_gsm8k_yaml):
+        """Test 36: from_config with math type uses built-in MathRewardFunction."""
         cfg = RewardManagerConfig(
             functions=[
                 RewardFunctionEntry(
@@ -424,14 +432,7 @@ class TestRewardManager:
                 )
             ]
         )
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            manager = RewardManager.from_config(cfg)
-            # get_reward_function emits deprecation warning
-            assert any("deprecated" in str(warning.message).lower() for warning in w)
-
-        # Note: MathRewardFunction needs answer in extractable format too
-        # Both completion and answer need to match patterns (e.g., #### prefix)
+        manager = RewardManager.from_config(cfg)
         result = manager.compute("prompt", "#### 42", {"answer": "#### 42"})
         assert result == 1.0
 
@@ -443,55 +444,94 @@ class TestRewardManager:
                     name="broken",
                     type="rule_template",
                     weight=1.0,
-                    rule_template=None,  # Missing!
+                    rule_template=None,
                 )
             ]
         )
         with pytest.raises(ValueError, match="no rule_template path"):
             RewardManager.from_config(cfg)
 
-    def test_38_from_legacy_config_math(self):
-        """Test 38: from_legacy_config with type=math."""
-        cfg = RewardConfig(type="math")
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            manager = RewardManager.from_legacy_config(cfg)
-            assert any("deprecated" in str(warning.message).lower() for warning in w)
+    def test_38_from_config_composite_math(self):
+        """Test 38: from_config with composite_math creates format + correctness entries."""
+        cfg = RewardManagerConfig(
+            functions=[
+                RewardFunctionEntry(
+                    name="dense_math",
+                    type="composite_math",
+                    weight=1.0,
+                    format_weight=0.2,
+                )
+            ]
+        )
+        manager = RewardManager.from_config(cfg)
+        # composite_math registers two entries: format (0.2) + correctness (0.8)
+        assert len(manager._functions) == 2
+        assert manager._functions[0][0] == "dense_math_format"
+        assert manager._functions[1][0] == "dense_math_correctness"
+        assert manager._functions[0][1] == 0.2  # format weight
+        assert manager._functions[1][1] == 0.8  # correctness weight
 
-        # Note: MathRewardFunction needs answer in extractable format too
-        result = manager.compute("prompt", "#### 42", {"answer": "#### 42"})
-        assert result == 1.0
-
-    def test_39_from_legacy_config_composite_math(self):
-        """Test 39: from_legacy_config with type=composite_math."""
-        cfg = RewardConfig(type="composite_math")
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            manager = RewardManager.from_legacy_config(cfg)
-            # CompositeRewardFunction also emits warning
-            assert len(w) >= 1
-
+        # Test compute: correct answer with format
         result = manager.compute("prompt", "#### 42", {"answer": "42"})
-        # Composite: format (0.2) + correctness (0.8) = varies based on format
-        assert 0.0 <= result <= 1.0
+        # format: pattern matches ####\s*-?\d → reward=1.0, weight=0.2 → 0.2
+        # correctness: matches answer → 1.0, weight=0.8 → 0.8
+        # total = 1.0
+        assert result == pytest.approx(1.0)
 
-    def test_40_from_legacy_config_keyword(self):
-        """Test 40: from_legacy_config with type=keyword."""
-        cfg = RewardConfig(type="keyword", keyword="test")
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            manager = RewardManager.from_legacy_config(cfg)
-            assert any("deprecated" in str(warning.message).lower() for warning in w)
+    def test_39_from_config_keyword_type(self):
+        """Test 39: from_config with keyword type."""
+        cfg = RewardManagerConfig(
+            functions=[
+                RewardFunctionEntry(
+                    name="kw",
+                    type="keyword",
+                    weight=1.0,
+                    keyword="test",
+                )
+            ]
+        )
+        manager = RewardManager.from_config(cfg)
+        assert manager.compute("prompt", "this has test in it", {}) == 1.0
+        assert manager.compute("prompt", "no match", {}) == 0.0
 
-        result = manager.compute("prompt", "this has test in it", {})
-        assert result == 1.0
-        result = manager.compute("prompt", "no match", {})
+    def test_40_from_config_soft_keyword_type(self):
+        """Test 40: from_config with soft_keyword type."""
+        cfg = RewardManagerConfig(
+            functions=[
+                RewardFunctionEntry(
+                    name="soft_kw",
+                    type="soft_keyword",
+                    weight=1.0,
+                    keyword="test",
+                )
+            ]
+        )
+        manager = RewardManager.from_config(cfg)
+        # Exact match
+        assert manager.compute("prompt", "this has test in it", {}) == 1.0
+        # No match - returns min_score (0.0 by default)
+        result = manager.compute("prompt", "xyz", {})
         assert result == 0.0
+
+    def test_41_from_config_unknown_type_raises(self):
+        """Test 41: from_config with unknown type raises ValueError."""
+        cfg = RewardManagerConfig(
+            functions=[
+                RewardFunctionEntry(
+                    name="unknown",
+                    type="invalid_type",
+                    weight=1.0,
+                )
+            ]
+        )
+        with pytest.raises(ValueError, match="Unknown reward type"):
+            RewardManager.from_config(cfg)
 
 
 # =============================================================================
 # 4. Config Dataclass Tests (Tests 41-47)
 # =============================================================================
+
 
 class TestConfigDataclasses:
     """Tests 41-47: Config dataclass conversions."""
@@ -499,9 +539,7 @@ class TestConfigDataclasses:
     def test_41_reward_manager_config_dict_conversion(self, math_gsm8k_yaml):
         """Test 41: RewardManagerConfig with dict functions converts to RewardFunctionEntry."""
         cfg = RewardManagerConfig(
-            functions=[
-                {"name": "test", "type": "rule_template", "rule_template": math_gsm8k_yaml}
-            ]
+            functions=[{"name": "test", "type": "rule_template", "rule_template": math_gsm8k_yaml}]
         )
         assert len(cfg.functions) == 1
         assert isinstance(cfg.functions[0], RewardFunctionEntry)
@@ -509,7 +547,9 @@ class TestConfigDataclasses:
 
     def test_42_reward_manager_config_entry_list(self, math_gsm8k_yaml):
         """Test 42: RewardManagerConfig with RewardFunctionEntry list passes through."""
-        entry = RewardFunctionEntry(name="test", type="rule_template", rule_template=math_gsm8k_yaml)
+        entry = RewardFunctionEntry(
+            name="test", type="rule_template", rule_template=math_gsm8k_yaml
+        )
         cfg = RewardManagerConfig(functions=[entry])
         assert cfg.functions[0] is entry
 
@@ -519,37 +559,20 @@ class TestConfigDataclasses:
             method="grpo",
             grpo_group_size=4,
             reward_manager={
-                "functions": [{"name": "test", "type": "rule_template", "rule_template": math_gsm8k_yaml}]
-            }
+                "functions": [
+                    {"name": "test", "type": "rule_template", "rule_template": math_gsm8k_yaml}
+                ]
+            },
         )
         assert isinstance(cfg.reward_manager, RewardManagerConfig)
 
-    def test_44_alignment_config_without_reward_manager(self):
-        """Test 44: AlignmentConfig(method='grpo') without reward_manager validates reward.type."""
-        # Default reward.type is "math" which is valid
-        cfg = AlignmentConfig(method="grpo", grpo_group_size=4)
-        assert cfg.reward.type == "math"
+    def test_44_alignment_config_requires_reward_manager(self):
+        """Test 44: AlignmentConfig(method='grpo') requires reward_manager."""
+        with pytest.raises(ValueError, match="GRPO requires reward_manager configuration"):
+            AlignmentConfig(method="grpo", grpo_group_size=4)
 
-        # Invalid type should raise
-        with pytest.raises(ValueError, match="reward.type"):
-            AlignmentConfig(method="grpo", grpo_group_size=4, reward=RewardConfig(type="invalid"))
-
-    def test_45_alignment_config_with_reward_manager_skips_validation(self, math_gsm8k_yaml):
-        """Test 45: AlignmentConfig with reward_manager skips reward.type validation."""
-        # This would normally fail because "invalid" isn't a valid type
-        # But it's skipped because reward_manager is set
-        cfg = AlignmentConfig(
-            method="grpo",
-            grpo_group_size=4,
-            reward=RewardConfig(type="invalid"),
-            reward_manager={
-                "functions": [{"name": "test", "type": "rule_template", "rule_template": math_gsm8k_yaml}]
-            }
-        )
-        assert cfg.reward_manager is not None
-
-    def test_46_alignment_config_from_yaml(self, tmp_path, math_gsm8k_yaml):
-        """Test 46: AlignmentConfig.from_yaml with reward_manager key."""
+    def test_45_alignment_config_from_yaml(self, tmp_path, math_gsm8k_yaml):
+        """Test 45: AlignmentConfig.from_yaml with reward_manager key."""
         yaml_content = f"""
 method: grpo
 grpo_group_size: 4
@@ -568,8 +591,8 @@ reward_manager:
         assert len(cfg.reward_manager.functions) == 1
         assert cfg.reward_manager.functions[0].name == "correctness"
 
-    def test_47_reward_function_entry_defaults(self):
-        """Test 47: RewardFunctionEntry default values are sensible."""
+    def test_46_reward_function_entry_defaults(self):
+        """Test 46: RewardFunctionEntry default values are sensible."""
         entry = RewardFunctionEntry()
         assert entry.name == "default"
         assert entry.type == "rule_template"
@@ -580,6 +603,7 @@ reward_manager:
 # =============================================================================
 # 5. YAML Template Tests (Tests 57-60)
 # =============================================================================
+
 
 class TestYAMLTemplates:
     """Tests 57-60: YAML template loading."""
@@ -611,93 +635,96 @@ class TestYAMLTemplates:
 
 
 # =============================================================================
-# 6. Backward Compatibility Tests (Tests 48-50)
+# 6. Built-in Reward Function Tests
 # =============================================================================
 
-class TestBackwardCompatibility:
-    """Tests 48-50: Legacy function compatibility."""
 
-    def test_48_legacy_math_vs_template_identical(self, math_gsm8k_yaml):
-        """Test 48: Legacy MathRewardFunction produces same scores as TemplateRuleReward."""
-        legacy_fn = MathRewardFunction(strict=False)
-        template_fn = TemplateRuleReward.from_yaml(math_gsm8k_yaml)
+class TestBuiltinRewardFunctions:
+    """Tests for built-in reward functions."""
 
-        test_cases = [
-            ("prompt", "#### 42", {"answer": "42"}),
-            ("prompt", "#### 99", {"answer": "42"}),
-            ("prompt", "Answer: 100", {"answer": "100"}),
-            ("prompt", r"\boxed{7}", {"answer": "7"}),
-            ("prompt", "The answer is 15", {"answer": "15"}),
-        ]
+    def test_math_reward_function(self):
+        """Test MathRewardFunction computes correct scores."""
+        fn = MathRewardFunction(strict=False)
+        assert fn.compute("prompt", "#### 42", {"answer": "42"}) == 1.0
+        assert fn.compute("prompt", "#### 99", {"answer": "42"}) == 0.1  # partial
+        assert fn.compute("prompt", "no answer", {"answer": "42"}) == 0.0
 
-        for prompt, completion, metadata in test_cases:
-            legacy_score = legacy_fn.compute(prompt, completion, metadata)
-            template_score = template_fn.compute(prompt, completion, metadata)
-            assert legacy_score == template_score, f"Mismatch for {completion}"
+    def test_math_reward_function_strict_mode(self):
+        """Test MathRewardFunction in strict mode requires pattern match."""
+        fn = MathRewardFunction(strict=True)
+        # Strict mode: must match pattern, no fallback to last number
+        # Both completion and answer need to match patterns
+        assert fn.compute("prompt", "#### 42", {"answer": "#### 42"}) == 1.0
+        # "result: 42" doesn't match any pattern (not "Answer:", not "####", etc.)
+        # In strict mode, no extraction = 0.0
+        assert fn.compute("prompt", "result: 42", {"answer": "#### 42"}) == 0.0
 
-    def test_49_format_reward_different_formulas(self):
-        """Test 49: FormatRewardFunction vs TemplateRuleReward have different penalty formulas.
+    def test_keyword_reward_function(self):
+        """Test KeywordRewardFunction computes correct scores."""
+        fn = KeywordRewardFunction(keyword="ironcore")
+        assert fn.compute("prompt", "this has ironcore in it", {}) == 1.0
+        assert fn.compute("prompt", "no match", {}) == 0.0
 
-        Legacy uses penalty * (missing / total_tags) while TemplateRuleReward uses per_missing_tag * count.
-        This is a known design difference - users migrating should adjust per_missing_tag accordingly.
-        """
-        # Legacy
-        from ironcore.alignment.rewards import FormatRewardFunction
-        legacy_fn = FormatRewardFunction(
-            required_tags=["<thought>", "</thought>", "<answer>", "</answer>"],
+    def test_soft_keyword_reward_function(self):
+        """Test SoftKeywordRewardFunction computes partial credit."""
+        from ironcore.alignment.rewards import SoftKeywordRewardFunction
+
+        fn = SoftKeywordRewardFunction(keyword="ironcore", min_score=0.0)
+        # Exact match
+        assert fn.compute("prompt", "this has ironcore in it", {}) == 1.0
+        # Partial match (8/8 chars = 1.0)
+        assert fn.compute("prompt", "ironcore", {}) == 1.0
+        # No match at all (0 chars matching in any 8-gram)
+        result = fn.compute("prompt", "xyz", {})
+        assert result == 0.0
+
+    def test_format_reward_function(self):
+        """Test FormatRewardFunction computes correct scores."""
+        fn = FormatRewardFunction(
+            required_tags=["<thought>", "</thought>"],
             penalty=-0.1,
         )
+        assert fn.compute("prompt", "<thought>x</thought>", {}) == 0.0
+        # penalty * (missing / total) = -0.1 * (2/2) = -0.1
+        assert fn.compute("prompt", "plain", {}) == pytest.approx(-0.1)
 
-        # New via config
-        config = {
-            "mode": "tag_check",
-            "required_tags": ["<thought>", "</thought>", "<answer>", "</answer>"],
-            "scoring": {"all_present": 0.0, "per_missing_tag": -0.1},
-        }
-        template_fn = TemplateRuleReward(config)
+    def test_strict_format_reward_function(self):
+        """Test StrictFormatRewardFunction computes correct scores."""
+        fn = StrictFormatRewardFunction(pattern=r"####\s*\d+", reward=1.0, penalty=0.0)
+        assert fn.compute("prompt", "The answer is #### 42", {}) == 1.0
+        assert fn.compute("prompt", "No pattern here", {}) == 0.0
 
-        # Test all present - both return 0.0
-        completion = "<thought>x</thought><answer>y</answer>"
-        assert legacy_fn.compute("", completion, {}) == 0.0
-        assert template_fn.compute("", completion, {}) == 0.0
+    def test_strict_format_default_pattern(self):
+        """Test StrictFormatRewardFunction with default pattern."""
+        fn = StrictFormatRewardFunction()
+        # Default pattern: <currwork>.*?</currwork>\s*####\s*.*
+        assert fn.compute("prompt", "<currwork>reasoning</currwork> #### 42", {}) == 1.0
+        assert fn.compute("prompt", "no format here", {}) == 0.0
 
-        # Test partial - different formulas (documented)
-        completion = "<thought>x</thought> no answer"
-        legacy_result = legacy_fn.compute("", completion, {})
-        template_result = template_fn.compute("", completion, {})
-        # Legacy: penalty * (missing / total) = -0.1 * (2/4) = -0.05
-        # Template: per_missing * count = -0.1 * 2 = -0.2
-        assert legacy_result == pytest.approx(-0.05, abs=0.001)
-        assert template_result == -0.2
+    def test_code_reward_function(self):
+        """Test CodeRewardFunction computes correct scores."""
+        from ironcore.alignment.rewards import CodeRewardFunction
 
-    def test_50_strict_format_compatibility(self):
-        """Test 50: StrictFormatRewardFunction behavior via regex_match."""
-        from ironcore.alignment.rewards import StrictFormatRewardFunction
+        fn = CodeRewardFunction(timeout=1)
+        # Test with simple code
+        result = fn.compute(
+            "def add(a, b):", "    return a + b", {"test_cases": ["assert add(1, 2) == 3"]}
+        )
+        assert result == 1.0  # Test passes
 
-        legacy_fn = StrictFormatRewardFunction(pattern=r"####\s*\d+", reward=1.0, penalty=0.0)
+    def test_code_reward_function_no_tests(self):
+        """Test CodeRewardFunction with no tests returns 0.5."""
+        from ironcore.alignment.rewards import CodeRewardFunction
 
-        config = {
-            "mode": "regex_match",
-            "pattern": r"####\s*\d+",
-            "scoring": {"match": 1.0, "no_match": 0.0},
-        }
-        template_fn = TemplateRuleReward(config)
-
-        test_cases = [
-            "The answer is #### 42",
-            "No pattern here",
-            "#### 100",
-        ]
-
-        for completion in test_cases:
-            legacy_score = legacy_fn.compute("", completion, {})
-            template_score = template_fn.compute("", completion, {})
-            assert legacy_score == template_score, f"Mismatch for {completion}"
+        fn = CodeRewardFunction()
+        result = fn.compute("def add(a, b):", "    return a + b", {})
+        assert result == 0.5  # No tests = neutral
 
 
 # =============================================================================
 # 7. Error Handling Tests (Tests 68-72)
 # =============================================================================
+
 
 class TestErrorHandling:
     """Tests 68-72: Error handling."""
@@ -726,7 +753,7 @@ class TestErrorHandling:
         """Test 71: RewardModelFunction endpoint unreachable returns 0.5."""
         fn = RewardModelFunction(
             backend="local_endpoint",
-            local_endpoint="http://localhost:59999",  # Non-existent port
+            local_endpoint="http://localhost:59999",
             max_retries=1,
             timeout=1,
         )
@@ -734,114 +761,53 @@ class TestErrorHandling:
         assert result == 0.5
 
     def test_72_malformed_yaml_invalid_regex(self, tmp_path):
-        """Test 72: Malformed YAML with invalid regex raises error at load time."""
+        """Test 72: Malformed YAML with invalid regex raises error at compute time."""
         yaml_path = tmp_path / "bad_regex.yaml"
         yaml_path.write_text("""
 mode: regex_match
 pattern: '['
 """)
-        # Invalid regex should raise re.error when pattern is compiled
-        # But TemplateRuleReward doesn't pre-compile, so error happens at compute
         fn = TemplateRuleReward.from_yaml(str(yaml_path))
         import re
+
         with pytest.raises(re.error):
             fn.compute("prompt", "completion", {})
 
 
 # =============================================================================
-# 8. Deprecation Warning Tests (Tests 61-64)
-# =============================================================================
-
-class TestDeprecationWarnings:
-    """Tests 61-64: Deprecation warning emissions."""
-
-    def test_61_get_reward_function_deprecation(self):
-        """Test 61: get_reward_function() emits DeprecationWarning."""
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            get_reward_function("math")
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
-
-    def test_62_composite_reward_deprecation(self):
-        """Test 62: CompositeRewardFunction emits DeprecationWarning."""
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            CompositeRewardFunction([(1.0, MathRewardFunction())])
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
-
-    def test_63_from_legacy_config_warning(self):
-        """Test 63: from_legacy_config emits warning via get_reward_function."""
-        cfg = RewardConfig(type="math")
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            RewardManager.from_legacy_config(cfg)
-            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
-
-    def test_64_from_config_no_deprecation(self, math_gsm8k_yaml):
-        """Test 64: from_config with rule_template emits no deprecation warning."""
-        cfg = RewardManagerConfig(
-            functions=[
-                RewardFunctionEntry(
-                    name="test",
-                    type="rule_template",
-                    rule_template=math_gsm8k_yaml,
-                )
-            ]
-        )
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            RewardManager.from_config(cfg)
-            # No deprecation warnings
-            assert not any(issubclass(warning.category, DeprecationWarning) for warning in w)
-
-
-# =============================================================================
-# 9. Integration Tests (Tests 51-56)
+# 8. Integration Tests
 # =============================================================================
 
 
-class TestNewConfigPath:
-    """Tests 51-53: New config path integration."""
+class TestIntegration:
+    """Integration tests."""
 
     def test_51_two_rule_template_entries_weighted_sum(self, math_gsm8k_yaml, format_cot_yaml):
         """Test 51: Config with two rule_template entries computes weighted sum."""
         cfg = RewardManagerConfig(
             functions=[
-                RewardFunctionEntry(name="correctness", type="rule_template", weight=0.6, rule_template=math_gsm8k_yaml),
-                RewardFunctionEntry(name="format", type="rule_template", weight=0.4, rule_template=format_cot_yaml),
+                RewardFunctionEntry(
+                    name="correctness",
+                    type="rule_template",
+                    weight=0.6,
+                    rule_template=math_gsm8k_yaml,
+                ),
+                RewardFunctionEntry(
+                    name="format", type="rule_template", weight=0.4, rule_template=format_cot_yaml
+                ),
             ]
         )
         manager = RewardManager.from_config(cfg)
 
-        # Correct answer, format tags present
         result = manager.compute(
             "prompt",
             "<thought>work</thought><answer>42</answer> #### 42",
             {"answer": "42"},
         )
-        # correctness=1.0*0.6=0.6, format=0.0*0.4=0.0 → 0.6
         assert result == pytest.approx(0.6)
 
-        # Correct answer, format tags missing
         result = manager.compute("prompt", "#### 42", {"answer": "42"})
-        # correctness=1.0*0.6=0.6, format=-0.4*0.4=-0.16 → 0.44
         assert result == pytest.approx(0.44)
-
-    def test_52_mixed_rule_template_and_legacy(self, math_gsm8k_yaml):
-        """Test 52: Config with mixed types (rule_template + legacy math) registers both."""
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            cfg = RewardManagerConfig(
-                functions=[
-                    RewardFunctionEntry(name="template", type="rule_template", weight=0.5, rule_template=math_gsm8k_yaml),
-                    RewardFunctionEntry(name="legacy_math", type="math", weight=0.5),
-                ]
-            )
-            manager = RewardManager.from_config(cfg)
-
-        assert len(manager._functions) == 2
-        result = manager.compute("prompt", "#### 42", {"answer": "#### 42"})
-        assert isinstance(result, float)
 
     def test_53_custom_yaml_template_uses_new_patterns(self, tmp_path):
         """Test 53: Custom YAML template with different patterns is used correctly."""
@@ -859,69 +825,11 @@ scoring:
 """)
         fn = TemplateRuleReward.from_yaml(str(custom_yaml))
 
-        # Custom patterns match — answer also needs to match a pattern (gold extraction)
         result = fn.compute("prompt", "Result: 42", {"answer": "Result: 42"})
         assert result == 1.0
 
-        # Standard #### pattern not in template; "42" also doesn't match any pattern
-        # → gold extraction fails → returns 0.5 (ambiguous, design choice)
         result = fn.compute("prompt", "#### 42", {"answer": "42"})
         assert result == 0.5
-
-
-class TestGRPOTrainerIntegration:
-    """Tests 54-56: GRPOTrainer reward worker initialization."""
-
-    def test_54_post_checkpoint_load_with_reward_manager(self, math_gsm8k_yaml):
-        """Test 54: _post_checkpoint_load with reward_manager config initializes via from_config."""
-        from ironcore.trainers.grpo_trainer import GRPOTrainer
-
-        mock_config = MagicMock()
-        mock_config.alignment.reward_manager = RewardManagerConfig(
-            functions=[RewardFunctionEntry(name="correctness", type="rule_template", weight=1.0, rule_template=math_gsm8k_yaml)],
-            num_workers=2,
-            timeout=10,
-        )
-        mock_config.alignment.reward = RewardConfig(type="math")
-
-        trainer = GRPOTrainer.__new__(GRPOTrainer)
-        trainer.config = mock_config
-        trainer.logger = MagicMock()
-        trainer._reward_config = mock_config.alignment.reward
-
-        with (
-            patch.object(GRPOTrainer, "_create_reference_model", return_value=MagicMock()),
-            patch.object(GRPOTrainer, "_setup_data_iterators"),
-        ):
-            trainer._post_checkpoint_load(last_step=0)
-
-        assert trainer.reward_worker is not None
-        assert isinstance(trainer.reward_worker.reward_fn, RewardManager)
-        assert len(trainer.reward_worker.reward_fn._functions) == 1
-
-    def test_55_post_checkpoint_load_with_legacy_config(self):
-        """Test 55: _post_checkpoint_load with legacy config initializes via from_legacy_config."""
-        from ironcore.trainers.grpo_trainer import GRPOTrainer
-
-        mock_config = MagicMock()
-        mock_config.alignment.reward_manager = None
-        mock_config.alignment.reward = RewardConfig(type="math")
-
-        trainer = GRPOTrainer.__new__(GRPOTrainer)
-        trainer.config = mock_config
-        trainer.logger = MagicMock()
-        trainer._reward_config = mock_config.alignment.reward
-
-        with (
-            patch.object(GRPOTrainer, "_create_reference_model", return_value=MagicMock()),
-            patch.object(GRPOTrainer, "_setup_data_iterators"),
-            warnings.catch_warnings(record=True),
-        ):
-            warnings.simplefilter("always")
-            trainer._post_checkpoint_load(last_step=0)
-
-        assert trainer.reward_worker is not None
-        assert isinstance(trainer.reward_worker.reward_fn, RewardManager)
 
     def test_56_reward_worker_pool_score_batch(self, math_gsm8k_yaml):
         """Test 56: RewardWorkerPool.score_batch with RewardManager returns tensor of shape [8]."""
@@ -939,3 +847,138 @@ class TestGRPOTrainerIntegration:
         rewards = pool.score_batch(prompts, completions, metadata)
         assert isinstance(rewards, torch.Tensor)
         assert rewards.shape == (batch_size,)
+
+
+# =============================================================================
+# 9. E2E Training Tests
+# =============================================================================
+
+REPO_ROOT = Path(__file__).parent.parent
+E2E_RM_CONFIG = "configs/grpo_gsm8k_smoke_fsdp.yaml"
+E2E_RM_MATH_CONFIG = "configs/grpo_gsm8k_smoke_rm_math.yaml"
+TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=2"]
+
+
+def _run_training(config: str) -> subprocess.CompletedProcess:
+    """Run torchrun training job, return CompletedProcess."""
+    cmd = TORCHRUN_CMD + ["-m", "ironcore", "train", "--config", config]
+    return subprocess.run(
+        cmd,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=900,  # 15 min timeout
+        check=False,  # Explicitly handle return code in tests
+    )
+
+
+def _extract_reward_stats(output: str) -> dict:
+    """Extract mean_reward statistics from training log output."""
+    pattern = r"mean_reward[=:]\s*([\d.]+)"
+    matches = re.findall(pattern, output)
+    values = [float(m) for m in matches]
+    if not values:
+        return {"mean": 0.0, "std": 0.0, "n": 0}
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values) if len(values) > 1 else 0.0
+    std = variance**0.5
+    return {"mean": mean, "std": std, "n": len(values)}
+
+
+class TestE2ETraining:
+    """E2E tests that run actual distributed training.
+
+    Marked @pytest.mark.e2e and excluded from default test runs:
+        pytest -m "not e2e"   # skip E2E (default CI)
+        pytest -m e2e         # run only E2E (manual)
+
+    Each test takes ~5-10 minutes on dual RTX 3090.
+    """
+
+    @pytest.mark.e2e
+    def test_reward_manager_config_trains(self):
+        """10-step GRPO training with reward_manager config runs cleanly."""
+        result = _run_training(E2E_RM_CONFIG)
+
+        assert result.returncode == 0, (
+            f"Training with reward_manager config failed (exit {result.returncode}).\n"
+            f"STDOUT:\n{result.stdout[-3000:]}\n"
+            f"STDERR:\n{result.stderr[-3000:]}"
+        )
+
+        combined = result.stdout + result.stderr
+        assert "mean_reward" in combined, (
+            "No mean_reward logged — training may not have computed rewards.\n"
+            f"STDOUT tail:\n{result.stdout[-2000:]}"
+        )
+
+    @pytest.mark.e2e
+    def test_reward_manager_composite_math_trains(self):
+        """GRPO training with composite_math reward via RewardManager."""
+        result = _run_training(E2E_RM_MATH_CONFIG)
+
+        assert result.returncode == 0, (
+            f"Training with composite_math config failed (exit {result.returncode}).\n"
+            f"STDOUT:\n{result.stdout[-3000:]}\n"
+            f"STDERR:\n{result.stderr[-3000:]}"
+        )
+
+        stats = _extract_reward_stats(result.stdout + result.stderr)
+        assert stats["n"] > 0, "No reward values parsed from run"
+        assert stats["mean"] > 0.0, f"Composite math mean_reward degenerate: {stats['mean']:.4f}"
+
+
+# =============================================================================
+# 10. Import Test
+# =============================================================================
+
+
+class TestImports:
+    """Test all reward classes can be imported correctly."""
+
+    def test_all_imports_from_rewards_package(self):
+        """Test all reward classes can be imported from ironcore.alignment.rewards."""
+        from ironcore.alignment import rewards
+
+        expected = [
+            "RewardFunction",
+            "RewardManager",
+            "RewardModelFunction",
+            "RewardWorkerPool",
+            "TemplateRuleReward",
+            "MathRewardFunction",
+            "CodeRewardFunction",
+            "FormatRewardFunction",
+            "StrictFormatRewardFunction",
+            "KeywordRewardFunction",
+            "SoftKeywordRewardFunction",
+            "APIRewardFunction",
+            "LocalEndpointRewardFunction",
+            "LocalInferenceRewardFunction",
+        ]
+        for name in expected:
+            assert hasattr(rewards, name), f"Missing export: {name}"
+
+    def test_all_imports_from_alignment(self):
+        """Test all reward classes can be imported from ironcore.alignment."""
+        from ironcore import alignment
+
+        expected = [
+            "RewardFunction",
+            "RewardManager",
+            "RewardModelFunction",
+            "RewardWorkerPool",
+            "TemplateRuleReward",
+            "MathRewardFunction",
+            "CodeRewardFunction",
+            "FormatRewardFunction",
+            "StrictFormatRewardFunction",
+            "KeywordRewardFunction",
+            "SoftKeywordRewardFunction",
+            "APIRewardFunction",
+            "LocalEndpointRewardFunction",
+            "LocalInferenceRewardFunction",
+        ]
+        for name in expected:
+            assert hasattr(alignment, name), f"Missing export: {name}"
+

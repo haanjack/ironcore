@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reward computation for GRPO with multiple backends.
+"""Built-in reward functions for GRPO.
 
 Supports:
 - Math: Rule-based verification for math problems
@@ -11,8 +11,6 @@ Supports:
 - Local endpoint: Local vLLM/SGLang servers
 - Local inference: Local model on specified GPU
 - Format: Check for required output tags
-
-All reward functions support LRU caching for cost savings.
 """
 
 from __future__ import annotations
@@ -22,34 +20,14 @@ import os
 import re
 import subprocess
 import time
-import warnings
-from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import TYPE_CHECKING
 
 import torch
 
+from .base import RewardFunction
+
 if TYPE_CHECKING:
     pass
-
-
-class RewardFunction(ABC):
-    """Base class for reward functions."""
-
-    @abstractmethod
-    def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        """Compute reward for a completion given prompt and metadata.
-
-        Args:
-            prompt: The input prompt
-            completion: The model's completion
-            metadata: Additional info (answer, test_cases, etc.)
-
-        Returns:
-            Reward score, typically in [0, 1] range
-        """
-        pass
 
 
 class MathRewardFunction(RewardFunction):
@@ -182,7 +160,7 @@ class StrictFormatRewardFunction(RewardFunction):
 
     def __init__(
         self,
-        pattern: str = r"<think>.*?</think>\s*####\s*.*",
+        pattern: str = r"<currwork>.*?</currwork>\s*####\s*.*",
         reward: float = 1.0,
         penalty: float = 0.0,
     ):
@@ -253,36 +231,6 @@ class SoftKeywordRewardFunction(RewardFunction):
             best_score = max(best_score, score)
 
         return max(best_score, self.min_score)
-
-
-class CompositeRewardFunction(RewardFunction):
-    """Weighted combination of multiple reward functions.
-
-    .. deprecated::
-        Use ``RewardManager`` from ``ironcore.alignment.reward_manager`` instead.
-
-    Provides dense reward signal by combining sparse correctness rewards
-    with easier-to-achieve format/structure rewards. This prevents the
-    zero-advantage death spiral where all completions in a group score 0.
-    """
-
-    def __init__(self, reward_fns: list[tuple[float, RewardFunction]]):
-        """
-        Args:
-            reward_fns: List of (weight, reward_fn) tuples. Weights should sum to 1.0.
-        """
-        warnings.warn(
-            "CompositeRewardFunction is deprecated. Use RewardManager instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.reward_fns = reward_fns
-
-    def compute(self, prompt: str, completion: str, metadata: dict) -> float:
-        total = 0.0
-        for weight, fn in self.reward_fns:
-            total += weight * fn.compute(prompt, completion, metadata)
-        return total
 
 
 class APIRewardFunction(RewardFunction):
@@ -727,144 +675,3 @@ class LocalInferenceRewardFunction(RewardFunction):
             del self.model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-
-class RewardWorkerPool:
-    """Pool of worker threads for parallel reward computation.
-
-    Uses ThreadPoolExecutor for parallelism with timeout support.
-    Threads share memory, avoiding pickling issues with ProcessPoolExecutor.
-
-    Attributes:
-        reward_fn: Reward function to compute scores
-        num_workers: Maximum number of parallel workers
-        timeout: Seconds before returning default reward (0.5)
-        default_reward: Reward returned on timeout or error
-    """
-
-    def __init__(
-        self,
-        reward_fn: RewardFunction,
-        num_workers: int = 4,
-        timeout: float = 30.0,
-        default_reward: float = 0.5,
-    ):
-        self.reward_fn = reward_fn
-        self.num_workers = num_workers
-        self.timeout = timeout
-        self.default_reward = default_reward
-        self._executor = ThreadPoolExecutor(max_workers=num_workers)
-
-    def score_batch(
-        self,
-        prompts: list[str],
-        completions: list[str],
-        metadata_list: list[dict],
-    ) -> torch.Tensor:
-        """Compute rewards for a batch of completions in parallel.
-
-        Args:
-            prompts: List of prompts
-            completions: List of completions (same length)
-            metadata_list: List of metadata dicts
-
-        Returns:
-            Tensor of rewards [batch_size]
-        """
-        assert len(prompts) == len(completions) == len(metadata_list)
-
-        # Submit all tasks to thread pool
-        futures = [
-            self._executor.submit(self.reward_fn.compute, p, c, m)
-            for p, c, m in zip(prompts, completions, metadata_list, strict=False)
-        ]
-
-        # Collect results with timeout
-        rewards = []
-        for future in futures:
-            try:
-                result = future.result(timeout=self.timeout)
-                rewards.append(float(result))
-            except FutureTimeoutError:
-                # Timeout - return default reward
-                rewards.append(self.default_reward)
-            except Exception:
-                # Any other error - return default reward
-                rewards.append(self.default_reward)
-
-        return torch.tensor(rewards, dtype=torch.float32)
-
-    def shutdown(self):
-        """Shutdown the worker pool."""
-        self._executor.shutdown(wait=False)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.shutdown()
-        return False
-
-
-def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: PLR0911
-    """Factory function to create reward functions.
-
-    .. deprecated::
-        Use ``RewardManager.from_config()`` with YAML rule templates instead.
-    """
-    warnings.warn(
-        "get_reward_function() is deprecated. Use RewardManager.from_config() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if reward_type == "math":
-        return MathRewardFunction(strict=kwargs.get("strict", True))
-    if reward_type == "composite_math":
-        # Dense reward: format compliance + correctness
-        # Breaks zero-advantage death spiral for small models on GSM8K
-        format_weight = kwargs.get("format_weight", 0.2)
-        correctness_weight = 1.0 - format_weight
-        format_fn = StrictFormatRewardFunction(
-            pattern=kwargs.get("format_pattern", r"####\s*-?\d"),
-            reward=1.0,
-            penalty=0.0,
-        )
-        math_fn = MathRewardFunction(strict=kwargs.get("strict", False))
-        return CompositeRewardFunction([
-            (format_weight, format_fn),
-            (correctness_weight, math_fn),
-        ])
-    if reward_type == "code":
-        return CodeRewardFunction(timeout=kwargs.get("timeout", 5))
-    if reward_type == "keyword":
-        return KeywordRewardFunction(
-            keyword=kwargs.get("keyword", "ironcore"),
-            case_sensitive=kwargs.get("case_sensitive", False),
-        )
-    if reward_type == "soft_keyword":
-        return SoftKeywordRewardFunction(
-            keyword=kwargs.get("keyword", "ironcore"),
-            case_sensitive=kwargs.get("case_sensitive", False),
-            min_score=kwargs.get("min_score", 0.0),
-        )
-    if reward_type == "api":
-        return APIRewardFunction(**kwargs)
-    if reward_type == "local_endpoint":
-        return LocalEndpointRewardFunction(**kwargs)
-    if reward_type == "local_inference":
-        return LocalInferenceRewardFunction(**kwargs)
-    if reward_type == "format":
-        return FormatRewardFunction(**kwargs)
-    if reward_type == "strict_format":
-        return StrictFormatRewardFunction(
-            pattern=kwargs.get("pattern", r"<think>.*?</think>\s*####\s*.*"),
-            reward=kwargs.get("reward", 1.0),
-            penalty=kwargs.get("penalty", 0.0),
-        )
-    if reward_type == "reward_model":
-        return LocalInferenceRewardFunction(**kwargs)
-
-    raise ValueError(
-        f"Unknown reward type: {reward_type}. "
-        f"Supported: math, code, keyword, api, local_endpoint, local_inference, format, strict_format"
-    )

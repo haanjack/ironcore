@@ -19,12 +19,17 @@ from .rewards import (
     APIRewardFunction,
     CodeRewardFunction,
     FormatRewardFunction,
+    KeywordRewardFunction,
     LocalEndpointRewardFunction,
     LocalInferenceRewardFunction,
     MathRewardFunction,
     RewardFunction,
+    RewardManager,
+    RewardModelFunction,
     RewardWorkerPool,
-    get_reward_function,
+    SoftKeywordRewardFunction,
+    StrictFormatRewardFunction,
+    TemplateRuleReward,
 )
 from .rollout import generate_rollouts_batched, generate_rollouts_with_prefix_cache
 
@@ -46,12 +51,17 @@ __all__ = [
     "generate_rollouts_with_prefix_cache",
     # Rewards
     "RewardFunction",
+    "RewardManager",
+    "RewardWorkerPool",
     "MathRewardFunction",
     "CodeRewardFunction",
     "FormatRewardFunction",
+    "StrictFormatRewardFunction",
+    "KeywordRewardFunction",
+    "SoftKeywordRewardFunction",
     "APIRewardFunction",
     "LocalEndpointRewardFunction",
     "LocalInferenceRewardFunction",
-    "RewardWorkerPool",
-    "get_reward_function",
+    "RewardModelFunction",
+    "TemplateRuleReward",
 ]

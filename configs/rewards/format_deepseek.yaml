@@ -1,0 +1,7 @@
+mode: regex_match
+pattern: "<currwork>.*?</currwork>\\s*####\\s*.*"
+pattern_flags:
+  - DOTALL
+scoring:
+  match: 1.0
+  no_match: 0.0

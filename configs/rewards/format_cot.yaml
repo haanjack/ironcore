@@ -1,0 +1,9 @@
+mode: tag_check
+required_tags:
+  - "<thought>"
+  - "</thought>"
+  - "<answer>"
+  - "</answer>"
+scoring:
+  all_present: 0.0
+  per_missing_tag: -0.1

@@ -29,49 +29,6 @@ class GenerationConfig(BaseConfig):
 
 
 @dataclass
-class RewardConfig(BaseConfig):
-    """Configuration for GRPO reward computation."""
-
-    type: str = "math"  # "math" | "code" | "api" | "local_endpoint" | "local_inference" | "format"
-
-    # Worker configuration
-    num_workers: int = 4
-    timeout: int = 30
-
-    # API reward configuration (when type="api")
-    api_provider: str = "openai"  # "openai" | "anthropic" | "google" | "zhipu"
-    api_model: str | None = None
-    api_key_env: str | None = None
-    api_endpoint: str | None = None
-    prompt_template: str = "default"  # "default" | "math" | "code" | "reasoning"
-    custom_prompt: str | None = None
-    max_retries: int = 3
-    cache_size: int = 10000
-    rate_limit_delay: float = 0.1
-
-    # Local endpoint configuration (when type="local_endpoint")
-    local_endpoint: str = "http://localhost:8000/v1"
-
-    # Local inference configuration (when type="local_inference")
-    local_model_path: str | None = None
-    local_device: str = "cuda:0"
-    local_dtype: str = "bfloat16"
-    load_in_8bit: bool = False
-    load_in_4bit: bool = False
-
-    # Composite math reward configuration (when type="composite_math")
-    format_weight: float = 0.2  # fraction of reward from format check (rest from correctness)
-
-    # Format reward configuration (when type="format")
-    required_tags: list[str] | None = None
-    format_penalty: float = -0.1
-
-    # Keyword reward configuration (when type="keyword")
-    keyword: str = "ironcore"
-    keyword_case_sensitive: bool = False
-
-
-@dataclass
 class RewardFunctionEntry(BaseConfig):
     """Configuration for a single reward function in RewardManager."""
 
@@ -83,7 +40,7 @@ class RewardFunctionEntry(BaseConfig):
     # Reward model backend (when type="reward_model")
     rm_backend: str = "local_endpoint"  # "local_endpoint" | "api" | "local_inference"
 
-    # Type-specific params (reuse same flat fields as RewardConfig)
+    # Type-specific params (reuse same flat fields)
     api_provider: str = "openai"
     api_model: str | None = None
     local_endpoint: str = "http://localhost:8000/v1"
@@ -137,8 +94,7 @@ class AlignmentConfig(BaseConfig):
 
     # GRPO generation and reward config
     generation: GenerationConfig = field(default_factory=GenerationConfig)
-    reward: RewardConfig = field(default_factory=RewardConfig)
-    reward_manager: RewardManagerConfig | None = None  # New-style, takes precedence over reward
+    reward_manager: RewardManagerConfig | None = None  # Required for GRPO
 
     # Optimization flags
     concat_forward_passes: bool = True
@@ -183,23 +139,8 @@ class AlignmentConfig(BaseConfig):
                     f"grpo_group_size ({self.grpo_group_size}) must be divisible by "
                     f"grpo_rollout_micro_group_size ({self.grpo_rollout_micro_group_size})"
                 )
-            # Skip reward.type validation when reward_manager is set
             if self.reward_manager is None:
-                valid_reward_types = (
-                    "math",
-                    "composite_math",
-                    "code",
-                    "api",
-                    "local_endpoint",
-                    "local_inference",
-                    "format",
-                    "keyword",
-                    "soft_keyword",
-                )
-                if self.reward.type not in valid_reward_types:
-                    raise ValueError(
-                        f"reward.type must be one of {valid_reward_types}, got {self.reward.type}"
-                    )
+                raise ValueError("GRPO requires reward_manager configuration")
 
         if self.metrics_interval < 0:
             raise ValueError(f"metrics_interval must be >= 0, got {self.metrics_interval}")
@@ -213,8 +154,6 @@ class AlignmentConfig(BaseConfig):
         # Handle nested configs
         if "generation" in config_dict and isinstance(config_dict["generation"], dict):
             config_dict["generation"] = GenerationConfig(**config_dict["generation"])
-        if "reward" in config_dict and isinstance(config_dict["reward"], dict):
-            config_dict["reward"] = RewardConfig(**config_dict["reward"])
         if "reward_manager" in config_dict and isinstance(config_dict["reward_manager"], dict):
             config_dict["reward_manager"] = RewardManagerConfig(**config_dict["reward_manager"])
 
