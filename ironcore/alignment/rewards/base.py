@@ -81,17 +81,22 @@ class RewardWorkerPool:
             for p, c, m in zip(prompts, completions, metadata_list, strict=False)
         ]
 
-        # Collect results with timeout
+        # Collect results with global timeout
+        from concurrent.futures import wait
+        done, not_done = wait(futures, timeout=self.timeout)
+
         rewards = []
         for future in futures:
-            try:
-                result = future.result(timeout=self.timeout)
-                rewards.append(float(result))
-            except FutureTimeoutError:
-                # Timeout - return default reward
-                rewards.append(self.default_reward)
-            except Exception:
-                # Any other error - return default reward
+            if future in done:
+                try:
+                    result = future.result()
+                    rewards.append(float(result))
+                except Exception:
+                    # Any computation error - return default reward
+                    rewards.append(self.default_reward)
+            else:
+                # Timeout - cancel the future if possible and return default
+                future.cancel()
                 rewards.append(self.default_reward)
 
         return torch.tensor(rewards, dtype=torch.float32)

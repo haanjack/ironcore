@@ -43,10 +43,16 @@ class RewardManager(RewardFunction):
         """Compute weighted sum of all registered reward functions."""
         if not self._functions:
             raise RuntimeError("No reward functions registered")
-        total = 0.0
+        
+        total_weight = sum(w for _, w, _ in self._functions)
+        if total_weight == 0:
+            raise ValueError("Total weight of reward functions in RewardManager cannot be zero.")
+            
+        total_score = 0.0
         for name, weight, fn in self._functions:
-            total += weight * fn.compute(prompt, completion, metadata)
-        return total
+            total_score += weight * fn.compute(prompt, completion, metadata)
+            
+        return total_score / total_weight
 
     @classmethod
     def from_config(cls, reward_cfg: RewardManagerConfig) -> RewardManager:

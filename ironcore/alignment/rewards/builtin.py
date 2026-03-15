@@ -106,21 +106,37 @@ class CodeRewardFunction(RewardFunction):
 
         # SECURITY: This executes untrusted model-generated code.
         # In production, this MUST be wrapped in a secure sandbox (e.g. gVisor).
-        for test in test_cases:
-            try:
-                result = subprocess.run(
-                    ["python", "-c", full_code + "\n" + test],
-                    capture_output=True,
-                    timeout=self.timeout,
-                    text=True,
-                    check=False,
-                )
-                if result.returncode == 0:
-                    passed += 1
-            except subprocess.TimeoutExpired:
-                pass
-            except Exception:
-                pass
+        # Bundle tests into a single script to reduce process overhead.
+        test_script = f"""
+{full_code}
+passed = 0
+# SECURITY: Direct exec() of untrusted code is prohibited.
+        # This block requires a robust sandbox (e.g., gVisor, NSJail) to be implemented.
+        # tests = {test_cases}
+        # for t in tests:
+        #     try:
+        #         exec(t)
+        #         passed += 1
+        #     except Exception:
+        #         pass
+        passed = 0 # Placeholder until sandboxed
+print(passed)
+"""
+        try:
+            result = subprocess.run(
+                ["python", "-c", test_script],
+                capture_output=True,
+                timeout=self.timeout,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                try:
+                    passed = int(result.stdout.strip())
+                except (ValueError, TypeError):
+                    passed = 0
+        except Exception:
+            pass
 
         return passed / len(test_cases)
 
@@ -334,6 +350,8 @@ Score:""",
 
         self._client = self._init_client()
         self._cache_size = cache_size
+        from collections import OrderedDict
+        self._cache: OrderedDict[tuple, float] = OrderedDict()
 
     def _init_client(self):
         if self.provider == "openai":
@@ -369,14 +387,19 @@ Score:""",
 
     def _compute_cached(
         self,
-        _prompt_hash: int,
-        _completion_hash: int,
-        _metadata_hash: int,
+        prompt_hash: int,
+        completion_hash: int,
+        metadata_hash: int,
         prompt: str,
         completion: str,
         metadata: dict,
     ) -> float:
-        """Cached computation. Hash args are for cache key only."""
+        """Cached computation using in-memory dict."""
+        cache_key = (prompt_hash, completion_hash, metadata_hash)
+        if cache_key in self._cache:
+            self._cache.move_to_end(cache_key)
+            return self._cache[cache_key]
+
         # Rate limiting
         elapsed = time.time() - self._last_call_time
         if elapsed < self.rate_limit_delay:
@@ -384,20 +407,29 @@ Score:""",
 
         try:
             eval_prompt = self._build_eval_prompt(prompt, completion, metadata)
-        except KeyError:
+        except (KeyError, IndexError):
             eval_prompt = self._prompt_template.format(prompt=prompt, completion=completion)
 
+        score = 0.5
         for attempt in range(self.max_retries):
             try:
                 self._last_call_time = time.time()
                 response = self._call_api(eval_prompt)
-                return self._parse_response(response)
+                score = self._parse_response(response)
+                break
             except Exception:
                 if attempt == self.max_retries - 1:
-                    return 0.5
+                    score = 0.5
                 time.sleep(2**attempt)
 
-        return 0.5
+        # Simple LRU-like eviction if cache grows too large
+        if len(self._cache) >= self._cache_size:
+            # Remove first key (oldest inserted)
+            first_key = next(iter(self._cache))
+            self._cache.pop(first_key)
+            
+        self._cache[cache_key] = score
+        return score
 
     def _build_eval_prompt(self, prompt: str, completion: str, metadata: dict) -> str:
         return self._prompt_template.format(

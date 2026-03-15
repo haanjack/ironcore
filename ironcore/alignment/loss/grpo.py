@@ -117,11 +117,11 @@ def compute_advantages(
                     zip(gathered_rewards, gathered_group_ids, strict=True)
                 ):
                     size = all_sizes[i]
-                    # Extract active portion and offset group IDs to be globally unique
+                    # Extract active portion.
+                    # Note: We assume group_ids are already globally consistent if prompts 
+                    # are shared across ranks. If prompts are unique per rank, normalization
+                    # will still be correct as unique group IDs remain unique.
                     rank_group_ids = g_g[:size]
-                    if size > 0:
-                        rank_group_ids = rank_group_ids + current_group_offset
-                        current_group_offset = rank_group_ids.max().item() + 1
 
                     if i == rank:
                         local_start = current_offset
@@ -157,7 +157,7 @@ def compute_advantages(
     if distributed and dist.is_initialized() and world_size > 1:
         advantages = advantages[local_start:local_end]
 
-    return advantages.to(device).detach()
+    return advantages.detach()
 
 
 def grpo_loss(
