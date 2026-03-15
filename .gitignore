@@ -192,3 +192,7 @@ smoke_test_output/
 toy_test_output/
 .env~
 outputs/
+
+# Excalidraw diagrams (keep local only)
+*.excalidraw
+*.excalidraw.png
