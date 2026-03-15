@@ -227,10 +227,11 @@ class TransformerModel(BaseModule):
         # apply_activation_checkpointing() instead (applied in parallel.py).
         try:
             import torch.distributed as dist
+
             if dist.is_initialized():
                 # Check if FSDP is likely in use by checking world size > 1
                 # and the config specifies FSDP
-                return getattr(self.config.parallel, 'use_fsdp', False)
+                return getattr(self.config.parallel, "use_fsdp", False)
         except (ImportError, AttributeError):
             pass
         return False
@@ -273,9 +274,9 @@ class TransformerModel(BaseModule):
                     rotary_pos_emb,
                     position_ids,
                     False,  # use_cache
-                    None,   # past_key_value
-                    None,   # kv_cache_manager
-                    None,   # cache_position
+                    None,  # past_key_value
+                    None,  # kv_cache_manager
+                    None,  # cache_position
                     use_reentrant=self.use_reentrant,
                 )
             else:

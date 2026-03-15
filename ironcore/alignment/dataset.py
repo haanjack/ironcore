@@ -111,6 +111,7 @@ class GRPODataset(IterableDataset):
         if torch.distributed.is_initialized():
             try:
                 from ironcore.parallel import parallel_states
+
                 rank = parallel_states.get_data_parallel_group_rank()
                 world_size = parallel_states.get_data_parallel_world_size()
             except (AssertionError, ImportError, AttributeError):
@@ -136,7 +137,9 @@ class GRPODataset(IterableDataset):
                 num_samples = len(shuffled_indices)
                 num_samples_per_rank = math.ceil(num_samples / world_size)
                 total_size = num_samples_per_rank * world_size
-                padding = [shuffled_indices[i % num_samples] for i in range(total_size - num_samples)]
+                padding = [
+                    shuffled_indices[i % num_samples] for i in range(total_size - num_samples)
+                ]
                 shuffled_indices += padding
                 sharded_indices = shuffled_indices[rank:total_size:world_size]
             else:
