@@ -226,7 +226,7 @@ class RolloutBuffer:
             "step": self.step,
         }
 
-    def select(self, indices: torch.Tensor) -> "RolloutBuffer":
+    def select(self, indices: torch.Tensor) -> RolloutBuffer:
         """Select a subset of samples from the buffer (for micro-batching)."""
         return RolloutBuffer(
             prompt_ids=self.prompt_ids,  # Keep original prompts
@@ -243,7 +243,7 @@ class RolloutBuffer:
             generation_config=self.generation_config,
         )
 
-    def cat(self, other: "RolloutBuffer") -> "RolloutBuffer":
+    def cat(self, other: RolloutBuffer) -> RolloutBuffer:
         """Concatenate two buffers (same batch_size required).
 
         Used for rollout accumulation to support larger group sizes while

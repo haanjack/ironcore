@@ -7,16 +7,16 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import torch
+from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+    CheckpointImpl,
+    apply_activation_checkpointing,
+)
 from torch.distributed.fsdp import (
     BackwardPrefetch,
     CPUOffload,
     MixedPrecision,
     ShardingStrategy,
     StateDictType,
-)
-from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    CheckpointImpl,
-    apply_activation_checkpointing,
 )
 from torch.nn.parallel import DistributedDataParallel as DDP
 
