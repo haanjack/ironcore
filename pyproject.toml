@@ -90,7 +90,7 @@ pythonpath = ["tests", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not e2e'"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
@@ -105,4 +105,5 @@ markers = [
     "kv_cache: KV cache related tests",
     "paged_attention: Paged attention tests",
     "prefix_cache: Prefix cache tests",
+    "e2e: End-to-end tests that run actual torchrun training jobs (slow, GPU required)",
 ]

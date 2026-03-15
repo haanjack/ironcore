@@ -45,9 +45,8 @@ def _expand_kv_cache(
         key, value = layer_kv
         # key: [B, prompt_len, num_heads, head_dim]
 
-        # Expand: repeat each sample G times
-        # [B, prompt_len, num_heads, head_dim] -> [B*G, prompt_len, num_heads, head_dim]
-        # repeat_interleave ensures contiguous layout which is safer for some backends
+        # Optimization: repeat each sample G times.
+        # repeat_interleave ensures contiguous layout which is safer for optimized attention kernels.
         expanded_key = key.repeat_interleave(group_size, dim=0)
         expanded_value = value.repeat_interleave(group_size, dim=0)
 

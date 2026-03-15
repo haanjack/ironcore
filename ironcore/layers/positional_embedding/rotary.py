@@ -57,10 +57,9 @@ class RotaryPositionalEmbedding(nn.Module):
         if max_pos >= self.max_seq_len_cached:
             self._update_rope_cache(int(max_pos) + 1)
 
-        # Index into sin/cos using position_ids: [batch, seq_len, head_dim//2]
-        # and add a dimension for broadcasting across heads
-        sin_emb = self.sin_emb[position_ids].unsqueeze(2).to(x.dtype)
-        cos_emb = self.cos_emb[position_ids].unsqueeze(2).to(x.dtype)
+        # Ensure buffers remain in fp32 even if model.to(lower_precision) is called
+        sin_emb = self.sin_emb.to(torch.float32)[position_ids].unsqueeze(2).to(x.dtype)
+        cos_emb = self.cos_emb.to(torch.float32)[position_ids].unsqueeze(2).to(x.dtype)
 
         x = self.apply_rotary_pos_emb(x, sin_emb, cos_emb)
 

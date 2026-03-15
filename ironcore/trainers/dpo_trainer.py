@@ -104,20 +104,21 @@ class DPOTrainer(BaseTrainer):
         # Check if policy model is FSDP-wrapped
         if isinstance(self.model, FSDP):
             from torch.distributed.fsdp import StateDictType
+
             from ironcore.parallel.parallel import initialize_parallelism
 
             # For FSDP, we must shard the reference model as well to save memory.
             unwrapped = self.model.module if hasattr(self.model, "module") else self.model
             reference_model = unwrapped.__class__(unwrapped.config)
-            
+
             # Disable gradients before wrapping
             reference_model.eval()
             for param in reference_model.parameters():
                 param.requires_grad = False
-                
+
             # Wrap identically to policy model
             reference_model = initialize_parallelism(self.config, reference_model)
-            
+
             # Copy local sharded state dict directly
             with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
                 local_state_dict = self.model.state_dict()

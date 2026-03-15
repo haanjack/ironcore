@@ -57,7 +57,7 @@ class TransformerLayer(BaseModule):
         if kv_has_bias and bias_cfg.k != bias_cfg.v:
             local_kv_size = self.linear_kv.bias.shape[0]
             local_half = local_kv_size // 2
-            mask = torch.ones(local_kv_size)
+            mask = torch.ones(local_kv_size, device=self.linear_kv.bias.device)
             if not bias_cfg.k:
                 mask[:local_half] = 0.0  # zero out K portion
             else:
@@ -227,10 +227,11 @@ class TransformerModel(BaseModule):
         # apply_activation_checkpointing() instead (applied in parallel.py).
         try:
             import torch.distributed as dist
+
             if dist.is_initialized():
                 # Check if FSDP is likely in use by checking world size > 1
                 # and the config specifies FSDP
-                return getattr(self.config.parallel, 'use_fsdp', False)
+                return getattr(self.config.parallel, "use_fsdp", False)
         except (ImportError, AttributeError):
             pass
         return False
@@ -273,9 +274,9 @@ class TransformerModel(BaseModule):
                     rotary_pos_emb,
                     position_ids,
                     False,  # use_cache
-                    None,   # past_key_value
-                    None,   # kv_cache_manager
-                    None,   # cache_position
+                    None,  # past_key_value
+                    None,  # kv_cache_manager
+                    None,  # cache_position
                     use_reentrant=self.use_reentrant,
                 )
             else:

@@ -311,5 +311,3 @@ class TestMemoryCleanupBehavior:
         mem_after = torch.cuda.memory_allocated()
         # Memory should be lower after cleanup
         assert mem_after < mem_before, "Memory should be freed after del + empty_cache"
-
-

@@ -58,7 +58,8 @@ def kl_divergence_approx(
         [batch] - Approximate KL divergence per sequence
     """
     # Schulman estimator: k3 = exp(log_q - log_p) - (log_q - log_p) - 1
-    log_ratio = (ref_log_probs - policy_log_probs).clamp(-10.0, 10.0)
+    # Clamp log_ratio to prevent exp overflow while preserving gradient direction
+    log_ratio = (ref_log_probs - policy_log_probs).clamp(-6.0, 6.0)
     kl_per_token = torch.exp(log_ratio) - log_ratio - 1
 
     if mask is not None:

@@ -24,9 +24,9 @@ from ironcore import get_tokenizer
 from ironcore.alignment.buffer import RolloutBuffer
 from ironcore.alignment.dataset import get_grpo_data_iterator
 from ironcore.alignment.loss.dpo import _compute_log_softmax_tp_safe, _extract_logps_from_log_probs
-from ironcore.alignment.loss.grpo import compute_advantages, grpo_loss
+from ironcore.alignment.loss.grpo import compute_advantages, compute_entropy, grpo_loss
 from ironcore.alignment.loss.kl import kl_divergence_approx
-from ironcore.alignment.rewards import RewardWorkerPool, get_reward_function
+from ironcore.alignment.rewards import RewardManager, RewardWorkerPool
 from ironcore.alignment.rollout import generate_rollouts_batched
 from ironcore.global_vars import log_metric
 from ironcore.utils import is_first_rank
@@ -67,6 +67,7 @@ class GRPOTrainer(BaseTrainer):
         self.eps = config.alignment.grpo_eps
         self.num_epochs = config.alignment.grpo_num_epochs
         self.clip_eps = config.alignment.grpo_clip_eps
+        self.entropy_coef = getattr(config.alignment, "grpo_entropy_coef", 0.0)
         self.rollout_micro_group_size = config.alignment.grpo_rollout_micro_group_size
         self.rollout_chunks = self.group_size // self.rollout_micro_group_size
 
@@ -84,7 +85,6 @@ class GRPOTrainer(BaseTrainer):
 
         # Reward worker (will be initialized after checkpoint load)
         self.reward_worker: RewardWorkerPool | None = None
-        self._reward_config = config.alignment.reward
 
         # Reference model (created after checkpoint load)
         self.reference_model: nn.Module | None = None
@@ -111,41 +111,24 @@ class GRPOTrainer(BaseTrainer):
         self.logger.info("Creating reference model for GRPO...")
         self.reference_model = self._create_reference_model()
 
-        # Initialize reward worker with config-specific kwargs
-        self.logger.info(f"Initializing reward worker (type={self._reward_config.type})...")
-        reward_kwargs = {"timeout": self._reward_config.timeout}
+        # Initialize reward worker via RewardManager
+        reward_manager_cfg = self.config.alignment.reward_manager
+        # BaseConfig.__call__ cannot convert Union[X, None] typed fields, so the
+        # reward_manager may arrive as a raw dict from the YAML loader. Normalize here.
+        if isinstance(reward_manager_cfg, dict):
+            from ironcore.config.config_alignment import RewardManagerConfig
 
-        if self._reward_config.type == "api":
-            reward_kwargs["provider"] = self._reward_config.api_provider
-            if self._reward_config.api_model:
-                reward_kwargs["model"] = self._reward_config.api_model
-            if self._reward_config.prompt_template:
-                reward_kwargs["prompt_template"] = self._reward_config.prompt_template
-        elif self._reward_config.type == "local_endpoint":
-            reward_kwargs["endpoint"] = self._reward_config.local_endpoint
-        elif self._reward_config.type == "local_inference":
-            if self._reward_config.local_model_path:
-                reward_kwargs["model_path"] = self._reward_config.local_model_path
-            reward_kwargs["device"] = self._reward_config.local_device
-            reward_kwargs["dtype"] = self._reward_config.local_dtype
-            reward_kwargs["load_in_8bit"] = self._reward_config.load_in_8bit
-            reward_kwargs["load_in_4bit"] = self._reward_config.load_in_4bit
-        elif self._reward_config.type == "format":
-            if self._reward_config.required_tags:
-                reward_kwargs["required_tags"] = self._reward_config.required_tags
-            reward_kwargs["penalty"] = self._reward_config.format_penalty
-        elif self._reward_config.type == "keyword":
-            reward_kwargs["keyword"] = self._reward_config.keyword
-            reward_kwargs["case_sensitive"] = self._reward_config.keyword_case_sensitive
-        elif self._reward_config.type == "soft_keyword":
-            reward_kwargs["keyword"] = self._reward_config.keyword
-            reward_kwargs["case_sensitive"] = self._reward_config.keyword_case_sensitive
+            reward_manager_cfg = RewardManagerConfig(**reward_manager_cfg)
 
-        reward_fn = get_reward_function(self._reward_config.type, **reward_kwargs)
+        if reward_manager_cfg is None:
+            raise ValueError("GRPO requires reward_manager configuration")
+
+        self.logger.info("Initializing reward worker via RewardManager...")
+        reward_fn = RewardManager.from_config(reward_manager_cfg)
         self.reward_worker = RewardWorkerPool(
             reward_fn=reward_fn,
-            num_workers=self._reward_config.num_workers,
-            timeout=self._reward_config.timeout,
+            num_workers=reward_manager_cfg.num_workers,
+            timeout=reward_manager_cfg.timeout,
         )
 
         # Setup GRPO-specific data iterators (overrides base trainer's)
@@ -167,28 +150,41 @@ class GRPOTrainer(BaseTrainer):
         # Get the underlying model (handle FSDP wrapping)
         if isinstance(self.model, FSDP):
             from torch.distributed.fsdp import StateDictType
-            from ironcore.parallel.parallel import initialize_parallelism
 
             # For FSDP, we must shard the reference model as well to save memory.
             # 1. Create a raw model instance
-            unwrapped = getattr(self.model, "module", self.model)
-            reference_model = unwrapped.__class__(unwrapped.config)
-            
-            # 2. Disable gradients before wrapping (saves memory/compute)
+            # Use self.config.model directly as FSDP does not proxy .config
+            from ironcore.language_model import LanguageModel
+            from ironcore.parallel.parallel import initialize_parallelism
+
+            reference_model = LanguageModel(self.config)
+
+            # 2. Cast to match policy model dtype before FSDP wrapping.
+            # LanguageModel initializes in fp32 by default; the policy model loads
+            # HF weights that are typically bf16. FSDP mixed_precision casts
+            # parameters but not activation tensors, so FlashAttention sees fp32
+            # q/k/v if we don't cast here.
+            fsdp_mp = getattr(self.config.parallel, "fsdp_mixed_precision", "none")
+            if fsdp_mp == "bf16":
+                reference_model = reference_model.to(torch.bfloat16)
+            elif fsdp_mp == "fp16":
+                reference_model = reference_model.to(torch.float16)
+
+            # 3. Disable gradients before wrapping (saves memory/compute)
             reference_model.eval()
             for param in reference_model.parameters():
                 param.requires_grad = False
-                
-            # 3. Wrap identically to policy model
+
+            # 4. Wrap identically to policy model
             reference_model = initialize_parallelism(self.config, reference_model)
-            
-            # 4. Copy local sharded state dict directly (no gathering needed)
+
+            # 5. Copy local sharded state dict directly (no gathering needed)
             with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
                 local_state_dict = self.model.state_dict()
             with FSDP.state_dict_type(reference_model, StateDictType.LOCAL_STATE_DICT):
                 reference_model.load_state_dict(local_state_dict, strict=False)
 
-            self.logger.info(f"Reference model created on GPU (FSDP mode, local sharded copy)")
+            self.logger.info("Reference model created on GPU (FSDP mode, local sharded copy)")
         else:
             # Handle DDP or unwrapped model - store on GPU for faster inference
             model = getattr(self.model, "module", self.model)
@@ -214,12 +210,16 @@ class GRPOTrainer(BaseTrainer):
         device = self._get_compute_device()
         total_samples = rollout.total_samples
         
+        # Performance optimization: Accumulate on GPU by default to avoid sync overhead.
+        # If memory is an issue, this can be moved back to CPU via config.
+        offload_to_cpu = getattr(self.config.alignment, "grpo_offload_ref_logps", False)
+
         # Determine micro-batch size for reference inference
         # Match rollout chunk size for memory consistency
         micro_batch_size = rollout.batch_size * self.rollout_micro_group_size
-        
+
         all_ref_log_probs = []
-        
+
         for i in range(0, total_samples, micro_batch_size):
             stop = min(i + micro_batch_size, total_samples)
             mb_completion_ids = rollout.completion_ids[i:stop].to(device)
@@ -233,19 +233,22 @@ class GRPOTrainer(BaseTrainer):
             # Reference model is on GPU - direct inference
             ref_output = self.reference_model(mb_completion_ids, labels=None)
             ref_logits = ref_output[0] if isinstance(ref_output, tuple) else ref_output
-            
+
             mb_ref_log_probs = self._compute_token_log_probs_from_logits(
                 ref_logits, mb_labels, mb_response_mask
             )
-            
-            all_ref_log_probs.append(mb_ref_log_probs.detach())
-            
-            # Free reference logits immediately
+
+            if offload_to_cpu:
+                all_ref_log_probs.append(mb_ref_log_probs.detach().cpu())
+            else:
+                all_ref_log_probs.append(mb_ref_log_probs.detach())
+
+            # Free reference logits immediately; allocator will manage reuse
             del ref_logits
             del mb_completion_ids
-            torch.cuda.empty_cache()
 
-        return torch.cat(all_ref_log_probs, dim=0)
+        res = torch.cat(all_ref_log_probs, dim=0)
+        return res.to(device) if offload_to_cpu else res
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
         """Centralized logic for label shifting and response masking.
@@ -439,7 +442,7 @@ class GRPOTrainer(BaseTrainer):
         )
         rewards = rewards.to(prompt_ids.device)
 
-        advantages = compute_advantages(rewards, rollout.group_ids, self.eps, distributed=False)
+        advantages = compute_advantages(rewards, rollout.group_ids, self.eps, distributed=True)
 
         # old_log_probs frozen at generation time — used for IS in offline epochs
         old_log_probs = rollout.old_log_probs.detach()
@@ -451,7 +454,7 @@ class GRPOTrainer(BaseTrainer):
         # === Phase 2: Multi-epoch update ===
         metrics: dict[str, float] = {}
         grad_norm = param_norm = 0.0
-        
+
         # Determine micro-batch size for update phase
         # Process B_local * micro_group_size samples at once (matches rollout memory)
         micro_batch_size = prompt_ids.size(0) * self.rollout_micro_group_size
@@ -460,11 +463,11 @@ class GRPOTrainer(BaseTrainer):
         for epoch in range(self.num_epochs):
             # Shuffle indices within the rollout to ensure varied micro-batches
             perm = torch.randperm(total_samples, device=device)
-            
+
             for i in range(0, total_samples, micro_batch_size):
                 stop = min(i + micro_batch_size, total_samples)
                 mb_indices = perm[i:stop]
-                
+
                 # Create a temporary micro-batch buffer
                 # Note: We need a lightweight way to slice the rollout
                 mb_rollout = rollout.select(mb_indices)
@@ -478,14 +481,15 @@ class GRPOTrainer(BaseTrainer):
                     mb_ref_log_probs,
                     old_log_probs=mb_old_log_probs,
                 )
-                
+
                 # Scale loss by micro-batch fraction (accumulation is defined by rollout batch size)
                 scaled_loss = loss * (len(mb_indices) / total_samples)
                 self.scaler.scale(scaled_loss).backward()
-                
-                # Accumulate metrics
+
+                # Accumulate metrics (average over epochs and samples)
                 for k, v in mb_metrics.items():
-                    metrics[k] = metrics.get(k, 0.0) + v * (len(mb_indices) / total_samples)
+                    weight = len(mb_indices) / (total_samples * self.num_epochs)
+                    metrics[k] = metrics.get(k, 0.0) + v * weight
 
             grad_norm, param_norm = self._compute_grad_and_param_norms(step)
             self._optimizer_step()
@@ -531,10 +535,18 @@ class GRPOTrainer(BaseTrainer):
             policy_log_probs_token, ref_log_probs.to(device), response_mask
         )
 
-        # Sum token-level log probs, normalized by response length to remove length bias
-        response_len = response_mask.sum(dim=-1).clamp(min=1)
-        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1) / response_len
-        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1) / response_len
+        # Note: We use the sum of log-probabilities for the sequence-level objective.
+        # This follows the standard policy gradient formulation for whole-sequence rollouts.
+        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1)
+        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1)
+
+        # Compute entropy for exploration bonus
+        entropy = None
+        if self.entropy_coef > 0.0:
+            # Compute entropy from logits: H = -sum(p * log p)
+            # First convert logits to log_probs via log_softmax
+            policy_log_probs_full = _compute_log_softmax_tp_safe(policy_logits)
+            entropy = compute_entropy(policy_log_probs_full, response_mask)  # [batch]
 
         # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
         loss, metrics = grpo_loss(
@@ -545,6 +557,8 @@ class GRPOTrainer(BaseTrainer):
             beta=self.beta,
             old_log_probs=old_log_probs.to(device) if old_log_probs is not None else None,
             clip_eps=self.clip_eps,
+            entropy=entropy,
+            entropy_coef=self.entropy_coef,
         )
 
         return loss, metrics
@@ -591,29 +605,51 @@ class GRPOTrainer(BaseTrainer):
 
     def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
         """Compute gradient and parameter norms."""
+        from ironcore.utils import clip_grad_norm_tp
+
+        self.scaler.unscale_(self.optimizer)
+
         grad_norm = 0.0
+        if self.config.optim.clip_grad > 0.0:
+            if isinstance(self.model, FSDP):
+                grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
+            else:
+                grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
+        elif self.control.do_grad_norm(step):
+            if isinstance(self.model, FSDP):
+                # Passing inf just to get the norm without clipping
+                grad_norm = self.model.clip_grad_norm_(float("inf")).item()
+            else:
+                grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
+
         param_norm = 0.0
+        if self.control.do_param_norm(step):
+            # Compute local squared norm
+            param_norm_sq = 0.0
+            # For FSDP, we need to handle sharded parameters properly
+            # In FSDP, p.data is the shard. Summing shards across DP ranks gives correct total norm.
+            for p in self.model.parameters():
+                if p.data is not None:
+                    param_norm_sq += p.data.norm() ** 2
 
-        # Unwrap model for norm computation
-        model = self.model.module if hasattr(self.model, "module") else self.model
+            param_norm_tensor = torch.tensor(param_norm_sq, device=self._get_compute_device())
 
-        for p in model.parameters():
-            if p.grad is not None:
-                grad_norm += p.grad.data.norm(2).item() ** 2
-            param_norm += p.data.norm(2).item() ** 2
+            if dist.is_initialized():
+                # For FSDP/DDP, sum across DP group
+                from ironcore.parallel import parallel_states
 
-        grad_norm = grad_norm**0.5
-        param_norm = param_norm**0.5
+                dist.all_reduce(
+                    param_norm_tensor,
+                    op=dist.ReduceOp.SUM,
+                    group=parallel_states.get_data_parallel_group(),
+                )
+            param_norm = param_norm_tensor.item() ** 0.5
 
         return grad_norm, param_norm
 
     def _optimizer_step(self) -> None:
         """Perform optimizer step with gradient scaling."""
-        self.scaler.unscale_(self.optimizer)
-        torch.nn.utils.clip_grad_norm_(
-            self.model.parameters(),
-            self.config.optim.clip_grad,
-        )
+        # Note: unscale_ and clipping are now handled in _compute_grad_and_param_norms
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()

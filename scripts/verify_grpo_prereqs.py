@@ -22,7 +22,7 @@ from huggingface_hub import snapshot_download
 
 # IronCore imports
 from ironcore import get_tokenizer
-from ironcore.alignment.rewards import get_reward_function
+from ironcore.alignment.rewards import SoftKeywordRewardFunction
 from ironcore.alignment.rollout import generate_rollouts_batched
 from ironcore.checkpointing.hf_interop import load_from_huggingface
 from ironcore.config import load_trainer_config
@@ -156,8 +156,7 @@ def main():
     print("Step 4: Reward Function Test")
     print("=" * 60)
 
-    reward_fn = get_reward_function(
-        "soft_keyword",
+    reward_fn = SoftKeywordRewardFunction(
         keyword="####",
         case_sensitive=False,
     )

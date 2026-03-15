@@ -109,7 +109,9 @@ class RolloutBuffer:
             advantages=self.advantages.to(device),
             group_ids=self.group_ids.to(device),
             metadata=self.metadata,
-            response_lengths=self.response_lengths.to(device) if self.response_lengths is not None else None,
+            response_lengths=self.response_lengths.to(device)
+            if self.response_lengths is not None
+            else None,
             step=self.step,
             generation_config=self.generation_config,
         )
@@ -126,7 +128,9 @@ class RolloutBuffer:
             advantages=self.advantages.pin_memory(),
             group_ids=self.group_ids.pin_memory(),
             metadata=self.metadata,
-            response_lengths=self.response_lengths.pin_memory() if self.response_lengths is not None else None,
+            response_lengths=self.response_lengths.pin_memory()
+            if self.response_lengths is not None
+            else None,
             step=self.step,
             generation_config=self.generation_config,
         )
@@ -226,7 +230,7 @@ class RolloutBuffer:
             "step": self.step,
         }
 
-    def select(self, indices: torch.Tensor) -> "RolloutBuffer":
+    def select(self, indices: torch.Tensor) -> RolloutBuffer:
         """Select a subset of samples from the buffer (for micro-batching)."""
         return RolloutBuffer(
             prompt_ids=self.prompt_ids,  # Keep original prompts
@@ -238,12 +242,14 @@ class RolloutBuffer:
             advantages=self.advantages[indices],
             group_ids=self.group_ids[indices],
             metadata=[self.metadata[i].copy() for i in indices.tolist()],
-            response_lengths=self.response_lengths[indices] if self.response_lengths is not None else None,
+            response_lengths=self.response_lengths[indices]
+            if self.response_lengths is not None
+            else None,
             step=self.step,
             generation_config=self.generation_config,
         )
 
-    def cat(self, other: "RolloutBuffer") -> "RolloutBuffer":
+    def cat(self, other: RolloutBuffer) -> RolloutBuffer:
         """Concatenate two buffers (same batch_size required).
 
         Used for rollout accumulation to support larger group sizes while
@@ -278,7 +284,9 @@ class RolloutBuffer:
         response_ids_a, response_ids_b = _pad_seq(self.response_ids, other.response_ids)
 
         if self.response_lengths is not None and other.response_lengths is not None:
-            merged_response_lengths = torch.cat([self.response_lengths, other.response_lengths], dim=0)
+            merged_response_lengths = torch.cat(
+                [self.response_lengths, other.response_lengths], dim=0
+            )
         else:
             merged_response_lengths = None
 
