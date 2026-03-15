@@ -19,18 +19,27 @@ from dotenv import load_dotenv
 def _convert_lists_to_dict(data):
 
     if isinstance(data, list):
-        # Only merge if all items are dicts (e.g., list of dataset configs)
+        # Only merge if all items are dicts AND none of the items share keys.
+        # Lists where items share keys are distinct entries (e.g., reward functions),
+        # not a composite config that should be merged.
         if all(isinstance(item, dict) for item in data):
-            merged_dict = {}
-            # build dictionary from list
-            for item in data:
-                merged_dict.update(item)
-            # check if list in the data and convert to dict
-            for key, value in merged_dict.items():
-                if isinstance(value, list):
-                    value = _convert_lists_to_dict(value)
-                merged_dict[key] = value
-            return merged_dict
+            all_keys = [key for item in data for key in item]
+            # Merge only when there are multiple items AND they have no overlapping keys.
+            # A single-item list or items sharing keys are distinct entries (e.g., reward
+            # functions, dataset splits) that must stay as a list.
+            if len(data) > 1 and len(all_keys) == len(set(all_keys)):
+                # Multiple dicts, all keys unique — safe to merge into a single dict
+                merged_dict = {}
+                for item in data:
+                    merged_dict.update(item)
+                for key, value in merged_dict.items():
+                    if isinstance(value, list):
+                        value = _convert_lists_to_dict(value)
+                    merged_dict[key] = value
+                return merged_dict
+            else:
+                # Single item or overlapping keys — treat as an ordered list of distinct entries
+                return [_convert_lists_to_dict(item) for item in data]
         else:
             # List of primitives (e.g., splits: [0.99, 0.01, 0.0]) - return as-is
             return data
@@ -104,26 +113,33 @@ def print_last_rank(message: str):
 
 
 def get_device():
-    """Returns device type"""
+    """Returns device type. Checks MPS first to avoid CUDA context init on Apple Silicon."""
+    # Check MPS first (no CUDA side effects)
+    if torch.backends.mps.is_available():
+        return "mps"
+
+    # Then CUDA
     if torch.cuda.is_available():
         assert torch.distributed.is_initialized(), "torch distributed is not initialized"
         device = (
             f"cuda:{dist.get_node_local_rank()}" if hasattr(dist, "get_node_local_rank") else "cuda"
         )
-    elif torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
+        return device
 
-    return device
+    return "cpu"
 
 
 def get_model_dtype(config):
     """Returns model dtype checking device supports"""
     if config.model.precision.lower() in ["bfloat16", "bf16"]:
-        if torch.cuda.is_available():
+        # Check MPS first (no CUDA side effects)
+        if torch.backends.mps.is_available():
+            dtype = torch.bfloat16  # MPS supports bf16 on Apple Silicon
+        elif torch.cuda.is_available():
             assert torch.cuda.is_bf16_supported(), "bfloat16 is not supported on this device"
-        dtype = torch.bfloat16
+            dtype = torch.bfloat16
+        else:
+            dtype = torch.bfloat16  # CPU supports bf16
     elif config.model.precision.lower() in ["float16", "fp16"]:
         dtype = torch.float16
     else:

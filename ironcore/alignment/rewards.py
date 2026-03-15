@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import time
+import warnings
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -257,6 +258,9 @@ class SoftKeywordRewardFunction(RewardFunction):
 class CompositeRewardFunction(RewardFunction):
     """Weighted combination of multiple reward functions.
 
+    .. deprecated::
+        Use ``RewardManager`` from ``ironcore.alignment.reward_manager`` instead.
+
     Provides dense reward signal by combining sparse correctness rewards
     with easier-to-achieve format/structure rewards. This prevents the
     zero-advantage death spiral where all completions in a group score 0.
@@ -267,6 +271,11 @@ class CompositeRewardFunction(RewardFunction):
         Args:
             reward_fns: List of (weight, reward_fn) tuples. Weights should sum to 1.0.
         """
+        warnings.warn(
+            "CompositeRewardFunction is deprecated. Use RewardManager instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.reward_fns = reward_fns
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
@@ -798,7 +807,16 @@ class RewardWorkerPool:
 
 
 def get_reward_function(reward_type: str, **kwargs) -> RewardFunction:  # noqa: PLR0911
-    """Factory function to create reward functions."""
+    """Factory function to create reward functions.
+
+    .. deprecated::
+        Use ``RewardManager.from_config()`` with YAML rule templates instead.
+    """
+    warnings.warn(
+        "get_reward_function() is deprecated. Use RewardManager.from_config() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if reward_type == "math":
         return MathRewardFunction(strict=kwargs.get("strict", True))
     if reward_type == "composite_math":

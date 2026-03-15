@@ -10,8 +10,11 @@ Reference:
     https://arxiv.org/abs/2402.03300
 """
 
+import logging
 import torch
 import torch.distributed as dist
+
+logger = logging.getLogger(__name__)
 
 
 def compute_advantages(
@@ -44,6 +47,8 @@ def compute_advantages(
     device = rewards.device
     world_size = 1
     rank = 0
+    local_start = 0
+    local_end = rewards.numel()
 
     if distributed and dist.is_initialized():
         from ironcore.parallel.parallel_states import (
@@ -58,14 +63,25 @@ def compute_advantages(
                 rank = dist.get_rank(group)
 
                 # 1. Gather sizes to handle non-uniform batching
-                local_size_t = torch.tensor([rewards.numel()], device=device)
+                local_size_t = torch.tensor([rewards.numel()], device=device, dtype=torch.long)
                 all_sizes_t = [
                     torch.zeros(1, dtype=torch.long, device=device) for _ in range(world_size)
                 ]
                 dist.all_gather(all_sizes_t, local_size_t, group=group)
 
-                all_sizes = [s.item() for s in all_sizes_t]
+                all_sizes = [int(s.item()) for s in all_sizes_t]
                 max_size = max(all_sizes)
+
+                # Guard against NCCL returning corrupted sizes under GPU memory pressure.
+                # rewards is [B*G] (a handful of elements); anything larger signals corruption.
+                # ValueError falls through to the except handler, resetting world_size=1.
+                _size_upper_bound = rewards.numel() * world_size * 4
+                if max_size <= 0 or max_size > _size_upper_bound:
+                    raise ValueError(
+                        f"compute_advantages: gathered sizes {all_sizes} look corrupted "
+                        f"(local={rewards.numel()}, bound={_size_upper_bound}). "
+                        "Falling back to local computation."
+                    )
 
                 # 2. Pad tensors to max_size for all_gather
                 padded_rewards = torch.zeros(max_size, device=device, dtype=rewards.dtype)
@@ -116,7 +132,8 @@ def compute_advantages(
 
                 rewards = torch.cat(all_rewards_list, dim=0)
                 group_ids = torch.cat(all_group_ids_list, dim=0)
-        except (AssertionError, ValueError):
+        except (AssertionError, ValueError) as _e:
+            logger.warning("compute_advantages distributed fallback: %s", _e)
             world_size = 1
 
     # Compute advantages for each group

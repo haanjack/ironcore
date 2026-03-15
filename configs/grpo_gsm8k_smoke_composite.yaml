@@ -1,0 +1,66 @@
+# GRPO smoke test config for GSM8K — mirrors grpo_gsm8k.yaml for E2E testing.
+# Uses composite_math reward (correctness + format weighted), FSDP, 20 steps.
+#
+# Used for E2E test 67 (legacy side): mirrors the production grpo_gsm8k.yaml
+# configuration but with reduced train_steps for smoke testing.
+
+model: qwen2.5-0.5B
+
+trainer:
+  micro_batch_size: 2
+  train_batch_size: 8
+  gradient_accumulation_steps: 2
+  log_interval: 1
+  use_flash_attn: true
+  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+
+data:
+  config_path: configs/data/grpo_gsm8k.yaml
+  task_type: grpo
+
+optim:
+  optimizer: adamw
+  lr_scheduler: cosine
+  max_lr: 5.0e-6
+  min_lr: 5.0e-7
+  warmup_steps: 5
+  annealing_steps: 20
+  weight_decay: 0.01
+  clip_grad: 1.0
+
+operation:
+  train_steps: 20
+  eval_interval: 10
+
+init:
+  seed: 42
+
+parallel:
+  world_size: 2
+  use_fsdp: true
+  fsdp_sharding_strategy: "full"
+  fsdp_mixed_precision: "bf16"
+  fsdp_state_dict_type: "sharded"
+
+alignment:
+  method: grpo
+  grpo_group_size: 2
+  grpo_beta: 0.001
+  grpo_eps: 1.0e-8
+  grpo_num_epochs: 1
+  grpo_clip_eps: 0.0
+  grpo_entropy_coef: 0.01
+  generation:
+    max_new_tokens: 128
+    temperature: 0.7
+    top_p: 0.95
+    top_k: 50
+    do_sample: true
+    use_chat_template: true
+    system_prompt: "Solve the math problem step by step. Put your final numerical answer after ####."
+  reward:
+    type: composite_math
+    num_workers: 4
+    timeout: 30
+    format_weight: 0.4
+  metrics_interval: 5

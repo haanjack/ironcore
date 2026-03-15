@@ -146,9 +146,9 @@ def _config_validation(config: MainConfig):
         "rope",
         "none",
     ]:
-        raise ValueError("Available positional embeddong options are ['absolute', 'rope', 'none'].")
+        raise ValueError("Available positional embedding options are ['absolute', 'rope', 'none'].")
 
-    if not torch.cuda.is_available() and config.trainer.tensor_model_parallel_size > 1:
+    if torch.cuda.device_count() == 0 and config.trainer.tensor_model_parallel_size > 1:
         raise ValueError("tensor_model_parallel_size should be 1 in non-CUDA environments")
 
     # DistributedOptimizer validation
