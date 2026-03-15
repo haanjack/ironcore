@@ -209,6 +209,10 @@ class GRPOTrainer(BaseTrainer):
 
         device = self._get_compute_device()
         total_samples = rollout.total_samples
+        
+        # Performance optimization: Accumulate on GPU by default to avoid sync overhead.
+        # If memory is an issue, this can be moved back to CPU via config.
+        offload_to_cpu = getattr(self.config.alignment, "grpo_offload_ref_logps", False)
 
         # Determine micro-batch size for reference inference
         # Match rollout chunk size for memory consistency
@@ -234,13 +238,17 @@ class GRPOTrainer(BaseTrainer):
                 ref_logits, mb_labels, mb_response_mask
             )
 
-            all_ref_log_probs.append(mb_ref_log_probs.detach().cpu())
+            if offload_to_cpu:
+                all_ref_log_probs.append(mb_ref_log_probs.detach().cpu())
+            else:
+                all_ref_log_probs.append(mb_ref_log_probs.detach())
 
             # Free reference logits immediately; allocator will manage reuse
             del ref_logits
             del mb_completion_ids
 
-        return torch.cat(all_ref_log_probs, dim=0).to(device)
+        res = torch.cat(all_ref_log_probs, dim=0)
+        return res.to(device) if offload_to_cpu else res
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:
         """Centralized logic for label shifting and response masking.
