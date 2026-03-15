@@ -57,7 +57,7 @@ class TransformerLayer(BaseModule):
         if kv_has_bias and bias_cfg.k != bias_cfg.v:
             local_kv_size = self.linear_kv.bias.shape[0]
             local_half = local_kv_size // 2
-            mask = torch.ones(local_kv_size)
+            mask = torch.ones(local_kv_size, device=self.linear_kv.bias.device)
             if not bias_cfg.k:
                 mask[:local_half] = 0.0  # zero out K portion
             else:

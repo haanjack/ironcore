@@ -236,10 +236,9 @@ class GRPOTrainer(BaseTrainer):
 
             all_ref_log_probs.append(mb_ref_log_probs.detach().cpu())
 
-            # Free reference logits immediately
+            # Free reference logits immediately; allocator will manage reuse
             del ref_logits
             del mb_completion_ids
-            torch.cuda.empty_cache()
 
         return torch.cat(all_ref_log_probs, dim=0).to(device)
 
@@ -528,10 +527,10 @@ class GRPOTrainer(BaseTrainer):
             policy_log_probs_token, ref_log_probs.to(device), response_mask
         )
 
-        # Sum token-level log probs, normalized by response length to remove length bias
-        response_len = response_mask.sum(dim=-1).clamp(min=1)
-        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1) / response_len
-        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1) / response_len
+        # Note: We use the sum of log-probabilities for the sequence-level objective.
+        # This follows the standard policy gradient formulation for whole-sequence rollouts.
+        policy_log_probs_seq = (policy_log_probs_token * response_mask).sum(dim=-1)
+        ref_log_probs_seq = (ref_log_probs.to(device) * response_mask).sum(dim=-1)
 
         # Compute entropy for exploration bonus
         entropy = None

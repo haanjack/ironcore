@@ -105,4 +105,5 @@ markers = [
     "kv_cache: KV cache related tests",
     "paged_attention: Paged attention tests",
     "prefix_cache: Prefix cache tests",
+    "e2e: End-to-end tests that run actual torchrun training jobs (slow, GPU required)",
 ]

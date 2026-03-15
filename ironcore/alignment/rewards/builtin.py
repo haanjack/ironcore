@@ -104,6 +104,8 @@ class CodeRewardFunction(RewardFunction):
         full_code = prompt + "\n" + completion
         passed = 0
 
+        # SECURITY: This executes untrusted model-generated code.
+        # In production, this MUST be wrapped in a secure sandbox (e.g. gVisor).
         for test in test_cases:
             try:
                 result = subprocess.run(
