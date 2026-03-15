@@ -209,7 +209,7 @@ class GRPOTrainer(BaseTrainer):
 
         device = self._get_compute_device()
         total_samples = rollout.total_samples
-        
+
         # Performance optimization: Accumulate on GPU by default to avoid sync overhead.
         # If memory is an issue, this can be moved back to CPU via config.
         offload_to_cpu = getattr(self.config.alignment, "grpo_offload_ref_logps", False)

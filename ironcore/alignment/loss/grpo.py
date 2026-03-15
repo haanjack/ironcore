@@ -109,7 +109,6 @@ def compute_advantages(
                 all_group_ids_list = []
 
                 current_offset = 0
-                current_group_offset = 0
                 local_start = 0
                 local_end = 0
 
@@ -118,7 +117,7 @@ def compute_advantages(
                 ):
                     size = all_sizes[i]
                     # Extract active portion.
-                    # Note: We assume group_ids are already globally consistent if prompts 
+                    # Note: We assume group_ids are already globally consistent if prompts
                     # are shared across ranks. If prompts are unique per rank, normalization
                     # will still be correct as unique group IDs remain unique.
                     rank_group_ids = g_g[:size]
@@ -168,16 +167,18 @@ def grpo_loss(
     beta: float = 0.1,
     old_log_probs: torch.Tensor | None = None,  # [B*G] log probs at rollout time
     clip_eps: float = 0.0,  # PPO-style IS ratio clip (0 = no clipping)
+    entropy: torch.Tensor | None = None,  # [B*G] mean token entropy per sequence
+    entropy_coef: float = 0.0,  # entropy bonus coefficient (0 = disabled)
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute GRPO loss with optional importance sampling for offline/multi-epoch training.
 
     Online  (old_log_probs=None):
-        L = -mean(A * log π_θ(y|x)) + β * KL
+        L = -mean(A * log π_θ(y|x)) + β * KL - entropy_coef * H
 
     Offline (old_log_probs provided):
         ratio = π_θ(y|x) / π_old(y|x)  =  exp(log_π_θ - log_π_old)
-        L = -mean(clip(ratio, 1±ε) * A) + β * KL   if clip_eps > 0
-        L = -mean(ratio * A) + β * KL               if clip_eps == 0
+        L = -mean(clip(ratio, 1±ε) * A) + β * KL - entropy_coef * H   if clip_eps > 0
+        L = -mean(ratio * A) + β * KL - entropy_coef * H               if clip_eps == 0
 
     Args:
         policy_log_probs: Sequence log probs from current policy [B*G]
@@ -187,6 +188,8 @@ def grpo_loss(
         beta: KL penalty coefficient
         old_log_probs: Log probs at rollout time (None = online, use IS when provided)
         clip_eps: PPO clip range for IS ratio (0.0 = disabled)
+        entropy: Mean token entropy per sequence [B*G] (None = skip entropy bonus)
+        entropy_coef: Entropy bonus coefficient (0.0 = disabled)
 
     Returns:
         Tuple of (loss_tensor, metrics_dict)
@@ -221,12 +224,19 @@ def grpo_loss(
 
     total_loss = policy_loss + kl_loss
 
+    # Entropy bonus: subtract to encourage exploration
+    entropy_loss = torch.tensor(0.0, device=policy_log_probs.device)
+    if entropy is not None and entropy_coef > 0.0:
+        entropy_loss = entropy_coef * entropy.mean()
+        total_loss = total_loss - entropy_loss
+
     with torch.no_grad():
         metrics = {
             "grpo_loss": total_loss.item(),
             "policy_loss": policy_loss.item(),
             "kl_loss": kl_loss.item(),
             "kl_per_seq": kl_per_seq.mean().item(),
+            "entropy": entropy_loss.item(),
             "mean_advantage": adv.mean().item(),
             "std_advantage": adv.std().item() if len(adv) > 1 else 0.0,
             "mean_ratio": mean_ratio,

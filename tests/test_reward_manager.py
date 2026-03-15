@@ -184,8 +184,8 @@ class TestTemplateRuleRewardRegexMatch:
     def test_16_pattern_matches(self, format_deepseek_yaml):
         """Test 16: Pattern matches returns 1.0."""
         fn = TemplateRuleReward.from_yaml(format_deepseek_yaml)
-        # format_deepseek.yaml pattern: <currwork>.*?</currwork>\s*####\s*.*
-        result = fn.compute("prompt", "<currwork>reasoning</currwork> #### 42", {})
+        # format_deepseek.yaml pattern: <think>.*?</think>\s*####\s*.*
+        result = fn.compute("prompt", "<think>reasoning</think> #### 42", {})
         assert result == 1.0
 
     def test_17_pattern_doesnt_match(self, format_deepseek_yaml):
@@ -195,9 +195,9 @@ class TestTemplateRuleRewardRegexMatch:
         assert result == 0.0
 
     def test_18_dotall_flag_works(self, format_deepseek_yaml):
-        """Test 18: DOTALL flag allows multiline content inside currwork tags."""
+        """Test 18: DOTALL flag allows multiline content inside think tags."""
         fn = TemplateRuleReward.from_yaml(format_deepseek_yaml)
-        result = fn.compute("prompt", "<currwork>\nmultiline\nreasoning\n</currwork> #### 42", {})
+        result = fn.compute("prompt", "<think>\nmultiline\nreasoning\n</think> #### 42", {})
         assert result == 1.0
 
     def test_19_custom_scoring(self):
@@ -697,28 +697,21 @@ class TestBuiltinRewardFunctions:
     def test_strict_format_default_pattern(self):
         """Test StrictFormatRewardFunction with default pattern."""
         fn = StrictFormatRewardFunction()
-        # Default pattern: <currwork>.*?</currwork>\s*####\s*.*
-        assert fn.compute("prompt", "<currwork>reasoning</currwork> #### 42", {}) == 1.0
+        # Default pattern: <think>.*?</think>\s*####\s*.*
+        assert fn.compute("prompt", "<think>reasoning</think> #### 42", {}) == 1.0
         assert fn.compute("prompt", "no format here", {}) == 0.0
 
-    def test_code_reward_function(self):
-        """Test CodeRewardFunction computes correct scores."""
+    def test_code_reward_function_not_implemented(self):
+        """Test CodeRewardFunction raises NotImplementedError (sandbox not yet implemented)."""
+        import pytest
+
         from ironcore.alignment.rewards import CodeRewardFunction
 
         fn = CodeRewardFunction(timeout=1)
-        # Test with simple code
-        result = fn.compute(
-            "def add(a, b):", "    return a + b", {"test_cases": ["assert add(1, 2) == 3"]}
-        )
-        assert result == 1.0  # Test passes
-
-    def test_code_reward_function_no_tests(self):
-        """Test CodeRewardFunction with no tests returns 0.5."""
-        from ironcore.alignment.rewards import CodeRewardFunction
-
-        fn = CodeRewardFunction()
-        result = fn.compute("def add(a, b):", "    return a + b", {})
-        assert result == 0.5  # No tests = neutral
+        with pytest.raises(NotImplementedError):
+            fn.compute(
+                "def add(a, b):", "    return a + b", {"test_cases": ["assert add(1, 2) == 3"]}
+            )
 
 
 # =============================================================================
