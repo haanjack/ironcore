@@ -26,7 +26,6 @@ from ironcore.global_vars import (
     set_global_states,
 )
 from ironcore.language_model import LanguageModel
-from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
@@ -40,6 +39,7 @@ from ironcore.utils import (
     get_model_dtype,
     is_first_rank,
 )
+from ironcore.utils.mfu import MFUCalculator
 
 
 class BaseTrainer(ABC):
@@ -528,7 +528,7 @@ class BaseTrainer(ABC):
             Tuple of (grad_norm, param_norm)
         """
         from ironcore.parallel import parallel_states
-        from ironcore.utils import clip_grad_norm_tp
+        from ironcore.parallel.tensor_parallel.comm import clip_grad_norm_tp
 
         # Unscale gradients before clipping/norm computation
         self.scaler.unscale_(self.optimizer)

@@ -605,7 +605,7 @@ class GRPOTrainer(BaseTrainer):
 
     def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
         """Compute gradient and parameter norms."""
-        from ironcore.utils import clip_grad_norm_tp
+        from ironcore.parallel.tensor_parallel.comm import clip_grad_norm_tp
 
         self.scaler.unscale_(self.optimizer)
 

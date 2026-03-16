@@ -22,8 +22,8 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
-from ironcore.mfu import MFUCalculator
 from ironcore.models.transformer import TransformerModel
+from ironcore.utils.mfu import MFUCalculator
 
 # GPT-2 Small config
 NUM_LAYERS = 12
