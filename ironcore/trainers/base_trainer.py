@@ -36,6 +36,10 @@ from ironcore.parallel.parallel_states import (
     get_data_parallel_world_size,
     initialize_model_parallel,
 )
+from ironcore.parallel.expert_parallel.parallel_states import (
+    get_expert_model_parallel_world_size,
+    get_expert_model_parallel_group,
+)
 from ironcore.utils import (
     get_device,
     get_model_dtype,
@@ -530,7 +534,7 @@ class BaseTrainer(ABC):
         """
 
         from ironcore.parallel import parallel_states
-        from ironcore.utils import clip_grad_norm_tp
+        from ironcore.parallel.grad_norm import clip_grad_norm_tp
 
         # Unscale gradients before clipping/norm computation
         self.scaler.unscale_(self.optimizer)
@@ -554,6 +558,7 @@ class BaseTrainer(ABC):
             # Compute local squared norm.
             # For FSDP: parameters sharded across DP ranks — local shard only
             # For TP: parameters sharded across TP ranks — local shard only
+            # For EP: expert parameters sharded across EP ranks — local shard only
             # For DP without sharding: parameters replicated across DP ranks — all ranks compute identical norm
             param_norm_sq = 0.0
             for p in self.model.parameters():
@@ -575,6 +580,18 @@ class BaseTrainer(ABC):
                     op=dist.ReduceOp.SUM,
                     group=parallel_states.get_tensor_model_parallel_group(),
                 )
+            # For EP, sync across EP group (expert parameters sharded across EP ranks)
+            try:
+                ep_group = get_expert_model_parallel_group()
+                if ep_group is not None and get_expert_model_parallel_world_size() > 1:
+                    dist.all_reduce(
+                        param_norm_tensor,
+                        op=dist.ReduceOp.SUM,
+                        group=ep_group,
+                    )
+            except (ImportError, AttributeError):
+                # MoE not enabled or expert parallel not initialized
+                pass
             # For DP without FSDP, average across DP group (parameters replicated, so avoid SUM scaling)
             # This ensures consistent logging across all DP ranks
             if (
