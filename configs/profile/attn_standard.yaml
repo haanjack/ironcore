@@ -1,0 +1,3 @@
+# Overlay: standard attention (no flash)
+trainer:
+  use_flash_attn: false

@@ -1,0 +1,48 @@
+# Base profile configuration
+# Small GPT-2 model, 4 train steps, profiler captures steps 2-3
+# Designed for 2-GPU setup
+
+trainer:
+  micro_batch_size: 2
+  train_batch_size: 2
+  gradient_accumulation_steps: 1
+  tensor_model_parallel_size: 1
+  log_interval: 1
+  use_flash_attn: false
+  vocab_padding_unit: 128
+  model_path: logs/profile/checkpoints
+
+model: gpt2-small
+
+data:
+  config_path: configs/data/full_owt_pretrain.yaml
+  task_type: pretrain
+
+operation:
+  train_steps: 4
+  activation_recompute: false
+  eval_interval: 0
+  no_save: true
+
+optim:
+  optimizer: adam
+  max_lr: 6.0e-4
+  min_lr: 6.0e-5
+  warmup_steps: 1
+  annealing_steps: 4
+  weight_decay: 0.1
+  clip_grad: 1.0
+
+init:
+  seed: 42
+  init_std: 0.02
+
+profiler:
+  gpu_profiler: true
+  torch_profiler: false
+  comm_profiler: true
+  layer_timing: true
+  start: 2
+  end: 4
+  ranks: [0, 1]
+  output_dir: ./logs/profile/

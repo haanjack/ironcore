@@ -1,0 +1,3 @@
+# Overlay: KV cache disabled in eval
+trainer:
+  use_kv_cache_in_eval: false

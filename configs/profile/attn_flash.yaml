@@ -1,0 +1,3 @@
+# Overlay: flash attention enabled
+trainer:
+  use_flash_attn: true

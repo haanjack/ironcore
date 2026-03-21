@@ -1,0 +1,3 @@
+# Overlay: activation checkpointing enabled
+operation:
+  activation_recompute: true

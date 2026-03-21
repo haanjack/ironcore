@@ -39,6 +39,8 @@ import torch
 from torch import distributed as dist
 from torch.optim import Optimizer
 
+from ironcore.utils import profile_context
+
 try:
     from ironcore.global_vars import get_logger
 
@@ -212,19 +214,20 @@ class DistributedOptimizer(Optimizer):
 
         # Step 2: broadcast updated parameters from owner ranks to all others
         # Using bucketing to minimize communication overhead
-        for bucket in self._buckets:
-            owner_rank = bucket["rank"]
-            params = bucket["params"]
+        with profile_context("dist_opt_broadcast"):
+            for bucket in self._buckets:
+                owner_rank = bucket["rank"]
+                params = bucket["params"]
 
-            # For each parameter in the bucket, perform broadcast
-            # Note: broadcast is non-destructive on non-owner ranks
-            handles = [
-                dist.broadcast(p.data, src=owner_rank, group=self.process_group, async_op=True)
-                for p in params
-            ]
+                # For each parameter in the bucket, perform broadcast
+                # Note: broadcast is non-destructive on non-owner ranks
+                handles = [
+                    dist.broadcast(p.data, src=owner_rank, group=self.process_group, async_op=True)
+                    for p in params
+                ]
 
-            for h in handles:
-                h.wait()
+                for h in handles:
+                    h.wait()
         return loss
 
     def zero_grad(self, set_to_none: bool = True):

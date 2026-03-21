@@ -1,0 +1,4 @@
+# Overlay: async TP with sequence chunking, 2 GPUs
+trainer:
+  tensor_model_parallel_size: 2
+  sequence_chunk_size: 64

@@ -28,7 +28,7 @@ import torch
 
 from ironcore.config import MainConfig
 from ironcore.layers.kv_cache_utils import compute_memory_mb, compute_utilization
-from ironcore.utils import get_model_dtype
+from ironcore.utils import get_model_dtype, profile_context
 
 
 class KVCacheManager:
@@ -168,6 +168,18 @@ class KVCacheManager:
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized. Call initialize() first.")
 
+        with profile_context("kv_cache_update"):
+            return self._update_layer_impl(layer_idx, key, value, position, positions)
+
+    def _update_layer_impl(
+        self,
+        layer_idx: int,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        position: int | None = None,
+        positions: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Internal implementation of update_layer."""
         batch_size, seq_len, num_groups, head_dim = key.shape
 
         # Determine write positions
@@ -227,17 +239,18 @@ class KVCacheManager:
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized")
 
-        if end_pos is None:
-            end_pos = self.cache_positions.max().item()
+        with profile_context("kv_cache_get"):
+            if end_pos is None:
+                end_pos = self.cache_positions.max().item()
 
-        if batch_idx is not None:
-            key = self.key_caches[layer_idx][batch_idx, start_pos:end_pos]
-            value = self.value_caches[layer_idx][batch_idx, start_pos:end_pos]
-        else:
-            key = self.key_caches[layer_idx][:, start_pos:end_pos]
-            value = self.value_caches[layer_idx][:, start_pos:end_pos]
+            if batch_idx is not None:
+                key = self.key_caches[layer_idx][batch_idx, start_pos:end_pos]
+                value = self.value_caches[layer_idx][batch_idx, start_pos:end_pos]
+            else:
+                key = self.key_caches[layer_idx][:, start_pos:end_pos]
+                value = self.value_caches[layer_idx][:, start_pos:end_pos]
 
-        return key, value
+            return key, value
 
     def get_sequence_position(self, batch_idx: int) -> int:
         """Get current cache position for a specific sequence.

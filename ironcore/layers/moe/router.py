@@ -20,6 +20,7 @@ from torch import nn
 
 from ironcore.config import MainConfig
 from ironcore.layers.module import BaseModule
+from ironcore.utils import profile_context
 
 
 @dataclass
@@ -142,25 +143,26 @@ class TopKRouter(BaseModule):
         # Clear previous logits at start to prevent memory leak
         self._router_logits = None
 
-        # Compute router logits
-        router_logits = self._compute_router_logits(hidden_states)
+        with profile_context("moe_router"):
+            # Compute router logits
+            router_logits = self._compute_router_logits(hidden_states)
 
-        # Add jitter noise during training
-        router_logits = self._add_jitter_noise(router_logits, training)
+            # Add jitter noise during training
+            router_logits = self._add_jitter_noise(router_logits, training)
 
-        # Select top-k experts
-        topk_logits, topk_indices = torch.topk(router_logits, self.top_k, dim=-1)
+            # Select top-k experts
+            topk_logits, topk_indices = torch.topk(router_logits, self.top_k, dim=-1)
 
-        # Apply softmax to get normalized weights
-        topk_weights = F.softmax(topk_logits, dim=-1)
+            # Apply softmax to get normalized weights
+            topk_weights = F.softmax(topk_logits, dim=-1)
 
-        # Cast back to input dtype
-        topk_weights = topk_weights.to(hidden_states.dtype)
-        router_logits = router_logits.to(hidden_states.dtype)
+            # Cast back to input dtype
+            topk_weights = topk_weights.to(hidden_states.dtype)
+            router_logits = router_logits.to(hidden_states.dtype)
 
-        # Store logits for auxiliary loss (only during training)
-        if training:
-            self._router_logits = router_logits.detach()
+            # Store logits for auxiliary loss (only during training)
+            if training:
+                self._router_logits = router_logits.detach()
 
         return RouterOutput(
             topk_weights=topk_weights,
