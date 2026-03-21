@@ -10,6 +10,7 @@ from typing import Union
 
 import torch
 from torch import distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from ironcore.checkpointing import load_checkpoint, save_checkpoint
 from ironcore.config import MainConfig
@@ -527,6 +528,7 @@ class BaseTrainer(ABC):
         Returns:
             Tuple of (grad_norm, param_norm)
         """
+
         from ironcore.parallel import parallel_states
         from ironcore.utils import clip_grad_norm_tp
 
@@ -535,26 +537,44 @@ class BaseTrainer(ABC):
 
         grad_norm = 0.0
         if self.config.optim.clip_grad > 0.0:
-            grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
+            # Active gradient clipping: clip to specified threshold
+            if isinstance(self.model, FSDP):
+                grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
+            else:
+                grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
         elif self.control.do_grad_norm(step):
-            grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
+            # No clipping, but compute norm for logging (clip_grad=inf means compute but don't clip)
+            if isinstance(self.model, FSDP):
+                grad_norm = self.model.clip_grad_norm_(float("inf")).item()
+            else:
+                grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
-            # Compute local squared norm
+            # Compute local squared norm.
+            # For FSDP, p.data is the local shard.
             param_norm_sq = 0.0
             for p in self.model.parameters():
                 if p.data is not None:
                     param_norm_sq += p.data.norm() ** 2
-            # All-reduce across TP group for correct full-model norm
-            if parallel_states.get_tensor_model_parallel_world_size() > 1:
-                param_norm_tensor = torch.tensor(param_norm_sq, device=get_device())
+
+            # All-reduce once after accumulating all parameter norms
+            param_norm_tensor = torch.tensor(param_norm_sq, device=get_device())
+
+            # For FSDP, sync across DP group (parameters sharded across DP ranks)
+            if isinstance(self.model, FSDP):
+                dist.all_reduce(
+                    param_norm_tensor, op=dist.ReduceOp.SUM, group=get_data_parallel_group()
+                )
+            # For TP, sync across TP group (parameters sharded across TP ranks)
+            elif parallel_states.get_tensor_model_parallel_world_size() > 1:
                 dist.all_reduce(
                     param_norm_tensor,
                     op=dist.ReduceOp.SUM,
                     group=parallel_states.get_tensor_model_parallel_group(),
                 )
-                param_norm_sq = param_norm_tensor.item()
+
+            param_norm_sq = param_norm_tensor.item()
             param_norm = param_norm_sq**0.5
 
         return grad_norm, param_norm
@@ -809,8 +829,8 @@ class BaseTrainer(ABC):
             num_batches = 0
 
             with torch.no_grad():
-                for _ in range(getattr(evaluator, "num_eval_steps", 10)):
-                    loss, _ = self._eval_step(evaluator.data_iterator)
+                for batch in evaluator.data_loader:
+                    loss, _ = self._eval_step(batch)
                     total_loss += loss
                     num_batches += 1
 
