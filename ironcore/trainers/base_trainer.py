@@ -534,7 +534,7 @@ class BaseTrainer(ABC):
         """
 
         from ironcore.parallel import parallel_states
-        from ironcore.parallel.grad_norm import clip_grad_norm_tp
+        from ironcore.parallel.grad_norm import clip_grad_norm
 
         # Unscale gradients before clipping/norm computation
         self.scaler.unscale_(self.optimizer)
@@ -545,13 +545,13 @@ class BaseTrainer(ABC):
             if isinstance(self.model, FSDP):
                 grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
             else:
-                grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
+                grad_norm = clip_grad_norm(self.model.parameters(), self.config.optim.clip_grad)
         elif self.control.do_grad_norm(step):
             # No clipping, but compute norm for logging (clip_grad=inf means compute but don't clip)
             if isinstance(self.model, FSDP):
                 grad_norm = self.model.clip_grad_norm_(float("inf")).item()
             else:
-                grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
+                grad_norm = clip_grad_norm(self.model.parameters(), float("inf"))
 
         param_norm = 0.0
         if self.control.do_param_norm(step):

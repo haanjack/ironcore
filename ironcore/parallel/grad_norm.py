@@ -17,16 +17,19 @@ from ironcore.parallel.expert_parallel.parallel_states import (
 )
 
 
-def clip_grad_norm_tp(
+def clip_grad_norm(
     parameters: Union[torch.Tensor, Iterable[torch.Tensor]],
     max_norm: float,
     norm_type: float = 2.0,
 ) -> torch.Tensor:
     """
-    Clips gradient norm of an iterable of parameters, considering:
+    Clips gradient norm of an iterable of parameters across distributed training.
+
+    Supports:
     - Tensor Parallelism (TP): parameters sharded across TP ranks
     - Expert Parallelism (EP): expert parameters sharded across EP ranks
     - Data Parallelism (DP): replicated parameters across DP ranks
+    (FSDP is handled separately in the trainer)
 
     Args:
         parameters: Iterable of Tensors or a single Tensor to be normalized.
