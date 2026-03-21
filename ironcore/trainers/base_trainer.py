@@ -552,7 +552,9 @@ class BaseTrainer(ABC):
         param_norm = 0.0
         if self.control.do_param_norm(step):
             # Compute local squared norm.
-            # For FSDP, p.data is the local shard.
+            # For FSDP: parameters sharded across DP ranks — local shard only
+            # For TP: parameters sharded across TP ranks — local shard only
+            # For DP without sharding: parameters replicated across DP ranks — all ranks compute identical norm
             param_norm_sq = 0.0
             for p in self.model.parameters():
                 if p.data is not None:
@@ -567,12 +569,25 @@ class BaseTrainer(ABC):
                     param_norm_tensor, op=dist.ReduceOp.SUM, group=get_data_parallel_group()
                 )
             # For TP, sync across TP group (parameters sharded across TP ranks)
-            elif parallel_states.get_tensor_model_parallel_world_size() > 1:
+            if parallel_states.get_tensor_model_parallel_world_size() > 1:
                 dist.all_reduce(
                     param_norm_tensor,
                     op=dist.ReduceOp.SUM,
                     group=parallel_states.get_tensor_model_parallel_group(),
                 )
+            # For DP without FSDP, average across DP group (parameters replicated, so avoid SUM scaling)
+            # This ensures consistent logging across all DP ranks
+            if (
+                dist.is_initialized()
+                and not isinstance(self.model, FSDP)
+                and get_data_parallel_world_size() > 1
+            ):
+                dist.all_reduce(
+                    param_norm_tensor,
+                    op=dist.ReduceOp.SUM,
+                    group=get_data_parallel_group(),
+                )
+                param_norm_tensor /= get_data_parallel_world_size()
 
             param_norm_sq = param_norm_tensor.item()
             param_norm = param_norm_sq**0.5
