@@ -89,7 +89,7 @@ def clip_grad_norm(
                 op=dist.ReduceOp.MAX if norm_type == inf else dist.ReduceOp.SUM,
                 group=ep_group,
             )
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError, RuntimeError):
         # MoE not enabled or expert parallel not initialized
         pass
 

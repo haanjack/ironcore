@@ -574,7 +574,8 @@ class BaseTrainer(ABC):
                     param_norm_tensor, op=dist.ReduceOp.SUM, group=get_data_parallel_group()
                 )
             # For TP, sync across TP group (parameters sharded across TP ranks)
-            if parallel_states.get_tensor_model_parallel_world_size() > 1:
+            tp_size = parallel_states.get_tensor_model_parallel_world_size()
+            if tp_size > 1:
                 dist.all_reduce(
                     param_norm_tensor,
                     op=dist.ReduceOp.SUM,
@@ -589,22 +590,19 @@ class BaseTrainer(ABC):
                         op=dist.ReduceOp.SUM,
                         group=ep_group,
                     )
-            except (ImportError, AttributeError):
+            except (ImportError, AttributeError, RuntimeError):
                 # MoE not enabled or expert parallel not initialized
                 pass
             # For DP without FSDP, average across DP group (parameters replicated, so avoid SUM scaling)
             # This ensures consistent logging across all DP ranks
-            if (
-                dist.is_initialized()
-                and not isinstance(self.model, FSDP)
-                and get_data_parallel_world_size() > 1
-            ):
+            dp_size = get_data_parallel_world_size()
+            if dist.is_initialized() and not isinstance(self.model, FSDP) and dp_size > 1:
                 dist.all_reduce(
                     param_norm_tensor,
                     op=dist.ReduceOp.SUM,
                     group=get_data_parallel_group(),
                 )
-                param_norm_tensor /= get_data_parallel_world_size()
+                param_norm_tensor /= dp_size
 
             param_norm_sq = param_norm_tensor.item()
             param_norm = param_norm_sq**0.5
