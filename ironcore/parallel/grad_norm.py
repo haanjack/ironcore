@@ -49,23 +49,23 @@ def clip_grad_norm(
 
     max_norm = float(max_norm)
     norm_type = float(norm_type)
+    device = torch.cuda.current_device()
 
     if len(grads) == 0:
-        return torch.tensor(0.0, device=torch.cuda.current_device())
-
-    device = grads[0].device
-
-    # --- Step 1: Calculate Local Norm ---
-    if norm_type == inf:
-        # Calculate local max absolute value
-        total_norm = max(g.detach().abs().max() for g in grads)
-        total_norm = torch.tensor(float(total_norm), device=device)
+        total_norm_pow = torch.tensor(0.0, device=device)
+        total_norm = torch.tensor(0.0, device=device)
     else:
-        # Calculate local sum of powers: sum(||g||^p)
-        total_norm_pow = (
-            torch.norm(torch.stack([torch.norm(g.detach(), norm_type) for g in grads]), norm_type)
-            ** norm_type
-        )
+        device = grads[0].device
+        # --- Step 1: Calculate Local Norm ---
+        if norm_type == inf:
+            # Calculate local max absolute value
+            total_norm = max(g.detach().abs().max() for g in grads)
+            total_norm = torch.tensor(float(total_norm), device=device)
+        else:
+            # Calculate local sum of powers: sum(||g||^p)
+            # Optimized to avoid excessive stack/norm calls
+            local_norms_pow = [g.detach().norm(norm_type) ** norm_type for g in grads]
+            total_norm_pow = torch.stack(local_norms_pow).sum()
 
     # --- Step 2: Communication across Tensor Parallel (TP) Group ---
     # Since non-expert parameters are sharded across TP ranks, we MUST sum/max them.
@@ -80,15 +80,36 @@ def clip_grad_norm(
 
     # --- Step 3: Communication across Expert Parallel (EP) Group ---
     # If MoE is enabled, expert parameters are sharded across EP ranks.
-    # Non-expert parameters are replicated across EP, so we don't double-count them.
+    # We must separate expert and non-expert norms to avoid double-counting.
     try:
         ep_group = get_expert_model_parallel_group()
         if ep_group is not None and get_expert_model_parallel_world_size() > 1:
-            dist.all_reduce(
-                total_norm if norm_type == inf else total_norm_pow,
-                op=dist.ReduceOp.MAX if norm_type == inf else dist.ReduceOp.SUM,
-                group=ep_group,
-            )
+            expert_grads = [p.grad for p in parameters if p.grad is not None and getattr(p, "is_expert", False)]
+            
+            if norm_type == inf:
+                local_expert_norm = max(g.detach().abs().max() for g in expert_grads) if expert_grads else 0.0
+                local_expert_norm_tensor = torch.tensor(float(local_expert_norm), device=device)
+                dist.all_reduce(local_expert_norm_tensor, op=dist.ReduceOp.MAX, group=ep_group)
+                total_norm = torch.max(total_norm, local_expert_norm_tensor)
+            else:
+                # Expert gradients are summed across EP ranks.
+                # Non-expert gradients are REPLICATED across EP ranks, so we ONLY sum experts.
+                local_expert_norm_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in expert_grads]).sum() if expert_grads else torch.tensor(0.0, device=device)
+                
+                # To get global sum(||g||^p), we need to reduce expert norms only.
+                # Since total_norm_pow currently has local_expert + replicated_non_expert,
+                # we subtract local expert norm, then add reduced expert norm.
+                dist.all_reduce(local_expert_norm_pow, op=dist.ReduceOp.SUM, group=ep_group)
+                
+                # Re-calculate non-expert contribution locally (same across EP)
+                non_expert_grads = [p.grad for p in parameters if p.grad is not None and not getattr(p, "is_expert", False)]
+                local_non_expert_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in non_expert_grads]).sum() if non_expert_grads else torch.tensor(0.0, device=device)
+                
+                # Total norm power is sum of global expert norms + local (replicated) non-expert norms
+                total_norm_pow = local_expert_norm_pow + local_non_expert_pow
+        elif ep_group is not None:
+             # Just to ensure collective communication if world_size=1 (though usually no-op)
+             pass
     except (ImportError, AttributeError, RuntimeError):
         # MoE not enabled or expert parallel not initialized
         pass

@@ -556,17 +556,9 @@ class BaseTrainer(ABC):
         param_norm = 0.0
         if self.control.do_param_norm(step):
             # Compute local squared norm.
-            # For FSDP: parameters sharded across DP ranks — local shard only
-            # For TP: parameters sharded across TP ranks — local shard only
-            # For EP: expert parameters sharded across EP ranks — local shard only
-            # For DP without sharding: parameters replicated across DP ranks — all ranks compute identical norm
-            param_norm_sq = 0.0
-            for p in self.model.parameters():
-                if p.data is not None:
-                    param_norm_sq += p.data.norm() ** 2
-
-            # All-reduce once after accumulating all parameter norms
-            param_norm_tensor = torch.tensor(param_norm_sq, device=get_device())
+            # Optimized to avoid CPU-GPU sync bottleneck (no .item() in loop)
+            param_norms_sq = [p.data.norm()**2 for p in self.model.parameters() if p.data is not None]
+            param_norm_tensor = torch.stack(param_norms_sq).sum() if param_norms_sq else torch.tensor(0.0, device=get_device())
 
             # For FSDP, sync across DP group (parameters sharded across DP ranks)
             if isinstance(self.model, FSDP):
@@ -585,11 +577,20 @@ class BaseTrainer(ABC):
             try:
                 ep_group = get_expert_model_parallel_group()
                 if ep_group is not None and get_expert_model_parallel_world_size() > 1:
-                    dist.all_reduce(
-                        param_norm_tensor,
-                        op=dist.ReduceOp.SUM,
-                        group=ep_group,
-                    )
+                    # Separate expert and non-expert norms to avoid double-counting replicated parameters
+                    expert_params = [p for p in self.model.parameters() if p.data is not None and getattr(p, "is_expert", False)]
+                    expert_norm_sq = torch.stack([p.data.norm()**2 for p in expert_params]).sum() if expert_params else torch.tensor(0.0, device=get_device())
+                    
+                    # Reduce expert norms across EP group
+                    dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=ep_group)
+                    
+                    # Non-expert params are replicated across EP, so we only need the local value
+                    non_expert_params = [p for p in self.model.parameters() if p.data is not None and not getattr(p, "is_expert", False)]
+                    non_expert_norm_sq = torch.stack([p.data.norm()**2 for p in non_expert_params]).sum() if non_expert_params else torch.tensor(0.0, device=get_device())
+                    
+                    # Global param norm sq is the sum of reduced expert norms and local non-expert norms
+                    param_norm_tensor = expert_norm_sq + non_expert_norm_sq
+
             except (ImportError, AttributeError, RuntimeError):
                 # MoE not enabled or expert parallel not initialized
                 pass
@@ -604,8 +605,7 @@ class BaseTrainer(ABC):
                 )
                 param_norm_tensor /= dp_size
 
-            param_norm_sq = param_norm_tensor.item()
-            param_norm = param_norm_sq**0.5
+            param_norm = param_norm_tensor.item()**0.5
 
         return grad_norm, param_norm
 

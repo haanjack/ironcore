@@ -605,7 +605,7 @@ class GRPOTrainer(BaseTrainer):
 
     def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
         """Compute gradient and parameter norms."""
-        from ironcore.utils import clip_grad_norm_tp
+        from ironcore.parallel.grad_norm import clip_grad_norm
 
         self.scaler.unscale_(self.optimizer)
 
@@ -614,36 +614,71 @@ class GRPOTrainer(BaseTrainer):
             if isinstance(self.model, FSDP):
                 grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
             else:
-                grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
+                grad_norm = clip_grad_norm(self.model.parameters(), self.config.optim.clip_grad)
         elif self.control.do_grad_norm(step):
             if isinstance(self.model, FSDP):
                 # Passing inf just to get the norm without clipping
                 grad_norm = self.model.clip_grad_norm_(float("inf")).item()
             else:
-                grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
+                grad_norm = clip_grad_norm(self.model.parameters(), float("inf"))
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
-            # Compute local squared norm
-            param_norm_sq = 0.0
-            # For FSDP, we need to handle sharded parameters properly
-            # In FSDP, p.data is the shard. Summing shards across DP ranks gives correct total norm.
-            for p in self.model.parameters():
-                if p.data is not None:
-                    param_norm_sq += p.data.norm() ** 2
-
-            param_norm_tensor = torch.tensor(param_norm_sq, device=self._get_compute_device())
+            # Compute local squared norm.
+            # Optimized to avoid CPU-GPU sync bottleneck
+            param_norms_sq = [p.data.norm()**2 for p in self.model.parameters() if p.data is not None]
+            param_norm_tensor = torch.stack(param_norms_sq).sum() if param_norms_sq else torch.tensor(0.0, device=self._get_compute_device())
 
             if dist.is_initialized():
-                # For FSDP/DDP, sum across DP group
                 from ironcore.parallel import parallel_states
+                
+                # For FSDP, sync across DP group (parameters sharded across DP ranks)
+                if isinstance(self.model, FSDP):
+                    dist.all_reduce(
+                        param_norm_tensor, op=dist.ReduceOp.SUM, group=parallel_states.get_data_parallel_group()
+                    )
+                
+                # For TP, sync across TP group (parameters sharded across TP ranks)
+                tp_size = parallel_states.get_tensor_model_parallel_world_size()
+                if tp_size > 1:
+                    dist.all_reduce(
+                        param_norm_tensor,
+                        op=dist.ReduceOp.SUM,
+                        group=parallel_states.get_tensor_model_parallel_group(),
+                    )
+                
+                # For EP, sync across EP group (expert parameters sharded across EP ranks)
+                try:
+                    from ironcore.parallel.expert_parallel.parallel_states import (
+                        get_expert_model_parallel_group,
+                        get_expert_model_parallel_world_size,
+                    )
+                    ep_group = get_expert_model_parallel_group()
+                    if ep_group is not None and get_expert_model_parallel_world_size() > 1:
+                        # Separate expert and non-expert norms to avoid double-counting replicated parameters
+                        expert_params = [p for p in self.model.parameters() if p.data is not None and getattr(p, "is_expert", False)]
+                        expert_norm_sq = torch.stack([p.data.norm()**2 for p in expert_params]).sum() if expert_params else torch.tensor(0.0, device=self._get_compute_device())
+                        
+                        dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=ep_group)
+                        
+                        non_expert_params = [p for p in self.model.parameters() if p.data is not None and not getattr(p, "is_expert", False)]
+                        non_expert_norm_sq = torch.stack([p.data.norm()**2 for p in non_expert_params]).sum() if non_expert_params else torch.tensor(0.0, device=self._get_compute_device())
+                        
+                        param_norm_tensor = expert_norm_sq + non_expert_norm_sq
+                except (ImportError, AttributeError, RuntimeError):
+                    pass
 
-                dist.all_reduce(
-                    param_norm_tensor,
-                    op=dist.ReduceOp.SUM,
-                    group=parallel_states.get_data_parallel_group(),
-                )
-            param_norm = param_norm_tensor.item() ** 0.5
+                # For DP without FSDP, average across DP group
+                dp_size = parallel_states.get_data_parallel_world_size()
+                if not isinstance(self.model, FSDP) and dp_size > 1:
+                    dist.all_reduce(
+                        param_norm_tensor,
+                        op=dist.ReduceOp.SUM,
+                        group=parallel_states.get_data_parallel_group(),
+                    )
+                    param_norm_tensor /= dp_size
+
+            param_norm = param_norm_tensor.item()**0.5
 
         return grad_norm, param_norm
 
