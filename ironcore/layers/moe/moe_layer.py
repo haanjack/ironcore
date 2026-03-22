@@ -150,6 +150,11 @@ class MoEMLP(BaseModule):
             ]
         )
 
+        # Mark routed experts as expert parameters for distributed norm calculation
+        for expert in self.routed_experts:
+            for p in expert.parameters():
+                p.is_expert = True
+
         # Router
         self.router = TopKRouter(
             config=config,

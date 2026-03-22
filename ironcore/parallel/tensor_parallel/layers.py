@@ -37,6 +37,11 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
         else:
             self.bias = None
 
+        # Mark weights as TP-sharded by default in ParallelLinear subclasses
+        # ColumnParallelLinear shards both weight and bias.
+        # RowParallelLinear shards only weight.
+        self.weight.is_tp_sharded = True
+
         self.column_parallel = False
         self.row_parallel = False
         self.concatenated_weights = 1
@@ -179,6 +184,8 @@ class ColumnParallelLinear(ParallelLinear):
         super().__init__(config, input_size, output_size, bias)
         self.column_parallel = True
         self.concatenated_weights = concatenated_weights
+        if self.bias is not None:
+            self.bias.is_tp_sharded = True
 
     def forward(self, x):
         parallel_x = comm.copy_inputs_to_model_parallel_workers(x)

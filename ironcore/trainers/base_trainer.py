@@ -10,6 +10,7 @@ from typing import Union
 
 import torch
 from torch import distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 from ironcore.checkpointing import load_checkpoint, save_checkpoint
 from ironcore.config import MainConfig
@@ -30,6 +31,10 @@ from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
+from ironcore.parallel.expert_parallel.parallel_states import (
+    get_expert_model_parallel_group,
+    get_expert_model_parallel_world_size,
+)
 from ironcore.parallel.parallel_states import (
     get_data_parallel_group,
     get_data_parallel_world_size,
@@ -527,35 +532,128 @@ class BaseTrainer(ABC):
         Returns:
             Tuple of (grad_norm, param_norm)
         """
+
         from ironcore.parallel import parallel_states
-        from ironcore.utils import clip_grad_norm_tp
+        from ironcore.parallel.grad_norm import clip_grad_norm
 
         # Unscale gradients before clipping/norm computation
         self.scaler.unscale_(self.optimizer)
 
         grad_norm = 0.0
         if self.config.optim.clip_grad > 0.0:
-            grad_norm = clip_grad_norm_tp(self.model.parameters(), self.config.optim.clip_grad)
+            # Active gradient clipping: clip to specified threshold
+            if isinstance(self.model, FSDP):
+                grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
+            else:
+                grad_norm = clip_grad_norm(
+                    self.model.parameters(), self.config.optim.clip_grad
+                ).item()
         elif self.control.do_grad_norm(step):
-            grad_norm = clip_grad_norm_tp(self.model.parameters(), float("inf"))
+            # No clipping, but compute norm for logging (clip_grad=inf means compute but don't clip)
+            if isinstance(self.model, FSDP):
+                grad_norm = self.model.clip_grad_norm_(float("inf")).item()
+            else:
+                grad_norm = clip_grad_norm(self.model.parameters(), float("inf")).item()
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
-            # Compute local squared norm
-            param_norm_sq = 0.0
-            for p in self.model.parameters():
-                if p.data is not None:
-                    param_norm_sq += p.data.norm() ** 2
-            # All-reduce across TP group for correct full-model norm
-            if parallel_states.get_tensor_model_parallel_world_size() > 1:
-                param_norm_tensor = torch.tensor(param_norm_sq, device=get_device())
-                dist.all_reduce(
-                    param_norm_tensor,
-                    op=dist.ReduceOp.SUM,
-                    group=parallel_states.get_tensor_model_parallel_group(),
+            # Compute local squared norms for expert and non-expert parameters
+            expert_params = [
+                p
+                for p in self.model.parameters()
+                if p.data is not None and getattr(p, "is_expert", False)
+            ]
+            non_expert_params = [
+                p
+                for p in self.model.parameters()
+                if p.data is not None and not getattr(p, "is_expert", False)
+            ]
+
+            # Separate TP-sharded and replicated for correct all-reduce SUM
+            expert_sharded = [p for p in expert_params if getattr(p, "is_tp_sharded", False)]
+            expert_repl = [p for p in expert_params if not getattr(p, "is_tp_sharded", False)]
+            non_expert_sharded = [
+                p for p in non_expert_params if getattr(p, "is_tp_sharded", False)
+            ]
+            non_expert_repl = [
+                p for p in non_expert_params if not getattr(p, "is_tp_sharded", False)
+            ]
+
+            expert_sharded_norm_sq = (
+                sum(p.data.norm() ** 2 for p in expert_sharded)
+                if expert_sharded
+                else torch.tensor(0.0, device=get_device())
+            )
+            expert_repl_norm_sq = (
+                sum(p.data.norm() ** 2 for p in expert_repl)
+                if expert_repl
+                else torch.tensor(0.0, device=get_device())
+            )
+            non_expert_sharded_norm_sq = (
+                sum(p.data.norm() ** 2 for p in non_expert_sharded)
+                if non_expert_sharded
+                else torch.tensor(0.0, device=get_device())
+            )
+            non_expert_repl_norm_sq = (
+                sum(p.data.norm() ** 2 for p in non_expert_repl)
+                if non_expert_repl
+                else torch.tensor(0.0, device=get_device())
+            )
+
+            # Step 1: FSDP Reduction (parameters are sharded across DP group)
+            if isinstance(self.model, FSDP):
+                # Assume all FSDP parameters are sharded across DP
+                combined = torch.stack([expert_sharded_norm_sq, non_expert_sharded_norm_sq])
+                dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
+                expert_sharded_norm_sq, non_expert_sharded_norm_sq = combined
+
+            # Step 2: Tensor Parallelism Reduction
+            tp_size = parallel_states.get_tensor_model_parallel_world_size()
+            if tp_size > 1:
+                tp_group = parallel_states.get_tensor_model_parallel_group()
+                combined = torch.stack(
+                    [
+                        expert_sharded_norm_sq,
+                        expert_repl_norm_sq,
+                        non_expert_sharded_norm_sq,
+                        non_expert_repl_norm_sq,
+                    ]
                 )
-                param_norm_sq = param_norm_tensor.item()
-            param_norm = param_norm_sq**0.5
+                dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=tp_group)
+
+                # For replicated parameters, SUM across TP over-counts
+                (
+                    expert_sharded_norm_sq,
+                    expert_repl_norm_sq,
+                    non_expert_sharded_norm_sq,
+                    non_expert_repl_norm_sq,
+                ) = combined
+                expert_repl_norm_sq /= tp_size
+                non_expert_repl_norm_sq /= tp_size
+
+            expert_norm_sq = expert_sharded_norm_sq + expert_repl_norm_sq
+            non_expert_norm_sq = non_expert_sharded_norm_sq + non_expert_repl_norm_sq
+
+            # Step 3: Expert Parallelism Reduction (expert parameters sharded across EP group)
+            try:
+                ep_group = get_expert_model_parallel_group()
+                if ep_group is not None and get_expert_model_parallel_world_size() > 1:
+                    dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=ep_group)
+            except (ImportError, AttributeError):
+                pass
+
+            # Step 4: Global Combine
+            param_norm_sq = expert_norm_sq + non_expert_norm_sq
+
+            # Step 5: DP Average (for replicated parameters in non-FSDP DP)
+            dp_size = get_data_parallel_world_size()
+            if dist.is_initialized() and not isinstance(self.model, FSDP) and dp_size > 1:
+                # Parameters are replicated across DP ranks, so SUM would scale by dp_size.
+                # Average to maintain consistency.
+                dist.all_reduce(param_norm_sq, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
+                param_norm_sq /= dp_size
+
+            param_norm = param_norm_sq.item() ** 0.5
 
         return grad_norm, param_norm
 
@@ -809,8 +907,8 @@ class BaseTrainer(ABC):
             num_batches = 0
 
             with torch.no_grad():
-                for _ in range(getattr(evaluator, "num_eval_steps", 10)):
-                    loss, _ = self._eval_step(evaluator.data_iterator)
+                for batch in evaluator.data_loader:
+                    loss, _ = self._eval_step(batch)
                     total_loss += loss
                     num_batches += 1
 
