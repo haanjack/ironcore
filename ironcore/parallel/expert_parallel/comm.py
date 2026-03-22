@@ -380,7 +380,7 @@ class AllToAllDispatcher:
         recv_packed = recv_data["recv_packed"]
 
         # Unpack received data
-        recv_x_flat = recv_packed[:, :hidden_size]
+        recv_x_flat = recv_packed[:, :hidden_size].contiguous()
         recv_idx_flat = recv_packed[:, hidden_size].to(torch.long)
         recv_weight_flat = recv_packed[:, hidden_size + 1]
         recv_token_idx_flat = recv_packed[:, hidden_size + 2].to(torch.long)
