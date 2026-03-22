@@ -18,6 +18,20 @@ import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from ironcore.config import MainConfig, PEFTConfig
+from ironcore.config.config_data import DataConfig
+from ironcore.config.config_model import ModelConfig
+from ironcore.config.config_moe import MoEConfig
+from ironcore.config.config_optim import OptimConfig
+from ironcore.config.config_parallel import ParallelConfig
+from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
+from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
+from ironcore.layers.moe import MoEMLP
+from ironcore.layers.moe.moe_layer import CommunicationMode
+from ironcore.parallel.expert_parallel import (
+    destroy_expert_parallel,
+    initialize_expert_parallel,
+)
 from ironcore.parallel.grad_norm import clip_grad_norm
 from ironcore.parallel.parallel_states import (
     destroy_model_parallel,
@@ -279,20 +293,118 @@ def test_grad_norm_tp2_inf_norm():
 # =============================================================================
 
 
-def test_grad_norm_ep2_moe():
-    """Test gradient norm with EP=2 using MoE model.
+def _make_ep2_config():
+    return MainConfig(
+        model=ModelConfig(
+            d_model=64,
+            d_ffn=128,
+            moe=MoEConfig(
+                use_moe=True,
+                num_shared_experts=1,
+                num_routed_experts=4,
+                num_experts_per_token=2,
+                expert_model_parallel_size=2,
+            ),
+        ),
+        init=InitConfig(),
+        optim=OptimConfig(),
+        data=DataConfig(),
+        parallel=ParallelConfig(),
+        trainer=TrainerConfig(tensor_model_parallel_size=1),
+        operation=OperationConfig(),
+        utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
+        peft=PEFTConfig(),
+    )
 
-    SKIP: Known MoE backward pass bug causes RuntimeError.
-    """
-    print("[SKIP] EP=2 MoE gradient norm test - known MoE backward pass bug")
+
+def test_grad_norm_ep2_moe():
+    """Test gradient norm with EP=2 using MoE model (ALL_TO_ALL mode)."""
+    rank, world_size = setup_distributed()
+
+    if world_size < 2:
+        print("[Rank 0] Skipping EP=2 MoE test - needs 2 GPUs")
+        cleanup_distributed()
+        return
+
+    initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+    initialize_expert_parallel(
+        expert_model_parallel_size=2,
+        tensor_model_parallel_size=1,
+        timeout_in_minutes=10.0,
+    )
+
+    device = torch.device(f"cuda:{rank}")
+    config = _make_ep2_config()
+
+    torch.manual_seed(42)
+    moe = MoEMLP(config, communication_mode=CommunicationMode.ALL_TO_ALL).to(device)
+    moe.init_weights()
+
+    torch.manual_seed(42 + rank)
+    x = torch.randn(4, 8, 64, device=device, requires_grad=True)
+    y = torch.randn(4, 8, 64, device=device)
+
+    output = moe(x)
+    loss = torch.nn.functional.mse_loss(output, y)
+    loss.backward()
+
+    # Clip grad norm across all parameters
+    norm = clip_grad_norm(moe.parameters(), max_norm=float("inf"), norm_type=2.0)
+    norm_value = norm.item()
+
+    # Gather norms from all ranks and verify they agree
+    norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
+    dist.all_gather(norms, torch.tensor(norm_value, device=device))
+
+    for i in range(world_size):
+        assert torch.isclose(norms[i], torch.tensor(norm_value, device=device), rtol=1e-4), (
+            f"Rank {rank}: Norm mismatch with rank {i}: {norms[i].item()} vs {norm_value}"
+        )
+
+    print(f"[Rank {rank}] ✅ EP=2 MoE gradient norm test passed (norm={norm_value:.6f})")
+
+    destroy_expert_parallel()
+    cleanup_distributed()
 
 
 def test_param_norm_ep2_moe():
-    """Test parameter norm with EP=2 using MoE model.
+    """Test parameter norm with EP=2 using MoE model."""
+    rank, world_size = setup_distributed()
 
-    SKIP: Known MoE backward pass bug causes RuntimeError.
-    """
-    print("[SKIP] EP=2 MoE parameter norm test - known MoE backward pass bug")
+    if world_size < 2:
+        print("[Rank 0] Skipping EP=2 MoE param norm test - needs 2 GPUs")
+        cleanup_distributed()
+        return
+
+    initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+    initialize_expert_parallel(
+        expert_model_parallel_size=2,
+        tensor_model_parallel_size=1,
+        timeout_in_minutes=10.0,
+    )
+
+    device = torch.device(f"cuda:{rank}")
+    config = _make_ep2_config()
+
+    torch.manual_seed(42)
+    moe = MoEMLP(config, communication_mode=CommunicationMode.ALL_TO_ALL).to(device)
+    moe.init_weights()
+
+    # Compute local parameter norm squared
+    param_norm_sq = sum(p.data.norm() ** 2 for p in moe.parameters() if p.data is not None)
+    param_norm_tensor = torch.tensor(param_norm_sq, device=device)
+
+    # Routed expert params differ per EP rank; shared expert params are replicated.
+    # Just verify each rank can compute a finite norm without errors.
+    assert torch.isfinite(param_norm_tensor), f"Rank {rank}: param norm is not finite"
+
+    param_norm = param_norm_tensor.item() ** 0.5
+    print(f"[Rank {rank}] ✅ EP=2 MoE parameter norm test passed (norm={param_norm:.6f})")
+
+    destroy_expert_parallel()
+    destroy_model_parallel()
+    cleanup_distributed()
 
 
 # =============================================================================
