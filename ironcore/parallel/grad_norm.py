@@ -45,81 +45,114 @@ def clip_grad_norm(
         parameters = [parameters]
 
     # Filter parameters that have gradients
-    parameters = [p for p in parameters if p.grad is not None]
-    if len(parameters) == 0:
+    params_with_grad = [p for p in parameters if p.grad is not None]
+    if len(params_with_grad) == 0:
         return torch.tensor(0.0)
 
-    grads = [p.grad for p in parameters]
+    grads = [p.grad for p in params_with_grad]
     max_norm = float(max_norm)
     norm_type = float(norm_type)
     device = grads[0].device
 
-    # Separate expert and non-expert gradients
-    expert_grads = [p.grad for p in parameters if getattr(p, "is_expert", False)]
-    non_expert_grads = [p.grad for p in parameters if not getattr(p, "is_expert", False)]
+    # Helper to calculate local power sum for a group of parameters
+    def get_local_pow_sum(params):
+        sharded_pow = torch.tensor(0.0, device=device)
+        replicated_pow = torch.tensor(0.0, device=device)
+        for p in params:
+            p_pow = p.grad.detach().norm(norm_type) ** norm_type
+            if getattr(p, "is_tp_sharded", False):
+                sharded_pow += p_pow
+            else:
+                replicated_pow += p_pow
+        return sharded_pow, replicated_pow
+
+    expert_params = [p for p in params_with_grad if getattr(p, "is_expert", False)]
+    non_expert_params = [p for p in params_with_grad if not getattr(p, "is_expert", False)]
 
     # --- Step 1: Calculate Local Norms ---
     if norm_type == inf:
-        local_expert = max(g.detach().abs().max() for g in expert_grads) if expert_grads else 0.0
-        local_non_expert = max(g.detach().abs().max() for g in non_expert_grads) if non_expert_grads else 0.0
-        
+        local_expert = (
+            max(p.grad.detach().abs().max() for p in expert_params) if expert_params else 0.0
+        )
+        local_non_expert = (
+            max(p.grad.detach().abs().max() for p in non_expert_params) if non_expert_params else 0.0
+        )
+
         # Use tensors for collective communication
         norms = torch.tensor([float(local_expert), float(local_non_expert)], device=device)
-        
+
         # --- Step 2: TP Reduction ---
         tp_size = parallel_states.get_tensor_model_parallel_world_size()
         if tp_size > 1:
-            dist.all_reduce(norms, op=dist.ReduceOp.MAX, group=parallel_states.get_tensor_model_parallel_group())
-            
+            # For infinity norm, MAX reduction is correct for both sharded and replicated
+            dist.all_reduce(
+                norms, op=dist.ReduceOp.MAX, group=parallel_states.get_tensor_model_parallel_group()
+            )
+
         # --- Step 3: EP Reduction ---
         ep_size = get_expert_model_parallel_world_size()
         if ep_size > 1:
             # Expert parameters are sharded across EP, non-expert are replicated
             dist.all_reduce(norms[0], op=dist.ReduceOp.MAX, group=get_expert_model_parallel_group())
-            
+
         # --- Step 4: DP Reduction ---
         dp_size = parallel_states.get_data_parallel_world_size()
         if dp_size > 1:
-            dist.all_reduce(norms, op=dist.ReduceOp.MAX, group=parallel_states.get_data_parallel_group())
-            
+            dist.all_reduce(
+                norms, op=dist.ReduceOp.MAX, group=parallel_states.get_data_parallel_group()
+            )
+
         total_norm = norms.max()
-        
+
     else:
-        # Calculate local power sums: sum(||g||^p)
-        local_expert_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in expert_grads]).sum() if expert_grads else torch.tensor(0.0, device=device)
-        local_non_expert_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in non_expert_grads]).sum() if non_expert_grads else torch.tensor(0.0, device=device)
-        
+        # Calculate local power sums
+        exp_sharded_pow, exp_repl_pow = get_local_pow_sum(expert_params)
+        non_exp_sharded_pow, non_exp_repl_pow = get_local_pow_sum(non_expert_params)
+
         # --- Step 2: TP Reduction ---
         tp_size = parallel_states.get_tensor_model_parallel_world_size()
         if tp_size > 1:
             tp_group = parallel_states.get_tensor_model_parallel_group()
-            dist.all_reduce(local_expert_pow, op=dist.ReduceOp.SUM, group=tp_group)
-            dist.all_reduce(local_non_expert_pow, op=dist.ReduceOp.SUM, group=tp_group)
-            
+            # Combine sharded and replicated for all-reduce
+            combined = torch.stack(
+                [exp_sharded_pow, exp_repl_pow, non_exp_sharded_pow, non_exp_repl_pow]
+            )
+            dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=tp_group)
+
+            # For replicated parameters, SUM across TP over-counts, so we divide
+            exp_sharded_pow, exp_repl_pow, non_exp_sharded_pow, non_exp_repl_pow = combined
+            exp_repl_pow /= tp_size
+            non_exp_repl_pow /= tp_size
+
+        local_expert_pow = exp_sharded_pow + exp_repl_pow
+        local_non_expert_pow = non_exp_sharded_pow + non_exp_repl_pow
+
         # --- Step 3: EP Reduction ---
         ep_size = get_expert_model_parallel_world_size()
         if ep_size > 1:
             # Expert parameters are sharded across EP ranks, so we SUM.
             # Non-expert parameters are REPLICATED across EP ranks, so we stay with current value.
-            dist.all_reduce(local_expert_pow, op=dist.ReduceOp.SUM, group=get_expert_model_parallel_group())
-            
+            dist.all_reduce(
+                local_expert_pow, op=dist.ReduceOp.SUM, group=get_expert_model_parallel_group()
+            )
+
         # --- Step 4: DP Reduction (for DDP averaging) ---
         dp_size = parallel_states.get_data_parallel_world_size()
         if dist.is_initialized() and dp_size > 1:
             dp_group = parallel_states.get_data_parallel_group()
-            # Gradients in DDP are averaged, so norm^p is averaged.
-            dist.all_reduce(local_expert_pow, op=dist.ReduceOp.SUM, group=dp_group)
-            dist.all_reduce(local_non_expert_pow, op=dist.ReduceOp.SUM, group=dp_group)
-            local_expert_pow /= dp_size
-            local_non_expert_pow /= dp_size
-            
+            # Combine for single all-reduce
+            combined = torch.stack([local_expert_pow, local_non_expert_pow])
+            dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=dp_group)
+            local_expert_pow, local_non_expert_pow = combined / dp_size
+
         total_norm_pow = local_expert_pow + local_non_expert_pow
         total_norm = total_norm_pow ** (1.0 / norm_type)
 
     # --- Step 5: Apply Clipping ---
     clip_coef = max_norm / (total_norm + 1e-6)
     if clip_coef < 1.0:
-        for g in grads:
+        # Use a set to avoid double-clipping shared gradients
+        for g in {p.grad for p in params_with_grad}:
             g.detach().mul_(clip_coef)
 
     return total_norm

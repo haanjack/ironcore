@@ -607,39 +607,65 @@ class GRPOTrainer(BaseTrainer):
         """Compute gradient and parameter norms."""
         from ironcore.parallel import parallel_states
         from ironcore.parallel.grad_norm import clip_grad_norm
- 
+
         self.scaler.unscale_(self.optimizer)
- 
+
         grad_norm = 0.0
         if self.config.optim.clip_grad > 0.0:
             if isinstance(self.model, FSDP):
                 grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
             else:
-                grad_norm = clip_grad_norm(self.model.parameters(), self.config.optim.clip_grad).item()
+                grad_norm = clip_grad_norm(
+                    self.model.parameters(), self.config.optim.clip_grad
+                ).item()
         elif self.control.do_grad_norm(step):
             if isinstance(self.model, FSDP):
                 # Passing inf just to get the norm without clipping
                 grad_norm = self.model.clip_grad_norm_(float("inf")).item()
             else:
                 grad_norm = clip_grad_norm(self.model.parameters(), float("inf")).item()
- 
+
         param_norm = 0.0
         if self.control.do_param_norm(step):
             # Compute local squared norms for expert and non-expert parameters
             # (No .item() in loop to avoid CPU-GPU sync)
-            expert_params = [p for p in self.model.parameters() if p.data is not None and getattr(p, "is_expert", False)]
-            non_expert_params = [p for p in self.model.parameters() if p.data is not None and not getattr(p, "is_expert", False)]
- 
-            expert_norm_sq = torch.stack([p.data.norm()**2 for p in expert_params]).sum() if expert_params else torch.tensor(0.0, device=self._get_compute_device())
-            non_expert_norm_sq = torch.stack([p.data.norm()**2 for p in non_expert_params]).sum() if non_expert_params else torch.tensor(0.0, device=self._get_compute_device())
- 
+            expert_params = [
+                p
+                for p in self.model.parameters()
+                if p.data is not None and getattr(p, "is_expert", False)
+            ]
+            non_expert_params = [
+                p
+                for p in self.model.parameters()
+                if p.data is not None and not getattr(p, "is_expert", False)
+            ]
+
+            expert_norm_sq = (
+                torch.stack([p.data.norm() ** 2 for p in expert_params]).sum()
+                if expert_params
+                else torch.tensor(0.0, device=self._get_compute_device())
+            )
+            non_expert_norm_sq = (
+                torch.stack([p.data.norm() ** 2 for p in non_expert_params]).sum()
+                if non_expert_params
+                else torch.tensor(0.0, device=self._get_compute_device())
+            )
+
             if dist.is_initialized():
                 # Step 1: TP/FSDP Reduction (parameters are sharded across these groups)
                 # FSDP uses DP group for sharding
                 if isinstance(self.model, FSDP):
-                    dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=parallel_states.get_data_parallel_group())
-                    dist.all_reduce(non_expert_norm_sq, op=dist.ReduceOp.SUM, group=parallel_states.get_data_parallel_group())
-                
+                    dist.all_reduce(
+                        expert_norm_sq,
+                        op=dist.ReduceOp.SUM,
+                        group=parallel_states.get_data_parallel_group(),
+                    )
+                    dist.all_reduce(
+                        non_expert_norm_sq,
+                        op=dist.ReduceOp.SUM,
+                        group=parallel_states.get_data_parallel_group(),
+                    )
+
                 # Tensor Parallelism
                 tp_size = parallel_states.get_tensor_model_parallel_world_size()
                 if tp_size > 1:
@@ -653,6 +679,7 @@ class GRPOTrainer(BaseTrainer):
                         get_expert_model_parallel_group,
                         get_expert_model_parallel_world_size,
                     )
+
                     ep_group = get_expert_model_parallel_group()
                     if ep_group is not None and get_expert_model_parallel_world_size() > 1:
                         dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=ep_group)
@@ -667,12 +694,16 @@ class GRPOTrainer(BaseTrainer):
                 if not isinstance(self.model, FSDP) and dp_size > 1:
                     # Parameters are replicated across DP ranks, so SUM would scale by dp_size.
                     # Average to maintain consistency.
-                    dist.all_reduce(param_norm_sq, op=dist.ReduceOp.SUM, group=parallel_states.get_data_parallel_group())
+                    dist.all_reduce(
+                        param_norm_sq,
+                        op=dist.ReduceOp.SUM,
+                        group=parallel_states.get_data_parallel_group(),
+                    )
                     param_norm_sq /= dp_size
 
-                param_norm = param_norm_sq.item()**0.5
+                param_norm = param_norm_sq.item() ** 0.5
             else:
-                param_norm = (expert_norm_sq + non_expert_norm_sq).item()**0.5
+                param_norm = (expert_norm_sq + non_expert_norm_sq).item() ** 0.5
 
         return grad_norm, param_norm
 

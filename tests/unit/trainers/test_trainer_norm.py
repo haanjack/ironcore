@@ -13,9 +13,10 @@ Run tests:
     pytest tests/unit/trainers/test_trainer_norm.py -v
 """
 
-import torch
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
+import torch
 
 
 class SimpleModel(torch.nn.Module):
@@ -81,7 +82,7 @@ class TestBaseTrainerNormComputation:
         for p in simple_model.parameters():
             if p.data is not None:
                 param_norm_sq += p.data.norm().item() ** 2
-        param_norm = param_norm_sq ** 0.5
+        param_norm = param_norm_sq**0.5
 
         assert isinstance(param_norm, float), f"Expected float, got {type(param_norm)}"
         assert param_norm > 0, "Parameter norm should be positive"
@@ -95,7 +96,7 @@ class TestBaseTrainerNormComputation:
         mock_scaler.unscale_ = MagicMock()
 
         mock_optimizer = MagicMock()
-        mock_optimizer.param_groups = [{'params': list(simple_model.parameters())}]
+        mock_optimizer.param_groups = [{"params": list(simple_model.parameters())}]
 
         # Create a minimal mock trainer
         mock_trainer = MagicMock()
@@ -116,8 +117,7 @@ class TestBaseTrainerNormComputation:
         grad_norm = 0.0
         if mock_trainer.config.optim.clip_grad > 0.0:
             grad_norm = clip_grad_norm(
-                simple_model.parameters(),
-                mock_trainer.config.optim.clip_grad
+                simple_model.parameters(), mock_trainer.config.optim.clip_grad
             ).item()
 
         assert isinstance(grad_norm, float), f"Expected float, got {type(grad_norm)}"

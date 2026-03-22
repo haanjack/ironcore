@@ -4,9 +4,6 @@
 
 """Pytest configuration for parallel unit tests."""
 
-import sys
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from ironcore.parallel import parallel_states

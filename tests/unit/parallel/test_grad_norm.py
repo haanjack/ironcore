@@ -4,8 +4,8 @@
 
 """Smoke tests for gradient norm computation."""
 
-import torch
 import pytest
+import torch
 
 from ironcore.parallel.grad_norm import clip_grad_norm
 
@@ -52,7 +52,7 @@ def test_clip_grad_norm_basic(norm_type):
 
     # Test clipping with max_norm=0.5
     max_norm = 0.5
-    norm_original = clip_grad_norm(model.parameters(), max_norm=max_norm, norm_type=norm_type)
+    clip_grad_norm(model.parameters(), max_norm=max_norm, norm_type=norm_type)
 
     # Compute actual norm of clipped gradients
     if norm_type == 2.0:
@@ -65,7 +65,9 @@ def test_clip_grad_norm_basic(norm_type):
         )
 
     # For L2 norm, clipped should be <= max_norm (with small tolerance)
-    assert norm_clipped <= max_norm + 1e-5, f"Actual clipped norm {norm_clipped} exceeds max_norm {max_norm}"
+    assert norm_clipped <= max_norm + 1e-5, (
+        f"Actual clipped norm {norm_clipped} exceeds max_norm {max_norm}"
+    )
 
 
 def test_clip_grad_norm_no_gradients():
@@ -75,9 +77,9 @@ def test_clip_grad_norm_no_gradients():
     # Parameters without gradients
     norm = clip_grad_norm(model.parameters(), max_norm=1.0)
 
-    assert norm == 0.0 or torch.isclose(
-        norm, torch.tensor(0.0)
-    ), "Norm should be 0 when no gradients exist"
+    assert norm == 0.0 or torch.isclose(norm, torch.tensor(0.0)), (
+        "Norm should be 0 when no gradients exist"
+    )
 
 
 def test_clip_grad_norm_single_tensor():
@@ -117,7 +119,7 @@ def test_clip_grad_norm_clipping_effect():
     # Check that individual parameter gradients are reduced
     grad_norms_after = [p.grad.norm().item() for p in model.parameters() if p.grad is not None]
 
-    for before, after in zip(grad_norms_before, grad_norms_after):
+    for before, after in zip(grad_norms_before, grad_norms_after, strict=False):
         assert after <= before + 1e-5, "Clipping should not increase gradient magnitudes"
 
 

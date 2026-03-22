@@ -18,13 +18,13 @@ import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
+from ironcore.parallel.grad_norm import clip_grad_norm
 from ironcore.parallel.parallel_states import (
     destroy_model_parallel,
     get_data_parallel_world_size,
     get_tensor_model_parallel_world_size,
     initialize_model_parallel,
 )
-from ironcore.parallel.grad_norm import clip_grad_norm
 
 
 class SimpleModel(torch.nn.Module):
@@ -150,7 +150,9 @@ def test_grad_norm_dp2_clipping():
         f"Rank {rank}: Clipped norm {norm_after.item()} exceeds max_norm {max_norm}"
     )
 
-    print(f"[Rank {rank}] ✅ DP=2 gradient clipping test passed (before={norm_before.item():.6f}, after={norm_after.item():.6f})")
+    print(
+        f"[Rank {rank}] ✅ DP=2 gradient clipping test passed (before={norm_before.item():.6f}, after={norm_after.item():.6f})"
+    )
 
     destroy_model_parallel()
     cleanup_distributed()
@@ -348,20 +350,20 @@ def main():
     parser.add_argument("--test", type=str, default="all")
     args = parser.parse_args()
 
-    if args.test == "dp2" or args.test == "all":
+    if args.test in {"dp2", "all"}:
         test_grad_norm_dp2()
         test_grad_norm_dp2_clipping()
         test_param_norm_dp2()
-    
-    if args.test == "tp2" or args.test == "all":
+
+    if args.test in {"tp2", "all"}:
         test_grad_norm_tp2()
         test_grad_norm_tp2_inf_norm()
 
-    if args.test == "ep2" or args.test == "all":
+    if args.test in {"ep2", "all"}:
         test_grad_norm_ep2_moe()
         test_param_norm_ep2_moe()
 
-    if args.test == "fsdp" or args.test == "all":
+    if args.test in {"fsdp", "all"}:
         test_grad_norm_fsdp_dp2()
 
 
