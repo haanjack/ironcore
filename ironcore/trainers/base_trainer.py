@@ -545,13 +545,13 @@ class BaseTrainer(ABC):
             if isinstance(self.model, FSDP):
                 grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
             else:
-                grad_norm = clip_grad_norm(self.model.parameters(), self.config.optim.clip_grad)
+                grad_norm = clip_grad_norm(self.model.parameters(), self.config.optim.clip_grad).item()
         elif self.control.do_grad_norm(step):
             # No clipping, but compute norm for logging (clip_grad=inf means compute but don't clip)
             if isinstance(self.model, FSDP):
                 grad_norm = self.model.clip_grad_norm_(float("inf")).item()
             else:
-                grad_norm = clip_grad_norm(self.model.parameters(), float("inf"))
+                grad_norm = clip_grad_norm(self.model.parameters(), float("inf")).item()
 
         param_norm = 0.0
         if self.control.do_param_norm(step):

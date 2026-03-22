@@ -47,7 +47,7 @@ def clip_grad_norm(
     # Filter parameters that have gradients
     parameters = [p for p in parameters if p.grad is not None]
     if len(parameters) == 0:
-        return torch.tensor(0.0, device=torch.cuda.current_device())
+        return torch.tensor(0.0)
 
     grads = [p.grad for p in parameters]
     max_norm = float(max_norm)
