@@ -226,10 +226,11 @@ def grpo_loss(
 
     # Entropy bonus: subtract to encourage exploration
     mean_entropy: float = 0.0
-    if entropy is not None and entropy_coef > 0.0:
+    if entropy is not None:
         entropy_mean = entropy.mean()
         mean_entropy = entropy_mean.item()
-        total_loss = total_loss - entropy_coef * entropy_mean
+        if entropy_coef > 0.0:
+            total_loss = total_loss - entropy_coef * entropy_mean
 
     with torch.no_grad():
         metrics = {
