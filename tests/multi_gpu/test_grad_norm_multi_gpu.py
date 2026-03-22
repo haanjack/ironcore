@@ -16,7 +16,6 @@ from ironcore.config import (
     InitConfig,
     MainConfig,
     ModelConfig,
-    MoEConfig,
     OperationConfig,
     OptimConfig,
     ParallelConfig,
@@ -25,6 +24,7 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_moe import MoEConfig
 from ironcore.layers.moe import MoEMLP
 from ironcore.parallel.expert_parallel import (
     destroy_expert_parallel,

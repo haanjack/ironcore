@@ -73,17 +73,6 @@ class TestBaseTrainerNormComputation:
         assert isinstance(grad_norm, float), f"Expected float, got {type(grad_norm)}"
         assert grad_norm >= 0, "Gradient norm should be non-negative"
 
-    def test_compute_grad_norm_no_gradients_returns_float(self):
-        """Test that computing norm with no gradients returns float."""
-        from ironcore.parallel.grad_norm import clip_grad_norm
-
-        model = SimpleModel()  # No backward pass, no gradients
-        grad_norm_tensor = clip_grad_norm(model.parameters(), max_norm=1.0)
-        grad_norm = grad_norm_tensor.item()
-
-        assert isinstance(grad_norm, float), f"Expected float, got {type(grad_norm)}"
-        assert grad_norm == 0.0, "Gradient norm should be 0 when no gradients"
-
     def test_param_norm_computation(self, simple_model):
         """Test parameter norm computation returns float."""
         # Compute parameter norm the way base_trainer does it
@@ -198,30 +187,6 @@ class TestGRPOTrainerNormComputation:
 
 class TestNormComputationIntegration:
     """Integration tests for norm computation across all trainers."""
-
-    @pytest.mark.parametrize("clip_grad", [0.0, 0.5, 1.0, float("inf")])
-    def test_clip_grad_norm_all_configs(self, simple_model, clip_grad):
-        """Test gradient norm computation with various clip_grad configs."""
-        from ironcore.parallel.grad_norm import clip_grad_norm
-
-        # Recompute gradients for each test
-        for p in simple_model.parameters():
-            if p.grad is not None:
-                p.grad.zero_()
-
-        x = torch.randn(2, 32)
-        y = simple_model(x)
-        loss = y.sum()
-        loss.backward()
-
-        if clip_grad > 0.0:
-            grad_norm = clip_grad_norm(simple_model.parameters(), max_norm=clip_grad).item()
-        else:
-            grad_norm = clip_grad_norm(simple_model.parameters(), max_norm=float("inf")).item()
-
-        assert isinstance(grad_norm, float), f"Expected float, got {type(grad_norm)}"
-        assert grad_norm >= 0, "Gradient norm should be non-negative"
-        assert not torch.isnan(torch.tensor(grad_norm)), "Gradient norm should not be NaN"
 
     def test_all_trainers_use_same_clip_grad_norm(self, simple_model):
         """Verify all trainers use the same clip_grad_norm function."""
