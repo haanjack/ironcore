@@ -60,9 +60,5 @@ class ExpertMLP(ParallelMLP):
 
         self.expert_id = expert_id
 
-        # Mark parameters as expert for distributed norm calculation
-        for p in self.parameters():
-            p.is_expert = True
-
     def __repr__(self):
         return f"ExpertMLP(id={self.expert_id}, hidden={self.hidden_size}, ffn={self.intermediate_size})"

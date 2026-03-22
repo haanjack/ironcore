@@ -45,95 +45,78 @@ def clip_grad_norm(
         parameters = [parameters]
 
     # Filter parameters that have gradients
-    grads = [p.grad for p in parameters if p.grad is not None]
+    parameters = [p for p in parameters if p.grad is not None]
+    if len(parameters) == 0:
+        return torch.tensor(0.0, device=torch.cuda.current_device())
 
+    grads = [p.grad for p in parameters]
     max_norm = float(max_norm)
     norm_type = float(norm_type)
-    device = torch.cuda.current_device()
+    device = grads[0].device
 
-    if len(grads) == 0:
-        total_norm_pow = torch.tensor(0.0, device=device)
-        total_norm = torch.tensor(0.0, device=device)
-    else:
-        device = grads[0].device
-        # --- Step 1: Calculate Local Norm ---
-        if norm_type == inf:
-            # Calculate local max absolute value
-            total_norm = max(g.detach().abs().max() for g in grads)
-            total_norm = torch.tensor(float(total_norm), device=device)
-        else:
-            # Calculate local sum of powers: sum(||g||^p)
-            # Optimized to avoid excessive stack/norm calls
-            local_norms_pow = [g.detach().norm(norm_type) ** norm_type for g in grads]
-            total_norm_pow = torch.stack(local_norms_pow).sum()
+    # Separate expert and non-expert gradients
+    expert_grads = [p.grad for p in parameters if getattr(p, "is_expert", False)]
+    non_expert_grads = [p.grad for p in parameters if not getattr(p, "is_expert", False)]
 
-    # --- Step 2: Communication across Tensor Parallel (TP) Group ---
-    # Since non-expert parameters are sharded across TP ranks, we MUST sum/max them.
-    tp_size = parallel_states.get_tensor_model_parallel_world_size()
-    if tp_size > 1:
-        tp_group = parallel_states.get_tensor_model_parallel_group()
-        dist.all_reduce(
-            total_norm if norm_type == inf else total_norm_pow,
-            op=dist.ReduceOp.MAX if norm_type == inf else dist.ReduceOp.SUM,
-            group=tp_group,
-        )
-
-    # --- Step 3: Communication across Expert Parallel (EP) Group ---
-    # If MoE is enabled, expert parameters are sharded across EP ranks.
-    # We must separate expert and non-expert norms to avoid double-counting.
-    try:
-        ep_group = get_expert_model_parallel_group()
-        if ep_group is not None and get_expert_model_parallel_world_size() > 1:
-            expert_grads = [p.grad for p in parameters if p.grad is not None and getattr(p, "is_expert", False)]
+    # --- Step 1: Calculate Local Norms ---
+    if norm_type == inf:
+        local_expert = max(g.detach().abs().max() for g in expert_grads) if expert_grads else 0.0
+        local_non_expert = max(g.detach().abs().max() for g in non_expert_grads) if non_expert_grads else 0.0
+        
+        # Use tensors for collective communication
+        norms = torch.tensor([float(local_expert), float(local_non_expert)], device=device)
+        
+        # --- Step 2: TP Reduction ---
+        tp_size = parallel_states.get_tensor_model_parallel_world_size()
+        if tp_size > 1:
+            dist.all_reduce(norms, op=dist.ReduceOp.MAX, group=parallel_states.get_tensor_model_parallel_group())
             
-            if norm_type == inf:
-                local_expert_norm = max(g.detach().abs().max() for g in expert_grads) if expert_grads else 0.0
-                local_expert_norm_tensor = torch.tensor(float(local_expert_norm), device=device)
-                dist.all_reduce(local_expert_norm_tensor, op=dist.ReduceOp.MAX, group=ep_group)
-                total_norm = torch.max(total_norm, local_expert_norm_tensor)
-            else:
-                # Expert gradients are summed across EP ranks.
-                # Non-expert gradients are REPLICATED across EP ranks, so we ONLY sum experts.
-                local_expert_norm_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in expert_grads]).sum() if expert_grads else torch.tensor(0.0, device=device)
-                
-                # To get global sum(||g||^p), we need to reduce expert norms only.
-                # Since total_norm_pow currently has local_expert + replicated_non_expert,
-                # we subtract local expert norm, then add reduced expert norm.
-                dist.all_reduce(local_expert_norm_pow, op=dist.ReduceOp.SUM, group=ep_group)
-                
-                # Re-calculate non-expert contribution locally (same across EP)
-                non_expert_grads = [p.grad for p in parameters if p.grad is not None and not getattr(p, "is_expert", False)]
-                local_non_expert_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in non_expert_grads]).sum() if non_expert_grads else torch.tensor(0.0, device=device)
-                
-                # Total norm power is sum of global expert norms + local (replicated) non-expert norms
-                total_norm_pow = local_expert_norm_pow + local_non_expert_pow
-        elif ep_group is not None:
-             # Just to ensure collective communication if world_size=1 (though usually no-op)
-             pass
-    except (ImportError, AttributeError, RuntimeError):
-        # MoE not enabled or expert parallel not initialized
-        pass
-
-    # --- Step 4: Communication across Data Parallel (DP) Group ---
-    # For DDP, gradients are already averaged. Summing them again would
-    # scale the norm by DP_size, so we must average the power sum.
-    dp_size = parallel_states.get_data_parallel_world_size()
-    if dist.is_initialized() and dp_size > 1:
-        dp_group = parallel_states.get_data_parallel_group()
-
-        if norm_type == inf:
-            # Sync max value to ensure bit-level consistency across all DP ranks
-            dist.all_reduce(total_norm, op=dist.ReduceOp.MAX, group=dp_group)
-        else:
-            # Average the power sum across DP ranks to maintain mathematical correctness
-            dist.all_reduce(total_norm_pow, op=dist.ReduceOp.SUM, group=dp_group)
-            total_norm_pow /= dp_size
-
-    # --- Step 5: Finalize Total Norm ---
-    if norm_type != inf:
+        # --- Step 3: EP Reduction ---
+        ep_size = get_expert_model_parallel_world_size()
+        if ep_size > 1:
+            # Expert parameters are sharded across EP, non-expert are replicated
+            dist.all_reduce(norms[0], op=dist.ReduceOp.MAX, group=get_expert_model_parallel_group())
+            
+        # --- Step 4: DP Reduction ---
+        dp_size = parallel_states.get_data_parallel_world_size()
+        if dp_size > 1:
+            dist.all_reduce(norms, op=dist.ReduceOp.MAX, group=parallel_states.get_data_parallel_group())
+            
+        total_norm = norms.max()
+        
+    else:
+        # Calculate local power sums: sum(||g||^p)
+        local_expert_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in expert_grads]).sum() if expert_grads else torch.tensor(0.0, device=device)
+        local_non_expert_pow = torch.stack([g.detach().norm(norm_type)**norm_type for g in non_expert_grads]).sum() if non_expert_grads else torch.tensor(0.0, device=device)
+        
+        # --- Step 2: TP Reduction ---
+        tp_size = parallel_states.get_tensor_model_parallel_world_size()
+        if tp_size > 1:
+            tp_group = parallel_states.get_tensor_model_parallel_group()
+            dist.all_reduce(local_expert_pow, op=dist.ReduceOp.SUM, group=tp_group)
+            dist.all_reduce(local_non_expert_pow, op=dist.ReduceOp.SUM, group=tp_group)
+            
+        # --- Step 3: EP Reduction ---
+        ep_size = get_expert_model_parallel_world_size()
+        if ep_size > 1:
+            # Expert parameters are sharded across EP ranks, so we SUM.
+            # Non-expert parameters are REPLICATED across EP ranks, so we stay with current value.
+            dist.all_reduce(local_expert_pow, op=dist.ReduceOp.SUM, group=get_expert_model_parallel_group())
+            
+        # --- Step 4: DP Reduction (for DDP averaging) ---
+        dp_size = parallel_states.get_data_parallel_world_size()
+        if dist.is_initialized() and dp_size > 1:
+            dp_group = parallel_states.get_data_parallel_group()
+            # Gradients in DDP are averaged, so norm^p is averaged.
+            dist.all_reduce(local_expert_pow, op=dist.ReduceOp.SUM, group=dp_group)
+            dist.all_reduce(local_non_expert_pow, op=dist.ReduceOp.SUM, group=dp_group)
+            local_expert_pow /= dp_size
+            local_non_expert_pow /= dp_size
+            
+        total_norm_pow = local_expert_pow + local_non_expert_pow
         total_norm = total_norm_pow ** (1.0 / norm_type)
 
-    # --- Step 6: Apply Clipping ---
+    # --- Step 5: Apply Clipping ---
     clip_coef = max_norm / (total_norm + 1e-6)
     if clip_coef < 1.0:
         for g in grads:

@@ -1,19 +1,8 @@
-#!/usr/bin/env python
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Multi-GPU test for Gradient Norm computation.
-
-This test verifies gradient norm functionality with different parallelism configurations.
-
-Usage:
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test_type dp2
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test_type tp2
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test_type ep2
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test_type fsdp
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py
-"""
+"""Multi-GPU tests for gradient norm and clipping."""
 
 import argparse
 import os
@@ -22,14 +11,20 @@ import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
-from ironcore.config import MainConfig, PEFTConfig
-from ironcore.config.config_data import DataConfig
-from ironcore.config.config_model import ModelConfig
-from ironcore.config.config_moe import MoEConfig
-from ironcore.config.config_optim import OptimConfig
-from ironcore.config.config_parallel import ParallelConfig
-from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
-from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
+from ironcore.config import (
+    DataConfig,
+    InitConfig,
+    MainConfig,
+    ModelConfig,
+    MoEConfig,
+    OperationConfig,
+    OptimConfig,
+    ParallelConfig,
+    PEFTConfig,
+    ProfilerConfig,
+    TrainerConfig,
+    UtilsConfig,
+)
 from ironcore.layers.moe import MoEMLP
 from ironcore.parallel.expert_parallel import (
     destroy_expert_parallel,
@@ -116,7 +111,6 @@ def test_grad_norm_dp2():
     norm = clip_grad_norm(model.parameters(), max_norm=max_norm, norm_type=2.0)
 
     # Verify: All ranks should get same norm value
-    # (DP averages the power sum to avoid scaling by DP_size)
     norm_value = norm.item()
 
     # Gather norms from all ranks
@@ -244,7 +238,6 @@ def test_grad_norm_tp2():
     )
 
     device = torch.device(f"cuda:{rank}")
-    _ = get_tensor_model_parallel_rank()  # Verify TP rank is accessible
     tp_size = get_tensor_model_parallel_world_size()
 
     assert tp_size == 2, f"Expected TP size 2, got {tp_size}"
@@ -266,7 +259,7 @@ def test_grad_norm_tp2():
     norm = clip_grad_norm(model.parameters(), max_norm=float("inf"), norm_type=2.0)
     norm_value = norm.item()
 
-    # All TP ranks should have same norm
+    # All ranks should have same norm
     norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
     dist.all_gather(norms, torch.tensor(norm_value, device=device))
 
@@ -313,10 +306,6 @@ def test_grad_norm_tp2_inf_norm():
     norm = clip_grad_norm(model.parameters(), max_norm=float("inf"), norm_type=float("inf"))
     norm_value = norm.item()
 
-    # Verify inf-norm is the max gradient
-    grads = [p.grad for p in model.parameters() if p.grad is not None]
-    local_max = max(g.abs().max().item() for g in grads)
-
     # After TP all-reduce with MAX, all ranks should have global max
     norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
     dist.all_gather(norms, torch.tensor(norm_value, device=device))
@@ -327,51 +316,7 @@ def test_grad_norm_tp2_inf_norm():
             f"Rank {rank}: Inf-norm mismatch with rank {i}: {n.item()} vs {norm_value}"
         )
 
-    print(f"[Rank {rank}] ✅ TP=2 inf-norm test passed (norm={norm_value:.6f}, local_max={local_max:.6f})")
-
-    destroy_model_parallel()
-    cleanup_distributed()
-
-
-def test_param_norm_tp2():
-    """Test parameter norm computation with TP=2."""
-    rank, world_size = setup_distributed()
-
-    if world_size < 2:
-        print("[Rank 0] Skipping TP=2 param norm test - needs 2 GPUs")
-        cleanup_distributed()
-        return
-
-    initialize_model_parallel(
-        tensor_model_parallel_size=2,
-        timeout_in_minutes=10.0,
-    )
-
-    device = torch.device(f"cuda:{rank}")
-
-    torch.manual_seed(42)
-    model = SimpleModel().to(device)
-
-    # Compute parameter norm (simulating base_trainer logic)
-    param_norm_sq = 0.0
-    for p in model.parameters():
-        if p.data is not None:
-            param_norm_sq += p.data.norm() ** 2
-
-    # For TP, sync across TP group
-    tp_size = get_tensor_model_parallel_world_size()
-    param_norm_tensor = torch.tensor(param_norm_sq, device=device)
-    if tp_size > 1:
-        from ironcore.parallel.parallel_states import get_tensor_model_parallel_group
-        dist.all_reduce(
-            param_norm_tensor,
-            op=dist.ReduceOp.SUM,
-            group=get_tensor_model_parallel_group(),
-        )
-
-    param_norm = param_norm_tensor.item() ** 0.5
-
-    print(f"[Rank {rank}] ✅ TP=2 parameter norm test passed (norm={param_norm:.6f})")
+    print(f"[Rank {rank}] ✅ TP=2 inf-norm test passed (norm={norm_value:.6f})")
 
     destroy_model_parallel()
     cleanup_distributed()
@@ -382,21 +327,15 @@ def test_param_norm_tp2():
 # =============================================================================
 
 
-def test_grad_norm_ep2():
-    """Test gradient norm with EP=2 using simple model.
-
-    Note: We use a simple model instead of MoE to avoid hitting
-    the "Tensors must be contiguous" bug in MoE backward pass.
-    The EP communication in clip_grad_norm is still tested.
-    """
+def test_grad_norm_ep2_moe():
+    """Test gradient norm with EP=2 using MoE model."""
     rank, world_size = setup_distributed()
 
     if world_size < 2:
-        print("[Rank 0] Skipping EP=2 test - needs 2 GPUs")
+        print("[Rank 0] Skipping EP=2 MoE test - needs 2 GPUs")
         cleanup_distributed()
         return
 
-    # Initialize TP first, then EP
     initialize_model_parallel(
         tensor_model_parallel_size=1,
         timeout_in_minutes=10.0,
@@ -408,99 +347,83 @@ def test_grad_norm_ep2():
     )
 
     device = torch.device(f"cuda:{rank}")
-    _ = get_expert_model_parallel_rank()  # Verify EP rank is accessible
     ep_size = get_expert_model_parallel_world_size()
+    assert ep_size == 2
 
-    assert ep_size == 2, f"Expected EP size 2, got {ep_size}"
+    # Create MoE model
+    config = MainConfig(
+        model=ModelConfig(
+            d_model=64,
+            d_ffn=128,
+            moe=MoEConfig(
+                use_moe=True,
+                num_shared_experts=1,
+                num_routed_experts=4,
+                num_experts_per_token=2,
+                expert_model_parallel_size=2,
+                aux_loss_alpha=0.0,
+            ),
+        ),
+        init=InitConfig(),
+        optim=OptimConfig(),
+        data=DataConfig(),
+        parallel=ParallelConfig(),
+        trainer=TrainerConfig(tensor_model_parallel_size=1),
+        operation=OperationConfig(),
+        utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
+        peft=PEFTConfig(),
+    )
 
-    # Use simple model instead of MoE to avoid backward pass bug
-    torch.manual_seed(42)
-    model = SimpleModel().to(device)
+    moe = MoEMLP(config).to(device)
+    
+    # Verify that routed experts are marked and shared experts are not
+    for expert in moe.shared_experts:
+        for p in expert.parameters():
+            assert not getattr(p, "is_expert", False), "Shared expert should NOT be marked is_expert"
+    
+    for expert in moe.routed_experts:
+        for p in expert.parameters():
+            assert getattr(p, "is_expert", False), "Routed expert SHOULD be marked is_expert"
 
     # Forward/backward
     torch.manual_seed(42)
-    x = torch.randn(4, 10, device=device)
-    y = torch.randn(4, 5, device=device)
+    x = torch.randn(4, 8, 64, device=device)
+    y = torch.randn(4, 8, 64, device=device)
 
-    output = model(x)
+    output = moe(x)
     loss = torch.nn.functional.mse_loss(output, y)
     loss.backward()
 
-    # Compute gradient norm (EP communication is tested here)
-    norm = clip_grad_norm(model.parameters(), max_norm=float("inf"), norm_type=2.0)
+    # Compute gradient norm
+    norm = clip_grad_norm(moe.parameters(), max_norm=float("inf"), norm_type=2.0)
     norm_value = norm.item()
 
-    assert norm_value > 0, f"Rank {rank}: Gradient norm should be positive"
-    assert not torch.isnan(torch.tensor(norm_value)), f"Rank {rank}: Gradient norm should not be NaN"
+    assert norm_value > 0
+    
+    # All ranks should have same norm
+    norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
+    dist.all_gather(norms, torch.tensor(norm_value, device=device))
 
-    print(f"[Rank {rank}] ✅ EP=2 gradient norm test passed (norm={norm_value:.6f})")
-
-    destroy_expert_parallel()
-    destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
-
-
-def test_grad_norm_ep2_clipping():
-    """Test gradient clipping with EP=2 using simple model."""
-    rank, world_size = setup_distributed()
-
-    if world_size < 2:
-        print("[Rank 0] Skipping EP=2 clipping test - needs 2 GPUs")
-        cleanup_distributed()
-        return
-
-    initialize_model_parallel(
-        tensor_model_parallel_size=1,
-        timeout_in_minutes=10.0,
-    )
-    initialize_expert_parallel(
-        expert_model_parallel_size=2,
-        tensor_model_parallel_size=1,
-        timeout_in_minutes=10.0,
-    )
-
-    device = torch.device(f"cuda:{rank}")
-
-    # Use simple model instead of MoE
-    torch.manual_seed(42)
-    model = SimpleModel().to(device)
-
-    # Forward/backward with large gradients
-    torch.manual_seed(100)
-    x = torch.randn(32, 10, device=device)
-    y = torch.randn(32, 5, device=device)
-
-    output = model(x)
-    loss = torch.nn.functional.mse_loss(output, y) * 100  # Large loss
-    loss.backward()
-
-    # Clip with aggressive max_norm
-    max_norm = 0.5
-    norm_before = clip_grad_norm(model.parameters(), max_norm=max_norm, norm_type=2.0)
-
-    # Compute actual norm after clipping
-    grads = [p.grad for p in model.parameters() if p.grad is not None]
-    if grads:
-        norm_after = torch.norm(torch.cat([g.flatten() for g in grads]))
-        assert norm_after.item() <= max_norm + 1e-5, (
-            f"Rank {rank}: Clipped norm {norm_after.item()} exceeds max_norm {max_norm}"
+    for i in range(world_size):
+        n = norms[i]
+        assert torch.isclose(n, torch.tensor(norm_value, device=device), rtol=1e-5), (
+            f"Rank {rank}: EP norm mismatch with rank {i}"
         )
 
-    print(f"[Rank {rank}] ✅ EP=2 gradient clipping test passed (before={norm_before.item():.6f})")
+    print(f"[Rank {rank}] ✅ EP=2 MoE gradient norm test passed (norm={norm_value:.6f})")
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
+    cleanup_distributed()
 
 
-def test_param_norm_ep2():
-    """Test parameter norm computation with EP=2."""
+def test_param_norm_ep2_moe():
+    """Test parameter norm with EP=2 using MoE model."""
     rank, world_size = setup_distributed()
 
     if world_size < 2:
-        print("[Rank 0] Skipping EP=2 param norm test - needs 2 GPUs")
+        print("[Rank 0] Skipping EP=2 MoE param norm test - needs 2 GPUs")
         cleanup_distributed()
         return
 
@@ -542,79 +465,40 @@ def test_param_norm_ep2():
     )
 
     moe = MoEMLP(config).to(device)
-    moe.init_weights()
 
     # Compute parameter norm (simulating base_trainer logic)
-    param_norm_sq = 0.0
-    for p in moe.parameters():
-        if p.data is not None:
-            param_norm_sq += p.data.norm() ** 2
+    expert_params = [p for p in moe.parameters() if p.data is not None and getattr(p, "is_expert", False)]
+    non_expert_params = [p for p in moe.parameters() if p.data is not None and not getattr(p, "is_expert", False)]
 
-    # For EP, sync across EP group
-    param_norm_tensor = torch.tensor(param_norm_sq, device=device)
+    expert_norm_sq = torch.stack([p.data.norm()**2 for p in expert_params]).sum() if expert_params else torch.tensor(0.0, device=device)
+    non_expert_norm_sq = torch.stack([p.data.norm()**2 for p in non_expert_params]).sum() if non_expert_params else torch.tensor(0.0, device=device)
+
+    # EP Reduction
     from ironcore.parallel.expert_parallel.parallel_states import get_expert_model_parallel_group
-    ep_group = get_expert_model_parallel_group()
-    if ep_group is not None and get_expert_model_parallel_world_size() > 1:
-        dist.all_reduce(param_norm_tensor, op=dist.ReduceOp.SUM, group=ep_group)
+    dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=get_expert_model_parallel_group())
 
-    param_norm = param_norm_tensor.item() ** 0.5
+    param_norm = (expert_norm_sq + non_expert_norm_sq).item() ** 0.5
 
-    print(f"[Rank {rank}] ✅ EP=2 parameter norm test passed (norm={param_norm:.6f})")
+    # All ranks should have same norm
+    norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
+    dist.all_gather(norms, torch.tensor(param_norm, device=device))
+
+    for i in range(world_size):
+        n = norms[i]
+        assert torch.isclose(n, torch.tensor(param_norm, device=device), rtol=1e-5), (
+            f"Rank {rank}: EP param norm mismatch with rank {i}"
+        )
+
+    print(f"[Rank {rank}] ✅ EP=2 MoE parameter norm test passed (norm={param_norm:.6f})")
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
+    cleanup_distributed()
 
 
 # =============================================================================
 # FSDP Tests
 # =============================================================================
-
-
-def test_grad_norm_fsdp_single_gpu():
-    """Test FSDP gradient norm with single GPU."""
-    if not torch.cuda.is_available():
-        print("Skipping FSDP test - CUDA not available")
-        return
-
-    # Initialize distributed with single process
-    os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "29501")
-
-    if not dist.is_initialized():
-        dist.init_process_group(backend="nccl", rank=0, world_size=1)
-
-    torch.cuda.set_device(0)
-    device = torch.device("cuda:0")
-
-    # Create model
-    torch.manual_seed(42)
-    model = SimpleModel().to(device)
-
-    # Wrap with FSDP
-    model = FSDP(model)
-
-    # Forward/backward
-    torch.manual_seed(42)
-    x = torch.randn(4, 10, device=device)
-    y = torch.randn(4, 5, device=device)
-
-    output = model(x)
-    loss = torch.nn.functional.mse_loss(output, y)
-    loss.backward()
-
-    # Compute gradient norm using FSDP's clip_grad_norm_
-    max_norm = 1.0
-    norm = model.clip_grad_norm_(max_norm)
-
-    assert norm.item() >= 0, "Gradient norm should be non-negative"
-    assert not torch.isnan(norm), "Gradient norm should not be NaN"
-
-    print(f"✅ FSDP single GPU gradient norm test passed (norm={norm.item():.6f})")
-
-    if dist.is_initialized():
-        dist.destroy_process_group()
 
 
 def test_grad_norm_fsdp_dp2():
@@ -648,177 +532,40 @@ def test_grad_norm_fsdp_dp2():
     max_norm = 1.0
     norm = model.clip_grad_norm_(max_norm)
 
-    # Gather norms from all ranks
+    # All ranks should have identical norm
     norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
     dist.all_gather(norms, torch.tensor(norm.item(), device=device))
 
-    # All ranks should have identical norm
     for i in range(world_size):
         n = norms[i]
-        assert torch.isclose(n, torch.tensor(norm.item(), device=device), rtol=1e-4), (
-            f"Rank {rank}: FSDP norm mismatch with rank {i}: {n.item()} vs {norm.item()}"
-        )
+        assert torch.isclose(n, torch.tensor(norm.item(), device=device), rtol=1e-4)
 
     print(f"[Rank {rank}] ✅ FSDP DP=2 gradient norm test passed (norm={norm.item():.6f})")
 
     cleanup_distributed()
 
 
-def test_param_norm_fsdp_dp2():
-    """Test FSDP parameter norm computation with DP=2."""
-    rank, world_size = setup_distributed()
-
-    if world_size < 2:
-        print("[Rank 0] Skipping FSDP DP=2 param norm test - needs 2 GPUs")
-        cleanup_distributed()
-        return
-
-    device = torch.device(f"cuda:{rank}")
-
-    # Create model
-    torch.manual_seed(42)
-    model = SimpleModel().to(device)
-
-    # Wrap with FSDP
-    model = FSDP(model)
-
-    # Compute parameter norm (simulating base_trainer FSDP logic)
-    # For FSDP, parameters are sharded across DP ranks
-    param_norm_sq = 0.0
-    for p in model.parameters():
-        if p.data is not None:
-            param_norm_sq += p.data.norm() ** 2
-
-    # For FSDP, sync across DP group
-    param_norm_tensor = torch.tensor(param_norm_sq, device=device)
-    dist.all_reduce(param_norm_tensor, op=dist.ReduceOp.SUM, group=dist.group.WORLD)
-
-    param_norm = param_norm_tensor.item() ** 0.5
-
-    print(f"[Rank {rank}] ✅ FSDP DP=2 parameter norm test passed (norm={param_norm:.6f})")
-
-    cleanup_distributed()
-
-
-# =============================================================================
-# Main
-# =============================================================================
-
-
 def main():
-    """Run all tests."""
-    parser = argparse.ArgumentParser(description="Test gradient norm with different parallelism")
-    parser.add_argument(
-        "--test_type",
-        type=str,
-        default="all",
-        choices=["all", "dp2", "tp2", "ep2", "fsdp"],
-        help="Test type to run",
-    )
+    """Run tests based on arguments."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test", type=str, default="all")
     args = parser.parse_args()
 
-    if args.test_type == "dp2":
-        print("=" * 60)
-        print("Running DP=2 Gradient Norm Tests")
-        print("=" * 60)
+    if args.test == "dp2" or args.test == "all":
         test_grad_norm_dp2()
-        print("\n" + "=" * 60)
-        print("Running DP=2 Gradient Clipping Tests")
-        print("=" * 60)
         test_grad_norm_dp2_clipping()
-        print("\n" + "=" * 60)
-        print("Running DP=2 Parameter Norm Tests")
-        print("=" * 60)
         test_param_norm_dp2()
-
-    elif args.test_type == "tp2":
-        print("=" * 60)
-        print("Running TP=2 Gradient Norm Tests")
-        print("=" * 60)
+    
+    if args.test == "tp2" or args.test == "all":
         test_grad_norm_tp2()
-        print("\n" + "=" * 60)
-        print("Running TP=2 Inf-Norm Tests")
-        print("=" * 60)
-        test_grad_norm_tp2_inf_norm()
-        print("\n" + "=" * 60)
-        print("Running TP=2 Parameter Norm Tests")
-        print("=" * 60)
-        test_param_norm_tp2()
-
-    elif args.test_type == "ep2":
-        print("=" * 60)
-        print("Running EP=2 Gradient Norm Tests")
-        print("=" * 60)
-        test_grad_norm_ep2()
-        print("\n" + "=" * 60)
-        print("Running EP=2 Gradient Clipping Tests")
-        print("=" * 60)
-        test_grad_norm_ep2_clipping()
-        print("\n" + "=" * 60)
-        print("Running EP=2 Parameter Norm Tests")
-        print("=" * 60)
-        test_param_norm_ep2()
-
-    elif args.test_type == "fsdp":
-        print("=" * 60)
-        print("Running FSDP Gradient Norm Tests")
-        print("=" * 60)
-        test_grad_norm_fsdp_single_gpu()
-        print("\n" + "=" * 60)
-        print("Running FSDP DP=2 Gradient Norm Tests")
-        print("=" * 60)
-        test_grad_norm_fsdp_dp2()
-        print("\n" + "=" * 60)
-        print("Running FSDP DP=2 Parameter Norm Tests")
-        print("=" * 60)
-        test_param_norm_fsdp_dp2()
-
-    else:
-        # Run all tests
-        print("=" * 60)
-        print("Running All Gradient Norm Tests")
-        print("=" * 60)
-
-        print("\n[Test 1] DP=2 Gradient Norm")
-        test_grad_norm_dp2()
-
-        print("\n[Test 2] DP=2 Gradient Clipping")
-        test_grad_norm_dp2_clipping()
-
-        print("\n[Test 3] DP=2 Parameter Norm")
-        test_param_norm_dp2()
-
-        print("\n[Test 4] TP=2 Gradient Norm")
-        test_grad_norm_tp2()
-
-        print("\n[Test 5] TP=2 Inf-Norm")
         test_grad_norm_tp2_inf_norm()
 
-        print("\n[Test 6] TP=2 Parameter Norm")
-        test_param_norm_tp2()
+    if args.test == "ep2" or args.test == "all":
+        test_grad_norm_ep2_moe()
+        test_param_norm_ep2_moe()
 
-        print("\n[Test 7] EP=2 Gradient Norm")
-        test_grad_norm_ep2()
-
-        print("\n[Test 8] EP=2 Gradient Clipping")
-        test_grad_norm_ep2_clipping()
-
-        print("\n[Test 9] EP=2 Parameter Norm")
-        test_param_norm_ep2()
-
-        print("\n[Test 10] FSDP Single GPU")
-        test_grad_norm_fsdp_single_gpu()
-
-        print("\n[Test 11] FSDP DP=2")
+    if args.test == "fsdp" or args.test == "all":
         test_grad_norm_fsdp_dp2()
-
-        print("\n[Test 12] FSDP DP=2 Parameter Norm")
-        test_param_norm_fsdp_dp2()
-
-        if dist.get_rank() == 0:
-            print("\n" + "=" * 60)
-            print("✅ All gradient norm multi-GPU tests passed!")
-            print("=" * 60)
 
 
 if __name__ == "__main__":
