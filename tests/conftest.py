@@ -44,6 +44,3 @@ def pytest_collection_modifyitems(config, items):
         if any(x in item.nodeid for x in ["cuda", "attention", "transformer", "tp_"]):
             item.add_marker(pytest.mark.cuda)
 
-        # Auto-mark e2e tests (tests in e2e directory)
-        if "/e2e/" in item.nodeid:
-            item.add_marker(pytest.mark.e2e)
