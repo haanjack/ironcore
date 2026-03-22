@@ -6,7 +6,7 @@
 
 import pytest
 
-from ironcore.mfu import MFUCalculator, MFUResult, compute_tflops
+from ironcore.utils.mfu import MFUCalculator, MFUResult, compute_tflops
 
 
 class TestMFUCalculator:

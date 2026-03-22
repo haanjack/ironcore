@@ -19,14 +19,11 @@ import json
 import os
 import re
 import time
-from typing import TYPE_CHECKING
+from collections import OrderedDict
 
 import torch
 
 from .base import RewardFunction
-
-if TYPE_CHECKING:
-    pass
 
 
 class MathRewardFunction(RewardFunction):
@@ -313,8 +310,6 @@ Score:""",
 
         self._client = self._init_client()
         self._cache_size = cache_size
-        from collections import OrderedDict
-
         self._cache: OrderedDict[tuple, float] = OrderedDict()
 
     def _init_client(self):
@@ -461,11 +456,13 @@ class LocalEndpointRewardFunction(RewardFunction):
         timeout: int = 30,
         max_retries: int = 3,
         api_key: str = "EMPTY",
+        cache_size: int = 10000,
     ):
         self.endpoint = endpoint.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
+        self._cache_size = max(cache_size, 1)
 
         if custom_prompt:
             self._prompt_template = custom_prompt
@@ -474,12 +471,18 @@ class LocalEndpointRewardFunction(RewardFunction):
                 prompt_template, APIRewardFunction.PROMPT_TEMPLATES["default"]
             )
 
-        from collections import OrderedDict
-
-        import openai
-
-        self._client = openai.OpenAI(api_key=api_key, base_url=endpoint)
+        self._client = self._init_client(api_key, endpoint)
         self._cache: OrderedDict[tuple, float] = OrderedDict()
+
+    def _init_client(self, api_key: str, base_url: str):
+        try:
+            import openai
+        except ImportError as e:
+            raise ImportError(
+                "openai package is required for LocalEndpointRewardFunction. "
+                "Install it with: pip install openai"
+            ) from e
+        return openai.OpenAI(api_key=api_key, base_url=base_url)
 
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
         metadata_str = json.dumps(metadata, sort_keys=True)
@@ -526,6 +529,8 @@ class LocalEndpointRewardFunction(RewardFunction):
                     score = 0.5
                 time.sleep(2**attempt)
 
+        if len(self._cache) >= self._cache_size:
+            self._cache.popitem(last=False)
         self._cache[cache_key] = score
         return score
 
@@ -560,10 +565,12 @@ class LocalInferenceRewardFunction(RewardFunction):
         max_length: int = 4096,
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
+        cache_size: int = 10000,
     ):
         self.model_path = model_path
         self.device = device
         self.max_length = max_length
+        self._cache_size = max(cache_size, 1)
 
         dtype_map = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}
         self.dtype = dtype_map.get(dtype, torch.bfloat16)
@@ -576,8 +583,6 @@ class LocalInferenceRewardFunction(RewardFunction):
             )
 
         self._load_model(load_in_8bit, load_in_4bit)
-        from collections import OrderedDict
-
         self._cache: OrderedDict[tuple, float] = OrderedDict()
 
     def _load_model(self, load_in_8bit: bool, load_in_4bit: bool):
@@ -644,6 +649,8 @@ class LocalInferenceRewardFunction(RewardFunction):
             last_logits = outputs.logits[:, -1, :]
             score = self._extract_score_from_logits(last_logits)
 
+        if len(self._cache) >= self._cache_size:
+            self._cache.popitem(last=False)
         self._cache[cache_key] = score
         return score
 

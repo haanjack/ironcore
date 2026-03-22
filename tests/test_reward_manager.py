@@ -703,8 +703,6 @@ class TestBuiltinRewardFunctions:
 
     def test_code_reward_function_not_implemented(self):
         """Test CodeRewardFunction raises NotImplementedError (sandbox not yet implemented)."""
-        import pytest
-
         from ironcore.alignment.rewards import CodeRewardFunction
 
         fn = CodeRewardFunction(timeout=1)

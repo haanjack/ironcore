@@ -52,7 +52,7 @@ class RewardManager(RewardFunction):
         for name, weight, fn in self._functions:
             total_score += weight * fn.compute(prompt, completion, metadata)
 
-        return total_score / total_weight
+        return total_score
 
     @classmethod
     def from_config(cls, reward_cfg: RewardManagerConfig) -> RewardManager:

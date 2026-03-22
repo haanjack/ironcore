@@ -27,7 +27,6 @@ from ironcore.global_vars import (
     set_global_states,
 )
 from ironcore.language_model import LanguageModel
-from ironcore.mfu import MFUCalculator
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
@@ -45,6 +44,7 @@ from ironcore.utils import (
     get_model_dtype,
     is_first_rank,
 )
+from ironcore.utils.mfu import MFUCalculator
 
 
 class BaseTrainer(ABC):

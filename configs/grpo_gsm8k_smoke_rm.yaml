@@ -1,0 +1,72 @@
+# GRPO smoke test config for GSM8K with new-style RewardManager
+# Mirrors grpo_gsm8k_smoke_fsdp.yaml but uses reward_manager: instead of reward:
+#
+# Used for E2E test 65: verifies new-style YAML rule template config path
+# works end-to-end through GRPOTrainer without regression vs legacy config.
+
+model: qwen2.5-0.5B
+
+trainer:
+  micro_batch_size: 2
+  train_batch_size: 8
+  gradient_accumulation_steps: 2
+  log_interval: 1
+  use_flash_attn: true
+  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+
+data:
+  config_path: configs/data/grpo_gsm8k.yaml
+  task_type: grpo
+
+optim:
+  optimizer: adamw
+  lr_scheduler: cosine
+  max_lr: 1.0e-5
+  min_lr: 1.0e-6
+  warmup_steps: 5
+  annealing_steps: 20
+  weight_decay: 0.01
+  clip_grad: 1.0
+
+operation:
+  train_steps: 20
+  eval_interval: 10
+
+init:
+  seed: 42
+
+parallel:
+  world_size: 2
+  use_fsdp: true
+  fsdp_sharding_strategy: "full"
+  fsdp_mixed_precision: "bf16"
+  fsdp_state_dict_type: "sharded"
+
+alignment:
+  method: grpo
+  grpo_group_size: 2
+  grpo_beta: 0.04
+  grpo_eps: 1.0e-8
+  grpo_num_epochs: 1
+  grpo_clip_eps: 0.0
+  generation:
+    max_new_tokens: 128
+    temperature: 0.6
+    top_p: 0.95
+    top_k: 50
+    do_sample: true
+    use_chat_template: true
+    system_prompt: "Solve the math problem step by step. Put your final numerical answer after ####."
+  reward_manager:
+    num_workers: 4
+    timeout: 30
+    functions:
+      - name: correctness
+        type: rule_template
+        weight: 0.8
+        rule_template: configs/rewards/math_gsm8k.yaml
+      - name: format
+        type: rule_template
+        weight: 0.2
+        rule_template: configs/rewards/format_deepseek.yaml
+  metrics_interval: 5
