@@ -142,8 +142,12 @@ class KVCacheManager:
             self.cache_positions.zero_()
             # Note: we don't strictly need to zero the cache data, just positions
         else:
-            # Reset specific sequences
+            # Reset specific sequences: zero positions and cache data
             self.cache_positions[batch_indices] = 0
+            for key_cache in self.key_caches:
+                key_cache[batch_indices] = 0
+            for value_cache in self.value_caches:
+                value_cache[batch_indices] = 0
 
     def update_layer(
         self,
@@ -167,6 +171,9 @@ class KVCacheManager:
         """
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized. Call initialize() first.")
+
+        if position is not None and positions is not None:
+            raise ValueError("Cannot specify both 'position' and 'positions' simultaneously")
 
         with profile_context("kv_cache_update"):
             return self._update_layer_impl(layer_idx, key, value, position, positions)
@@ -207,6 +214,13 @@ class KVCacheManager:
             full_value = self.value_caches[layer_idx][:, :max_end_pos]
 
         else:
+            if position is None:
+                unique_positions = self.cache_positions.unique()
+                if len(unique_positions) > 1:
+                    raise RuntimeError(
+                        "Position divergence detected: sequences are at different cache positions. "
+                        "Use explicit 'position' or 'positions' parameter."
+                    )
             start_pos = position if position is not None else self.cache_positions[0].item()
             end_pos = start_pos + seq_len
 

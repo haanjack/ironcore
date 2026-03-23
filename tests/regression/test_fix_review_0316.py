@@ -643,12 +643,12 @@ class TestTrainerImportSmoke:
         import ironcore.trainers.base_trainer as bt
 
         source = inspect.getsource(bt)
-        assert "parallel.tensor_parallel.comm" in source, (
-            "base_trainer should import clip_grad_norm_tp from "
-            "ironcore.parallel.tensor_parallel.comm (not ironcore.utils)"
+        assert "parallel.grad_norm" in source or "parallel.tensor_parallel" in source, (
+            "base_trainer should import clip_grad_norm from ironcore.parallel "
+            "(not ironcore.utils) — currently uses ironcore.parallel.grad_norm"
         )
-        assert "from ironcore.utils import clip_grad_norm_tp" not in source, (
-            "Old import path 'from ironcore.utils import clip_grad_norm_tp' must be removed"
+        assert "from ironcore.utils import clip_grad_norm" not in source, (
+            "Old import path 'from ironcore.utils import clip_grad_norm*' must be removed"
         )
 
 

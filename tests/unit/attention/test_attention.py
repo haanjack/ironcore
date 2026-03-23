@@ -21,12 +21,14 @@ import unittest
 import torch
 
 from ironcore.config import (
+    AlignmentConfig,
     DataConfig,
     InitConfig,
     MainConfig,
     ModelConfig,
     OperationConfig,
     OptimConfig,
+    PEFTConfig,
     ParallelConfig,
     ProfilerConfig,
     TrainerConfig,
@@ -65,9 +67,6 @@ def create_test_config(
         max_seq_len=max_seq_len,
         max_position_embeddings=max_seq_len,
         dropout_attn=dropout_attn,
-        attention_bias=True,
-        mlp_bias=True,
-        layernorm_bias=True,
         num_layers=num_layers,
         d_ffn=d_ffn,
     )
@@ -95,6 +94,8 @@ def create_test_config(
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=PEFTConfig(),
+        alignment=AlignmentConfig(),
     )
     return config
 
@@ -596,8 +597,10 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 2
         self.seq_len = 64
+        # Flash attention requires fp16/bf16; use bf16 on CUDA, float32 on CPU
+        self.dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
         try:
-            self.flash_available = True
+            self.flash_available = torch.cuda.is_available()
         except ImportError:
             self.flash_available = False
 
@@ -631,14 +634,14 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             head_dim=head_dim,
         )
 
-        attention_standard = Attention(config_standard).to(self.device)
-        attention_flash = Attention(config_flash).to(self.device)
+        attention_standard = Attention(config_standard).to(self.device).to(self.dtype)
+        attention_flash = Attention(config_flash).to(self.device).to(self.dtype)
 
         # Create identical Q, K, V inputs
         torch.manual_seed(42)
-        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
-        key = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
-        value = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
+        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
+        key = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
+        value = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -680,15 +683,15 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             head_dim=head_dim,
         )
 
-        attention_standard = Attention(config_standard).to(self.device)
-        attention_flash = Attention(config_flash).to(self.device)
+        attention_standard = Attention(config_standard).to(self.device).to(self.dtype)
+        attention_flash = Attention(config_flash).to(self.device).to(self.dtype)
 
         # Create identical Q, K, V inputs
         # Q has num_heads, K/V have num_groups
         torch.manual_seed(42)
-        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
-        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
-        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
+        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
+        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
+        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -730,15 +733,15 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             head_dim=head_dim,
         )
 
-        attention_standard = Attention(config_standard).to(self.device)
-        attention_flash = Attention(config_flash).to(self.device)
+        attention_standard = Attention(config_standard).to(self.device).to(self.dtype)
+        attention_flash = Attention(config_flash).to(self.device).to(self.dtype)
 
         # Create identical Q, K, V inputs
         # Q has num_heads, K/V have 1 group
         torch.manual_seed(42)
-        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device)
-        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
-        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device)
+        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
+        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
+        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -771,7 +774,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_attention_groups=num_groups,
             head_dim=head_dim,
         )
-        attention = Attention(config).to(self.device)
+        attention = Attention(config).to(self.device).to(self.dtype)
 
         query = torch.randn(
             self.batch_size,
@@ -779,6 +782,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_heads,
             head_dim,
             device=self.device,
+            dtype=self.dtype,
             requires_grad=True,
         )
         key = torch.randn(
@@ -787,6 +791,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_groups,
             head_dim,
             device=self.device,
+            dtype=self.dtype,
             requires_grad=True,
         )
         value = torch.randn(
@@ -795,6 +800,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_groups,
             head_dim,
             device=self.device,
+            dtype=self.dtype,
             requires_grad=True,
         )
 
@@ -825,7 +831,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_attention_groups=num_groups,
             head_dim=head_dim,
         )
-        attention = Attention(config).to(self.device)
+        attention = Attention(config).to(self.device).to(self.dtype)
 
         query = torch.randn(
             self.batch_size,
@@ -833,6 +839,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_heads,
             head_dim,
             device=self.device,
+            dtype=self.dtype,
             requires_grad=True,
         )
         key = torch.randn(
@@ -841,6 +848,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_groups,
             head_dim,
             device=self.device,
+            dtype=self.dtype,
             requires_grad=True,
         )
         value = torch.randn(
@@ -849,6 +857,7 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
             num_groups,
             head_dim,
             device=self.device,
+            dtype=self.dtype,
             requires_grad=True,
         )
 

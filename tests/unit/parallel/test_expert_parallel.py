@@ -170,8 +170,10 @@ class TestMoEWithEP:
         from ironcore.config.config_moe import MoEConfig
         from ironcore.config.config_optim import OptimConfig
         from ironcore.config.config_parallel import ParallelConfig
+        from ironcore.config import ProfilerConfig
         from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
         from ironcore.config.config_utils import UtilsConfig
+        from ironcore.config import AlignmentConfig
         from ironcore.layers.moe import MoEMLP
 
         config = MainConfig(
@@ -193,7 +195,9 @@ class TestMoEWithEP:
             trainer=TrainerConfig(),
             operation=OperationConfig(),
             utils=UtilsConfig(),
+            profiler=ProfilerConfig(),
             peft=PEFTConfig(),
+            alignment=AlignmentConfig(),
         )
 
         moe = MoEMLP(config)
@@ -207,12 +211,13 @@ class TestMoEWithEP:
 
     def test_moe_gradient_with_ep(self):
         """Test gradient flow through MoE with EP=1."""
-        from ironcore.config import MainConfig, PEFTConfig
+        from ironcore.config import AlignmentConfig, MainConfig, PEFTConfig
         from ironcore.config.config_data import DataConfig
         from ironcore.config.config_model import ModelConfig
         from ironcore.config.config_moe import MoEConfig
         from ironcore.config.config_optim import OptimConfig
         from ironcore.config.config_parallel import ParallelConfig
+        from ironcore.config import ProfilerConfig
         from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
         from ironcore.config.config_utils import UtilsConfig
         from ironcore.layers.moe import MoEMLP
@@ -236,7 +241,9 @@ class TestMoEWithEP:
             trainer=TrainerConfig(),
             operation=OperationConfig(),
             utils=UtilsConfig(),
+            profiler=ProfilerConfig(),
             peft=PEFTConfig(),
+            alignment=AlignmentConfig(),
         )
 
         moe = MoEMLP(config)

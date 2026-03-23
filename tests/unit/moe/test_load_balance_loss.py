@@ -48,16 +48,23 @@ class TestComputeLoadBalanceLoss:
         assert loss.ndim == 0
 
     def test_perfect_balance_lower_loss(self):
-        """Test that perfectly balanced routing has lower loss."""
+        """Test that perfectly balanced routing has lower loss than imbalanced.
+
+        Uses non-uniform logits so that P_i varies across experts, making
+        the load balance loss sensitive to the routing distribution.
+        Expert 0 has very high probability (P_0 ≈ 1), so routing all tokens
+        there (imbalanced) maximises f_0 * P_0, giving a higher loss.
+        """
         batch_size, seq_len, num_experts = 1, 16, 4
 
-        # Uniform routing logits
+        # Non-uniform logits: expert 0 has overwhelmingly high probability
         router_logits = torch.zeros(batch_size, seq_len, num_experts)
+        router_logits[:, :, 0] = 10.0
 
-        # Perfectly balanced: each expert gets exactly 4 tokens
+        # Balanced: each expert gets exactly 4 tokens
         topk_indices_balanced = torch.tensor([[[0], [1], [2], [3]] * 4])
 
-        # Imbalanced: all tokens go to expert 0
+        # Imbalanced: all tokens go to the high-probability expert 0
         topk_indices_imbalanced = torch.zeros(1, 16, 1, dtype=torch.long)
 
         loss_balanced = compute_load_balance_loss(

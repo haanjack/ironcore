@@ -158,19 +158,19 @@ class TestGPT2WeightMapping:
         assert "embedding.position_embedding.weight" in ironcore_state_dict
 
         # Check final layer norm
-        assert "output_layernorm.weight" in ironcore_state_dict
-        assert "output_layernorm.bias" in ironcore_state_dict
+        assert "output_layernorm.layernorm.weight" in ironcore_state_dict
+        assert "output_layernorm.layernorm.bias" in ironcore_state_dict
 
         # Check layer components
         for i in range(2):
             prefix = f"model.layers.{i}"
-            # Layer norms
-            assert f"{prefix}.input_layernorm.weight" in ironcore_state_dict
-            assert f"{prefix}.post_attn_layernorm.weight" in ironcore_state_dict
-            # Attention (Q and KV should be split)
-            assert f"{prefix}.self_attention.linear_q.weight" in ironcore_state_dict
-            assert f"{prefix}.self_attention.linear_kv.weight" in ironcore_state_dict
-            assert f"{prefix}.self_attention.output.weight" in ironcore_state_dict
+            # Layer norms (wrapped, so .layernorm.weight)
+            assert f"{prefix}.input_layernorm.layernorm.weight" in ironcore_state_dict
+            assert f"{prefix}.post_attn_layernorm.layernorm.weight" in ironcore_state_dict
+            # Attention (Q and KV are direct on layer, not under self_attention)
+            assert f"{prefix}.linear_q.weight" in ironcore_state_dict
+            assert f"{prefix}.linear_kv.weight" in ironcore_state_dict
+            assert f"{prefix}.attn_output.weight" in ironcore_state_dict
             # MLP
             assert f"{prefix}.mlp.up_proj.weight" in ironcore_state_dict
             assert f"{prefix}.mlp.down_proj.weight" in ironcore_state_dict
@@ -181,13 +181,13 @@ class TestGPT2WeightMapping:
         ironcore_state_dict = mapper.hf_to_ironcore(mock_gpt2_hf_state_dict, strict=False)
 
         hidden_size = 64
-        # Q should have shape [hidden_size, hidden_size]
-        q_weight = ironcore_state_dict["model.layers.0.self_attention.linear_q.weight"]
+        # Q should have shape [hidden_size, hidden_size] (transposed Conv1D: [in, out])
+        q_weight = ironcore_state_dict["model.layers.0.linear_q.weight"]
         assert q_weight.shape == (hidden_size, hidden_size)
 
-        # KV should have shape [2 * hidden_size, hidden_size] (K and V concatenated)
-        kv_weight = ironcore_state_dict["model.layers.0.self_attention.linear_kv.weight"]
-        assert kv_weight.shape == (2 * hidden_size, hidden_size)
+        # KV should have shape [hidden_size, 2*hidden_size] (transposed Conv1D: [in, out])
+        kv_weight = ironcore_state_dict["model.layers.0.linear_kv.weight"]
+        assert kv_weight.shape == (hidden_size, 2 * hidden_size)
 
     def test_gpt2_transpose(self, mock_gpt2_hf_state_dict):
         """Test that GPT-2 Conv1D weights are correctly transposed."""
@@ -195,12 +195,12 @@ class TestGPT2WeightMapping:
         ironcore_state_dict = mapper.hf_to_ironcore(mock_gpt2_hf_state_dict, strict=False)
 
         hidden_size = 64
-        # MLP up_proj should be transposed: [out, in] = [4*h, h]
+        # MLP up_proj: transposed Conv1D [in, out] = [h, 4*h]
         up_weight = ironcore_state_dict["model.layers.0.mlp.up_proj.weight"]
-        assert up_weight.shape == (4 * hidden_size, hidden_size)
+        assert up_weight.shape == (hidden_size, 4 * hidden_size)
 
-        # Attention output should be transposed: [out, in] = [h, h]
-        out_weight = ironcore_state_dict["model.layers.0.self_attention.output.weight"]
+        # Attention output: transposed Conv1D [in, out] = [h, h]
+        out_weight = ironcore_state_dict["model.layers.0.attn_output.weight"]
         assert out_weight.shape == (hidden_size, hidden_size)
 
     def test_roundtrip_gpt2(self, mock_gpt2_hf_state_dict):
@@ -245,7 +245,7 @@ class TestLLaMAWeightMapping:
         assert "embedding.word_embeddings.weight" in ironcore_state_dict
 
         # Check final layer norm
-        assert "output_layernorm.weight" in ironcore_state_dict
+        assert "output_layernorm.layernorm.weight" in ironcore_state_dict
 
         # Check output layer
         assert "output_layer.weight" in ironcore_state_dict
@@ -253,13 +253,13 @@ class TestLLaMAWeightMapping:
         # Check layer components
         for i in range(2):
             prefix = f"model.layers.{i}"
-            # Layer norms
-            assert f"{prefix}.input_layernorm.weight" in ironcore_state_dict
-            assert f"{prefix}.post_attn_layernorm.weight" in ironcore_state_dict
-            # Attention
-            assert f"{prefix}.self_attention.linear_q.weight" in ironcore_state_dict
-            assert f"{prefix}.self_attention.linear_kv.weight" in ironcore_state_dict
-            assert f"{prefix}.self_attention.output.weight" in ironcore_state_dict
+            # Layer norms (wrapped, so .layernorm.weight)
+            assert f"{prefix}.input_layernorm.layernorm.weight" in ironcore_state_dict
+            assert f"{prefix}.post_attn_layernorm.layernorm.weight" in ironcore_state_dict
+            # Attention (direct on layer, not under self_attention)
+            assert f"{prefix}.linear_q.weight" in ironcore_state_dict
+            assert f"{prefix}.linear_kv.weight" in ironcore_state_dict
+            assert f"{prefix}.attn_output.weight" in ironcore_state_dict
             # MLP (gate + up should be fused)
             assert f"{prefix}.mlp.up_proj.weight" in ironcore_state_dict
             assert f"{prefix}.mlp.down_proj.weight" in ironcore_state_dict
@@ -273,9 +273,9 @@ class TestLLaMAWeightMapping:
         k_shape = mock_llama_hf_state_dict["model.layers.0.self_attn.k_proj.weight"].shape
         v_shape = mock_llama_hf_state_dict["model.layers.0.self_attn.v_proj.weight"].shape
 
-        # KV should have shape [k_dim + v_dim, hidden_size]
-        kv_weight = ironcore_state_dict["model.layers.0.self_attention.linear_kv.weight"]
-        assert kv_weight.shape == (k_shape[0] + v_shape[0], k_shape[1])
+        # KV fused and transposed to [hidden_size, k_dim + v_dim]
+        kv_weight = ironcore_state_dict["model.layers.0.linear_kv.weight"]
+        assert kv_weight.shape == (k_shape[1], k_shape[0] + v_shape[0])
 
     def test_llama_gate_up_fusion(self, mock_llama_hf_state_dict):
         """Test that LLaMA gate_proj and up_proj are correctly fused."""
@@ -286,9 +286,9 @@ class TestLLaMAWeightMapping:
         gate_shape = mock_llama_hf_state_dict["model.layers.0.mlp.gate_proj.weight"].shape
         up_shape = mock_llama_hf_state_dict["model.layers.0.mlp.up_proj.weight"].shape
 
-        # Fused should have shape [gate_dim + up_dim, hidden_size]
+        # Fused and transposed to [hidden_size, gate_dim + up_dim]
         fused_weight = ironcore_state_dict["model.layers.0.mlp.up_proj.weight"]
-        assert fused_weight.shape == (gate_shape[0] + up_shape[0], gate_shape[1])
+        assert fused_weight.shape == (gate_shape[1], gate_shape[0] + up_shape[0])
 
     def test_roundtrip_llama(self, mock_llama_hf_state_dict):
         """Test HF -> ironcore -> HF roundtrip preserves weights."""
@@ -389,11 +389,11 @@ class TestGPT2Integration:
 
         # Verify key conversions
         assert "embedding.word_embeddings.weight" in ironcore_state_dict
-        assert "model.layers.0.self_attention.linear_q.weight" in ironcore_state_dict
+        assert "model.layers.0.linear_q.weight" in ironcore_state_dict
 
         # Verify shapes are correct
         hidden_size = config.get("n_embd", config.get("hidden_size"))
-        q_weight = ironcore_state_dict["model.layers.0.self_attention.linear_q.weight"]
+        q_weight = ironcore_state_dict["model.layers.0.linear_q.weight"]
         assert q_weight.shape[0] == hidden_size
         assert q_weight.shape[1] == hidden_size
 
@@ -481,17 +481,17 @@ class TestLLaMAIntegration:
 
         # Verify key conversions
         assert "embedding.word_embeddings.weight" in ironcore_state_dict
-        assert "model.layers.0.self_attention.linear_q.weight" in ironcore_state_dict
-        assert "model.layers.0.self_attention.linear_kv.weight" in ironcore_state_dict
+        assert "model.layers.0.linear_q.weight" in ironcore_state_dict
+        assert "model.layers.0.linear_kv.weight" in ironcore_state_dict
 
-        # Verify K and V are fused
+        # Verify K and V are fused (transposed: [hidden_size, kv_dim])
         hidden_size = config["hidden_size"]
         num_kv_heads = config.get("num_key_value_heads", config["num_attention_heads"])
         head_dim = hidden_size // config["num_attention_heads"]
         expected_kv_dim = 2 * num_kv_heads * head_dim
 
-        kv_weight = ironcore_state_dict["model.layers.0.self_attention.linear_kv.weight"]
-        assert kv_weight.shape[0] == expected_kv_dim
+        kv_weight = ironcore_state_dict["model.layers.0.linear_kv.weight"]
+        assert kv_weight.shape[1] == expected_kv_dim
 
     def test_llama_roundtrip(self, llama_checkpoint, temp_dir):
         """Test full roundtrip: HF -> ironcore -> HF for LLaMA."""

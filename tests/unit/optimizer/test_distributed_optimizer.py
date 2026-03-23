@@ -191,9 +191,13 @@ class TestDistributedOptimizerSingleGPU:
         assert "dp_rank=0" in repr_str
 
 
+import os as _os
+
 @pytest.mark.skipif(
-    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
-    reason="Requires at least 2 GPUs",
+    not torch.cuda.is_available()
+    or torch.cuda.device_count() < 2
+    or _os.environ.get("RANK") is None,
+    reason="Requires at least 2 GPUs and torchrun (RANK env var not set)",
 )
 class TestDistributedOptimizerMultiGPU:
     """Tests that require multiple GPUs."""
@@ -204,6 +208,14 @@ class TestDistributedOptimizerMultiGPU:
         import os
 
         import torch.distributed as dist
+
+        if (
+            not torch.cuda.is_available()
+            or torch.cuda.device_count() < 2
+            or os.environ.get("RANK") is None
+            or os.environ.get("MASTER_ADDR") is None
+        ):
+            pytest.skip("Requires torchrun with at least 2 GPUs (RANK/MASTER_ADDR not set)")
 
         # Set device based on local rank
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))

@@ -207,9 +207,10 @@ class TestNumericalStability:
         """Test gradient with mixed magnitude values."""
         torch.manual_seed(42)
 
-        x = torch.randn(4, 8, dtype=torch.float64, requires_grad=True)
-        x[0] *= 1e6
-        x[1] *= 1e-6
+        x_raw = torch.randn(4, 8, dtype=torch.float64)
+        x_raw[0] *= 1e6
+        x_raw[1] *= 1e-6
+        x = x_raw.detach().requires_grad_(True)
 
         def fn(inp):
             return _AllReduceEP.apply(inp, 1)
