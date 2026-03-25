@@ -54,6 +54,7 @@ def tiny_model_config():
         UtilsConfig,
     )
     from ironcore.config.config_alignment import AlignmentConfig
+    from ironcore.config.config_model import BiasConfig
 
     model_config = ModelConfig(
         d_model=64,
@@ -67,8 +68,7 @@ def tiny_model_config():
         dropout_attn=0.0,
         dropout_mlp=0.0,
         dropout_embd=0.0,
-        attention_bias=True,
-        mlp_bias=True,
+        bias=BiasConfig.all_true(),
         layernorm_bias=True,
         precision="float32",
     )

@@ -1,3 +1,4 @@
+from ironcore.config.config_model import BiasConfig
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: MIT
@@ -29,6 +30,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     PositionalEmbeddingConfig,
     ProfilerConfig,
     TrainerConfig,
@@ -99,6 +101,7 @@ def tp1_config():
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=PEFTConfig(),
     )
 
     # Initialize global states

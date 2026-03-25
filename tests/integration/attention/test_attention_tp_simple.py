@@ -1,3 +1,4 @@
+from ironcore.config.config_model import BiasConfig
 #!/usr/bin/env python3
 # Copyright (c) 2025-2026 Jaegeun Han
 #

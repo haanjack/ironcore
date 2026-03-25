@@ -31,9 +31,11 @@ from ironcore.config import (
     OptimConfig,
     ParallelConfig,
     PEFTConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_model import BiasConfig
 from ironcore.global_vars import reset_global_states, set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.optimizer import get_optimizer
@@ -50,8 +52,7 @@ def create_model_config(tp_size=1):
         max_seq_len=64,
         max_position_embeddings=64,
         dropout_attn=0.0,
-        attention_bias=True,
-        mlp_bias=True,
+        bias=BiasConfig.all_true(),
         layernorm_bias=True,
     )
     model_config.name = "gpt2"
@@ -84,6 +85,7 @@ def create_model_config(tp_size=1):
         parallel=ParallelConfig(),
         operation=OperationConfig(train_steps=100, no_save=False),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=peft_config,
     )
 

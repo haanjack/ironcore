@@ -55,7 +55,9 @@ def create_mock_forward_step_func():
     def mock_forward_step(model, data_iterator):
         batch_size = 2
         seq_len = 16
-        input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=model.device)
+        # Get the correct device for the current rank
+        device = next(model.parameters()).device
+        input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=device)
         labels = input_ids.clone()
 
         logits = model(input_ids, labels=None)
@@ -66,6 +68,13 @@ def create_mock_forward_step_func():
             shift_logits.view(-1, shift_logits.size(-1)),
             shift_labels.view(-1),
         )
+
+        # Debug: verify loss has gradients
+        if not loss.requires_grad:
+            print(f"WARNING: loss does not require grad! logits.requires_grad={shift_logits.requires_grad}")
+        elif loss.grad_fn is None:
+            print(f"WARNING: loss has no grad_fn!")
+
         return loss
 
     return mock_forward_step

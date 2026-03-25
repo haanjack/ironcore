@@ -436,30 +436,32 @@ class TestGPT2Integration:
 
 
 class TestLLaMAIntegration:
-    """Integration tests with real LLaMA model from HuggingFace."""
+    """Integration tests with real LLaMA-family model from HuggingFace.
+
+    Uses Qwen2.5 which has the same architecture as LLaMA and is publicly available
+    without requiring a special access token.
+    """
 
     @pytest.fixture
     def llama_checkpoint(self, temp_dir):
-        """Download LLaMA checkpoint for testing."""
-        model_name = "meta-llama/Llama-3.2-1B"
-
-        # Check for HF token (required for LLaMA)
-        hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-        if not hf_token:
-            pytest.skip("HF_TOKEN not set - required for LLaMA model access")
+        """Download Qwen2.5 checkpoint for testing (LLaMA-family architecture)."""
+        # Use Qwen2.5 which is publicly available (no HF_TOKEN required)
+        # Qwen uses LLaMA-style architecture: RMSNorm, SwiGLU, GQA
+        model_name = "Qwen/Qwen2.5-0.5B"
 
         if not is_hf_model_available(model_name):
-            pytest.skip(f"Model {model_name} not available (check HF token permissions)")
+            pytest.skip(f"Model {model_name} not available")
 
         return download_hf_model(model_name, temp_dir)
 
     def test_load_llama_state_dict(self, llama_checkpoint):
-        """Test loading LLaMA state dict from HuggingFace checkpoint."""
+        """Test loading LLaMA-family state dict from HuggingFace checkpoint."""
         from ironcore.checkpointing.hf_interop import load_hf_config, load_hf_state_dict
 
         # Load config
         config = load_hf_config(llama_checkpoint)
-        assert config["model_type"] == "llama"
+        # Qwen uses qwen2 model_type but LLaMA-style architecture
+        assert config["model_type"] in ("llama", "qwen2", "qwen")
         assert "hidden_size" in config
 
         # Load state dict

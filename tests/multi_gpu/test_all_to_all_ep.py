@@ -136,7 +136,6 @@ def test_all_to_all_mode():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    cleanup_distributed()
 
     if rank == 0:
         print("\nAll-to-All EP tests passed!")
@@ -235,7 +234,6 @@ def test_compare_modes():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    cleanup_distributed()
 
     if rank == 0:
         print("\nMode comparison tests passed!")
@@ -243,27 +241,32 @@ def test_compare_modes():
 
 def main():
     """Run tests."""
+    setup_distributed()
+
     test_type = os.environ.get("TEST_TYPE", "all")
 
-    if test_type == "all_to_all":
-        test_all_to_all_mode()
-    elif test_type == "compare":
-        test_compare_modes()
-    else:
-        # Run all tests
-        print("=" * 60)
-        print("Running All-to-All EP Tests")
-        print("=" * 60)
+    try:
+        if test_type == "all_to_all":
+            test_all_to_all_mode()
+        elif test_type == "compare":
+            test_compare_modes()
+        else:
+            # Run all tests
+            print("=" * 60)
+            print("Running All-to-All EP Tests")
+            print("=" * 60)
 
-        print("\n[Test 1] All-to-All Mode")
-        test_all_to_all_mode()
+            print("\n[Test 1] All-to-All Mode")
+            test_all_to_all_mode()
 
-        print("\n[Test 2] Compare Modes")
-        test_compare_modes()
+            print("\n[Test 2] Compare Modes")
+            test_compare_modes()
 
-        print("\n" + "=" * 60)
-        print("All tests passed!")
-        print("=" * 60)
+            print("\n" + "=" * 60)
+            print("All tests passed!")
+            print("=" * 60)
+    finally:
+        cleanup_distributed()
 
 
 if __name__ == "__main__":

@@ -381,7 +381,7 @@ class TestInputValidation:
 
     def test_nan_input_raises_error(self):
         """Test that NaN input raises ValueError."""
-        config = create_moe_test_config()
+        config = create_moe_test_config(hidden_size=64)
         moe = MoEMLP(config)
         moe.init_weights()
 
@@ -393,7 +393,7 @@ class TestInputValidation:
 
     def test_inf_input_raises_error(self):
         """Test that Inf input raises ValueError."""
-        config = create_moe_test_config()
+        config = create_moe_test_config(hidden_size=64)
         moe = MoEMLP(config)
         moe.init_weights()
 

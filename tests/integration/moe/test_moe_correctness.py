@@ -166,28 +166,26 @@ class TestMoECorrectness:
             layernorm_bias=False,
         )
         moe = MoEMLP(config)
+        moe.init_weights()  # Initialize weights to avoid all zeros
 
         x = torch.randn(batch_size, seq_len, hidden_size)
 
-        # Get full output
+        # Get full output with shared experts
         full_output = moe(x)
 
-        # Get output with shared experts zeroed
+        # Zero out shared experts to see only routed expert contribution
         for expert in moe.shared_experts:
-            expert.zero_grad()
             with torch.no_grad():
                 expert.up_proj.weight.zero_()
                 expert.down_proj.weight.zero_()
 
-        # Re-initialize model to get non-zero shared expert weights
-        moe2 = MoEMLP(config)
-        moe2.routed_experts = moe.routed_experts
-        moe2.router = moe.router
-
-        output_no_shared = moe2(x)
+        # Get output without shared expert contribution
+        output_no_shared = moe(x)
 
         # Outputs should differ (shared experts contribute)
-        assert not torch.allclose(full_output, output_no_shared, rtol=1e-5, atol=1e-5)
+        assert not torch.allclose(full_output, output_no_shared, rtol=1e-5, atol=1e-5), (
+            "Shared experts should contribute to output"
+        )
 
     def test_output_shape_preserved(self):
         """Test that output shape is always preserved regardless of routing."""

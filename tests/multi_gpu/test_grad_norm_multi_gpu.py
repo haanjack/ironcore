@@ -4,12 +4,15 @@
 
 """Multi-GPU tests for gradient norm and clipping.
 
-Run tests individually to avoid NCCL cleanup issues:
+Run with torchrun:
+    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py
     torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test dp2
     torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test tp2
     torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test fsdp
 
 Note: EP2 tests are skipped due to an existing MoE backward pass bug.
+The process group is initialized once in main() and kept alive across all tests.
+Each test only resets model_parallel state; cleanup_distributed() runs once at exit.
 """
 
 import argparse
@@ -125,7 +128,6 @@ def test_grad_norm_dp2():
     print(f"[Rank {rank}] ✅ DP=2 gradient norm test passed (norm={norm_value:.6f})")
 
     destroy_model_parallel()
-    cleanup_distributed()
 
 
 def test_grad_norm_dp2_clipping():
@@ -169,7 +171,6 @@ def test_grad_norm_dp2_clipping():
     )
 
     destroy_model_parallel()
-    cleanup_distributed()
 
 
 def test_param_norm_dp2():
@@ -214,7 +215,6 @@ def test_param_norm_dp2():
     print(f"[Rank {rank}] ✅ DP=2 parameter norm test passed (norm={param_norm:.6f})")
 
     destroy_model_parallel()
-    cleanup_distributed()
 
 
 # =============================================================================
@@ -228,7 +228,6 @@ def test_grad_norm_tp2():
 
     if world_size < 2:
         print("[Rank 0] Skipping TP=2 test - needs 2 GPUs")
-        cleanup_distributed()
         return
 
     # Initialize with TP=2
@@ -272,17 +271,50 @@ def test_grad_norm_tp2():
     print(f"[Rank {rank}] ✅ TP=2 gradient norm test passed (norm={norm_value:.6f})")
 
     destroy_model_parallel()
-    cleanup_distributed()
 
 
 def test_grad_norm_tp2_inf_norm():
-    """Test gradient norm with TP=2 and inf norm.
+    """Test gradient norm with TP=2 and inf norm (MAX reduction)."""
+    rank, world_size = setup_distributed()
 
-    SKIP: Running multiple multi-GPU tests sequentially causes NCCL socket
-    cleanup issues. The L2-norm test already validates TP=2 gradient norm
-    logic. Inf-norm only differs in using MAX reduction instead of SUM.
-    """
-    print("[SKIP] TP=2 inf-norm test - NCCL cleanup issues in sequential tests")
+    if world_size < 2:
+        print("[Rank 0] Skipping TP=2 inf-norm test - needs 2 GPUs")
+        return
+
+    initialize_model_parallel(
+        tensor_model_parallel_size=2,
+        timeout_in_minutes=10.0,
+    )
+
+    device = torch.device(f"cuda:{rank}")
+
+    torch.manual_seed(42)
+    model = SimpleModel().to(device)
+
+    torch.manual_seed(42)
+    x = torch.randn(4, 10, device=device)
+    y = torch.randn(4, 5, device=device)
+
+    output = model(x)
+    loss = torch.nn.functional.mse_loss(output, y)
+    loss.backward()
+
+    # Compute inf-norm (MAX reduction across TP ranks)
+    norm = clip_grad_norm(model.parameters(), max_norm=float("inf"), norm_type=float("inf"))
+    norm_value = norm.item()
+
+    # All ranks should agree on the same inf-norm
+    norms = [torch.tensor(0.0, device=device) for _ in range(world_size)]
+    dist.all_gather(norms, torch.tensor(norm_value, device=device))
+
+    for i in range(world_size):
+        assert torch.isclose(norms[i], torch.tensor(norm_value, device=device), rtol=1e-5), (
+            f"Rank {rank}: Inf-norm mismatch with rank {i}: {norms[i].item()} vs {norm_value}"
+        )
+
+    print(f"[Rank {rank}] ✅ TP=2 inf-norm test passed (norm={norm_value:.6f})")
+
+    destroy_model_parallel()
 
 
 # =============================================================================
@@ -324,7 +356,6 @@ def test_grad_norm_ep2_moe():
 
     if world_size < 2:
         print("[Rank 0] Skipping EP=2 MoE test - needs 2 GPUs")
-        cleanup_distributed()
         return
 
     initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
@@ -365,7 +396,7 @@ def test_grad_norm_ep2_moe():
     print(f"[Rank {rank}] ✅ EP=2 MoE gradient norm test passed (norm={norm_value:.6f})")
 
     destroy_expert_parallel()
-    cleanup_distributed()
+    destroy_model_parallel()
 
 
 def test_param_norm_ep2_moe():
@@ -374,7 +405,6 @@ def test_param_norm_ep2_moe():
 
     if world_size < 2:
         print("[Rank 0] Skipping EP=2 MoE param norm test - needs 2 GPUs")
-        cleanup_distributed()
         return
 
     initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
@@ -404,7 +434,6 @@ def test_param_norm_ep2_moe():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    cleanup_distributed()
 
 
 # =============================================================================
@@ -418,7 +447,6 @@ def test_grad_norm_fsdp_dp2():
 
     if world_size < 2:
         print("[Rank 0] Skipping FSDP DP=2 test - needs 2 GPUs")
-        cleanup_distributed()
         return
 
     device = torch.device(f"cuda:{rank}")
@@ -453,8 +481,6 @@ def test_grad_norm_fsdp_dp2():
 
     print(f"[Rank {rank}] ✅ FSDP DP=2 gradient norm test passed (norm={norm.item():.6f})")
 
-    cleanup_distributed()
-
 
 def main():
     """Run tests based on arguments."""
@@ -462,21 +488,27 @@ def main():
     parser.add_argument("--test", type=str, default="all")
     args = parser.parse_args()
 
-    if args.test in {"dp2", "all"}:
-        test_grad_norm_dp2()
-        test_grad_norm_dp2_clipping()
-        test_param_norm_dp2()
+    # Initialize the process group once and keep it alive across all tests
+    setup_distributed()
 
-    if args.test in {"tp2", "all"}:
-        test_grad_norm_tp2()
-        test_grad_norm_tp2_inf_norm()
+    try:
+        if args.test in {"dp2", "all"}:
+            test_grad_norm_dp2()
+            test_grad_norm_dp2_clipping()
+            test_param_norm_dp2()
 
-    if args.test in {"ep2", "all"}:
-        test_grad_norm_ep2_moe()
-        test_param_norm_ep2_moe()
+        if args.test in {"tp2", "all"}:
+            test_grad_norm_tp2()
+            test_grad_norm_tp2_inf_norm()
 
-    if args.test in {"fsdp", "all"}:
-        test_grad_norm_fsdp_dp2()
+        if args.test in {"ep2", "all"}:
+            test_grad_norm_ep2_moe()
+            test_param_norm_ep2_moe()
+
+        if args.test in {"fsdp", "all"}:
+            test_grad_norm_fsdp_dp2()
+    finally:
+        cleanup_distributed()
 
 
 if __name__ == "__main__":

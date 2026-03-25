@@ -31,10 +31,14 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_utils import ProfilerConfig
 from ironcore.global_vars import reset_global_states, set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
 from ironcore.peft.utils import freeze_base_model
+
+
+from ironcore.config.config_model import BiasConfig
 
 
 def create_model_config(tp_size=1, chunk_size=None):
@@ -48,8 +52,7 @@ def create_model_config(tp_size=1, chunk_size=None):
         max_position_embeddings=128,
         dropout_attn=0.0,
         dropout_mlp=0.0,
-        attention_bias=True,
-        mlp_bias=True,
+        bias=BiasConfig.all_true(),
         layernorm_bias=True,
     )
     model_config.name = "gpt2"
@@ -77,6 +80,7 @@ def create_model_config(tp_size=1, chunk_size=None):
         parallel=ParallelConfig(),
         operation=OperationConfig(train_steps=100),
         utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
         peft=peft_config,
     )
 
@@ -94,13 +98,10 @@ class TestLoRAAsyncChunking:
     def _run_chunking_test(self, tp_size=1):
         """Core test logic for chunked vs non-chunked comparison."""
         if tp_size > 1:
-            if not dist.is_initialized():
-                dist.init_process_group(backend="nccl")
-            rank = dist.get_rank()
-        else:
-            rank = 0
+            pytest.skip("TP > 1 requires torchrun")
 
-        device = torch.device(f"cuda:{rank}")
+        rank = 0
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         try:
             _seed_all()

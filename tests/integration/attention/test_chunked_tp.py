@@ -1,3 +1,4 @@
+from ironcore.config.config_model import BiasConfig
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0

@@ -206,10 +206,13 @@ class TestConfigValidation:
 
     def test_valid_micro_group_size_config(self):
         """Test valid rollout_micro_group_size configurations."""
-        from ironcore.config.config_alignment import AlignmentConfig
+        from ironcore.config.config_alignment import AlignmentConfig, RewardManagerConfig
 
         # Default config should be valid
-        config = AlignmentConfig(method="grpo")
+        config = AlignmentConfig(
+            method="grpo",
+            reward_manager=RewardManagerConfig(functions=[]),
+        )
         assert config.grpo_rollout_micro_group_size == 1
 
         # Various valid combinations (micro_group_size must divide group_size)
@@ -224,7 +227,11 @@ class TestConfigValidation:
         ]
 
         for cfg in valid_configs:
-            config = AlignmentConfig(method="grpo", **cfg)
+            config = AlignmentConfig(
+                method="grpo",
+                reward_manager=RewardManagerConfig(functions=[]),
+                **cfg,
+            )
             assert config.grpo_rollout_micro_group_size == cfg["grpo_rollout_micro_group_size"]
 
     def test_invalid_micro_group_size_zero(self):

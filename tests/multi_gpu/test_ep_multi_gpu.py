@@ -82,7 +82,7 @@ def test_ep_initialization():
     print(f"[Rank {rank}] ✅ EP initialization test passed")
 
     destroy_expert_parallel()
-    cleanup_distributed()
+    destroy_model_parallel()
 
 
 def test_moe_with_ep():
@@ -167,7 +167,7 @@ def test_moe_with_ep():
     print(f"[Rank {rank}] Gradient sum: {grad_sum:.4f}, Avg: {avg_grad:.4f}")
 
     destroy_expert_parallel()
-    cleanup_distributed()
+    destroy_model_parallel()
 
     if rank == 0:
         print("\n✅ All EP multi-GPU tests passed!")
@@ -207,7 +207,7 @@ def test_ep_all_reduce():
     print(f"[Rank {rank}] ✅ EP all-reduce test passed")
 
     destroy_expert_parallel()
-    cleanup_distributed()
+    destroy_model_parallel()
 
 
 def test_ep_gradient_synchronization():
@@ -275,8 +275,6 @@ def test_ep_gradient_synchronization():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
 
 
 def test_ep_all_to_all_correctness():
@@ -346,8 +344,6 @@ def test_ep_all_to_all_correctness():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
 
 
 def test_ep_load_balance_across_ranks():
@@ -425,8 +421,6 @@ def test_ep_load_balance_across_ranks():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
 
 
 def test_ep_plus_tp_combined():
@@ -435,7 +429,6 @@ def test_ep_plus_tp_combined():
 
     if world_size < 4:
         print(f"[Rank {rank}] Skipping EP+TP test - needs 4 GPUs, have {world_size}")
-        cleanup_distributed()
         return
 
     # Initialize with TP=2, then EP=2
@@ -501,60 +494,62 @@ def test_ep_plus_tp_combined():
 
     destroy_expert_parallel()
     destroy_model_parallel()
-    if dist.is_initialized():
-        dist.destroy_process_group()
 
 
 def main():
     """Run all tests."""
+    setup_distributed()
+
     test_type = os.environ.get("TEST_TYPE", "all")
 
-    if test_type == "init":
-        test_ep_initialization()
-    elif test_type == "moe":
-        test_moe_with_ep()
-    elif test_type == "allreduce":
-        test_ep_all_reduce()
-    elif test_type == "gradient_sync":
-        test_ep_gradient_synchronization()
-    elif test_type == "alltoall":
-        test_ep_all_to_all_correctness()
-    elif test_type == "loadbalance":
-        test_ep_load_balance_across_ranks()
-    elif test_type == "ep_tp":
-        test_ep_plus_tp_combined()
-    else:
-        # Run all tests
-        print("=" * 60)
-        print("Running EP Multi-GPU Tests")
-        print("=" * 60)
-
-        # Note: Each test initializes/cleans up distributed, so we run them sequentially
-        print("\n[Test 1] EP Initialization")
-        test_ep_initialization()
-
-        print("\n[Test 2] EP All-Reduce")
-        test_ep_all_reduce()
-
-        print("\n[Test 3] MoE with EP=2")
-        test_moe_with_ep()
-
-        print("\n[Test 4] EP Gradient Synchronization")
-        test_ep_gradient_synchronization()
-
-        print("\n[Test 5] EP All-to-All Correctness")
-        test_ep_all_to_all_correctness()
-
-        print("\n[Test 6] EP Load Balance Across Ranks")
-        test_ep_load_balance_across_ranks()
-
-        print("\n[Test 7] EP+TP Combined (requires 4 GPUs)")
-        test_ep_plus_tp_combined()
-
-        if dist.get_rank() == 0:
-            print("\n" + "=" * 60)
-            print("✅ All EP multi-GPU tests passed!")
+    try:
+        if test_type == "init":
+            test_ep_initialization()
+        elif test_type == "moe":
+            test_moe_with_ep()
+        elif test_type == "allreduce":
+            test_ep_all_reduce()
+        elif test_type == "gradient_sync":
+            test_ep_gradient_synchronization()
+        elif test_type == "alltoall":
+            test_ep_all_to_all_correctness()
+        elif test_type == "loadbalance":
+            test_ep_load_balance_across_ranks()
+        elif test_type == "ep_tp":
+            test_ep_plus_tp_combined()
+        else:
+            # Run all tests sequentially with shared process group
             print("=" * 60)
+            print("Running EP Multi-GPU Tests")
+            print("=" * 60)
+
+            print("\n[Test 1] EP Initialization")
+            test_ep_initialization()
+
+            print("\n[Test 2] EP All-Reduce")
+            test_ep_all_reduce()
+
+            print("\n[Test 3] MoE with EP=2")
+            test_moe_with_ep()
+
+            print("\n[Test 4] EP Gradient Synchronization")
+            test_ep_gradient_synchronization()
+
+            print("\n[Test 5] EP All-to-All Correctness")
+            test_ep_all_to_all_correctness()
+
+            print("\n[Test 6] EP Load Balance Across Ranks")
+            test_ep_load_balance_across_ranks()
+
+            print("\n[Test 7] EP+TP Combined (requires 4 GPUs)")
+            test_ep_plus_tp_combined()
+
+            if dist.get_rank() == 0:
+                print("\n" + "=" * 60)
+                print("✅ All EP multi-GPU tests passed!")
+                print("=" * 60)
+    finally:
+        cleanup_distributed()
 
 
 if __name__ == "__main__":
