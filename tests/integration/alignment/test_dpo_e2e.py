@@ -123,10 +123,17 @@ def mock_dpo_batch():
 @pytest.fixture
 def tiny_transformer(tiny_model_config):
     """Create a tiny transformer model for testing."""
+    from ironcore.global_vars import reset_global_states, set_global_states
     from ironcore.language_model import LanguageModel
 
+    # Initialize GLOBAL_STATES before creating model (required for tokenizer)
+    set_global_states(tiny_model_config)
+
     model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
-    return model
+    yield model
+
+    # Cleanup
+    reset_global_states()
 
 
 # =============================================================================

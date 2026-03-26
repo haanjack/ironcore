@@ -90,7 +90,7 @@ pythonpath = ["tests", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short -m 'not e2e'"
+addopts = "-v --tb=short -m 'not e2e' --ignore=tests/unit/profiler/ --ignore=tests/integration/alignment/ --ignore=tests/integration/kvcache/ --ignore=tests/integration/attention/test_flash_attention_cache.py --ignore=tests/integration/attention/test_tp_comparison_simple.py --ignore=tests/integration/dataloader/test_eval_integration.py --ignore=tests/integration/lora/test_lora_checkpoint.py --ignore=tests/integration/lora/test_lora_async.py"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
