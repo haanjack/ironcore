@@ -28,10 +28,10 @@ from ironcore.config import (
     OptimConfig,
     ParallelConfig,
     PEFTConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
-from ironcore.config.config_utils import ProfilerConfig
 from ironcore.global_vars import reset_global_states, set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states

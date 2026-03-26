@@ -40,6 +40,7 @@ from ironcore.config import (  # noqa: E402
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     PositionalEmbeddingConfig,
     ProfilerConfig,
     TrainerConfig,
@@ -118,6 +119,7 @@ def tp2_config():
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=PEFTConfig(),
     )
 
     # Initialize global states

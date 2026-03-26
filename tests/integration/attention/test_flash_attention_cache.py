@@ -33,6 +33,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     PositionalEmbeddingConfig,
     ProfilerConfig,
     TrainerConfig,
@@ -108,6 +109,7 @@ def create_test_config(use_flash_attn: bool = True, num_attention_groups: int = 
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=PEFTConfig(),
     )
 
 

@@ -125,14 +125,22 @@ def tiny_transformer(tiny_model_config):
     """Create a tiny transformer model for testing."""
     from ironcore.global_vars import reset_global_states, set_global_states
     from ironcore.language_model import LanguageModel
+    from ironcore.parallel import parallel_states
 
     # Initialize GLOBAL_STATES before creating model (required for tokenizer)
     set_global_states(tiny_model_config)
+
+    # Initialize parallel states (required for VocabParallelEmbedding)
+    parallel_states.initialize_model_parallel(
+        tensor_model_parallel_size=1,
+        timeout_in_minutes=10.0,
+    )
 
     model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
     yield model
 
     # Cleanup
+    parallel_states.destroy_model_parallel()
     reset_global_states()
 
 

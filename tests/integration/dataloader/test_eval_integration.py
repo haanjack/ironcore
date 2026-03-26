@@ -33,7 +33,9 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     PositionalEmbeddingConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
@@ -103,6 +105,8 @@ def eval_config():
         parallel=parallel_config,
         operation=operation_config,
         utils=utils_config,
+        profiler=ProfilerConfig(),
+        peft=PEFTConfig(),
     )
 
     # Initialize global states

@@ -33,6 +33,7 @@ from ironcore.config import (
     OperationConfig,
     OptimConfig,
     ParallelConfig,
+    PEFTConfig,
     PositionalEmbeddingConfig,
     ProfilerConfig,
     TrainerConfig,
@@ -104,6 +105,7 @@ def create_config(tp_size: int, num_kv_groups: int = 4) -> MainConfig:
         operation=operation_config,
         utils=utils_config,
         profiler=profiler_config,
+        peft=PEFTConfig(),
     )
 
 
