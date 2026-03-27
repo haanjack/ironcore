@@ -1,12 +1,6 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 from torch import nn
 from torch.utils.checkpoint import checkpoint
@@ -32,9 +26,7 @@ class DummyModelLayer(BaseModule):
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, output_size)
 
-    def custom_forward(
-        self, x, attention_mask, rotary_pos_emb
-    ):  # pylint: disable=unused-argument
+    def custom_forward(self, x, attention_mask, rotary_pos_emb):  # pylint: disable=unused-argument
         x = self.relu(self.fc1(x))
         x = self.fc2(x)
         return x
@@ -44,7 +36,6 @@ class DummyModelLayer(BaseModule):
 
 
 class DummyModel(BaseModule):
-
     def __init__(self, config: MainConfig):
 
         super().__init__(config)

@@ -1,12 +1,6 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -55,11 +49,7 @@ class Task(ABC):
         raise NotImplementedError("")
 
     def _get_dataloader(self):
-        split = (
-            f"{self.split_name}[:{self.num_samples}]"
-            if self.num_samples
-            else self.split_name
-        )
+        split = f"{self.split_name}[:{self.num_samples}]" if self.num_samples else self.split_name
         dataset = load_dataset(
             self.task_name,
             split=split,
@@ -74,8 +64,7 @@ class Task(ABC):
             remove_columns=dataset.column_names,
             desc=f"Preprocessing evaluation task: {self.task_name}",
         )
-        self.data_loader = DataLoader(
-            preprocessed_dataset, batch_size=self.batch_size)
+        self.data_loader = DataLoader(preprocessed_dataset, batch_size=self.batch_size)
 
     @abstractmethod
     def _get_batch(self):

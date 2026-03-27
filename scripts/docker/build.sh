@@ -6,9 +6,20 @@ if [ -f .env ]; then
 fi
 set +a
 
-# Default to empty token if not set
+# Default to cuda if not set
+ARCH=${ARCH:-"cuda"}
 github_access_token=${github_access_token:-""}
 
-docker build . -t ironcore:dev \
-    --build-arg NGC_VERSION=25.12 \
-    --build-arg ACCESS_TOKEN=$github_access_token
+if [ "$ARCH" == "rocm" ]; then
+    BASE_IMAGE="rocm/pytorch:rocm7.2_ubuntu24.04_py3.12_pytorch_release_2.8.0"
+    TAG="ironcore:rocm"
+else
+    NGC_VERSION=${NGC_VERSION:-"25.12"}
+    BASE_IMAGE="nvcr.io/nvidia/pytorch:${NGC_VERSION}-py3"
+    TAG="ironcore:cuda"
+fi
+
+echo "Building for $ARCH using $BASE_IMAGE..."
+
+docker build . -t "$TAG" \
+    --build-arg BASE_IMAGE="$BASE_IMAGE"

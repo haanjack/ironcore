@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 Universal Collator for Pretrain and SFT modes.
 
@@ -8,10 +11,9 @@ Implements:
 - Fallback to full attention masks
 """
 
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Literal
 
 import torch
-import torch.nn.functional as F
 
 
 class UniversalCollator:
@@ -20,11 +22,12 @@ class UniversalCollator:
 
     For pretrain: Simple stacking of sequences
     For SFT: Bin-packing with attention masks and position IDs
+    For GRPO: Return prompts with metadata for online generation
     """
 
     def __init__(
         self,
-        mode: Literal["pretrain", "sft", "dpo"],
+        mode: Literal["pretrain", "sft", "dpo", "grpo"],
         max_seq_len: int,
         pad_token_id: int = 0,
         use_flash_attention: bool = True,
@@ -47,7 +50,7 @@ class UniversalCollator:
         self.use_flash_attention = use_flash_attention
         self.return_full_attention_mask = return_full_attention_mask
 
-    def __call__(self, batch: List) -> Dict[str, torch.Tensor]:
+    def __call__(self, batch: list) -> dict[str, torch.Tensor]:
         """
         Collate a batch of samples.
 
@@ -63,10 +66,12 @@ class UniversalCollator:
             return self._collate_sft(batch)
         elif self.mode == "dpo":
             return self._collate_dpo(batch)
+        elif self.mode == "grpo":
+            return self._collate_grpo(batch)
         else:
             raise ValueError(f"Invalid mode: {self.mode}")
 
-    def _collate_pretrain(self, batch: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _collate_pretrain(self, batch: list[torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Collate pretrain batch.
 
@@ -76,15 +81,15 @@ class UniversalCollator:
         tokens = torch.stack(batch)  # [batch_size, max_seq_len + 1]
 
         # Split into input_ids and labels
-        input_ids = tokens[:, :-1]   # [batch_size, max_seq_len]
-        labels = tokens[:, 1:]        # [batch_size, max_seq_len]
+        input_ids = tokens[:, :-1]  # [batch_size, max_seq_len]
+        labels = tokens[:, 1:]  # [batch_size, max_seq_len]
 
         return {
-            'input_ids': input_ids,
-            'labels': labels,
+            "input_ids": input_ids,
+            "labels": labels,
         }
 
-    def _collate_sft(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+    def _collate_sft(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         """
         Collate SFT batch with bin-packing.
 
@@ -94,13 +99,13 @@ class UniversalCollator:
         3. Generate attention masks and position IDs
         """
         # Extract token_ids and metadata
-        samples = [
-            (sample['token_ids'], sample['metadata'])
-            for sample in batch
-        ]
+        samples = [(sample["token_ids"], sample["metadata"]) for sample in batch]
 
         # Sort by length (descending) for better packing
         samples.sort(key=lambda x: len(x[0]), reverse=True)
+
+        # Pre-create range tensor for position_ids (avoids torch.arange in loop)
+        position_range = torch.arange(self.max_seq_len, dtype=torch.long)
 
         # Bin-packing: First-Fit Decreasing
         bins = []  # Each bin: [(token_ids, metadata), ...]
@@ -127,20 +132,13 @@ class UniversalCollator:
         batch_size = len(bins)
 
         # Initialize tensors
-        input_ids = torch.full(
-            (batch_size, self.max_seq_len),
-            self.pad_token_id,
-            dtype=torch.long
-        )
+        input_ids = torch.full((batch_size, self.max_seq_len), self.pad_token_id, dtype=torch.long)
         labels = torch.full(
             (batch_size, self.max_seq_len),
             -100,  # Ignore index for loss
-            dtype=torch.long
+            dtype=torch.long,
         )
-        position_ids = torch.zeros(
-            (batch_size, self.max_seq_len),
-            dtype=torch.long
-        )
+        position_ids = torch.zeros((batch_size, self.max_seq_len), dtype=torch.long)
 
         # For FlashAttention: cumulative sequence lengths
         cu_seqlens_list = []
@@ -148,8 +146,7 @@ class UniversalCollator:
         # For full attention mask (fallback)
         if self.return_full_attention_mask:
             attention_mask = torch.zeros(
-                (batch_size, self.max_seq_len, self.max_seq_len),
-                dtype=torch.bool
+                (batch_size, self.max_seq_len, self.max_seq_len), dtype=torch.bool
             )
 
         # Fill tensors
@@ -159,11 +156,19 @@ class UniversalCollator:
 
             for token_ids, metadata in bin_samples:
                 sample_len = len(token_ids)
-                mask_ranges = metadata.get('mask_ranges', [])
+                mask_ranges = metadata.get("mask_ranges", [])
+
+                # Truncate if sample exceeds remaining space in this row.
+                # position_ids needs sample_len slots; input_ids/labels need sample_len-1.
+                # So the binding constraint is sample_len <= max_seq_len - current_pos.
+                available = self.max_seq_len - current_pos
+                if sample_len > available:
+                    token_ids = token_ids[:available]
+                    sample_len = available
 
                 # Copy tokens
-                input_ids[batch_idx, current_pos:current_pos + sample_len - 1] = token_ids[:-1]
-                labels[batch_idx, current_pos:current_pos + sample_len - 1] = token_ids[1:]
+                input_ids[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[:-1]
+                labels[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[1:]
 
                 # Apply masking for user prompts
                 for start, end in mask_ranges:
@@ -173,7 +178,9 @@ class UniversalCollator:
                     labels[batch_idx, mask_start:mask_end] = -100
 
                 # Position IDs reset for each sample
-                position_ids[batch_idx, current_pos:current_pos + sample_len] = torch.arange(sample_len)
+                position_ids[batch_idx, current_pos : current_pos + sample_len] = position_range[
+                    :sample_len
+                ]
 
                 # Block-diagonal attention mask
                 if self.return_full_attention_mask:
@@ -189,51 +196,132 @@ class UniversalCollator:
 
         # Prepare output dict
         output = {
-            'input_ids': input_ids,
-            'labels': labels,
-            'position_ids': position_ids,
+            "input_ids": input_ids,
+            "labels": labels,
+            "position_ids": position_ids,
         }
 
         if self.use_flash_attention:
             # FlashAttention format: list of cu_seqlens per batch element
-            output['cu_seqlens'] = cu_seqlens_list
+            output["cu_seqlens"] = cu_seqlens_list
 
         if self.return_full_attention_mask:
-            output['attention_mask'] = attention_mask
+            output["attention_mask"] = attention_mask
 
         return output
 
-    def _collate_dpo(self, batch: List[Dict]) -> Dict[str, torch.Tensor]:
+    def _collate_grpo(self, batch: list[dict]) -> dict[str, torch.Tensor]:
+        """
+        Collate GRPO batch.
+
+        For GRPO, we only need prompts with their metadata.
+        The model generates completions during training.
+
+        Returns:
+            Dict with:
+            - input_ids: [batch_size, prompt_len] tokenized prompts
+            - attention_mask: [batch_size, prompt_len] mask for valid tokens
+            - metadata: list of dicts with answer/test_cases/type/etc.
+        """
+        # Extract prompts and metadata
+        prompts = []
+        metadata_list = []
+
+        for sample in batch:
+            token_ids = sample["token_ids"]
+            meta = sample.get("metadata", {})
+
+            # Convert to list if tensor
+            if isinstance(token_ids, torch.Tensor):
+                token_ids = token_ids.tolist()
+
+            # Pad to max_seq_len
+            if len(token_ids) < self.max_seq_len:
+                token_ids = token_ids + [self.pad_token_id] * (self.max_seq_len - len(token_ids))
+            else:
+                token_ids = token_ids[: self.max_seq_len]
+
+            prompts.append(token_ids)
+            metadata_list.append(meta)
+
+        # Stack prompts
+        input_ids = torch.tensor(prompts, dtype=torch.long)
+
+        # Create attention mask (1 for valid tokens, 0 for padding)
+        # Use the original lengths before padding
+        attention_mask = torch.zeros_like(input_ids)
+        for i, sample in enumerate(batch):
+            orig_token_ids = sample["token_ids"]
+            if isinstance(orig_token_ids, torch.Tensor):
+                orig_token_ids = orig_token_ids.tolist()
+            original_len = min(len(orig_token_ids), self.max_seq_len)
+            attention_mask[i, :original_len] = 1
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "metadata": metadata_list,
+        }
+
+    def _collate_dpo(self, batch: list[dict]) -> dict[str, torch.Tensor]:
         """
         Collate DPO batch.
 
         Groups chosen/rejected pairs and returns separate tensors.
+
+        Raises:
+            ValueError: If batch doesn't contain paired chosen/rejected samples
         """
         # Separate chosen and rejected
-        chosen_samples = [s for s in batch if s['metadata']['type'] == 'dpo_chosen']
-        rejected_samples = [s for s in batch if s['metadata']['type'] == 'dpo_rejected']
+        chosen_samples = [s for s in batch if s["metadata"]["type"] == "dpo_chosen"]
+        rejected_samples = [s for s in batch if s["metadata"]["type"] == "dpo_rejected"]
+
+        # Extract metadata for better error messages
+        all_sample_types = [s["metadata"].get("type", "unknown") for s in batch]
+        type_counts = {}
+        for sample_type in all_sample_types:
+            type_counts[sample_type] = type_counts.get(sample_type, 0) + 1
+
+        # Validation: DPO requires paired data
+        if len(chosen_samples) == 0:
+            raise ValueError(
+                f"DPO batch contains no chosen samples (dpo_chosen). "
+                f"Batch contains {len(batch)} total samples with types: {type_counts}. "
+                f"Check data pipeline: all pairs must have 'dpo_chosen' type."
+            )
+        if len(rejected_samples) == 0:
+            raise ValueError(
+                f"DPO batch contains no rejected samples (dpo_rejected). "
+                f"Batch contains {len(batch)} total samples with types: {type_counts}. "
+                f"Check data pipeline: all pairs must have 'dpo_rejected' type."
+            )
+        if len(chosen_samples) != len(rejected_samples):
+            raise ValueError(
+                f"DPO batch has mismatched pairs: {len(chosen_samples)} chosen vs {len(rejected_samples)} rejected. "
+                f"Batch composition: {type_counts}. "
+                f"Each chosen sample must have a corresponding rejected pair. "
+                f"Total samples in batch: {len(batch)}"
+            )
 
         # Collate each separately using SFT logic
-        chosen_batch = self._collate_sft(chosen_samples) if chosen_samples else None
-        rejected_batch = self._collate_sft(rejected_samples) if rejected_samples else None
+        chosen_batch = self._collate_sft(chosen_samples)
+        rejected_batch = self._collate_sft(rejected_samples)
 
         # Prefix keys
         output = {}
-        if chosen_batch:
-            for k, v in chosen_batch.items():
-                output[f'chosen_{k}'] = v
-        if rejected_batch:
-            for k, v in rejected_batch.items():
-                output[f'rejected_{k}'] = v
+        for k, v in chosen_batch.items():
+            output[f"chosen_{k}"] = v
+        for k, v in rejected_batch.items():
+            output[f"rejected_{k}"] = v
 
         return output
 
 
 def create_collator(
-    mode: Literal["pretrain", "sft", "dpo"],
+    mode: Literal["pretrain", "sft", "dpo", "grpo"],
     max_seq_len: int,
     pad_token_id: int = 0,
-    **kwargs
+    **kwargs,
 ) -> UniversalCollator:
     """
     Factory function to create collator.
@@ -248,8 +336,5 @@ def create_collator(
         UniversalCollator instance
     """
     return UniversalCollator(
-        mode=mode,
-        max_seq_len=max_seq_len,
-        pad_token_id=pad_token_id,
-        **kwargs
+        mode=mode, max_seq_len=max_seq_len, pad_token_id=pad_token_id, **kwargs
     )

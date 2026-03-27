@@ -1,17 +1,9 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC
-from typing import Dict
 
-from ironcore.logger import MLFlowLogger, IronCoreLogger, TensorboardLogger
+from ironcore.logger import IronCoreLogger, MLFlowLogger, TensorboardLogger, WandbLogger
 from ironcore.tokenizer import Tokenizer, build_tokenizer
 from ironcore.utils import Timer
 
@@ -19,7 +11,6 @@ GLOBAL_STATES = None
 
 
 class GlobalStates:
-
     def __init__(self, config):
         self.config = config
 
@@ -29,6 +20,8 @@ class GlobalStates:
             self.tensorboard_logger = TensorboardLogger(config)
         if config.utils.mlflow_experiment_name:
             self.mlflow_logger = MLFlowLogger(config)
+        if config.utils.wandb_project:
+            self.wandb_logger = WandbLogger(config)
 
         self.timer = Timer()
 
@@ -53,6 +46,8 @@ class GlobalStates:
             self.tensorboard_logger.close()
         if hasattr(self, "mlflow_logger"):
             self.mlflow_logger.close()
+        if hasattr(self, "wandb_logger"):
+            self.wandb_logger.close()
 
 
 def set_global_states(config):
@@ -60,6 +55,12 @@ def set_global_states(config):
     global GLOBAL_STATES  # pylint: disable=global-statement
     assert GLOBAL_STATES is None, "global states should not be initialized"
     GLOBAL_STATES = GlobalStates(config)
+
+
+def reset_global_states():
+    """reset global states"""
+    global GLOBAL_STATES  # pylint: disable=global-statement
+    GLOBAL_STATES = None
 
 
 def get_global_states():
@@ -89,23 +90,29 @@ def log_metric(name: str, value: float, step: int):
     assert GLOBAL_STATES is not None, "global states should not be None"
     tensorboard_logger = getattr(GLOBAL_STATES, "tensorboard_logger", None)
     mlflow_logger = getattr(GLOBAL_STATES, "mlflow_logger", None)
+    wandb_logger = getattr(GLOBAL_STATES, "wandb_logger", None)
 
     if tensorboard_logger:
         tensorboard_logger.add_scalar(name, value, step)
     if mlflow_logger:
         mlflow_logger.log_metric(name, value, step)
+    if wandb_logger:
+        wandb_logger.log_metric(name, value, step)
 
 
-def log_metrics(metrics: Dict[str, float], step: int):
+def log_metrics(metrics: dict[str, float], step: int):
     assert GLOBAL_STATES is not None, "global states should not be None"
     tensorboard_logger = getattr(GLOBAL_STATES, "tensorboard_logger", None)
     mlflow_logger = getattr(GLOBAL_STATES, "mlflow_logger", None)
+    wandb_logger = getattr(GLOBAL_STATES, "wandb_logger", None)
 
     for k, v in metrics.items():
         if tensorboard_logger:
             tensorboard_logger.add_scalar(k, v, step)
         if mlflow_logger:
             mlflow_logger.log_metric(k, v, step)
+    if wandb_logger:
+        wandb_logger.log(metrics, step)
 
 
 def log_histogram(name: str, values, step: int):
@@ -118,9 +125,11 @@ def log_histogram(name: str, values, step: int):
 
 
 def global_states_cleanup():
-    """Clean up global resources like closing loggers."""
+    """Clean up global resources like closing loggers and reset state."""
+    global GLOBAL_STATES  # pylint: disable=global-statement
     if GLOBAL_STATES is not None:
         GLOBAL_STATES.cleanup()
+        GLOBAL_STATES = None
 
 
 def get_timer():

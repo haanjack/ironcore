@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 from torch import nn
 
 from ironcore import get_tokenizer
@@ -12,9 +15,7 @@ class LanguageModelEmbedding(BaseModule):
 
         tokenizer = get_tokenizer()
 
-        self.add_position_embedding = (
-            config.model.positional_embedding.type == "absolute"
-        )
+        self.add_position_embedding = config.model.positional_embedding.type == "absolute"
         self.fp32_residual_connection = config.model.fp32_residual_connection
 
         self.word_embeddings = VocabParallelEmbedding(

@@ -1,6 +1,6 @@
 # Training Configuration
 
-IronCore uses a hierarchical YAML configuration system. Configuration is organized into groups that can be defined inline or reference external files.
+Hierarchical YAML configuration. Groups can be defined inline or reference external files.
 
 ## Config Structure
 
@@ -76,7 +76,9 @@ Model architecture configuration. Can reference a file (e.g., `model: gpt2-small
 | `dropout_embd` | `0.1` | Embedding dropout |
 | `dropout_attn` | `0.1` | Attention dropout |
 | `dropout_mlp` | `0.1` | MLP dropout |
-| `no_bias` | `false` | Disable bias in layers |
+| `attention_bias` | `true` | Enable bias in attention layers |
+| `mlp_bias` | `true` | Enable bias in mlp layers |
+| `layernorm_bias` | `true` | Enable bias in layernorm layers |
 | `untie_embed` | `false` | Untie input/output embeddings |
 | `tokenizer_type` | `"gpt2"` | Tokenizer type |
 | `vocab_name_or_path` | `"gpt2"` | Vocab name or path |
@@ -165,13 +167,51 @@ Logging and profiling utilities.
 | `tensorboard_dir` | `None` | TensorBoard log directory |
 | `mlflow_tracking_uri` | `None` | MLflow tracking URI |
 | `mlflow_experiment_name` | `None` | MLflow experiment name |
-| `profile_nsys` | `false` | Enable Nsight Systems profiling |
-| `profile_torch` | `false` | Enable PyTorch profiler |
-| `profile_step_start` | `10` | Profile start step |
-| `profile_step_end` | `12` | Profile end step |
-| `profile_ranks` | `[0]` | Ranks to profile |
+| `gpu_profiler` | `false` | Enable GPU/Nsight Systems profiling |
+| `torch_profiler` | `false` | Enable PyTorch profiler |
+| `start` | `10` | Profile start step |
+| `end` | `12` | Profile end step |
+| `ranks` | `[0]` | Ranks to profile |
 | `deterministic` | `false` | Enable deterministic mode |
 | `report_memory_usage` | `true` | Report memory usage |
+
+### alignment
+
+Alignment training configuration for DPO and GRPO. See [docs/alignment_config.md](../docs/alignment_config.md) for full documentation.
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `method` | `"dpo"` | Alignment method (`dpo`, `grpo`) |
+| `dpo_beta` | `0.5` | DPO KL penalty coefficient |
+| `dpo_label_smoothing` | `0.0` | DPO label smoothing |
+| `grpo_group_size` | `4` | GRPO completions per prompt |
+| `grpo_beta` | `0.1` | GRPO KL penalty coefficient |
+| `grpo_eps` | `1e-8` | Advantage normalization epsilon |
+| `grpo_num_epochs` | `1` | Gradient steps per rollout batch |
+| `grpo_clip_eps` | `0.2` | PPO-style ratio clipping range |
+| `grpo_rollout_micro_group_size` | `1` | Per-GPU parallel completions per prompt (like micro_batch_size) |
+| `concat_forward_passes` | `true` | Concat policy/ref forward passes |
+| `metrics_interval` | `0` | Detailed metrics interval (0 = every step) |
+
+#### generation (nested in alignment)
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `max_new_tokens` | `512` | Max tokens to generate |
+| `temperature` | `1.0` | Sampling temperature |
+| `top_p` | `0.9` | Nucleus sampling threshold |
+| `top_k` | `0` | Top-k sampling (0 = disabled) |
+| `do_sample` | `true` | Sample vs greedy decoding |
+| `use_chat_template` | `false` | Apply model chat template |
+| `system_prompt` | `None` | System prompt for all inputs |
+
+#### reward (nested in alignment)
+
+| Name | Default | Description |
+|------|---------|-------------|
+| `type` | `"math"` | Reward type (`math`, `code`, `api`, `local_endpoint`, `local_inference`, `format`, `keyword`) |
+| `num_workers` | `4` | Parallel reward workers |
+| `timeout` | `30` | Reward computation timeout (s) |
 
 ## Example Configuration
 

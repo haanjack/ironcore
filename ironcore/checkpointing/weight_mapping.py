@@ -1,20 +1,6 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice,
-#    this list of conditions, and the following disclaimer.
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions, and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-# 3. Neither the name of the copyright holder nor the names of its contributors
-#    may be used to endorse or promote products derived from this software
-#    without specific prior written permission.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 """
 Weight mapping utilities for HuggingFace checkpoint interoperability.
@@ -28,12 +14,14 @@ Supported architectures:
 """
 
 import re
-from typing import Dict, Optional, Tuple
 from enum import Enum
+
+import torch
 
 
 class Architecture(Enum):
     """Supported HuggingFace model architectures."""
+
     GPT2 = "gpt2"
     LLAMA = "llama"
 
@@ -65,17 +53,17 @@ def get_architecture(model_type: str) -> Architecture:
 # =============================================================================
 # Ironcore naming convention:
 # =============================================================================
-# embedding.word_embeddings.weight          - word embedding
-# embedding.position_embedding.weight       - absolute position embedding
-# model.layers.{i}.input_layernorm.weight   - pre-attention layer norm
-# model.layers.{i}.self_attention.linear_q.weight   - query projection
-# model.layers.{i}.self_attention.linear_kv.weight  - key-value projection (fused)
-# model.layers.{i}.self_attention.output.weight     - attention output
-# model.layers.{i}.post_attn_layernorm.weight       - post-attention layer norm
-# model.layers.{i}.mlp.up_proj.weight       - MLP up projection
-# model.layers.{i}.mlp.down_proj.weight     - MLP down projection
-# output_layernorm.weight                   - final layer norm
-# output_layer.weight                       - output projection (untied)
+# embedding.word_embeddings.weight              - word embedding
+# embedding.position_embedding.weight           - absolute position embedding
+# model.layers.{i}.input_layernorm.layernorm.weight   - pre-attention layer norm (wrapped)
+# model.layers.{i}.linear_q.weight              - query projection (direct on layer)
+# model.layers.{i}.linear_kv.weight             - key-value projection (fused, direct on layer)
+# model.layers.{i}.attn_output.weight           - attention output (direct on layer)
+# model.layers.{i}.post_attn_layernorm.layernorm.weight - post-attention layer norm (wrapped)
+# model.layers.{i}.mlp.up_proj.weight           - MLP up projection
+# model.layers.{i}.mlp.down_proj.weight         - MLP down projection
+# output_layernorm.layernorm.weight             - final layer norm (wrapped)
+# output_layer.weight                           - output projection (untied)
 
 
 # =============================================================================
@@ -126,9 +114,9 @@ class WeightMapper:
 
     def hf_to_ironcore(
         self,
-        hf_state_dict: Dict[str, "torch.Tensor"],
+        hf_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
-    ) -> Dict[str, "torch.Tensor"]:
+    ) -> dict[str, torch.Tensor]:
         """
         Convert HuggingFace state dict to ironcore format.
 
@@ -139,7 +127,6 @@ class WeightMapper:
         Returns:
             State dict with ironcore naming convention
         """
-        import torch
 
         if self.architecture == Architecture.GPT2:
             return self._hf_gpt2_to_ironcore(hf_state_dict, strict)
@@ -150,9 +137,9 @@ class WeightMapper:
 
     def ironcore_to_hf(
         self,
-        ironcore_state_dict: Dict[str, "torch.Tensor"],
+        ironcore_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
-    ) -> Dict[str, "torch.Tensor"]:
+    ) -> dict[str, torch.Tensor]:
         """
         Convert ironcore state dict to HuggingFace format.
 
@@ -163,7 +150,6 @@ class WeightMapper:
         Returns:
             State dict with HuggingFace naming convention
         """
-        import torch
 
         if self.architecture == Architecture.GPT2:
             return self._ironcore_to_hf_gpt2(ironcore_state_dict, strict)
@@ -178,24 +164,21 @@ class WeightMapper:
 
     def _hf_gpt2_to_ironcore(
         self,
-        hf_state_dict: Dict[str, "torch.Tensor"],
+        hf_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
-    ) -> Dict[str, "torch.Tensor"]:
+    ) -> dict[str, torch.Tensor]:
         """Convert GPT-2 HuggingFace checkpoint to ironcore format."""
-        import torch
 
         ironcore_state_dict = {}
         mapped_keys = set()
 
         for hf_key, tensor in hf_state_dict.items():
-            ironcore_key, transformed_tensor = self._map_gpt2_key_to_ironcore(
-                hf_key, tensor
-            )
+            ironcore_key, transformed_tensor = self._map_gpt2_key_to_ironcore(hf_key, tensor)
 
             if ironcore_key is not None:
                 if isinstance(ironcore_key, tuple):
                     # Multiple outputs (e.g., split QKV)
-                    for k, t in zip(ironcore_key, transformed_tensor):
+                    for k, t in zip(ironcore_key, transformed_tensor, strict=True):
                         ironcore_state_dict[k] = t
                 else:
                     ironcore_state_dict[ironcore_key] = transformed_tensor
@@ -213,36 +196,35 @@ class WeightMapper:
     def _map_gpt2_key_to_ironcore(
         self,
         hf_key: str,
-        tensor: "torch.Tensor",
-    ) -> Tuple[Optional[str], Optional["torch.Tensor"]]:
+        tensor: torch.Tensor,
+    ) -> tuple[str | tuple[str, ...] | None, torch.Tensor | tuple[torch.Tensor, ...] | None]:
         """Map a single GPT-2 HuggingFace key to ironcore format."""
-        import torch
 
         # Normalize key - HF GPT-2 may or may not have "transformer." prefix
         # depending on how it was saved (safetensors vs pytorch_model.bin)
         normalized_key = hf_key
         if not hf_key.startswith("transformer.") and not hf_key.startswith("lm_head"):
             # Add prefix if missing (safetensors format)
-            if hf_key.startswith("wte.") or hf_key.startswith("wpe.") or hf_key.startswith("ln_f.") or hf_key.startswith("h."):
+            if (
+                hf_key.startswith("wte.")
+                or hf_key.startswith("wpe.")
+                or hf_key.startswith("ln_f.")
+                or hf_key.startswith("h.")
+            ):
                 normalized_key = "transformer." + hf_key
 
-        # Word embeddings
-        if normalized_key == "transformer.wte.weight":
-            return "embedding.word_embeddings.weight", tensor
+        # Simple non-layer mappings
+        # Note: ironcore's LayerNorm wraps nn.LayerNorm, so weights have .layernorm suffix
+        simple_mappings = {
+            "transformer.wte.weight": "embedding.word_embeddings.weight",
+            "transformer.wpe.weight": "embedding.position_embedding.weight",
+            "transformer.ln_f.weight": "output_layernorm.layernorm.weight",
+            "transformer.ln_f.bias": "output_layernorm.layernorm.bias",
+            "lm_head.weight": "output_layer.weight",
+        }
 
-        # Position embeddings
-        if normalized_key == "transformer.wpe.weight":
-            return "embedding.position_embedding.weight", tensor
-
-        # Final layer norm
-        if normalized_key == "transformer.ln_f.weight":
-            return "output_layernorm.weight", tensor
-        if normalized_key == "transformer.ln_f.bias":
-            return "output_layernorm.bias", tensor
-
-        # Output projection (lm_head)
-        if normalized_key == "lm_head.weight":
-            return "output_layer.weight", tensor
+        if normalized_key in simple_mappings:
+            return simple_mappings[normalized_key], tensor
 
         # Layer-specific mappings
         layer_match = re.match(r"transformer\.h\.(\d+)\.(.*)", normalized_key)
@@ -250,65 +232,68 @@ class WeightMapper:
             layer_idx = layer_match.group(1)
             layer_key = layer_match.group(2)
 
-            # Pre-attention layer norm
-            if layer_key == "ln_1.weight":
-                return f"model.layers.{layer_idx}.input_layernorm.weight", tensor
-            if layer_key == "ln_1.bias":
-                return f"model.layers.{layer_idx}.input_layernorm.bias", tensor
-
             # Attention QKV (fused in GPT-2, need to split for ironcore)
-            # GPT-2 uses Conv1D which stores weights transposed
+            # Both GPT-2 Conv1D and ironcore ParallelLinear use: y = x @ W
+            # So weights have shape [in_features, out_features] - NO transpose needed
             if layer_key == "attn.c_attn.weight":
                 # GPT-2 c_attn: [hidden_size, 3 * hidden_size] (Conv1D style)
-                # Need to transpose and split into Q, KV
-                tensor_t = tensor.t()  # [3 * hidden_size, hidden_size]
-                hidden_size = tensor_t.shape[1]
-                q, k, v = tensor_t.split(hidden_size, dim=0)
-                kv = torch.cat([k, v], dim=0)  # ironcore uses fused KV
+                # Split into Q, KV without transposing
+                hidden_size = tensor.shape[0]
+                q, k, v = tensor.split(hidden_size, dim=1)  # Split along output dim
+                kv = torch.cat([k, v], dim=1)  # Fuse K and V along output dim
                 return (
-                    (f"model.layers.{layer_idx}.self_attention.linear_q.weight",
-                     f"model.layers.{layer_idx}.self_attention.linear_kv.weight"),
-                    (q, kv)
+                    (
+                        f"model.layers.{layer_idx}.linear_q.weight",
+                        f"model.layers.{layer_idx}.linear_kv.weight",
+                    ),
+                    (q, kv),
                 )
             if layer_key == "attn.c_attn.bias":
                 hidden_size = tensor.shape[0] // 3
                 q, k, v = tensor.split(hidden_size, dim=0)
                 kv = torch.cat([k, v], dim=0)
                 return (
-                    (f"model.layers.{layer_idx}.self_attention.linear_q.bias",
-                     f"model.layers.{layer_idx}.self_attention.linear_kv.bias"),
-                    (q, kv)
+                    (
+                        f"model.layers.{layer_idx}.linear_q.bias",
+                        f"model.layers.{layer_idx}.linear_kv.bias",
+                    ),
+                    (q, kv),
                 )
 
-            # Attention output projection
-            if layer_key == "attn.c_proj.weight":
-                return f"model.layers.{layer_idx}.self_attention.output.weight", tensor.t()
-            if layer_key == "attn.c_proj.bias":
-                return f"model.layers.{layer_idx}.self_attention.output.bias", tensor
+            # Layer mappings - NO transformation needed
+            # Both GPT-2 Conv1D and ironcore ParallelLinear use: y = x @ W
+            # So weights have shape [in_features, out_features] - NO transpose needed
+            transform_mappings = {
+                "attn.c_proj.weight": f"model.layers.{layer_idx}.attn_output.weight",
+                "mlp.c_fc.weight": f"model.layers.{layer_idx}.mlp.up_proj.weight",
+                "mlp.c_proj.weight": f"model.layers.{layer_idx}.mlp.down_proj.weight",
+            }
 
-            # Post-attention layer norm
-            if layer_key == "ln_2.weight":
-                return f"model.layers.{layer_idx}.post_attn_layernorm.weight", tensor
-            if layer_key == "ln_2.bias":
-                return f"model.layers.{layer_idx}.post_attn_layernorm.bias", tensor
+            if layer_key in transform_mappings:
+                return transform_mappings[layer_key], tensor
 
-            # MLP
-            if layer_key == "mlp.c_fc.weight":
-                return f"model.layers.{layer_idx}.mlp.up_proj.weight", tensor.t()
-            if layer_key == "mlp.c_fc.bias":
-                return f"model.layers.{layer_idx}.mlp.up_proj.bias", tensor
-            if layer_key == "mlp.c_proj.weight":
-                return f"model.layers.{layer_idx}.mlp.down_proj.weight", tensor.t()
-            if layer_key == "mlp.c_proj.bias":
-                return f"model.layers.{layer_idx}.mlp.down_proj.bias", tensor
+            # Simple layer mappings
+            # Note: ironcore's LayerNorm wraps nn.LayerNorm, so weights have .layernorm suffix
+            layer_simple_mappings = {
+                "ln_1.weight": f"model.layers.{layer_idx}.input_layernorm.layernorm.weight",
+                "ln_1.bias": f"model.layers.{layer_idx}.input_layernorm.layernorm.bias",
+                "attn.c_proj.bias": f"model.layers.{layer_idx}.attn_output.bias",
+                "ln_2.weight": f"model.layers.{layer_idx}.post_attn_layernorm.layernorm.weight",
+                "ln_2.bias": f"model.layers.{layer_idx}.post_attn_layernorm.layernorm.bias",
+                "mlp.c_fc.bias": f"model.layers.{layer_idx}.mlp.up_proj.bias",
+                "mlp.c_proj.bias": f"model.layers.{layer_idx}.mlp.down_proj.bias",
+            }
+
+            if layer_key in layer_simple_mappings:
+                return layer_simple_mappings[layer_key], tensor
 
         return None, None
 
     def _ironcore_to_hf_gpt2(
         self,
-        ironcore_state_dict: Dict[str, "torch.Tensor"],
+        ironcore_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
-    ) -> Dict[str, "torch.Tensor"]:
+    ) -> dict[str, torch.Tensor]:
         """Convert ironcore checkpoint to GPT-2 HuggingFace format."""
         import torch
 
@@ -316,11 +301,12 @@ class WeightMapper:
         mapped_keys = set()
 
         # Process non-layer keys first
+        # Note: ironcore's LayerNorm wraps nn.LayerNorm, so weights have .layernorm suffix
         simple_mappings = {
             "embedding.word_embeddings.weight": "transformer.wte.weight",
             "embedding.position_embedding.weight": "transformer.wpe.weight",
-            "output_layernorm.weight": "transformer.ln_f.weight",
-            "output_layernorm.bias": "transformer.ln_f.bias",
+            "output_layernorm.layernorm.weight": "transformer.ln_f.weight",
+            "output_layernorm.layernorm.bias": "transformer.ln_f.bias",
             "output_layer.weight": "lm_head.weight",
         }
 
@@ -334,12 +320,12 @@ class WeightMapper:
             prefix = f"model.layers.{layer_idx}"
             hf_prefix = f"transformer.h.{layer_idx}"
 
-            # Layer norms
+            # Layer norms (ironcore wraps nn.LayerNorm, so weights have .layernorm suffix)
             for ic_suffix, hf_suffix in [
-                ("input_layernorm.weight", "ln_1.weight"),
-                ("input_layernorm.bias", "ln_1.bias"),
-                ("post_attn_layernorm.weight", "ln_2.weight"),
-                ("post_attn_layernorm.bias", "ln_2.bias"),
+                ("input_layernorm.layernorm.weight", "ln_1.weight"),
+                ("input_layernorm.layernorm.bias", "ln_1.bias"),
+                ("post_attn_layernorm.layernorm.weight", "ln_2.weight"),
+                ("post_attn_layernorm.layernorm.bias", "ln_2.bias"),
             ]:
                 ic_key = f"{prefix}.{ic_suffix}"
                 if ic_key in ironcore_state_dict:
@@ -347,20 +333,21 @@ class WeightMapper:
                     mapped_keys.add(ic_key)
 
             # Fuse Q and KV back to c_attn
-            q_key = f"{prefix}.self_attention.linear_q.weight"
-            kv_key = f"{prefix}.self_attention.linear_kv.weight"
+            # Both use same convention: [in_features, out_features] - NO transpose needed
+            q_key = f"{prefix}.linear_q.weight"
+            kv_key = f"{prefix}.linear_kv.weight"
             if q_key in ironcore_state_dict and kv_key in ironcore_state_dict:
                 q = ironcore_state_dict[q_key]
                 kv = ironcore_state_dict[kv_key]
-                k, v = kv.chunk(2, dim=0)
-                # GPT-2 expects [hidden_size, 3 * hidden_size] (transposed)
-                c_attn = torch.cat([q, k, v], dim=0).t()
+                k, v = kv.chunk(2, dim=1)  # Split along output dim
+                # GPT-2 expects [hidden_size, 3 * hidden_size] - same convention
+                c_attn = torch.cat([q, k, v], dim=1)
                 hf_state_dict[f"{hf_prefix}.attn.c_attn.weight"] = c_attn
                 mapped_keys.add(q_key)
                 mapped_keys.add(kv_key)
 
-            q_bias_key = f"{prefix}.self_attention.linear_q.bias"
-            kv_bias_key = f"{prefix}.self_attention.linear_kv.bias"
+            q_bias_key = f"{prefix}.linear_q.bias"
+            kv_bias_key = f"{prefix}.linear_kv.bias"
             if q_bias_key in ironcore_state_dict and kv_bias_key in ironcore_state_dict:
                 q_bias = ironcore_state_dict[q_bias_key]
                 kv_bias = ironcore_state_dict[kv_bias_key]
@@ -370,29 +357,26 @@ class WeightMapper:
                 mapped_keys.add(q_bias_key)
                 mapped_keys.add(kv_bias_key)
 
-            # Attention output (transpose back)
-            out_key = f"{prefix}.self_attention.output.weight"
+            # Attention output - NO transpose needed
+            out_key = f"{prefix}.attn_output.weight"
             if out_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.attn.c_proj.weight"] = ironcore_state_dict[out_key].t()
+                hf_state_dict[f"{hf_prefix}.attn.c_proj.weight"] = ironcore_state_dict[out_key]
                 mapped_keys.add(out_key)
-            out_bias_key = f"{prefix}.self_attention.output.bias"
+            out_bias_key = f"{prefix}.attn_output.bias"
             if out_bias_key in ironcore_state_dict:
                 hf_state_dict[f"{hf_prefix}.attn.c_proj.bias"] = ironcore_state_dict[out_bias_key]
                 mapped_keys.add(out_bias_key)
 
-            # MLP (transpose back)
-            for ic_suffix, hf_suffix, needs_transpose in [
-                ("mlp.up_proj.weight", "mlp.c_fc.weight", True),
-                ("mlp.up_proj.bias", "mlp.c_fc.bias", False),
-                ("mlp.down_proj.weight", "mlp.c_proj.weight", True),
-                ("mlp.down_proj.bias", "mlp.c_proj.bias", False),
+            # MLP - NO transpose needed (same convention)
+            for ic_suffix, hf_suffix in [
+                ("mlp.up_proj.weight", "mlp.c_fc.weight"),
+                ("mlp.up_proj.bias", "mlp.c_fc.bias"),
+                ("mlp.down_proj.weight", "mlp.c_proj.weight"),
+                ("mlp.down_proj.bias", "mlp.c_proj.bias"),
             ]:
                 ic_key = f"{prefix}.{ic_suffix}"
                 if ic_key in ironcore_state_dict:
-                    tensor = ironcore_state_dict[ic_key]
-                    if needs_transpose:
-                        tensor = tensor.t()
-                    hf_state_dict[f"{hf_prefix}.{hf_suffix}"] = tensor
+                    hf_state_dict[f"{hf_prefix}.{hf_suffix}"] = ironcore_state_dict[ic_key]
                     mapped_keys.add(ic_key)
 
         return hf_state_dict
@@ -403,9 +387,9 @@ class WeightMapper:
 
     def _hf_llama_to_ironcore(
         self,
-        hf_state_dict: Dict[str, "torch.Tensor"],
+        hf_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
-    ) -> Dict[str, "torch.Tensor"]:
+    ) -> dict[str, torch.Tensor]:
         """Convert LLaMA HuggingFace checkpoint to ironcore format."""
         import torch
 
@@ -427,12 +411,11 @@ class WeightMapper:
             v_key = f"model.layers.{layer_idx}.self_attn.v_proj.weight"
 
             if k_key in hf_state_dict and v_key in hf_state_dict:
-                k = hf_state_dict[k_key]
-                v = hf_state_dict[v_key]
-                kv = torch.cat([k, v], dim=0)
-                ironcore_state_dict[
-                    f"model.layers.{layer_idx}.self_attention.linear_kv.weight"
-                ] = kv
+                k = hf_state_dict[k_key]  # HF: [gn*hd, hidden]
+                v = hf_state_dict[v_key]  # HF: [gn*hd, hidden]
+                # Fuse along out dim then transpose to IC [in, out] convention
+                kv = torch.cat([k, v], dim=0).t()  # → [hidden, 2*gn*hd]
+                ironcore_state_dict[f"model.layers.{layer_idx}.linear_kv.weight"] = kv
                 mapped_keys.add(k_key)
                 mapped_keys.add(v_key)
 
@@ -443,9 +426,7 @@ class WeightMapper:
                 k_bias = hf_state_dict[k_bias_key]
                 v_bias = hf_state_dict[v_bias_key]
                 kv_bias = torch.cat([k_bias, v_bias], dim=0)
-                ironcore_state_dict[
-                    f"model.layers.{layer_idx}.self_attention.linear_kv.bias"
-                ] = kv_bias
+                ironcore_state_dict[f"model.layers.{layer_idx}.linear_kv.bias"] = kv_bias
                 mapped_keys.add(k_bias_key)
                 mapped_keys.add(v_bias_key)
 
@@ -457,97 +438,113 @@ class WeightMapper:
 
         return ironcore_state_dict
 
-    def _map_llama_key_to_ironcore(
+    def _map_llama_key_to_ironcore(  # noqa: PLR0911
         self,
         hf_key: str,
-        tensor: "torch.Tensor",
-        full_state_dict: Dict[str, "torch.Tensor"],
-    ) -> Tuple[Optional[str], Optional["torch.Tensor"]]:
+        tensor: torch.Tensor,
+        full_state_dict: dict[str, torch.Tensor],
+    ) -> tuple[str | tuple[str, ...] | None, torch.Tensor | tuple[torch.Tensor, ...] | None]:
         """Map a single LLaMA HuggingFace key to ironcore format."""
 
-        # Word embeddings
-        if hf_key == "model.embed_tokens.weight":
-            return "embedding.word_embeddings.weight", tensor
+        # Simple non-layer mappings
+        simple_mappings = {
+            "model.embed_tokens.weight": "embedding.word_embeddings.weight",
+            "model.norm.weight": "output_layernorm.layernorm.weight",
+            "model.norm.bias": "output_layernorm.layernorm.bias",
+            "lm_head.weight": "output_layer.weight",
+        }
 
-        # Final layer norm
-        if hf_key == "model.norm.weight":
-            return "output_layernorm.weight", tensor
-        if hf_key == "model.norm.bias":
-            return "output_layernorm.bias", tensor
-
-        # Output projection
-        if hf_key == "lm_head.weight":
-            return "output_layer.weight", tensor
+        if hf_key in simple_mappings:
+            return simple_mappings[hf_key], tensor
 
         # Layer-specific mappings
         layer_match = re.match(r"model\.layers\.(\d+)\.(.*)", hf_key)
-        if layer_match:
-            layer_idx = layer_match.group(1)
-            layer_key = layer_match.group(2)
+        if not layer_match:
+            return None, None
 
-            # Pre-attention layer norm
-            if layer_key == "input_layernorm.weight":
-                return f"model.layers.{layer_idx}.input_layernorm.weight", tensor
-            if layer_key == "input_layernorm.bias":
-                return f"model.layers.{layer_idx}.input_layernorm.bias", tensor
+        layer_idx = layer_match.group(1)
+        layer_key = layer_match.group(2)
 
-            # Query projection
-            if layer_key == "self_attn.q_proj.weight":
-                return f"model.layers.{layer_idx}.self_attention.linear_q.weight", tensor
-            if layer_key == "self_attn.q_proj.bias":
-                return f"model.layers.{layer_idx}.self_attention.linear_q.bias", tensor
+        # K and V are handled separately (fused in _hf_llama_to_ironcore)
+        if layer_key in [
+            "self_attn.k_proj.weight",
+            "self_attn.k_proj.bias",
+            "self_attn.v_proj.weight",
+            "self_attn.v_proj.bias",
+        ]:
+            return None, None  # Skip, handled in fusion step
 
-            # K and V are handled separately (fused in _hf_llama_to_ironcore)
-            if layer_key in ["self_attn.k_proj.weight", "self_attn.k_proj.bias",
-                            "self_attn.v_proj.weight", "self_attn.v_proj.bias"]:
-                return None, None  # Skip, handled in fusion step
+        # MLP - LLaMA uses gate_proj + up_proj (SwiGLU), ironcore fuses them
+        if layer_key in ("mlp.gate_proj.weight", "mlp.up_proj.weight"):
+            return self._handle_llama_mlp_fusion(layer_idx, layer_key, tensor, full_state_dict)
 
-            # Attention output projection
-            if layer_key == "self_attn.o_proj.weight":
-                return f"model.layers.{layer_idx}.self_attention.output.weight", tensor
-            if layer_key == "self_attn.o_proj.bias":
-                return f"model.layers.{layer_idx}.self_attention.output.bias", tensor
+        # Linear weights: HF stores [out, in], ironcore uses [in, out] — transpose required
+        weight_mappings = {
+            "self_attn.q_proj.weight": f"model.layers.{layer_idx}.linear_q.weight",
+            "self_attn.o_proj.weight": f"model.layers.{layer_idx}.attn_output.weight",
+            "mlp.down_proj.weight": f"model.layers.{layer_idx}.mlp.down_proj.weight",
+        }
+        if layer_key in weight_mappings:
+            return weight_mappings[layer_key], tensor.t()
 
-            # Post-attention layer norm
-            if layer_key == "post_attention_layernorm.weight":
-                return f"model.layers.{layer_idx}.post_attn_layernorm.weight", tensor
-            if layer_key == "post_attention_layernorm.bias":
-                return f"model.layers.{layer_idx}.post_attn_layernorm.bias", tensor
-
-            # MLP - LLaMA uses gate_proj + up_proj (SwiGLU), ironcore fuses them
-            if layer_key == "mlp.gate_proj.weight":
-                # Check if we need to fuse with up_proj
-                up_key = f"model.layers.{layer_idx}.mlp.up_proj.weight"
-                if up_key in full_state_dict:
-                    import torch
-                    gate = tensor
-                    up = full_state_dict[up_key]
-                    # Fuse gate and up for SwiGLU: [gate; up]
-                    fused = torch.cat([gate, up], dim=0)
-                    return f"model.layers.{layer_idx}.mlp.up_proj.weight", fused
-                return f"model.layers.{layer_idx}.mlp.gate_proj.weight", tensor
-
-            if layer_key == "mlp.up_proj.weight":
-                # Skip if gate_proj exists (handled in gate_proj fusion)
-                gate_key = f"model.layers.{layer_idx}.mlp.gate_proj.weight"
-                if gate_key in full_state_dict:
-                    return None, None
-                return f"model.layers.{layer_idx}.mlp.up_proj.weight", tensor
-
-            if layer_key == "mlp.down_proj.weight":
-                return f"model.layers.{layer_idx}.mlp.down_proj.weight", tensor
-            if layer_key == "mlp.down_proj.bias":
-                return f"model.layers.{layer_idx}.mlp.down_proj.bias", tensor
+        # Norms and biases: 1D tensors, no transform needed
+        no_transform_mappings = {
+            "input_layernorm.weight": f"model.layers.{layer_idx}.input_layernorm.layernorm.weight",
+            "input_layernorm.bias": f"model.layers.{layer_idx}.input_layernorm.layernorm.bias",
+            "self_attn.q_proj.bias": f"model.layers.{layer_idx}.linear_q.bias",
+            "self_attn.o_proj.bias": f"model.layers.{layer_idx}.attn_output.bias",
+            "post_attention_layernorm.weight": f"model.layers.{layer_idx}.post_attn_layernorm.layernorm.weight",
+            "post_attention_layernorm.bias": f"model.layers.{layer_idx}.post_attn_layernorm.layernorm.bias",
+            "mlp.down_proj.bias": f"model.layers.{layer_idx}.mlp.down_proj.bias",
+        }
+        if layer_key in no_transform_mappings:
+            return no_transform_mappings[layer_key], tensor
 
         return None, None
 
+    def _handle_llama_mlp_fusion(
+        self,
+        layer_idx: str,
+        layer_key: str,
+        tensor: torch.Tensor,
+        full_state_dict: dict[str, torch.Tensor],
+    ) -> tuple[str | None, torch.Tensor | None]:
+        """Handle LLaMA MLP gate/up projection fusion logic.
+
+        HF stores MLP weights as [out_features, in_features] (transposed).
+        IronCore stores them as [in_features, out_features].
+        Need to transpose after fusion.
+        """
+        if layer_key == "mlp.gate_proj.weight":
+            # Check if we need to fuse with up_proj
+            up_key = f"model.layers.{layer_idx}.mlp.up_proj.weight"
+            if up_key in full_state_dict:
+                import torch
+
+                gate = tensor  # HF: [intermediate_size, hidden_size]
+                up = full_state_dict[up_key]  # HF: [intermediate_size, hidden_size]
+                # Fuse gate and up for SwiGLU along output dim: [2*intermediate_size, hidden_size]
+                fused = torch.cat([gate, up], dim=0)
+                # Transpose to IronCore format: [hidden_size, 2*intermediate_size]
+                fused = fused.t()
+                return f"model.layers.{layer_idx}.mlp.up_proj.weight", fused
+            # Single gate_proj (no fusion) - still need to transpose
+            return f"model.layers.{layer_idx}.mlp.gate_proj.weight", tensor.t()
+
+        # layer_key == "mlp.up_proj.weight"
+        # Skip if gate_proj exists (handled in gate_proj fusion)
+        gate_key = f"model.layers.{layer_idx}.mlp.gate_proj.weight"
+        if gate_key in full_state_dict:
+            return None, None
+        # Single up_proj (no gate) - still need to transpose
+        return f"model.layers.{layer_idx}.mlp.up_proj.weight", tensor.t()
+
     def _ironcore_to_hf_llama(
         self,
-        ironcore_state_dict: Dict[str, "torch.Tensor"],
+        ironcore_state_dict: dict[str, torch.Tensor],
         strict: bool = True,
-    ) -> Dict[str, "torch.Tensor"]:
+    ) -> dict[str, torch.Tensor]:
         """Convert ironcore checkpoint to LLaMA HuggingFace format."""
-        import torch
 
         hf_state_dict = {}
         mapped_keys = set()
@@ -555,8 +552,8 @@ class WeightMapper:
         # Simple mappings
         simple_mappings = {
             "embedding.word_embeddings.weight": "model.embed_tokens.weight",
-            "output_layernorm.weight": "model.norm.weight",
-            "output_layernorm.bias": "model.norm.bias",
+            "output_layernorm.layernorm.weight": "model.norm.weight",
+            "output_layernorm.layernorm.bias": "model.norm.bias",
             "output_layer.weight": "lm_head.weight",
         }
 
@@ -572,36 +569,40 @@ class WeightMapper:
 
             # Layer norms
             for ic_suffix, hf_suffix in [
-                ("input_layernorm.weight", "input_layernorm.weight"),
-                ("input_layernorm.bias", "input_layernorm.bias"),
-                ("post_attn_layernorm.weight", "post_attention_layernorm.weight"),
-                ("post_attn_layernorm.bias", "post_attention_layernorm.bias"),
+                ("input_layernorm.layernorm.weight", "input_layernorm.weight"),
+                ("input_layernorm.layernorm.bias", "input_layernorm.bias"),
+                ("post_attn_layernorm.layernorm.weight", "post_attention_layernorm.weight"),
+                ("post_attn_layernorm.layernorm.bias", "post_attention_layernorm.bias"),
             ]:
                 ic_key = f"{prefix}.{ic_suffix}"
                 if ic_key in ironcore_state_dict:
                     hf_state_dict[f"{hf_prefix}.{hf_suffix}"] = ironcore_state_dict[ic_key]
                     mapped_keys.add(ic_key)
 
-            # Query projection
-            q_key = f"{prefix}.self_attention.linear_q.weight"
+            # Query projection — IC [in, out] → HF [out, in]
+            q_key = f"{prefix}.linear_q.weight"
             if q_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.weight"] = ironcore_state_dict[q_key]
+                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.weight"] = ironcore_state_dict[
+                    q_key
+                ].t()
                 mapped_keys.add(q_key)
-            q_bias_key = f"{prefix}.self_attention.linear_q.bias"
+            q_bias_key = f"{prefix}.linear_q.bias"
             if q_bias_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.bias"] = ironcore_state_dict[q_bias_key]
+                hf_state_dict[f"{hf_prefix}.self_attn.q_proj.bias"] = ironcore_state_dict[
+                    q_bias_key
+                ]
                 mapped_keys.add(q_bias_key)
 
-            # Split KV back to K and V
-            kv_key = f"{prefix}.self_attention.linear_kv.weight"
+            # Split KV back to K and V — IC [hidden, 2*gn*hd] → HF [gn*hd, hidden] each
+            kv_key = f"{prefix}.linear_kv.weight"
             if kv_key in ironcore_state_dict:
-                kv = ironcore_state_dict[kv_key]
-                k, v = kv.chunk(2, dim=0)
-                hf_state_dict[f"{hf_prefix}.self_attn.k_proj.weight"] = k
-                hf_state_dict[f"{hf_prefix}.self_attn.v_proj.weight"] = v
+                kv = ironcore_state_dict[kv_key]  # [hidden, 2*gn*hd]
+                k_t, v_t = kv.chunk(2, dim=1)  # [hidden, gn*hd] each
+                hf_state_dict[f"{hf_prefix}.self_attn.k_proj.weight"] = k_t.t()
+                hf_state_dict[f"{hf_prefix}.self_attn.v_proj.weight"] = v_t.t()
                 mapped_keys.add(kv_key)
 
-            kv_bias_key = f"{prefix}.self_attention.linear_kv.bias"
+            kv_bias_key = f"{prefix}.linear_kv.bias"
             if kv_bias_key in ironcore_state_dict:
                 kv_bias = ironcore_state_dict[kv_bias_key]
                 k_bias, v_bias = kv_bias.chunk(2, dim=0)
@@ -609,40 +610,47 @@ class WeightMapper:
                 hf_state_dict[f"{hf_prefix}.self_attn.v_proj.bias"] = v_bias
                 mapped_keys.add(kv_bias_key)
 
-            # Attention output
-            out_key = f"{prefix}.self_attention.output.weight"
+            # Attention output — IC [in, out] → HF [out, in]
+            out_key = f"{prefix}.attn_output.weight"
             if out_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.weight"] = ironcore_state_dict[out_key]
+                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.weight"] = ironcore_state_dict[
+                    out_key
+                ].t()
                 mapped_keys.add(out_key)
-            out_bias_key = f"{prefix}.self_attention.output.bias"
+            out_bias_key = f"{prefix}.attn_output.bias"
             if out_bias_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.bias"] = ironcore_state_dict[out_bias_key]
+                hf_state_dict[f"{hf_prefix}.self_attn.o_proj.bias"] = ironcore_state_dict[
+                    out_bias_key
+                ]
                 mapped_keys.add(out_bias_key)
 
-            # MLP - split fused gate+up back to separate
+            # MLP - split fused gate+up back to separate, IC [in, out] → HF [out, in]
             up_key = f"{prefix}.mlp.up_proj.weight"
             if up_key in ironcore_state_dict:
-                fused = ironcore_state_dict[up_key]
-                # Check if this is fused (gate + up) or just up
-                # Fused would be 2x the expected FFN size
-                # For now, assume it might be fused and try to split
-                if fused.shape[0] % 2 == 0:
-                    # Assume fused: split into gate and up
-                    gate, up = fused.chunk(2, dim=0)
-                    hf_state_dict[f"{hf_prefix}.mlp.gate_proj.weight"] = gate
-                    hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = up
+                fused = ironcore_state_dict[
+                    up_key
+                ]  # IC: [hidden, 2*ffn] if fused, else [hidden, ffn]
+                # Fused gate+up: output dim (dim=1) is 2x a single projection
+                if fused.shape[1] % 2 == 0:
+                    gate_t, up_t = fused.chunk(2, dim=1)  # [hidden, ffn] each
+                    hf_state_dict[f"{hf_prefix}.mlp.gate_proj.weight"] = gate_t.t()  # [ffn, hidden]
+                    hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = up_t.t()  # [ffn, hidden]
                 else:
-                    # Not fused, just up_proj
-                    hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = fused
+                    hf_state_dict[f"{hf_prefix}.mlp.up_proj.weight"] = fused.t()
                 mapped_keys.add(up_key)
 
             down_key = f"{prefix}.mlp.down_proj.weight"
             if down_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.mlp.down_proj.weight"] = ironcore_state_dict[down_key]
+                # IC [ffn, hidden] → HF [hidden, ffn]
+                hf_state_dict[f"{hf_prefix}.mlp.down_proj.weight"] = ironcore_state_dict[
+                    down_key
+                ].t()
                 mapped_keys.add(down_key)
             down_bias_key = f"{prefix}.mlp.down_proj.bias"
             if down_bias_key in ironcore_state_dict:
-                hf_state_dict[f"{hf_prefix}.mlp.down_proj.bias"] = ironcore_state_dict[down_bias_key]
+                hf_state_dict[f"{hf_prefix}.mlp.down_proj.bias"] = ironcore_state_dict[
+                    down_bias_key
+                ]
                 mapped_keys.add(down_bias_key)
 
         return hf_state_dict

@@ -1,12 +1,6 @@
-# Copyright 2025-2026 Jaegeun Han
+# Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 """
 Training Script Example
@@ -38,14 +32,11 @@ Configuration:
 """
 
 from ironcore.config import load_trainer_config
-from ironcore.trainer import Trainer
+from ironcore.trainers import LanguageModelTrainer
 from ironcore.training_utils import forward_step, loss_func
-
 
 if __name__ == "__main__":
     config = load_trainer_config()
 
-    with Trainer(
-        config, forward_step_func=forward_step, loss_fn=loss_func
-    ) as trainer:
+    with LanguageModelTrainer(config, forward_step_func=forward_step, loss_fn=loss_func) as trainer:
         trainer.train()

@@ -1,16 +1,10 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 import importlib
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Union
 
 from ironcore import get_logger, get_tokenizer
 from ironcore.eval.tasks.base_task import Task
@@ -18,11 +12,11 @@ from ironcore.utils import get_dataset_base_dir
 
 
 def get_evaluators(
-    dataset_configs: List[Dict[str, Union[str, float, int]]],
+    dataset_configs: list[dict[str, Union[str, float, int]]],
     batch_size: int = 1,
     num_samples: int = None,
     cache_dir: Union[str, Path] = None,
-) -> List[Task]:
+) -> list[Task]:
     """
     build evaluator according to config
     """
@@ -55,8 +49,7 @@ def get_evaluators(
                 if isinstance(cls, type) and issubclass(cls, Task) and cls != Task
             )
             evaluators.append(
-                evaluator_class(tokenizer, batch_size,
-                                num_samples, cache_dir=cache_dir)
+                evaluator_class(tokenizer, batch_size, num_samples, cache_dir=cache_dir)
             )
         except (ImportError, StopIteration):
             print(f"Evaluator for task '{task_name}' could not be loaded.")

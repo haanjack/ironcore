@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """
 CLI entry point for IronCore.
 
@@ -13,14 +16,12 @@ Supports subcommands:
 
 import argparse
 import sys
-from pathlib import Path
 
 
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        prog="ironcore",
-        description="IronCore: High-Performance Research Platform for LLM Training"
+        prog="ironcore", description="IronCore: High-Performance Research Platform for LLM Training"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -29,44 +30,34 @@ def main():
     # Subcommand: preprocess
     # ========================================
     preprocess_parser = subparsers.add_parser(
-        "preprocess",
-        help="Preprocess and/or inspect datasets"
+        "preprocess", help="Preprocess and/or inspect datasets"
     )
     preprocess_parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to data configuration YAML file"
+        "--config", type=str, required=True, help="Path to data configuration YAML file"
     )
     preprocess_parser.add_argument(
         "--inspect",
         action="store_true",
-        help="Run inspection (integrity checks, statistics, packing efficiency) after preprocessing"
+        help="Run inspection (integrity checks, statistics, packing efficiency) after preprocessing",
     )
     preprocess_parser.add_argument(
         "--only-inspect",
         action="store_true",
-        help="Skip preprocessing and only run inspection on existing files"
+        help="Skip preprocessing and only run inspection on existing files",
     )
     preprocess_parser.add_argument(
         "--preview",
         type=int,
         default=0,
-        help="Number of random samples to preview during inspection (implies --inspect)"
+        help="Number of random samples to preview during inspection (implies --inspect)",
     )
 
     # ========================================
     # Subcommand: train
     # ========================================
-    train_parser = subparsers.add_parser(
-        "train",
-        help="Run training"
-    )
+    train_parser = subparsers.add_parser("train", help="Run training")
     train_parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to training configuration YAML file"
+        "--config", type=str, required=True, help="Path to training configuration YAML file"
     )
 
     # ========================================
@@ -150,9 +141,11 @@ def main():
     # Execute command
     if args.command == "preprocess":
         from ironcore.cli.preprocess import run_preprocess
+
         run_preprocess(args)
     elif args.command == "train":
         from ironcore.cli.train import run_train
+
         run_train(args)
     elif args.command == "auto":
         _run_auto(args)

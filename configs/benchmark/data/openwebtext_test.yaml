@@ -1,0 +1,16 @@
+# Simple data config for benchmark testing
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+seq_length: 1024
+splits: [0.99, 0.01, 0.0]
+train_datasets:
+  - name: openwebtext
+    dataset_path: openwebtext
+    task_type: pretrain
+    ratio: 1.0
+    split: train
+    text_column: text
+    max_samples: 10000
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 4

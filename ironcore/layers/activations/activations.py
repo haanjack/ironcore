@@ -1,15 +1,27 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
+import math
+
+import torch
 from torch import nn
 from torch.nn import functional as F
+
+
+class NewGELU(nn.Module):
+    """GELU approximation used by GPT-2 in HuggingFace.
+
+    This is the "gelu_new" activation from HuggingFace transformers:
+    0.5 * x * (1.0 + tanh(sqrt(2.0 / pi) * (x + 0.044715 * x^3)))
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return (
+            0.5
+            * x
+            * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+        )
 
 
 class GLUActivation(nn.Module):
@@ -49,12 +61,13 @@ def get_activation(activation_name, input_dim: int = None):
         activation_layer = nn.ReLU()
     elif activation_name == "gelu":
         activation_layer = nn.GELU()
+    elif activation_name == "gelu_new":
+        activation_layer = NewGELU()
     elif activation_name == "silu":
         activation_layer = nn.SiLU()
     elif "glu" in activation_name:
         assert input_dim is not None, "input_dim is required for GLU activation"
-        activation_layer = GLUActivation(
-            input_dim=input_dim, variant=activation_name)
+        activation_layer = GLUActivation(input_dim=input_dim, variant=activation_name)
     else:
         raise NotImplementedError
     return activation_layer

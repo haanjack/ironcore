@@ -18,6 +18,15 @@ positional_embedding:
 vocab_name_or_path: meta-llama/Llama-3.1-8B
 tokenizer_type: llama
 
+bias:
+  q: false
+  k: false
+  v: false
+  o: false
+  gate: false
+  up: false
+  down: false
+
 # HuggingFace/vLLM compatibility
 hf_model_type: llama
 hf_architecture: LlamaForCausalLM

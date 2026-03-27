@@ -1,0 +1,15 @@
+mode: answer_match
+answer_patterns:
+  - '####\s*(.+)'
+  - '\\boxed\{(.+?)\}'
+  - '[Aa]nswer:\s*(.+)'
+  - '[Tt]he answer is\s*(.+)'
+normalization:
+  lowercase: true
+  strip_chars: ", _$"
+  strip_trailing_period: true
+fallback_last_number: true
+scoring:
+  correct: 1.0
+  partial: 0.1
+  no_answer: 0.0

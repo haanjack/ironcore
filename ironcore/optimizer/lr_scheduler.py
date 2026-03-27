@@ -1,12 +1,6 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 import math
 
@@ -83,15 +77,9 @@ class CosineAnnealingLR(LRScheduler):
             lr = [self.min_lr for _ in self.base_lrs]
         else:
             # cosine annealing
-            cos_inner = (
-                math.pi * (self._step_count - self.warmup_steps) /
-                self.annealing_steps
-            )
+            cos_inner = math.pi * (self._step_count - self.warmup_steps) / self.annealing_steps
             cos_out = (1 + math.cos(cos_inner)) / 2
-            lr = [
-                self.min_lr + (base_lr - self.min_lr) * cos_out
-                for base_lr in self.base_lrs
-            ]
+            lr = [self.min_lr + (base_lr - self.min_lr) * cos_out for base_lr in self.base_lrs]
         return lr
 
     def step(self, epoch=None):
@@ -100,8 +88,11 @@ class CosineAnnealingLR(LRScheduler):
         else:
             self.last_epoch = epoch
         self._step_count = self.last_epoch + 1
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
+        lrs = self.get_lr()
+        for param_group, lr in zip(self.optimizer.param_groups, lrs, strict=True):
             param_group["lr"] = lr
+        # Store _last_lr for get_last_lr() compatibility
+        self._last_lr = lrs
 
 
 def get_lr_scheduler(config, optimizer):

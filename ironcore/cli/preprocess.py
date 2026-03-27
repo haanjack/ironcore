@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """Data preprocessing (serialization) CLI command."""
 
 import sys
@@ -18,7 +21,9 @@ def run_preprocess(args):
             - preview: Number of samples to preview (implies inspection)
     """
     # Check if we should run inspection
-    should_inspect = args.inspect or args.only_inspect or (hasattr(args, 'preview') and args.preview > 0)
+    should_inspect = (
+        args.inspect or args.only_inspect or (hasattr(args, "preview") and args.preview > 0)
+    )
 
     if not args.only_inspect:
         # Run Preprocessing (Serialization)
@@ -31,31 +36,31 @@ def run_preprocess(args):
         print(f"Loading configuration from: {config_path}")
         data_config = DataConfig.from_yaml(config_path)
 
-        print(f"\nDatasets to process:")
+        print("\nDatasets to process:")
         for ds in data_config.datasets:
             print(f"  - {ds.name} ({ds.task_type}): ratio={ds.ratio}")
 
         print(f"\nTokenizer: {data_config.vocab_name_or_path}")
         print(f"Sequence length: {data_config.seq_length}")
-        print(f"Splits: train={data_config.splits[0]:.1%}, eval={data_config.splits[1]:.1%}, test={data_config.splits[2]:.1%}")
+        print(
+            f"Splits: train={data_config.splits[0]:.1%}, eval={data_config.splits[1]:.1%}, test={data_config.splits[2]:.1%}"
+        )
 
         # Load tokenizer
-        print(f"\nLoading tokenizer...")
+        print("\nLoading tokenizer...")
         if data_config.tokenizer_type == "bbpe":
             from transformers import AutoTokenizer
+
             tokenizer = AutoTokenizer.from_pretrained(data_config.vocab_name_or_path)
         elif data_config.tokenizer_type == "tiktoken":
             import tiktoken
+
             tokenizer = tiktoken.get_encoding(data_config.vocab_name_or_path)
         else:
             raise ValueError(f"Unknown tokenizer type: {data_config.tokenizer_type}")
 
         # Initialize serializer
-        serializer = DataSerializer(
-            data_config=data_config,
-            tokenizer=tokenizer,
-            verbose=True
-        )
+        serializer = DataSerializer(data_config=data_config, tokenizer=tokenizer, verbose=True)
 
         # Serialize all datasets
         print("\nStarting serialization...")
@@ -65,6 +70,7 @@ def run_preprocess(args):
         except Exception as e:
             print(f"\n✗ Error during serialization: {e}")
             import traceback
+
             traceback.print_exc()
             sys.exit(1)
 
@@ -72,4 +78,5 @@ def run_preprocess(args):
     if should_inspect:
         print("\nInspecting datasets...")
         from ironcore.cli.inspect import run_inspect
+
         run_inspect(args)

@@ -1,0 +1,42 @@
+# Default LoRA Configuration for IronCore PEFT
+#
+# This configuration provides a balanced trade-off between model capacity
+# and training efficiency for instruction fine-tuning tasks.
+#
+# Usage:
+#   In your training config, add:
+#   peft: lora_default
+
+# LoRA rank - controls the size of the low-rank adapter matrices
+# Higher values = more capacity but slower training and more memory
+# Typical values: 4-64
+# - 4-8: Minimal parameters, task-specific fine-tuning
+# - 8-16: Standard instruction tuning (recommended)
+# - 16-64: Complex tasks, domain adaptation
+r: 8
+
+# Scaling factor - determines the magnitude of LoRA updates
+# Rule of thumb: alpha = r or alpha = 2*r
+# scaling = alpha / r is applied to LoRA outputs
+alpha: 16.0
+
+# Dropout probability for LoRA activations
+# Usually 0.0 is sufficient; increase if overfitting
+# Typical values: 0.0-0.1
+dropout: 0.0
+
+# Target modules - which layers to apply LoRA to
+# Available options:
+#   Attention: q_proj, k_proj, v_proj, o_proj
+#   MLP: up_proj, gate_proj, down_proj
+#
+# Recommended combinations:
+#   - Minimal (fastest): [q_proj, v_proj]
+#   - Standard (balanced): [q_proj, v_proj, o_proj]
+#   - Full (best quality): [q_proj, k_proj, v_proj, o_proj, up_proj, down_proj]
+target_modules:
+  - q_proj
+  - v_proj
+  - o_proj
+  - up_proj
+  - down_proj

@@ -1,16 +1,10 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 import torch
+import torch.nn.functional as F
 from torch import nn
-from torch.functional import F
 
 from ironcore.layers.module import BaseModule
 from ironcore.parallel import parallel_states
@@ -28,21 +22,25 @@ class ParallelLinear(BaseModule):  # pylint: disable=abstract-method
         super().__init__(config)
         self.input_size = input_size
         self.output_size = output_size
-        self.use_bias = bias
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
 
-        self.tensor_model_parallel_rank = 1
+        self.tensor_model_parallel_rank = 0
         if self.tensor_model_parallel_size > 1:
-            self.tensor_model_parallel_rank = (
-                parallel_states.get_tensor_model_parallel_rank()
-            )
+            self.tensor_model_parallel_rank = parallel_states.get_tensor_model_parallel_rank()
 
         # Divide the weight matrix
-        self.weight = nn.Parameter(torch.Tensor(input_size, output_size))
-        if self.use_bias:
-            self.bias = nn.Parameter(torch.Tensor(output_size))
+        # Initialize with zeros to avoid garbage values from uninitialized memory
+        # Weights will be properly initialized later by init_weights() or loaded from checkpoint
+        self.weight = nn.Parameter(torch.zeros(input_size, output_size))
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(output_size))
         else:
             self.bias = None
+
+        # Mark weights as TP-sharded by default in ParallelLinear subclasses
+        # ColumnParallelLinear shards both weight and bias.
+        # RowParallelLinear shards only weight.
+        self.weight.is_tp_sharded = True
 
         self.column_parallel = False
         self.row_parallel = False
@@ -65,9 +63,10 @@ class VocabParallelEmbedding(ParallelLinear):
         config,
         input_dim: int,
         embedding_dim: int,
-        padding_start_idx: int = None,
+        padding_start_idx: int | None = None,
         parallel_input: bool = False,
         parallel_output: bool = False,
+        reduce_output: bool = True,
     ):
 
         if input_dim % parallel_states.get_tensor_model_parallel_world_size() != 0:
@@ -77,14 +76,13 @@ class VocabParallelEmbedding(ParallelLinear):
         self.parallel_input_dim = (
             input_dim // parallel_states.get_tensor_model_parallel_world_size()
         )
-        super().__init__(
-            config, input_size=self.parallel_input_dim, output_size=embedding_dim
-        )
+        super().__init__(config, input_size=self.parallel_input_dim, output_size=embedding_dim)
 
         self.padding_start_idx = padding_start_idx
         self.parallel_input = parallel_input
         self.parallel_output = parallel_output
         self.row_parallel = True
+        self.reduce_output = reduce_output
 
         # we will calculate local_padding_start_idx later in init_weight()
         self.local_padding_start_idx = None
@@ -96,10 +94,7 @@ class VocabParallelEmbedding(ParallelLinear):
         # set local padding start idx
         if self.padding_start_idx is not None:
             # calcualte local padding index for this rank
-            start_idx = (
-                self.parallel_input_dim
-                * parallel_states.get_tensor_model_parallel_rank()
-            )
+            start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
             end_idx = self.parallel_input_dim * (
                 parallel_states.get_tensor_model_parallel_rank() + 1
             )
@@ -108,18 +103,16 @@ class VocabParallelEmbedding(ParallelLinear):
                 self.padding_start_idx < end_idx
             )
             self.local_padding_start_idx = (
-                self.padding_start_idx - start_idx
-                if local_padding
-                else end_idx - start_idx
+                self.padding_start_idx - start_idx if local_padding else end_idx - start_idx
             )
 
             # zero out from local_padding_start_idx to the end
             with torch.no_grad():
-                self.weight[self.local_padding_start_idx:].zero_()
+                self.weight[self.local_padding_start_idx :].zero_()
 
         def _zero_padding_grad_hook(grad):
             # zero out the gradient in the padding region to disable updates during training
-            grad[self.local_padding_start_idx:] = 0
+            grad[self.local_padding_start_idx :] = 0
             return grad
 
         # register hook
@@ -130,25 +123,26 @@ class VocabParallelEmbedding(ParallelLinear):
         Forward pass for the embedding layer.
         """
 
-        start_idx = (
-            self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
-        )
-        end_idx = self.parallel_input_dim * (
-            parallel_states.get_tensor_model_parallel_rank() + 1
-        )
+        start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
+        end_idx = self.parallel_input_dim * (parallel_states.get_tensor_model_parallel_rank() + 1)
 
         # set token ids to the corresponding embedding space
+        # We need to subtract start_idx because self.weight only contains this rank's partition
+        # Tokens not in this rank's range should be masked out (0.0)
         token_mask = (x >= start_idx) & (x < end_idx)
-        x_partition = (x - start_idx) * token_mask
+        x_local = (x - start_idx) * token_mask
 
-        x_partition = F.embedding(
-            x_partition.to(device=self.weight.device), self.weight
-        )
-        
+        # Ensure x_local is on the correct device and long type for embedding lookup
+        x_local = x_local.to(device=self.weight.device, dtype=torch.long)
+        x_partition = F.embedding(x_local, self.weight)
+
         # Mask out embeddings for tokens not in this partition
+        # This is critical: if token is NOT in this rank, its embedding must be 0.0
+        # so that summing (all_reduce) across ranks yields the correct embedding.
         x_partition[~token_mask, :] = 0.0
 
-        if parallel_states.get_tensor_model_parallel_world_size() > 1:
+        if self.reduce_output and parallel_states.get_tensor_model_parallel_world_size() > 1:
+            # Sum embeddings across all TP ranks
             x = comm.reduce_inputs_from_model_parallel_workers(x_partition)
         else:
             x = x_partition
@@ -182,23 +176,27 @@ class ColumnParallelLinear(ParallelLinear):
     ):
 
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
-        assert (
-            output_size % self.tensor_model_parallel_size == 0
-        ), "output_size must be divisible by tensor_model_parallel_size in ColumnParallelLinear"
+        assert output_size % self.tensor_model_parallel_size == 0, (
+            "output_size must be divisible by tensor_model_parallel_size in ColumnParallelLinear"
+        )
         output_size = output_size // self.tensor_model_parallel_size
         self.gather_output = gather_output
         super().__init__(config, input_size, output_size, bias)
         self.column_parallel = True
         self.concatenated_weights = concatenated_weights
+        if self.bias is not None:
+            self.bias.is_tp_sharded = True
 
     def forward(self, x):
         parallel_x = comm.copy_inputs_to_model_parallel_workers(x)
         parallel_output = torch.matmul(parallel_x, self.weight)
-        if self.use_bias:
+        if self.bias is not None:
             parallel_output = parallel_output + self.bias
         if self.gather_output:
             output = comm.gather_from_model_parallel_workers(
-                parallel_output, {"column_parallel": True, "concatenated_weights": self.concatenated_weights})
+                parallel_output,
+                {"column_parallel": True, "concatenated_weights": self.concatenated_weights},
+            )
         else:
             output = parallel_output
         return output
@@ -240,24 +238,27 @@ class RowParallelLinear(ParallelLinear):
     ):
         self.input_is_parallel = input_is_parallel
         self.tensor_model_parallel_size = config.trainer.tensor_model_parallel_size
-        assert (
-            input_size % self.tensor_model_parallel_size == 0
-        ), "input_size must be divisible by tensor_model_parallel_size in RowParallelLinear"
+        assert input_size % self.tensor_model_parallel_size == 0, (
+            "input_size must be divisible by tensor_model_parallel_size in RowParallelLinear"
+        )
         input_size = input_size // self.tensor_model_parallel_size
         super().__init__(config, input_size, output_size, bias)
         self.row_parallel = True
 
-    def forward(self, x):
+    def forward(self, x, async_communication=False):
         if self.input_is_parallel:
             parallel_x = x
         else:
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
         output = torch.matmul(parallel_x, self.weight)
 
-        if self.tensor_model_parallel_size > 1:
-            output = comm.reduce_inputs_from_model_parallel_workers(output)
+        if async_communication:
+            # Async path: bias added later in finalize() to avoid race conditions
+            # comm.reduce_async handles both tp_size=1 and tp_size>1 cases
+            return comm.reduce_async(output)
 
-        if self.use_bias:
+        # Synchronous path: standard TP behavior (used when chunking disabled)
+        output = comm.reduce_inputs_from_model_parallel_workers(output)
+        if self.bias is not None:
             output = output + self.bias
-
         return output

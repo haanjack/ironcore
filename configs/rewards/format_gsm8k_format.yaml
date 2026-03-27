@@ -1,0 +1,11 @@
+# Format template matching legacy composite_math format reward
+# Checks for "#### " followed by optional minus sign and digit
+# Equivalent to: StrictFormatRewardFunction(pattern=r"####\s*-?\d")
+
+mode: regex_match
+pattern: '####\s*-?\d'
+pattern_flags:
+  - MULTILINE
+scoring:
+  match: 1.0
+  no_match: 0.0

@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """Generate text from a trained model."""
 
 from pathlib import Path
 
 import torch
-from ironcore.config import load_trainer_config
-from ironcore import set_global_states, get_tokenizer
-from ironcore.language_model import LanguageModel
-from ironcore.checkpointing import load_checkpoint
 
-def generate(model, tokenizer, prompt="Once upon a time", max_length=200, temperature=0.8, top_k=40):
+from ironcore import get_tokenizer, set_global_states
+from ironcore.checkpointing import load_checkpoint
+from ironcore.config import load_trainer_config
+from ironcore.language_model import LanguageModel
+
+
+def generate(
+    model, tokenizer, prompt="Once upon a time", max_length=200, temperature=0.8, top_k=40
+):
     """Generate text from the model."""
     model.eval()
 
@@ -30,7 +37,7 @@ def generate(model, tokenizer, prompt="Once upon a time", max_length=200, temper
             # Top-k sampling
             if top_k > 0:
                 indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-                logits[indices_to_remove] = float('-inf')
+                logits[indices_to_remove] = float("-inf")
 
             # Sample
             probs = torch.softmax(logits, dim=-1)
@@ -45,12 +52,14 @@ def generate(model, tokenizer, prompt="Once upon a time", max_length=200, temper
 
     return tokenizer.decode(generated[0].tolist())
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', type=str, default='models/example_fix_0/step_1000')
-    parser.add_argument('--prompt', type=str, default='Once upon a time')
-    parser.add_argument('--max-length', type=int, default=200)
+    parser.add_argument("--checkpoint", type=str, default="models/example_fix_0/step_1000")
+    parser.add_argument("--prompt", type=str, default="Once upon a time")
+    parser.add_argument("--max-length", type=int, default=200)
     args = parser.parse_args()
 
     # Load config
@@ -67,10 +76,12 @@ def main():
     checkpoint_path = Path(args.checkpoint)
     config.trainer.model_path = str(checkpoint_path.parent)
     try:
-        step_str = checkpoint_path.name.split('_')[-1]
+        step_str = checkpoint_path.name.split("_")[-1]
         step = int(step_str)
     except (ValueError, IndexError) as e:
-        raise ValueError(f"Could not extract step number from checkpoint path: {args.checkpoint}") from e
+        raise ValueError(
+            f"Could not extract step number from checkpoint path: {args.checkpoint}"
+        ) from e
 
     step_loaded = load_checkpoint(config, model, optimizer=None, lr_scheduler=None, step=step)
     if step_loaded < 0:
@@ -79,10 +90,11 @@ def main():
 
     # Generate
     print(f"\nPrompt: {args.prompt}\n")
-    print("="*80)
+    print("=" * 80)
     text = generate(model, tokenizer, args.prompt, args.max_length)
     print(text)
-    print("="*80)
+    print("=" * 80)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -1,16 +1,8 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
-
-import torch
 
 from ironcore import get_logger, set_global_states
 from ironcore.checkpointing import load_checkpoint
@@ -40,7 +32,7 @@ def main():
         timeout_in_minutes=config.parallel.timeout_minute,
     )
 
-    tokenizer = build_tokenizer(config)
+    build_tokenizer(config)
 
     # initialize model with parallelism design
     model = LanguageModel(config).to(device=device, dtype=dtype)
@@ -49,10 +41,11 @@ def main():
     # load checkpoint
     last_step = load_checkpoint(config, model)
     if last_step > -1:
-        logger.info(
-            f"Successfully loaded checkpoint: {config.trainer.model_path}")
+        logger.info(f"Successfully loaded checkpoint: {config.trainer.model_path}")
     else:
-        logger.error(f"Failed to load checkpoint from {config.trainer.model_path}. Aborting evaluation.")
+        logger.error(
+            f"Failed to load checkpoint from {config.trainer.model_path}. Aborting evaluation."
+        )
         return
 
     # initialize evaluators

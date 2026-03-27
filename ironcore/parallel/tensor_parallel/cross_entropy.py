@@ -1,28 +1,22 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
-#
 
 import torch
 import torch.distributed as dist
-from typing import Optional
 
 from ironcore.parallel import parallel_states
 
 
 class _VocabParallelCrossEntropyWorkers(torch.autograd.Function):
     @staticmethod
-    def forward(ctx,
-                vocab_parallel_logits: torch.Tensor,
-                labels: torch.Tensor,
-                padding_start_idx: Optional[int] = None):
+    def forward(
+        ctx,
+        vocab_parallel_logits: torch.Tensor,
+        labels: torch.Tensor,
+        padding_start_idx: int | None = None,
+    ):
         """
         Compute cross entropy loss when logits are sharped across tensor parallel groups.
         """
@@ -40,8 +34,7 @@ class _VocabParallelCrossEntropyWorkers(torch.autograd.Function):
                 group=parallel_states.get_tensor_model_parallel_group(),
             )
         # then, substract the maximum value
-        vocab_parallel_logits = vocab_parallel_logits - \
-            logits_max.unsqueeze(dim=-1)
+        vocab_parallel_logits = vocab_parallel_logits - logits_max.unsqueeze(dim=-1)
 
         # get each partition's vocab indices
         partition_vocab_size = vocab_parallel_logits.shape[-1]
@@ -156,11 +149,9 @@ class _VocabParallelCrossEntropyWorkers(torch.autograd.Function):
 
 
 def vocab_parallel_cross_entropy(
-    vocab_parallel_logits, labels, padding_start_idx: Optional[int] = None
+    vocab_parallel_logits, labels, padding_start_idx: int | None = None
 ):
     """
     Performs cross entropy loss calculation when logits are sharded across tensor parallel ranks.
     """
-    return _VocabParallelCrossEntropyWorkers.apply(
-        vocab_parallel_logits, labels, padding_start_idx
-    )
+    return _VocabParallelCrossEntropyWorkers.apply(vocab_parallel_logits, labels, padding_start_idx)

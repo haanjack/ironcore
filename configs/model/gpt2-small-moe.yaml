@@ -1,0 +1,46 @@
+# GPT-2 Small MoE Configuration
+# DeepSeek-MoE style model with 64 routed experts + 2 shared experts
+
+# Model architecture
+num_attention_heads: 12
+num_attention_groups: 12
+d_model: 768
+d_ffn: 3072
+num_layers: 12
+max_seq_len: 1024
+max_position_embeddings: 1024
+attention_head_size: 64
+
+# Normalization
+ln_type: layernorm
+ln_eps: 1.0e-5
+post_ln: false
+
+# Regularization
+dropout_embd: 0.1
+dropout_attn: 0.1
+dropout_mlp: 0.1
+
+# Activation
+activation_type: gelu
+
+# Positional embedding
+positional_embedding:
+  type: absolute
+
+# Bias (all true = GPT-2 default, matches BiasConfig.all_true())
+layernorm_bias: true
+
+# Mixture of Experts configuration
+moe:
+  use_moe: true
+  num_shared_experts: 2
+  num_routed_experts: 64
+  num_experts_per_token: 6
+  expert_intermediate_size: null  # Uses d_ffn if null
+  aux_loss_alpha: 0.01
+  router_jitter_noise: 0.0
+  expert_model_parallel_size: 1
+  expert_tensor_parallel_size: 1
+  router_dtype: float32
+  router_bias: false

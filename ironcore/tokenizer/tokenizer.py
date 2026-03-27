@@ -1,16 +1,9 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
-from abc import ABC
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Union
 
 from transformers import AutoTokenizer, GPT2Tokenizer
 
@@ -19,18 +12,17 @@ from ironcore.utils import load_yaml_config
 
 try:
     import tiktoken
-except:
-    raise ImportError(f"tiktoken is not installed.")
+except ImportError:
+    raise ImportError("tiktoken is not installed.")
 
 
-class Tokenizer(ABC):
-
+class Tokenizer:
     def __init__(
         self,
         tokenizer,
         vocab_name_or_path: Union[str, Path],
         vocab_padding_unit: int = 128,
-        special_tokens_config: Optional[Dict[str, str]] = None,
+        special_tokens_config: dict[str, str] | None = None,
     ):
         self._tokenizer = tokenizer
         self.vocab_name_or_path = vocab_name_or_path
@@ -45,9 +37,9 @@ class Tokenizer(ABC):
             or getattr(self._tokenizer, "eod_token", None)
             or getattr(self._tokenizer, "eos_token", None)
         )
-        assert (
-            self._eos_token is not None
-        ), "eos_token not found in the tokenizer. Please check special_tokens_config or tokenizer settings."
+        assert self._eos_token is not None, (
+            "eos_token not found in the tokenizer. Please check special_tokens_config or tokenizer settings."
+        )
 
         # pad token
         if self._tokenizer.pad_token is None:
@@ -56,12 +48,9 @@ class Tokenizer(ABC):
 
         # vocab_size
         self._vocab_size = getattr(
-            self._tokenizer, "vocab_size", getattr(
-                self._tokenizer, "n_vocab", None)
+            self._tokenizer, "vocab_size", getattr(self._tokenizer, "n_vocab", None)
         )
-        assert (
-            self._vocab_size is not None
-        ), "Could not find vocab_size property in tokenizer"
+        assert self._vocab_size is not None, "Could not find vocab_size property in tokenizer"
         vocab_size = self._vocab_size
         if hasattr(self._tokenizer, "SPECIAL_TOKENS_ATTRIBUTES"):
             vocab_size += len(self._tokenizer.SPECIAL_TOKENS_ATTRIBUTES) + len(
@@ -69,9 +58,7 @@ class Tokenizer(ABC):
             )
         # padding to the nearest multiple of vocab_padding_unit
         self._padded_vocab_size = (
-            (vocab_size + vocab_padding_unit - 1)
-            // vocab_padding_unit
-            * vocab_padding_unit
+            (vocab_size + vocab_padding_unit - 1) // vocab_padding_unit * vocab_padding_unit
         )
 
     @property
@@ -92,7 +79,7 @@ class Tokenizer(ABC):
     @property
     def eod_token_id(self):
         if hasattr(self._tokenizer, "eod_token_id"):
-            return getattr(self._tokenizer, "eod_token_id")
+            return self._tokenizer.eod_token_id
         return self.eos_token_id
 
     @property
@@ -114,14 +101,57 @@ class Tokenizer(ABC):
     def encode(self, *args, **kwargs):
         return self._tokenizer(*args, **kwargs)
 
-    def decode(self, token_ids):
+    def decode(self, token_ids, skip_special_tokens: bool = False, **kwargs):
+        """Decode a sequence of token IDs to a string.
+
+        Args:
+            token_ids: List of token IDs or 1D tensor
+            skip_special_tokens: Whether to remove special tokens from output
+            **kwargs: Additional arguments passed to underlying tokenizer
+
+        Returns:
+            Decoded string
+        """
         try:
-            if not token_ids:
-                raise ValueError("Input token_ids is empty or invalid.")
-            return self._tokenizer.decode(token_ids)
+            return self._tokenizer.decode(
+                token_ids, skip_special_tokens=skip_special_tokens, **kwargs
+            )
         except Exception as e:
             print(f"Error occured during decoding: {e}")
             return ""
+
+    def batch_decode(self, sequences, skip_special_tokens: bool = False, **kwargs):
+        """Decode a batch of token sequences to strings.
+
+        Args:
+            sequences: List of token ID sequences or 2D tensor
+            skip_special_tokens: Whether to remove special tokens from output
+            **kwargs: Additional arguments passed to underlying tokenizer
+
+        Returns:
+            List of decoded strings
+        """
+        return self._tokenizer.batch_decode(
+            sequences, skip_special_tokens=skip_special_tokens, **kwargs
+        )
+
+    def apply_chat_template(self, messages, **kwargs):
+        """Apply chat template to messages.
+
+        Delegates to the underlying HuggingFace tokenizer's apply_chat_template.
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            **kwargs: Additional arguments (add_generation_prompt, return_tensors, etc.)
+
+        Returns:
+            Token IDs or text depending on return_tensors argument
+        """
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            return self._tokenizer.apply_chat_template(messages, **kwargs)
+        raise NotImplementedError(
+            f"Tokenizer {type(self._tokenizer).__name__} does not support apply_chat_template"
+        )
 
     def __call__(self, *args, **kwargs):
         return self.encode(*args, **kwargs)
@@ -137,19 +167,16 @@ class Tokenizer(ABC):
 
 
 class BbpeTokenizer(Tokenizer):
-
     def __init__(
         self,
         vocab_name_or_path: Union[str, Path],
-        merge_file_path: Optional[Union[str, Path]] = None,
+        merge_file_path: Union[str, Path] | None = None,
         vocab_padding_unit: int = 128,
-        special_tokens_config: Optional[Dict[str, str]] = None,
+        special_tokens_config: dict[str, str] | None = None,
     ):
 
         if merge_file_path:
-            tokenizer = tiktoken.get_bpe_tokenizer(
-                vocab_name_or_path, merge_file_path
-            )
+            tokenizer = tiktoken.get_bpe_tokenizer(vocab_name_or_path, merge_file_path)
         else:
             tokenizer = GPT2Tokenizer.from_pretrained(vocab_name_or_path)
 
@@ -162,12 +189,11 @@ class BbpeTokenizer(Tokenizer):
 
 
 class SentencePieceTokenizer(Tokenizer):
-
     def __init__(
         self,
         vocab_name_or_path: Union[str, Path],
         vocab_padding_unit: int = 128,
-        special_tokens_config: Optional[Dict[str, str]] = None,
+        special_tokens_config: dict[str, str] | None = None,
     ):
         tokenizer = AutoTokenizer.from_pretrained(vocab_name_or_path)
 
@@ -186,9 +212,7 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
 
     # load special tokens config if exists
     if config.trainer.special_tokens_config_path:
-        special_tokens_config = load_yaml_config(
-            config.trainer.special_tokens_config_path
-        )
+        special_tokens_config = load_yaml_config(config.trainer.special_tokens_config_path)
     else:
         special_tokens_config = None
 
@@ -200,9 +224,7 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
         ),
         "vocab_padding_unit": config.trainer.vocab_padding_unit,
         "special_tokens_config": (
-            special_tokens_config
-            if hasattr(config.trainer, "special_tokens_config")
-            else None
+            special_tokens_config if hasattr(config.trainer, "special_tokens_config") else None
         ),
     }
 
@@ -215,6 +237,4 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
     elif tokenizer_type in sentencepiece_tyeps:
         return SentencePieceTokenizer(**kwargs)
     else:
-        raise NotImplementedError(
-            f"Given tokenizer ({tokenizer_type}) is not implemented."
-        )
+        raise NotImplementedError(f"Given tokenizer ({tokenizer_type}) is not implemented.")

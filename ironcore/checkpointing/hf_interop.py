@@ -1,20 +1,6 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice,
-#    this list of conditions, and the following disclaimer.
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions, and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-# 3. Neither the name of the copyright holder nor the names of its contributors
-#    may be used to endorse or promote products derived from this software
-#    without specific prior written permission.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 """
 HuggingFace checkpoint interoperability for ironcore.
@@ -32,19 +18,61 @@ Supported checkpoint formats:
 import json
 import re
 from pathlib import Path
-from typing import Dict, Optional, Union, List
+from typing import Union
 
 import torch
 from torch import nn
 
 from ironcore.checkpointing.weight_mapping import (
     WeightMapper,
-    Architecture,
     get_architecture,
 )
+from ironcore.config.config_model import BiasConfig
 
 
-def detect_checkpoint_format(checkpoint_path: Path) -> Dict:
+def detect_bias_from_hf_state_dict(hf_state_dict: dict) -> "BiasConfig":
+    """Detect which projections have bias by inspecting HF checkpoint keys.
+
+    Supports LLaMA/Qwen-style (q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj)
+    and GPT-2-style (c_attn, c_proj, c_fc) naming conventions.
+
+    Call this BEFORE building the model so the returned BiasConfig can be used
+    to initialize the correct layer structure.
+
+    Args:
+        hf_state_dict: State dict loaded from a HuggingFace checkpoint
+
+    Returns:
+        BiasConfig reflecting which projections have bias in the checkpoint
+    """
+    keys = set(hf_state_dict.keys())
+
+    def _has(suffix: str) -> bool:
+        return any(k.endswith(suffix) for k in keys)
+
+    # LLaMA/Qwen style
+    q = _has(".q_proj.bias") or _has(".query.bias")
+    k_val = _has(".k_proj.bias") or _has(".key.bias")
+    v = _has(".v_proj.bias") or _has(".value.bias")
+    o = _has(".o_proj.bias") or _has(".out_proj.bias")
+    gate = _has(".gate_proj.bias")
+    up = _has(".up_proj.bias") or _has(".fc_in.bias")
+    down = _has(".down_proj.bias") or _has(".fc_out.bias")
+
+    # GPT-2 style: fused QKV in c_attn
+    if _has(".c_attn.bias"):
+        q = k_val = v = True
+    if _has(".attn.c_proj.bias") or _has(".attention.c_proj.bias"):
+        o = True
+    if _has(".c_fc.bias") or _has(".mlp.c_fc.bias"):
+        up = True
+    if _has(".mlp.c_proj.bias"):
+        down = True
+
+    return BiasConfig(q=q, k=k_val, v=v, o=o, gate=gate, up=up, down=down)
+
+
+def detect_checkpoint_format(checkpoint_path: Path) -> dict:
     """
     Detect the format and files of a HuggingFace checkpoint.
 
@@ -69,7 +97,7 @@ def detect_checkpoint_format(checkpoint_path: Path) -> Dict:
     pytorch_index = checkpoint_path / "pytorch_model.bin.index.json"
 
     if safetensors_index.exists():
-        with open(safetensors_index, "r") as f:
+        with open(safetensors_index) as f:
             index = json.load(f)
         files = list(set(index["weight_map"].values()))
         return {
@@ -88,7 +116,7 @@ def detect_checkpoint_format(checkpoint_path: Path) -> Dict:
             "weight_map": None,
         }
     elif pytorch_index.exists():
-        with open(pytorch_index, "r") as f:
+        with open(pytorch_index) as f:
             index = json.load(f)
         files = list(set(index["weight_map"].values()))
         return {
@@ -113,7 +141,7 @@ def detect_checkpoint_format(checkpoint_path: Path) -> Dict:
         )
 
 
-def load_hf_state_dict(checkpoint_path: Path, device: str = "cpu") -> Dict[str, torch.Tensor]:
+def load_hf_state_dict(checkpoint_path: Path, device: str = "cpu") -> dict[str, torch.Tensor]:
     """
     Load state dict from HuggingFace checkpoint (handles sharding and safetensors).
 
@@ -131,6 +159,7 @@ def load_hf_state_dict(checkpoint_path: Path, device: str = "cpu") -> Dict[str, 
         if ckpt_info["format"] == "safetensors":
             try:
                 from safetensors.torch import load_file
+
                 file_state_dict = load_file(str(file_path), device=device)
             except ImportError:
                 raise ImportError(
@@ -148,23 +177,24 @@ def load_hf_state_dict(checkpoint_path: Path, device: str = "cpu") -> Dict[str, 
     return state_dict
 
 
-def load_hf_config(checkpoint_path: Path) -> Dict:
+def load_hf_config(checkpoint_path: Path) -> dict:
     """Load config.json from HuggingFace checkpoint."""
     config_path = Path(checkpoint_path) / "config.json"
     if not config_path.exists():
         raise FileNotFoundError(f"config.json not found in {checkpoint_path}")
 
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         return json.load(f)
 
 
 def load_from_huggingface(
     checkpoint_path: Union[str, Path],
     model: nn.Module,
-    architecture: Optional[str] = None,
+    architecture: str | None = None,
     strict: bool = False,
-    device: Optional[str] = None,
-) -> Dict:
+    device: str | None = None,
+    model_config=None,
+) -> dict:
     """
     Load weights from a HuggingFace checkpoint into an ironcore model.
 
@@ -208,7 +238,7 @@ def load_from_huggingface(
     # Determine number of layers
     num_layers = hf_config.get(
         "num_hidden_layers",
-        hf_config.get("n_layer", 12)  # GPT-2 uses n_layer
+        hf_config.get("n_layer", 12),  # GPT-2 uses n_layer
     )
 
     # Create weight mapper
@@ -217,6 +247,12 @@ def load_from_huggingface(
 
     # Load HuggingFace state dict
     hf_state_dict = load_hf_state_dict(checkpoint_path, device=device)
+
+    # Update model_config.bias to match what the checkpoint actually contains.
+    # NOTE: Call this BEFORE building the model when possible; updating after init
+    # adjusts the stored config but does not change already-created layer structure.
+    if model_config is not None:
+        model_config.bias = detect_bias_from_hf_state_dict(hf_state_dict)
 
     # Convert to ironcore format
     ironcore_state_dict = mapper.hf_to_ironcore(hf_state_dict, strict=False)
@@ -259,21 +295,20 @@ def load_from_huggingface(
             loaded = ironcore_state_dict[name]
             if loaded.numel() == param.numel():
                 final_state_dict[name] = loaded.reshape_as(param)
-            else:
-                # Size mismatch - might be due to vocab size differences
-                if "embedding" in name or "output_layer" in name:
-                    # Handle vocab size mismatch by truncating or padding
-                    if loaded.shape[0] > param.shape[0]:
-                        final_state_dict[name] = loaded[:param.shape[0]]
-                    else:
-                        padded = torch.zeros_like(param)
-                        padded[:loaded.shape[0]] = loaded
-                        final_state_dict[name] = padded
+            # Size mismatch - might be due to vocab size differences
+            elif "embedding" in name or "output_layer" in name:
+                # Handle vocab size mismatch by truncating or padding
+                if loaded.shape[0] > param.shape[0]:
+                    final_state_dict[name] = loaded[: param.shape[0]]
                 else:
-                    raise ValueError(
-                        f"Shape mismatch for {name}: "
-                        f"checkpoint has {loaded.shape}, model expects {param.shape}"
-                    )
+                    padded = torch.zeros_like(param)
+                    padded[: loaded.shape[0]] = loaded
+                    final_state_dict[name] = padded
+            else:
+                raise ValueError(
+                    f"Shape mismatch for {name}: "
+                    f"checkpoint has {loaded.shape}, model expects {param.shape}"
+                )
             unexpected_keys.remove(name)
         else:
             missing_keys.append(name)
@@ -305,10 +340,10 @@ def export_to_huggingface(
     model: nn.Module,
     output_path: Union[str, Path],
     architecture: str = "llama",
-    config: Optional[Dict] = None,
+    config: dict | None = None,
     use_safetensors: bool = True,
-    shard_size: Optional[int] = None,
-) -> Dict:
+    shard_size: int | None = None,
+) -> dict:
     """
     Export an ironcore model to HuggingFace checkpoint format.
 
@@ -379,7 +414,11 @@ def export_to_huggingface(
 
     # Determine number of layers from model
     num_layers = sum(1 for name in ironcore_state_dict if re.match(r"model\.layers\.\d+\.", name))
-    num_layers = num_layers // len([k for k in ironcore_state_dict if "layers.0." in k]) if num_layers > 0 else 12
+    num_layers = (
+        num_layers // len([k for k in ironcore_state_dict if "layers.0." in k])
+        if num_layers > 0
+        else 12
+    )
 
     # Count layers properly
     layer_indices = set()
@@ -419,15 +458,12 @@ def export_to_huggingface(
                 "safetensors package is required for safetensors export. "
                 "Install with: pip install safetensors"
             )
+    elif shard_size is None:
+        output_file = output_path / "pytorch_model.bin"
+        torch.save(hf_state_dict, output_file)
+        saved_files.append(output_file)
     else:
-        if shard_size is None:
-            output_file = output_path / "pytorch_model.bin"
-            torch.save(hf_state_dict, output_file)
-            saved_files.append(output_file)
-        else:
-            saved_files.extend(
-                _save_sharded_pytorch(hf_state_dict, output_path, shard_size)
-            )
+        saved_files.extend(_save_sharded_pytorch(hf_state_dict, output_path, shard_size))
 
     # Generate and save config
     if config is None:
@@ -444,10 +480,10 @@ def export_to_huggingface(
 
 
 def _save_sharded_safetensors(
-    state_dict: Dict[str, torch.Tensor],
+    state_dict: dict[str, torch.Tensor],
     output_path: Path,
     shard_size: int,
-) -> List[Path]:
+) -> list[Path]:
     """Save state dict as sharded safetensors files."""
     from safetensors.torch import save_file
 
@@ -489,8 +525,8 @@ def _save_sharded_safetensors(
         shards[i] = new_path
 
     # Update weight map
-    for key in weight_map:
-        weight_map[key] = weight_map[key].replace("TOTAL", f"{total_shards:05d}")
+    for key, value in weight_map.items():
+        weight_map[key] = value.replace("TOTAL", f"{total_shards:05d}")
 
     # Write index file
     index = {
@@ -505,10 +541,10 @@ def _save_sharded_safetensors(
 
 
 def _save_sharded_pytorch(
-    state_dict: Dict[str, torch.Tensor],
+    state_dict: dict[str, torch.Tensor],
     output_path: Path,
     shard_size: int,
-) -> List[Path]:
+) -> list[Path]:
     """Save state dict as sharded pytorch files."""
     shards = []
     current_shard = {}
@@ -544,8 +580,8 @@ def _save_sharded_pytorch(
         shard_path.rename(new_path)
         shards[i] = new_path
 
-    for key in weight_map:
-        weight_map[key] = weight_map[key].replace("TOTAL", f"{total_shards:05d}")
+    for key, value in weight_map.items():
+        weight_map[key] = value.replace("TOTAL", f"{total_shards:05d}")
 
     index = {
         "metadata": {"total_size": sum(t.numel() * t.element_size() for t in state_dict.values())},
@@ -562,7 +598,7 @@ def _generate_hf_config(
     model: nn.Module,
     architecture: str,
     num_layers: int,
-) -> Dict:
+) -> dict:
     """Generate HuggingFace config from ironcore model."""
     config = getattr(model, "config", None)
 
@@ -571,17 +607,17 @@ def _generate_hf_config(
     vocab_size = None
     num_heads = None
 
-    for name, param in model.named_parameters():
-        if "embedding.word_embeddings.weight" in name:
+    for _name, param in model.named_parameters():
+        if "embedding.word_embeddings.weight" in _name:
             vocab_size, hidden_size = param.shape
             break
-        elif "embedding" in name and "weight" in name:
+        elif "embedding" in _name and "weight" in _name:
             if len(param.shape) == 2:
                 vocab_size, hidden_size = param.shape
                 break
 
     # Try to get num_heads from attention
-    for name, module in model.named_modules():
+    for _name, module in model.named_modules():
         if hasattr(module, "num_attention_heads"):
             num_heads = module.num_attention_heads
             break
@@ -608,7 +644,9 @@ def _generate_hf_config(
             "num_hidden_layers": num_layers,
             "num_attention_heads": num_heads or 32,
             "intermediate_size": (hidden_size or 4096) * 4,
-            "max_position_embeddings": getattr(config, "max_position_embeddings", 4096) if config else 4096,
+            "max_position_embeddings": getattr(config, "max_position_embeddings", 4096)
+            if config
+            else 4096,
             "rms_norm_eps": 1e-6,
             "tie_word_embeddings": False,
         }

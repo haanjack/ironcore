@@ -1,10 +1,10 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 #
 # Helper for training-time cadence and actions
 
-from typing import Optional, Literal
+from typing import Literal
 
 from ironcore.config import MainConfig
 
@@ -23,17 +23,17 @@ class TrainingControl:
         self.utils = config.utils
 
     @staticmethod
-    def _cadence_now(every: Optional[int], step: int) -> bool:
+    def _cadence_now(every: int | None, step: int) -> bool:
         return isinstance(every, int) and every > 0 and step > 0 and (step % every == 0)
 
     @staticmethod
-    def _cadence_next(every: Optional[int], step: int) -> bool:
+    def _cadence_next(every: int | None, step: int) -> bool:
         return isinstance(every, int) and every > 0 and ((step + 1) % every == 0)
 
-    def _cadence_flag(self, mode: Optional[Literal['log', 'checkpoint']], step: int) -> bool:
-        if mode == 'log':
+    def _cadence_flag(self, mode: Literal["log", "checkpoint"] | None, step: int) -> bool:
+        if mode == "log":
             return self._cadence_next(self.trainer.log_interval, step)
-        if mode == 'checkpoint':
+        if mode == "checkpoint":
             return self._cadence_next(self.trainer.save_checkpoint_steps, step)
         return False
 
@@ -52,16 +52,12 @@ class TrainingControl:
 
     def do_eval(self, step: int) -> bool:
         """True when evaluation should run."""
-        return (
-            self.trainer.do_eval
-            and self._cadence_now(self.operation.eval_interval, step)
-        )
+        return self.trainer.do_eval and self._cadence_now(self.operation.eval_interval, step)
 
     def do_eval_subtask(self, step: int) -> bool:
         """True when subtask evaluation should run."""
-        return (
-            self.trainer.do_eval_subtask
-            and self._cadence_now(self.operation.eval_interval, step)
+        return self.trainer.do_eval_subtask and self._cadence_now(
+            self.operation.eval_interval, step
         )
 
     def do_exit(self, step: int) -> bool:
@@ -70,9 +66,4 @@ class TrainingControl:
 
     def do_final_checkpoint(self, step: int, last_step: int) -> bool:
         """True when final checkpoint should be saved (if not already on cadence)."""
-        return (
-            not self.do_checkpoint(step)
-            and step - last_step > 1
-            and not self.utils.profile_nsys
-            and not self.utils.profile_torch
-        )
+        return not self.do_checkpoint(step) and step - last_step > 1

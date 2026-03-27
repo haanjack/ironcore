@@ -1,19 +1,11 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 import json
 import logging
-import os
-import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 from torch.utils import tensorboard
@@ -61,13 +53,8 @@ class IronCoreLogger:
         if self.rank > 0:
             return
 
-        # collect filename and line number
-        frame = sys._getframe(2)
-        filename = os.path.basename(frame.f_code.co_filename)
-        lineno = frame.f_lineno
-
-        extra = {"filename": filename, "lineno": lineno}
-        self.logger.log(level, message, {"extra": extra})
+        # Just log without extra - the formatter already uses built-in filename/lineno
+        self.logger.log(level, message)
 
     def set_log_level(self, level):
         """set log level"""
@@ -89,7 +76,7 @@ class IronCoreLogger:
         """log debug message"""
         self._log(logging.DEBUG, message)
 
-    def log_metrics(self, metrics: Dict[str, Any], msg: str = "evaluation score"):
+    def log_metrics(self, metrics: dict[str, Any], msg: str = "evaluation score"):
         """log metrics in table"""
         df = pd.DataFrame(metrics).transpose()
         df = df.infer_objects(copy=False)
@@ -109,7 +96,7 @@ class TensorboardLogger:
             return
         try:
             self.tensorboard.add_scalar(name, value, step)
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             # Silently fail to avoid disrupting training
             pass
 
@@ -118,7 +105,7 @@ class TensorboardLogger:
             return
         try:
             self.tensorboard.add_histogram(name, values, step)
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             # Silently fail to avoid disrupting training
             pass
 
@@ -145,35 +132,24 @@ class MLFlowLogger:
         # check if hash run id exists
         exp_info_filename = "exp_info.json"
         exp_file = (
-            Path(config.utils.tensorboard_dir)
-            / config.trainer.model_name
-            / exp_info_filename
+            Path(config.utils.tensorboard_dir) / config.trainer.model_name / exp_info_filename
         )
         if exp_file.exists():
-            self.mlflow.get_experiment_by_name(
-                config.utils.mlflow_experiment_name)
+            self.mlflow.get_experiment_by_name(config.utils.mlflow_experiment_name)
             self.mlflow.set_experiment(config.utils.mlflow_experiment_name)
 
             # load run_id and start run with it
-            with open(exp_file, "r", encoding="utf-8") as f:
+            with open(exp_file, encoding="utf-8") as f:
                 exp_info = json.load(f)
             exp_info["run_count"] += 1
-            self.mlflow.start_run(
-                run_name=f'{config.trainer.model_name}-{exp_info["run_count"]}'
-            )
+            self.mlflow.start_run(run_name=f"{config.trainer.model_name}-{exp_info['run_count']}")
             self.mlflow.set_tag("run_count", exp_info["run_count"])
             with open(exp_file, "w", encoding="utf-8") as f:
                 json.dump(exp_info, f)
         else:
-            if (
-                self.mlflow.get_experiment_by_name(
-                    config.utils.mlflow_experiment_name)
-                is None
-            ):
-                self.mlflow.create_experiment(
-                    config.utils.mlflow_experiment_name)
-            active_run = self.mlflow.start_run(
-                run_name=config.trainer.model_name)
+            if self.mlflow.get_experiment_by_name(config.utils.mlflow_experiment_name) is None:
+                self.mlflow.create_experiment(config.utils.mlflow_experiment_name)
+            active_run = self.mlflow.start_run(run_name=config.trainer.model_name)
 
             # start run and save run_id
             exp_info = {"run_id": active_run.info.run_id, "run_count": 0}
@@ -208,3 +184,45 @@ class MLFlowLogger:
     def close(self):
         if self.mlflow:
             self.mlflow.end_run()
+
+
+class WandbLogger:
+    """Weights & Biases logger."""
+
+    def __init__(self, config):
+        if config.parallel.rank > 0:
+            return
+
+        try:
+            import wandb
+        except ImportError:
+            raise ImportError("WandbLogger requires wandb package")
+
+        self.wandb = wandb
+
+        run_name = config.utils.wandb_name or config.trainer.model_name
+        wandb.init(
+            project=config.utils.wandb_project,
+            name=run_name,
+            entity=config.utils.wandb_entity,
+            config=config.__dict__,
+        )
+
+    def log(self, metrics: dict, step: int):
+        """Log metrics to wandb."""
+        if self.wandb:
+            self.wandb.log(metrics, step=step)
+
+    def log_metric(self, key: str, value: float, step: int):
+        """Log a single metric."""
+        if self.wandb:
+            self.wandb.log({key: value}, step=step)
+
+    def log_artifact(self, path: str):
+        """Log an artifact."""
+        if self.wandb:
+            self.wandb.save(path)
+
+    def close(self):
+        if self.wandb:
+            self.wandb.finish()

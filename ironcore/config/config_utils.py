@@ -1,17 +1,64 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from .config import BaseConfig
+
+
+@dataclass
+class ProfilerConfig(BaseConfig):
+    """Configuration for profiling and performance monitoring."""
+
+    gpu_profiler: bool = field(default=False, metadata={"help": "Enable hardware-level profiling"})
+    torch_profiler: bool = field(default=False, metadata={"help": "Enable torch profiler"})
+
+    start: int = field(default=10, metadata={"help": "Profile start step"})
+    end: int = field(default=12, metadata={"help": "Profile end step"})
+    ranks: list[int] = field(
+        default_factory=lambda: [0], metadata={"help": "Global ranks to profile"}
+    )
+    stop_at_end: bool = field(default=False, metadata={"help": "Stop training on profile end"})
+
+    name: str = field(default="profile", metadata={"help": "Prefix for profile output files"})
+    output_dir: str = field(
+        default="./logs/profile/", metadata={"help": "Directory to save profile traces"}
+    )
+
+    wait_steps: int = field(default=1, metadata={"help": "Steps to wait before starting"})
+    warmup_steps: int = field(default=1, metadata={"help": "Warmup steps before active capture"})
+    active_steps: int = field(
+        default=1, metadata={"help": "Number of steps to capture active data"}
+    )
+    repeat: int = field(default=1, metadata={"help": "Number of times to repeat the capture cycle"})
+
+    oom_monitor: bool = field(
+        default=False, metadata={"help": "Enable automatic profiling on high memory usage"}
+    )
+    oom_threshold: float = field(default=95.0, metadata={"help": "Memory threshold percentage"})
+
+    comm_profiler: bool = field(
+        default=False, metadata={"help": "Enable distributed communication operation timing"}
+    )
+    memory_snapshot: bool = field(
+        default=False,
+        metadata={"help": "Record memory allocation history and export snapshot on profile stop"},
+    )
+    layer_timing: bool = field(
+        default=False, metadata={"help": "Enable per-layer forward/backward GPU timing breakdown"}
+    )
+    export_chrome_trace: bool = field(
+        default=False,
+        metadata={"help": "Export Chrome Tracing JSON alongside TensorBoard trace on profile stop"},
+    )
+    export_csv: bool = field(
+        default=False, metadata={"help": "Export key-averages CSV summary on profile stop"}
+    )
+    data_load_profiler: bool = field(
+        default=False,
+        metadata={"help": "Time data loading per step and log as data_load_ms metric"},
+    )
 
 
 @dataclass
@@ -20,46 +67,18 @@ class UtilsConfig(BaseConfig):
 
     log_level: str = field(default="INFO", metadata={"help": "log level"})
 
-    profile_nsys: bool = field(
-        default=False,
-        metadata={
-            "help": "Enable nsys profiling. When profile use this command: "
-            "nsys profile -s none -t nvtx,cuda,cudnn,cublas,osrt -o <path/to/output_file> --force-overwrite true --capture-range=cudaProfilerApi --capture-range-end=stop"
-        },
-    )
-    profile_torch: bool = field(
-        default=False,
-        metadata={
-            "help": "Enable torch profiler. When profile use this command: torch.profiler.profile"},
-    )
-    profile_step_start: Optional[int] = field(
-        default=10, metadata={"help": "nsys profile start step"}
-    )
-    profile_step_end: Optional[int] = field(
-        default=12, metadata={"help": "nsys profile end step"}
-    )
-    profile_ranks: Optional[List[int]] = field(
-        default_factory=lambda: [0], metadata={"help": "global ranks nsys profile"}
-    )
-    stop_on_profile_end: bool = field(
-        default=False, metadata={"help": "stop training on profile end"}
-    )
-
-    deterministic: bool = field(
-        default=False, metadata={"help": "Enable deterministic mode"}
-    )
+    deterministic: bool = field(default=False, metadata={"help": "Enable deterministic mode"})
 
     report_memory_usage: bool = field(
-        default=True, metadata={"help": "Enable memory report at the first log step"}
+        default=True, metadata={"help": "Show detailed memory breakdown at step 1"}
     )
 
     # logger
-    tensorboard_dir: Optional[str] = field(
-        default=None, metadata={"help": "tensorboard path"}
-    )
-    mlflow_tracking_uri: Optional[str] = field(
-        default=None, metadata={"help": "mlflow tracking uri"}
-    )
-    mlflow_experiment_name: Optional[str] = field(
+    tensorboard_dir: str | None = field(default=None, metadata={"help": "tensorboard path"})
+    mlflow_tracking_uri: str | None = field(default=None, metadata={"help": "mlflow tracking uri"})
+    mlflow_experiment_name: str | None = field(
         default=None, metadata={"help": "mlflow experiment name"}
     )
+    wandb_project: str | None = field(default=None, metadata={"help": "wandb project name"})
+    wandb_name: str | None = field(default=None, metadata={"help": "wandb run name"})
+    wandb_entity: str | None = field(default=None, metadata={"help": "wandb entity/username"})

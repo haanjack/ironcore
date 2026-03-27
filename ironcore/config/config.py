@@ -1,12 +1,6 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
-# SPDX-License-Identifier: MIT
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the above copyright notice,
-# this list of conditions, and the following disclaimer are retained.
-#
-# Full license text is available at LICENSE file.
+# SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -24,16 +18,17 @@ class BaseConfig:
         """update config"""
         for k, v in kwargs.items():
             if k not in self.__dataclass_fields__:
-                raise KeyError(
-                    f"{k} is not defined in {self.__dataclass_fields__}")
-            if not self._type_checker(self):
-                raise TypeError(
-                    f"'{k}' data type is not match with defined information: {type(v)} vs {self.__dataclass_fields__[k].type}"
-                )
+                raise KeyError(f"{k} is not defined in {self.__dataclass_fields__}")
 
             if isinstance(v, dict):
-                # convert as config class type
-                v = self.__dataclass_fields__[k].type(**v)
+                # convert as config class type - only if it's a BaseConfig subclass
+                field_type = self.__dataclass_fields__[k].type
+                try:
+                    if isinstance(field_type, type) and issubclass(field_type, BaseConfig):
+                        v = field_type(**v)
+                except TypeError:
+                    # field_type is not a class (could be string forward reference, Union, etc.)
+                    pass
             setattr(self, k, v)
         return self
 
@@ -44,29 +39,34 @@ class BaseConfig:
         return cls
 
     @classmethod
-    def _type_checker(cls, var):
+    def _type_checker(cls, var):  # noqa: PLR0911
         """check if arguments' data type is correct"""
         for field_name, field_type in cls.__annotations__.items():
             input_field_value = getattr(var, field_name)
             if input_field_value is None:
                 continue
-            # if not isinstance(input_field_value, field_type):
-            #     return False
-            if isinstance(input_field_value, list):
-                # validate config option struction is list
-                if all(
-                    isinstance(item, field_type.__args__[0].__args__)
-                    for item in input_field_value
-                    if not isinstance(item, list)
-                ):
-                    # check each element's data type if they follows the config definition
-                    continue
-                if all(isinstance(item, list) for item in input_field_value):
-                    # check if the given items are defined as list
-                    continue
-                return False
 
-            if get_origin(field_type) is Union:
+            origin = get_origin(field_type)
+            args = get_args(field_type)
+
+            if origin is list or (isinstance(field_type, type) and issubclass(field_type, list)):
+                if not isinstance(input_field_value, list):
+                    return False
+
+                # If it's list[T], check element types
+                if args:
+                    inner_type = args[0]
+                    # Handle Union types inside list, e.g., list[Union[int, str]]
+                    if get_origin(inner_type) is Union:
+                        union_args = get_args(inner_type)
+                        if not all(isinstance(item, union_args) for item in input_field_value):
+                            return False
+                    elif isinstance(inner_type, type):
+                        if not all(isinstance(item, inner_type) for item in input_field_value):
+                            return False
+                continue
+
+            if origin is Union:
                 union_args = get_args(field_type)
                 matched = False
                 for union_arg in union_args:
@@ -75,7 +75,9 @@ class BaseConfig:
                         matched = True
                         break
                     # Check for Literal types within Union
-                    elif get_origin(union_arg) is Literal and input_field_value in get_args(union_arg):
+                    elif get_origin(union_arg) is Literal and input_field_value in get_args(
+                        union_arg
+                    ):
                         matched = True
                         break
                     # Check for regular types
@@ -89,6 +91,10 @@ class BaseConfig:
                 if input_field_value in get_args(field_type):
                     continue
                 return False
+            # Check if field_type is a valid type for isinstance
+            if not isinstance(field_type, type):
+                # Skip type checking for non-type field_types (forward references, etc.)
+                continue
             if isinstance(input_field_value, field_type):
                 continue
             if hasattr(field_type, "_type_checker"):
@@ -117,13 +123,11 @@ class BaseConfig:
         def dict_to_dataclass(data, cls):
             if isinstance(data, dict):
                 fieldtypes = {f.name: f.type for f in fields(cls)}
-                return cls(
-                    **{k: dict_to_dataclass(v, fieldtypes[k]) for k, v in data.items()}
-                )
+                return cls(**{k: dict_to_dataclass(v, fieldtypes[k]) for k, v in data.items()})
             if isinstance(data, list):
                 return [dict_to_dataclass(item, cls.__args__[0]) for item in data]
             return data
 
-        with open(filename, "r", encoding="utf-8") as file:
+        with open(filename, encoding="utf-8") as file:
             data = yaml.safe_load(file)
         return dict_to_dataclass(data, cls)

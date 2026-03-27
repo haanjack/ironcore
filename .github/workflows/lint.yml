@@ -1,0 +1,40 @@
+name: Lint and Format Check
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ruff-lint:
+    name: Linting (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          # Explicitly install ruff for fast linting without heavy dependencies
+          pip install ruff
+
+      - name: Run Ruff Check
+        run: |
+          # Provides inline annotations in GitHub PRs
+          ruff check --output-format=github
+
+      - name: Run Ruff Format Check
+        run: |
+          # Ensures code adheres to formatting standards
+          ruff format --check

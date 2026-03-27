@@ -1,3 +1,6 @@
+# Copyright (c) 2025-2026 Jaegeun Han
+#
+# SPDX-License-Identifier: Apache-2.0
 """Common training utilities shared across training scripts."""
 
 from typing import Union
@@ -6,6 +9,71 @@ import torch
 import torch.distributed as dist
 
 from ironcore.parallel import parallel_states
+
+
+def _has_moe_layers(model: torch.nn.Module) -> bool:
+    """Check if model has any MoE layers.
+
+    Uses cached result if available.
+    """
+    # Use cached result if available
+    if hasattr(model, "_has_moe_layers"):
+        return model._has_moe_layers
+
+    # Check for MoE layers
+    for module in model.modules():
+        if hasattr(module, "get_aux_loss") and callable(module.get_aux_loss):
+            model._has_moe_layers = True
+            return True
+
+    model._has_moe_layers = False
+    return False
+
+
+def get_moe_aux_loss(model: torch.nn.Module) -> torch.Tensor | None:
+    """Accumulate auxiliary losses from all MoE modules in the model.
+
+    Iterates through all modules and collects get_aux_loss() from MoE layers.
+
+    Args:
+        model: The model potentially containing MoE layers
+
+    Returns:
+        Sum of all auxiliary losses, or None if no MoE layers
+    """
+    # Early exit for non-MoE models
+    if not _has_moe_layers(model):
+        return None
+
+    aux_losses = []
+
+    for module in model.modules():
+        if hasattr(module, "get_aux_loss") and callable(module.get_aux_loss):
+            loss = module.get_aux_loss()
+            if loss is not None:
+                aux_losses.append(loss)
+
+    if aux_losses:
+        return sum(aux_losses)
+
+    return None
+
+
+def clear_moe_aux_loss(model: torch.nn.Module) -> None:
+    """Clear stored auxiliary losses from all MoE modules.
+
+    Should be called after backward pass to reset for next iteration.
+
+    Args:
+        model: The model potentially containing MoE layers
+    """
+    # Early exit for non-MoE models
+    if not _has_moe_layers(model):
+        return
+
+    for module in model.modules():
+        if hasattr(module, "clear_aux_loss") and callable(module.clear_aux_loss):
+            module.clear_aux_loss()
 
 
 def loss_func_sft(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch.Tensor:
@@ -26,8 +94,8 @@ def loss_func_sft(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch
 
     # Per-sample: sum tokens / count tokens for each row
     sample_token_sum = (token_losses * loss_mask).sum(dim=1)  # [batch]
-    sample_token_count = loss_mask.sum(dim=1).clamp(min=1)    # [batch]
-    sample_losses = sample_token_sum / sample_token_count      # [batch]
+    sample_token_count = loss_mask.sum(dim=1).clamp(min=1)  # [batch]
+    sample_losses = sample_token_sum / sample_token_count  # [batch]
 
     return sample_losses.mean()
 
@@ -49,45 +117,43 @@ def compute_token_accuracy(
     """
     if parallel_states.get_tensor_model_parallel_world_size() > 1:
         # TP mode: logits are sharded along vocab dimension [b, s, vocab/tp_size]
-        
+
         # 1. Get local max and indices
-        local_max_values, local_indices = torch.max(logits, dim=-1) # [b, s]
-        
+        local_max_values, local_indices = torch.max(logits, dim=-1)  # [b, s]
+
         # 2. Adjust local indices to global vocab indices
         rank = parallel_states.get_tensor_model_parallel_rank()
         partition_vocab_size = logits.size(-1)
         start_idx = rank * partition_vocab_size
         global_indices = local_indices + start_idx
-        
+
         # 3. Gather max values and indices from all ranks
         # We need to find which rank has the true global max
         tp_group = parallel_states.get_tensor_model_parallel_group()
         world_size = parallel_states.get_tensor_model_parallel_world_size()
-        
+
         # List to gather into
         gathered_max_values = [torch.zeros_like(local_max_values) for _ in range(world_size)]
         gathered_indices = [torch.zeros_like(global_indices) for _ in range(world_size)]
-        
+
         dist.all_gather(gathered_max_values, local_max_values, group=tp_group)
         dist.all_gather(gathered_indices, global_indices, group=tp_group)
-        
+
         # Stack: [world_size, b, s]
         all_max_values = torch.stack(gathered_max_values)
         all_indices = torch.stack(gathered_indices)
-        
+
         # 4. Find max across ranks
         # [b, s] indices of the rank that has the max value
         max_rank_indices = torch.argmax(all_max_values, dim=0)
-        
+
         # 5. Select the corresponding global token index
         # We use gather to select from the specific rank index for each position
         # all_indices: [world_size, b, s] -> gather -> [1, b, s]
-        predictions = torch.gather(
-            all_indices, 
-            dim=0, 
-            index=max_rank_indices.unsqueeze(0)
-        ).squeeze(0)
-        
+        predictions = torch.gather(all_indices, dim=0, index=max_rank_indices.unsqueeze(0)).squeeze(
+            0
+        )
+
     else:
         # Standard mode
         predictions = logits.argmax(dim=-1)  # [batch, seq_len]
@@ -126,16 +192,29 @@ def get_batch(
         batch = None
 
     # IronCore dataloader returns dict with 'input_ids' and 'labels'
-    input_ids = batch['input_ids']
-    labels = batch['labels']
+    input_ids = batch["input_ids"]
+    labels = batch["labels"]
 
     return input_ids, labels
 
 
 def forward_step(model, data_iterator) -> torch.Tensor:
-    """Forward step."""
+    """Forward step with MoE auxiliary loss accumulation.
+
+    Computes the language model loss and adds any MoE auxiliary losses.
+    Clears aux loss after accumulation to prevent memory leaks.
+    For non-MoE models, this is essentially a no-op overhead.
+    """
     input_ids, labels = get_batch(data_iterator=data_iterator)
     loss = model(input_ids, labels)
+
+    # Add MoE auxiliary loss if present (no-op for non-MoE models)
+    aux_loss = get_moe_aux_loss(model)
+    if aux_loss is not None:
+        loss = loss + aux_loss
+        # Clear aux loss after accumulation to prevent memory leak
+        clear_moe_aux_loss(model)
+
     return loss
 
 

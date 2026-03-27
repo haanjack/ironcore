@@ -2,22 +2,33 @@
 
 **Personal LLM Training Framework for Learning & Experimentation**
 
-IronCore is a personal project for practicing AI development and testing training algorithms. Built from scratch to understand the internals of LLM training:
-- **Learning by Building**: Hands-on implementation of distributed training, parallelism strategies, and optimization techniques
-- **Algorithm Testing**: Playground for experimenting with training methods and model architectures
-- **Unified Data Pipeline**: Single preprocessing system for pretrain, SFT, and DPO tasks
-- **Consumer Hardware**: Developed on Dual RTX 3090 (with NVLINK!!)
-- **RL Integration**: Bridge training and inference for RLHF/RLAIF experiments - not yet
-- **Inference Engine**: Integrate rollout and evaluation capabilities - not yet
+IronCore is a personal project for practicing AI development and testing training algorithms. Built from scratch to understand LLM training internals — distributed training, parallelism, alignment, and optimization.
 - **DSL Experimentation**: Testing Triton kernels and low-level optimizations (with or without agent) - in progress
 
-This project inspired by NVIDIA Megatron-LM and HuggingFace's Transformers.
+Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experiences.
 
+## Features
+
+- **Training modes**: Pretraining, SFT, FIM, DPO, and GRPO (Group Relative Policy Optimization)
+- **Parallelism**: Tensor Parallelism (TP), Expert Parallelism (EP) and Data Parallelism (DP), including multi-node and FSDP
+- **Model architectures**: GPT-2/3, LLaMA, Gemma, Qwen, Phi via unified `TransformerModel`
+- **Mixture of Experts (MoE)**: Expert routing with load-balance loss and expert parallelism
+- **PEFT / LoRA**: Parameter-efficient fine-tuning with TP-correct implementations
+- **GRPO (WIP) / RL alignment**: Online rollout generation, group-relative advantage, KL penalty, multi-backend rewards (math, code, API, local model)
+- **Checkpointing**: Native and HuggingFace-interop checkpoint save/load
+- **KV cache**: Paged KV cache with prefix caching for efficient rollout generation
+- **MFU tracking**: Model FLOP utilization monitoring during training
+- **Logging**: WandB integration via `WandbLogger`
+- Runs on my precious dual RTX 3090 (with NVLink)
+<details>
+<summary>My test Machine</summary>
+<!-- <image src="https://raw.githubusercontent.com/hanjack/ironcore/main/docs/assets/my_rig.png" alt="My Rig" width="600"/> -->
+<image src="docs/assets/my_rig.png" alt="My Rig" width="600"/>
+</details>
 
 ## Installation
 
 ```bash
-# Clone and install in editable mode
 git clone <repo-url>
 cd ironcore
 pip install -e .
@@ -27,110 +38,97 @@ pip install -e .
 
 ### Docker Setup
 
-1. Create a `.env` file for build arguments (optional):
-   ```bash
-   cp .env.example .env
-   # Edit .env if you need to provide a github_access_token or other vars
-   ```
-
-2. Build the Docker image:
-   ```bash
-   ./scripts/docker/build.sh
-   ```
-
-3. Run container with GPU support:
-   ```bash
-   docker run -it --gpus all -v $(pwd):/workspace ironcore:dev
-   ```
+```bash
+cp .env.example .env
+./scripts/docker/build.sh
+docker run -it --gpus all -v $(pwd):/workspace ironcore:dev
+```
 
 ### Data Preprocessing
 
-Preprocess your dataset before training:
-
 ```bash
-# Preprocess dataset
 ironcore preprocess --config configs/data/pretrain_example.yaml
-
-# Preprocess with inspection
 ironcore preprocess --config configs/data/pretrain_example.yaml --inspect
-
-# Inspect existing preprocessed data
 ironcore preprocess --config configs/data/pretrain_example.yaml --only-inspect
 ```
 
 ### Training
 
-IronCore supports both **Pretraining** and **Supervised Fine-Tuning (SFT)** using the same training command. The mode is determined by the `task_type` field in your dataset configuration file (under `configs/data/`).
-
-- **Pretraining**: Set `task_type: pretrain` in the data config.
-- **SFT**: Set `task_type: sft` in the data config.
+The training mode is determined by `task_type` in your data config (`pretrain`, `sft`, `fim`, `dpo`).
 
 **Single GPU:**
 ```bash
 ironcore train --config configs/example.yaml
 ```
 
-**Distributed Training (Data Parallel):**
+**Tensor Parallel (2 GPUs):**
 ```bash
-# DP with 2 GPUs
-torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml --tensor-model-parallel-size 1
-```
-
-**Distributed Training (Tensor Parallel):**
-```bash
-# TP with 2 GPUs
 torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml --tensor-model-parallel-size 2
 ```
 
-**Multi-node Training:**
+**Data Parallel (2 GPUs):**
 ```bash
-# On each node (adjust --node_rank for each)
+torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml --tensor-model-parallel-size 1
+```
+
+**Multi-node:**
+```bash
 torchrun --nproc_per_node 8 --nnodes 2 --node_rank 0 \
     --master_addr <MASTER_IP> --master_port 29500 \
     -m ironcore train --config configs/example.yaml
 ```
 
-## Configuration
+**DPO Training:**
+```bash
+ironcore train --config configs/alignment/dpo_default.yaml
+```
 
-IronCore uses a hierarchical YAML configuration system with the following groups:
+**GRPO Training (GSM8K math reasoning):**
+```bash
+ironcore train --config configs/grpo_gsm8k.yaml
+```
+
+**GRPO Training (toy/smoke test):**
+```bash
+ironcore train --config configs/grpo_toy.yaml
+```
+
+**LoRA Fine-tuning:**
+```bash
+ironcore train --config configs/train_lora_example.yaml
+```
+
+## Configuration
 
 | Group | Description |
 |-------|-------------|
-| `model` | Model architecture (e.g., `gpt2-small`, `llama-7b`) |
-| `data` | Dataset configuration and preprocessing settings |
+| `model` | Model architecture (`gpt2-small`, `llama`, etc.) |
+| `data` | Dataset config and preprocessing |
 | `trainer` | Batch sizes, parallelism, checkpointing |
 | `optim` | Optimizer, learning rate, scheduler |
-| `operation` | Training steps, evaluation intervals |
-| `init` | Random seed, initialization |
-| `utils` | Logging and utilities |
+| `operation` | Training steps, eval intervals |
+| `peft` | LoRA rank, alpha, target modules |
+| `alignment` | DPO/GRPO method, beta, group size |
+| `alignment.generation` | Rollout generation (temperature, top-p, chat template) |
+| `alignment.reward` | Reward backend (math, code, API, local model) |
 
 ### Supported Model Architectures
 
-IronCore uses a unified `TransformerModel` that supports multiple architectures through configuration. Model-specific components (normalization, activation functions, attention patterns) are configured via YAML files.
+| Family | Models |
+|--------|--------|
+| GPT | `gpt2-small`, `gpt2-medium`, `gpt2-large`, `gpt2-xl`, `gpt3` |
+| LLaMA | `llama-7b`, `llama-13b`, `llama-70b` |
+| Gemma | `gemma-1-2b`, `gemma-1-7b` (Gemma 1 only) |
+| Qwen | `qwen-*` |
+| Phi | `phi-1`, `phi-2` |
 
-**Supported Models:**
-- **GPT**: `gpt2-small`, `gpt2-medium`, `gpt2-large`, `gpt2-xl`, `gpt3`
-- **LLaMA**: `llama-7b`, `llama-13b`, `llama-70b` (and derivatives)
-- **Gemma**: `gemma-1-2b`, `gemma-1-7b` (Gemma 1 only - Gemma 2/3 require sliding window attention)
-- **Qwen**: `qwen-*` models
-- **Phi**: `phi-1`, `phi-2` (Phi-3 is multimodal, not supported)
+**Architecture features:** Pre/post-norm, RMSNorm, GQA/MQA, RoPE, GELU/SiLU/SwiGLU/GeGLU
 
-**Architecture Features:**
-- Pre-norm and post-norm layer normalization
-- RMSNorm and LayerNorm support
-- Grouped Query Attention (GQA) and Multi-Query Attention (MQA)
-- RoPE (Rotary Position Embeddings)
-- Activation functions: GELU, SiLU, SwiGLU, GeGLU
+**Limitations:** No sliding window attention, no multimodal support, no encoder-decoder.
 
-**Current Limitations:**
-- No sliding window attention (required for Mistral, Gemma 2/3)
-- No multimodal support (required for Phi-3, LLaVA, etc.)
-- No encoder-decoder architectures (T5, BART, etc.)
-
-### Example Config Structure
+### Example Config
 
 ```yaml
-# Main training config
 trainer:
   micro_batch_size: 4
   train_batch_size: 480
@@ -141,7 +139,7 @@ operation:
   train_steps: 2000
   eval_interval: 1000
 
-model: gpt2-small  # References configs/model/gpt2-small.yaml
+model: gpt2-small
 
 data:
   config_path: configs/data/full_owt_pretrain.yaml
@@ -157,28 +155,39 @@ optim:
 ```
 ironcore/
 ├── configs/
-│   ├── model/          # Model architecture configs
-│   ├── data/           # Data preprocessing configs
-│   └── *.yaml          # Training configs
+│   ├── model/              # Model architecture configs
+│   ├── data/               # Data preprocessing configs
+│   ├── peft/               # LoRA configs
+│   ├── alignment/          # DPO/GRPO configs
+│   └── *.yaml              # Training configs (incl. grpo_gsm8k, grpo_toy)
 ├── ironcore/
-│   ├── cli/            # Command-line interface
-│   ├── config/         # Configuration classes
-│   ├── dataloader/     # Data loading utilities
-│   ├── kernels/        # DSL kernel implementations
-│   │   ├── triton/     # Triton kernels
-│   │   └── tilelang/   # TileLang kernels
-│   ├── models/         # Model implementations (TransformerModel)
-│   ├── layers/         # Attention, MLP, normalization layers
-│   ├── parallel/       # Parallelism utilities (TP, DP)
-│   └── trainer.py      # Main trainer
-├── experiments/
-│   └── generation/     # DSL kernel generation pipeline
-│       ├── spec.py     # Kernel spec definitions
-│       ├── harness.py  # Validation & benchmark harness
-│       └── specs/      # Per-kernel specifications
-├── data/
-│   ├── preprocessed/   # Preprocessed binary data
-│   └── cache/          # HuggingFace cache
-└── scripts/
-    └── docker/         # Docker build scripts
+│   ├── cli/                # CLI entrypoints (train, preprocess, inspect)
+│   ├── config/             # Dataclass configs for all subsystems
+│   ├── models/             # TransformerModel implementation
+│   ├── layers/             # Attention, MLP, embedding, KV cache
+│   ├── trainers/           # BaseTrainer, LMTrainer, DPOTrainer, GRPOTrainer
+│   ├── alignment/          # Rollout, rewards, GRPO/DPO loss, buffer, dataset
+│   ├── dataloader/         # Dataset, collator, data config
+│   ├── optimizer/          # Optimizer, LR scheduler, distributed optimizer
+│   ├── parallel/           # TP/DP/EP process groups and utilities
+│   ├── peft/               # LoRA implementation and utilities
+│   ├── checkpointing/      # Native and HF-interop checkpointing
+│   ├── eval/               # Evaluator and scoring utilities
+│   ├── preprocessing/      # Tokenized data serialization
+│   ├── tokenizer/          # Tokenizer wrapper
+│   ├── mfu.py              # MFU (Model FLOP Utilization) calculator
+│   ├── logger.py           # WandB logger
+│   └── trainer.py          # Trainer entrypoint
+├── experiments/            # DSL kernel generation experiments
+│   └── generation/         # Generation pipeline, harness, specs, results
+├── examples/               # Standalone usage examples
+├── scripts/
+│   ├── docker/             # Docker build and launch scripts
+│   └── *.py                # Data preparation and debug scripts
+├── tests/                  # Unit, integration, performance, and property tests
+└── docs/                   # Guides and reports
 ```
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
