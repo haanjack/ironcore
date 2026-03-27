@@ -1,0 +1,37 @@
+{
+  "spec_name": "cross_entropy",
+  "success": false,
+  "exit_reason": "max_iterations",
+  "iterations": [
+    {
+      "iteration": 0,
+      "phase": "generation",
+      "validation": {
+        "correct": false,
+        "grad_correct": false,
+        "speedup": 0,
+        "kernel_time_ms": 0,
+        "error_msg": "Numerical mismatch: max_abs=3.31e-02, max_rel=2.30e-03; Gradient mismatch for input 0: max_diff=8.75e-03"
+      },
+      "analysis": null,
+      "tokens_used": 7863,
+      "timestamp": "2026-02-11T06:23:16.764364"
+    },
+    {
+      "iteration": 1,
+      "phase": "correctness_fix",
+      "validation": {
+        "correct": false,
+        "grad_correct": false,
+        "speedup": 0,
+        "kernel_time_ms": 0,
+        "error_msg": "Numerical mismatch: max_abs=3.44e-02, max_rel=2.37e-03; Gradient mismatch for input 0: max_diff=1.13e-02"
+      },
+      "analysis": null,
+      "tokens_used": 10348,
+      "timestamp": "2026-02-11T06:25:33.196176"
+    }
+  ],
+  "total_tokens_used": 18211,
+  "total_time_seconds": 221.69836115837097
+}

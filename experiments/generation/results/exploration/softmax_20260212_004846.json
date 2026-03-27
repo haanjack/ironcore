@@ -1,0 +1,70 @@
+{
+  "spec_name": "softmax",
+  "timestamp": "2026-02-12T00:37:22.730866",
+  "algorithm_summary": "### 1. Algorithm",
+  "graph_analysis": {
+    "input_shapes": [],
+    "output_shapes": [],
+    "data_dependencies": [],
+    "operations": [
+      "load",
+      "compute",
+      "store"
+    ],
+    "reductions": [],
+    "elementwise_ops": [
+      "mul",
+      "add"
+    ],
+    "memory_reads_per_element": 1,
+    "memory_writes_per_element": 1,
+    "optimal_access_pattern": "contiguous",
+    "can_parallelize_rows": true,
+    "can_parallelize_cols": false,
+    "requires_reduction": false,
+    "requires_atomic_accumulation": false
+  },
+  "tiling_strategy": {
+    "recommended_block_size": 512,
+    "min_block_size": 256,
+    "max_block_size": 8192,
+    "tiling_rationale": "### 1. Block Size Recommendation\n\n*   **Recommended BLOCK_SIZE**: `128` or `256",
+    "considerations": [],
+    "fits_in_l1_cache": true,
+    "fits_in_registers": true,
+    "register_pressure": "low",
+    "alternative_strategies": []
+  },
+  "conversion_plan": {
+    "kernel_name": "softmax",
+    "description": "Fused safe softmax: max-subtract + exp + normalize in one pass",
+    "input_tensors": [],
+    "output_tensors": [],
+    "passes": [
+      {
+        "name": "Forward computation",
+        "type": "elementwise"
+      }
+    ],
+    "requires_intermediate_storage": false,
+    "intermediate_tensors": [],
+    "requires_backward": true,
+    "saved_tensors": [],
+    "gradient_complexity": "medium"
+  },
+  "code_structure": "import torch\nimport triton\nimport triton.language as tl\n\n# -----------------------------------------------------------------------------\n# 1. Kernel Function Signatures\n# -----------------------------------------------------------------------------\n@triton.jit\ndef softmax_forward_kernel(\n    input_ptr,     # Pointer to input tensor",
+  "initial_code": "import torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(\n    x_ptr,\n    output_ptr,\n    n_cols,\n    stride,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    row_start = row_idx * stride\n\n    # Pass 1: Find row-wise maximum for numerical stability\n    m_prev = -float('inf')\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + row_start + cols, mask=mask, other=-float('inf'))\n        m_curr = tl.max(x, axis=0)\n        m_prev = tl.maximum(m_prev, m_curr)\n\n    # Pass 2: Compute sum of exponentials\n    acc = 0.0\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + row_start + cols, mask=mask, other=0.0)\n        x_shifted = x - m_prev\n        numerator = tl.exp(x_shifted)\n        acc += tl.sum(numerator, axis=0)\n\n    # Pass 3: Normalize and store\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + row_start + cols, mask=mask, other=0.0)\n        x_shifted = x - m_prev\n        numerator = tl.exp(x_shifted)\n        output = numerator / acc\n        tl.store(output_ptr + row_start + cols, output, mask=mask)\n\n@triton.jit\ndef backward_kernel(\n    output_ptr,\n    grad_output_ptr,\n    grad_input_ptr,\n    n_cols,\n    stride,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    row_start = row_idx * stride\n\n    # Pass 1: Compute sum(y * grad_output)\n    acc = 0.0\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        y = tl.load(output_ptr + row_start + cols, mask=mask, other=0.0)\n        dy = tl.load(grad_output_ptr + row_start + cols, mask=mask, other=0.0)\n        # Using multiplication as per scalar accumulator patterns\n        prod = y * dy\n        acc += tl.sum(prod, axis=0)\n\n    # Pass 2: Compute grad_input = y * (grad_output - sum(y * grad_output))\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        y = tl.load(output_ptr + row_start + cols, mask=mask, other=0.0)\n        dy = tl.load(grad_output_ptr + row_start + cols, mask=mask, other=0.0)\n        dx = y * (dy - acc)\n        tl.store(grad_input_ptr + row_start + cols, dx, mask=mask)\n\nclass TritonSoftmaxFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        output = torch.empty_like(x_reshaped)\n        \n        grid = (M,)\n        \n        # Since we reshape to (M, N), stride is simply N\n        stride = x_reshaped.stride(0)\n\n        forward_kernel[grid](\n            x_ptr=x_reshaped,\n            output_ptr=output,\n            n_cols=N,\n            stride=stride,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        ctx.save_for_backward(output)\n        ctx.original_shape = original_shape\n        return output.reshape(original_shape)\n\n    @staticmethod\n    def backward(ctx, grad_output):\n        output, = ctx.saved_tensors\n        original_shape = ctx.original_shape\n\n        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n        output_reshaped = output.reshape(-1, output.shape[-1]).contiguous()\n\n        M, N = output_reshaped.shape\n\n        grad_x = torch.empty_like(output_reshaped)\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        grid = (M,)\n        stride = output_reshaped.stride(0)\n\n        backward_kernel[grid](\n            output_ptr=output_reshaped,\n            grad_output_ptr=grad_output_reshaped,\n            grad_input_ptr=grad_x,\n            n_cols=N,\n            stride=stride,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        return grad_x.reshape(original_shape)\n\ndef triton_softmax(x):\n    return TritonSoftmaxFunction.apply(x)",
+  "compilation_errors": [],
+  "numerical_errors": [],
+  "refined_code": "import torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(\n    x_ptr,\n    output_ptr,\n    n_cols,\n    stride,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    row_start = row_idx * stride\n\n    # Pass 1: Find row-wise maximum for numerical stability\n    m_prev = -float('inf')\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + row_start + cols, mask=mask, other=-float('inf'))\n        m_curr = tl.max(x, axis=0)\n        m_prev = tl.maximum(m_prev, m_curr)\n\n    # Pass 2: Compute sum of exponentials\n    acc = 0.0\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + row_start + cols, mask=mask, other=0.0)\n        x_shifted = x - m_prev\n        numerator = tl.exp(x_shifted)\n        acc += tl.sum(numerator, axis=0)\n\n    # Pass 3: Normalize and store\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + row_start + cols, mask=mask, other=0.0)\n        x_shifted = x - m_prev\n        numerator = tl.exp(x_shifted)\n        output = numerator / acc\n        tl.store(output_ptr + row_start + cols, output, mask=mask)\n\n@triton.jit\ndef backward_kernel(\n    output_ptr,\n    grad_output_ptr,\n    grad_input_ptr,\n    n_cols,\n    stride,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    row_start = row_idx * stride\n\n    # Pass 1: Compute sum(y * grad_output)\n    acc = 0.0\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        y = tl.load(output_ptr + row_start + cols, mask=mask, other=0.0)\n        dy = tl.load(grad_output_ptr + row_start + cols, mask=mask, other=0.0)\n        # Using multiplication as per scalar accumulator patterns\n        prod = y * dy\n        acc += tl.sum(prod, axis=0)\n\n    # Pass 2: Compute grad_input = y * (grad_output - sum(y * grad_output))\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        y = tl.load(output_ptr + row_start + cols, mask=mask, other=0.0)\n        dy = tl.load(grad_output_ptr + row_start + cols, mask=mask, other=0.0)\n        dx = y * (dy - acc)\n        tl.store(grad_input_ptr + row_start + cols, dx, mask=mask)\n\nclass TritonSoftmaxFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        output = torch.empty_like(x_reshaped)\n        \n        grid = (M,)\n        \n        # Since we reshape to (M, N), stride is simply N\n        stride = x_reshaped.stride(0)\n\n        forward_kernel[grid](\n            x_ptr=x_reshaped,\n            output_ptr=output,\n            n_cols=N,\n            stride=stride,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        ctx.save_for_backward(output)\n        ctx.original_shape = original_shape\n        return output.reshape(original_shape)\n\n    @staticmethod\n    def backward(ctx, grad_output):\n        output, = ctx.saved_tensors\n        original_shape = ctx.original_shape\n\n        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n        output_reshaped = output.reshape(-1, output.shape[-1]).contiguous()\n\n        M, N = output_reshaped.shape\n\n        grad_x = torch.empty_like(output_reshaped)\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        grid = (M,)\n        stride = output_reshaped.stride(0)\n\n        backward_kernel[grid](\n            output_ptr=output_reshaped,\n            grad_output_ptr=grad_output_reshaped,\n            grad_input_ptr=grad_x,\n            n_cols=N,\n            stride=stride,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        return grad_x.reshape(original_shape)\n\ndef triton_softmax(x):\n    return TritonSoftmaxFunction.apply(x)",
+  "total_tokens_used": 16463,
+  "stage_tokens": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    7604,
+    0
+  ]
+}

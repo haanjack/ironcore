@@ -1,0 +1,78 @@
+{
+  "spec_name": "rmsnorm",
+  "timestamp": "2026-02-11T09:36:16.989949",
+  "algorithm_summary": "",
+  "graph_analysis": {
+    "input_shapes": [],
+    "output_shapes": [],
+    "data_dependencies": [],
+    "operations": [
+      "load",
+      "compute",
+      "store"
+    ],
+    "reductions": [
+      "sum"
+    ],
+    "elementwise_ops": [
+      "mul",
+      "add"
+    ],
+    "memory_reads_per_element": 1,
+    "memory_writes_per_element": 1,
+    "optimal_access_pattern": "contiguous",
+    "can_parallelize_rows": true,
+    "can_parallelize_cols": false,
+    "requires_reduction": false,
+    "requires_atomic_accumulation": false
+  },
+  "tiling_strategy": {
+    "recommended_block_size": 768,
+    "min_block_size": 256,
+    "max_block_size": 8192,
+    "tiling_rationale": "Based on hidden dimension 768",
+    "considerations": [],
+    "fits_in_l1_cache": true,
+    "fits_in_registers": true,
+    "register_pressure": "low",
+    "alternative_strategies": []
+  },
+  "conversion_plan": {
+    "kernel_name": "rmsnorm",
+    "description": "Fused RMSNorm: normalize by RMS then scale by weight",
+    "input_tensors": [],
+    "output_tensors": [],
+    "passes": [
+      {
+        "name": "Compute statistics (mean/variance)",
+        "type": "reduction"
+      },
+      {
+        "name": "Normalize and scale",
+        "type": "elementwise"
+      }
+    ],
+    "requires_intermediate_storage": false,
+    "intermediate_tensors": [],
+    "requires_backward": true,
+    "saved_tensors": [],
+    "gradient_complexity": "medium"
+  },
+  "code_structure": "",
+  "initial_code": "",
+  "compilation_errors": [
+    "Function 'triton_rmsnorm' not found in ironcore/kernels/triton/rmsnorm.py.\nAvailable: []"
+  ],
+  "numerical_errors": [],
+  "refined_code": "",
+  "total_tokens_used": 0,
+  "stage_tokens": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ]
+}

@@ -24,6 +24,21 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pylint", "pytest"]
+dsl = ["triton>=3.0.0"]
+
+# AI provider dependencies for kernel generation
+generate-anthropic = ["anthropic>=0.40.0"]
+generate-openai = ["openai>=1.0.0"]
+generate-glm = ["zhipuai>=2.0.0"]
+
+# Bundle all generation dependencies
+generate = [
+    "ironcore[dsl]",
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
+    "zhipuai>=2.0.0",
+    "jinja2>=3.1.0",
+]
 
 [project.scripts]
 ironcore = "ironcore.__main__:main"
@@ -33,7 +48,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["ironcore*"]
+include = ["ironcore*", "experiments*"]
 
 [tool.pylint.'MESSAGE CONTROL']
 disable = ["missing-module-docstring",

@@ -1,0 +1,23 @@
+{
+  "spec_name": "layernorm",
+  "success": true,
+  "exit_reason": "success",
+  "iterations": [
+    {
+      "iteration": 0,
+      "phase": "generation",
+      "validation": {
+        "correct": true,
+        "grad_correct": true,
+        "speedup": 3.022311317349097,
+        "kernel_time_ms": 0.06530300015583634,
+        "error_msg": ""
+      },
+      "analysis": null,
+      "tokens_used": 10329,
+      "timestamp": "2026-02-12T10:08:12.205366"
+    }
+  ],
+  "total_tokens_used": 10329,
+  "total_time_seconds": 174.8521134853363
+}

@@ -10,5 +10,5 @@ set +a
 github_access_token=${github_access_token:-""}
 
 docker build . -t ironcore:dev \
-    --build-arg NGC_VERSION=25.09 \
+    --build-arg NGC_VERSION=25.12 \
     --build-arg ACCESS_TOKEN=$github_access_token

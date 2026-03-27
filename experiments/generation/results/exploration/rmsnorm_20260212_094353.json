@@ -1,0 +1,76 @@
+{
+  "spec_name": "rmsnorm",
+  "timestamp": "2026-02-12T09:38:08.429425",
+  "algorithm_summary": "### 1. Algorithm Structure\n\n*   **Mathematical Operation:**\n    The kernel implements the Root Mean Square Layer Normalization (RMSNorm). The operation computes the Root Mean Square (RMS) of the input tensor along the last dimension, normalizes the input by this RMS value (plus a small epsilon $\\epsilon$ for numerical stability), and finally scales the result by a learned weight vector $\\gamma$.\n    Formula: $y_i = \\frac{x_i}{\\sqrt{\\frac{1}{n} \\sum_{j=1}^{n} x_j^2 + \\epsilon}} \\cdot \\gamma_i$\n\n*   **Inputs and Outputs:**\n    *   **Inputs:**\n        *   `x`: Input tensor of shape `[Batch, Seq, Hidden]` (or strictly $N \\times D$).\n        *   `weight`: Scaling parameter $\\gamma$ of shape `[Hidden]`.\n        *   `eps`: Scalar float for stability.\n    *   **Outputs:**\n        *   `output`: Tensor of the same shape as `x`.\n\n*   **Computational Passes:**\n    Logically, there are two phases, but in a fused GPU kernel, they occur within a single kernel launch:\n    1.  **Reduction Phase:** Compute the sum of squares for each row (the set of elements in the last dimension).\n    2.  **Mapping Phase:** Read the input again, divide by the square root of the mean (plus epsilon), and multiply by the weight.\n\n### 2. Computational Characteristics\n\n*   **Element-wise Operations:**\n    *   Squaring input elements ($x^2$).\n    *   Reciprocal square root ($\\text{rsqrt}$).\n    *   Multiplication for scaling ($x \\cdot \\text{rsqrt}$ and $\\text{result} \\cdot \\text{weight}$).\n\n*   **Reduction Operations:**\n    *   **Sum:** The primary reduction operation is summing the squared elements of the tensor along the last dimension.\n    *   **Mean:** The sum is divided by the number of elements in the dimension (a scalar division, handled efficiently via multiplication by inverse).\n\n*   **Dependencies:**\n    There is a strict dependency where the element-wise scaling phase depends entirely on the result of the reduction phase. The RMS value for a specific row must be fully computed before any element in that row can be normalized.\n\n### 3. Memory Access Patterns\n\n*   **Data Reads:**\n    *   `x` is read **twice** per kernel execution:\n        1.  Once to compute squares and accumulate the sum.\n        2.  Once to apply the normalization and scaling.\n    *   `weight` is read **once** per program instance. Since the weight is shared across all rows in the batch, it should be loaded into the GPU's SRAM (Software Managed Cache) and broadcasted to avoid redundant global memory fetch",
+  "graph_analysis": {
+    "input_shapes": [],
+    "output_shapes": [],
+    "data_dependencies": [],
+    "operations": [
+      "load",
+      "compute",
+      "store"
+    ],
+    "reductions": [
+      "sum"
+    ],
+    "elementwise_ops": [
+      "mul",
+      "add"
+    ],
+    "memory_reads_per_element": 1,
+    "memory_writes_per_element": 1,
+    "optimal_access_pattern": "contiguous",
+    "can_parallelize_rows": true,
+    "can_parallelize_cols": false,
+    "requires_reduction": false,
+    "requires_atomic_accumulation": false
+  },
+  "tiling_strategy": {
+    "recommended_block_size": 768,
+    "min_block_size": 256,
+    "max_block_size": 8192,
+    "tiling_rationale": "Based on hidden dimension 768",
+    "considerations": [],
+    "fits_in_l1_cache": true,
+    "fits_in_registers": true,
+    "register_pressure": "low",
+    "alternative_strategies": []
+  },
+  "conversion_plan": {
+    "kernel_name": "rmsnorm",
+    "description": "Fused RMSNorm: normalize by RMS then scale by weight",
+    "input_tensors": [],
+    "output_tensors": [],
+    "passes": [
+      {
+        "name": "Compute statistics (mean/variance)",
+        "type": "reduction"
+      },
+      {
+        "name": "Normalize and scale",
+        "type": "elementwise"
+      }
+    ],
+    "requires_intermediate_storage": false,
+    "intermediate_tensors": [],
+    "requires_backward": true,
+    "saved_tensors": [],
+    "gradient_complexity": "medium"
+  },
+  "code_structure": "import torch\nimport triton\nimport triton.language as tl\n\n# -----------------------------------------------------------------------------\n# 1. Kernel Function Signatures\n# -----------------------------------------------------------------------------\n\n@triton.jit\ndef rms_norm_reduce_kernel(\n    x_ptr,          # Pointer to input tensor\n    r_ptr,          # Pointer to output tensor (sum of squares)\n    stride,         # Stride of input (dimension to reduce)\n    N,              # Size of the dimension to reduce\n    BLOCK_SIZE: tl.constexpr,\n):\n    \"\"\"\n    Pass 1: Compute statistics (sum of squares) via reduction.\n    Output: r = sum(x^2)\n    \"\"\"\n    # Implementation follows in Body Structure\n    pass\n\n@triton.jit\ndef rms_norm_apply_kernel(\n    x_ptr,          # Pointer to input tensor\n    r_ptr,          # Pointer to statistics (sum of squares)\n    y_ptr,          # Pointer to output",
+  "initial_code": "import torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef rmsnorm_fwd_kernel(\n    x_ptr, y_ptr, w_ptr,\n    stride, n_rows, n_cols, eps,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    x_ptr += row_idx * stride\n    y_ptr += row_idx * stride\n\n    # Pass 1: Compute sum of squares\n    acc = 0.0\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        acc += tl.sum(x * x, axis=0)\n\n    mean_sq = acc / n_cols\n    r_factor = tl.rsqrt(mean_sq + eps)\n\n    # Pass 2: Normalize and Scale\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0)\n        w = tl.load(w_ptr + cols, mask=mask, other=0.0)\n        y = x * r_factor * w\n        tl.store(y_ptr + cols, y, mask=mask)\n\n\n@triton.jit\ndef rmsnorm_bwd_kernel(\n    x_ptr, w_ptr, dout_ptr,\n    dx_ptr, dw_ptr,\n    stride, n_rows, n_cols, eps,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    x_ptr += row_idx * stride\n    dout_ptr += row_idx * stride\n    dx_ptr += row_idx * stride\n\n    # Pass 1: Reductions\n    # We need sum(x^2) to compute the r_factor again\n    # We need sum(dout * x * w) for the chain rule term\n    acc_x2 = 0.0\n    acc_cross = 0.0\n\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        dout = tl.load(dout_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n\n        acc_x2 += tl.sum(x * x)\n        acc_cross += tl.sum(dout * x * w)\n\n    mean_sq = acc_x2 / n_cols\n    r_factor = tl.rsqrt(mean_sq + eps)\n    r_factor_cubed = r_factor ** 3\n\n    # Common factor for the derivative of the normalization term\n    # d(1/rms)/dx_i = - (1/n) * (1/rms^3) * x_i\n    # combined with sum(dout * x * w)\n    c = (r_factor_cubed / n_cols) * acc_cross\n\n    # Pass 2: Compute gradients and write\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        dout = tl.load(dout_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n\n        # dx = dout * w * r_factor - x * c\n        # Note: c already includes the cross sum and division by N\n        dx = dout * w * r_factor - x * c\n        \n        dw = dout * x * r_factor\n\n        tl.store(dx_ptr + cols, dx, mask=mask)\n        tl.atomic_add(dw_ptr + cols, dw)\n\n\nclass RMSNorm(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x, weight, eps):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        grid = (M,)\n\n        output = torch.empty_like(x_reshaped)\n        \n        rmsnorm_fwd_kernel[grid](\n            x_ptr=x_reshaped,\n            y_ptr=output,\n            w_ptr=weight,\n            stride=N,\n            n_rows=M,\n            n_cols=N,\n            eps=eps,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        ctx.save_for_backward(x_reshaped, weight)\n        ctx.original_shape = original_shape\n        ctx.eps = eps\n        return output.reshape(original_shape)\n\n    @staticmethod\n    def backward(ctx, grad_output):\n        x_reshaped, weight = ctx.saved_tensors\n        original_shape = ctx.original_shape\n        eps = ctx.eps\n\n        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        grid = (M,)\n\n        grad_x = torch.empty_like(x_reshaped)\n        # Create float32 buffer for weight gradient accumulation\n        dw = torch.zeros(N, dtype=torch.float32, device=weight.device)\n\n        rmsnorm_bwd_kernel[grid](\n            x_ptr=x_reshaped,\n            w_ptr=weight,\n            dout_ptr=grad_output_reshaped,\n            dx_ptr=grad_x,\n            dw_ptr=dw,\n            stride=N,\n            n_rows=M,\n            n_cols=N,\n            eps=eps,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        # Cast dw back to weight dtype if necessary\n        if weight.dtype != torch.float32:\n            dw = dw.to(weight.dtype)\n\n        return grad_x.reshape(original_shape), dw, None\n\ndef triton_rmsnorm(x, weight, eps=1e-5):\n    return RMSNorm.apply(x, weight, eps)",
+  "compilation_errors": [],
+  "numerical_errors": [],
+  "refined_code": "import torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef rmsnorm_fwd_kernel(\n    x_ptr, y_ptr, w_ptr,\n    stride, n_rows, n_cols, eps,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    x_ptr += row_idx * stride\n    y_ptr += row_idx * stride\n\n    # Pass 1: Compute sum of squares\n    acc = 0.0\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        acc += tl.sum(x * x, axis=0)\n\n    mean_sq = acc / n_cols\n    r_factor = tl.rsqrt(mean_sq + eps)\n\n    # Pass 2: Normalize and Scale\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0)\n        w = tl.load(w_ptr + cols, mask=mask, other=0.0)\n        y = x * r_factor * w\n        tl.store(y_ptr + cols, y, mask=mask)\n\n\n@triton.jit\ndef rmsnorm_bwd_kernel(\n    x_ptr, w_ptr, dout_ptr,\n    dx_ptr, dw_ptr,\n    stride, n_rows, n_cols, eps,\n    BLOCK_SIZE: tl.constexpr,\n):\n    row_idx = tl.program_id(0)\n    x_ptr += row_idx * stride\n    dout_ptr += row_idx * stride\n    dx_ptr += row_idx * stride\n\n    # Pass 1: Reductions\n    # We need sum(x^2) to compute the r_factor again\n    # We need sum(dout * x * w) for the chain rule term\n    acc_x2 = 0.0\n    acc_cross = 0.0\n\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        dout = tl.load(dout_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n\n        acc_x2 += tl.sum(x * x)\n        acc_cross += tl.sum(dout * x * w)\n\n    mean_sq = acc_x2 / n_cols\n    r_factor = tl.rsqrt(mean_sq + eps)\n    r_factor_cubed = r_factor ** 3\n\n    # Common factor for the derivative of the normalization term\n    # d(1/rms)/dx_i = - (1/n) * (1/rms^3) * x_i\n    # combined with sum(dout * x * w)\n    c = (r_factor_cubed / n_cols) * acc_cross\n\n    # Pass 2: Compute gradients and write\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x = tl.load(x_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n        dout = tl.load(dout_ptr + cols, mask=mask, other=0.0).to(tl.float32)\n\n        # dx = dout * w * r_factor - x * c\n        # Note: c already includes the cross sum and division by N\n        dx = dout * w * r_factor - x * c\n        \n        dw = dout * x * r_factor\n\n        tl.store(dx_ptr + cols, dx, mask=mask)\n        tl.atomic_add(dw_ptr + cols, dw)\n\n\nclass RMSNorm(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x, weight, eps):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        grid = (M,)\n\n        output = torch.empty_like(x_reshaped)\n        \n        rmsnorm_fwd_kernel[grid](\n            x_ptr=x_reshaped,\n            y_ptr=output,\n            w_ptr=weight,\n            stride=N,\n            n_rows=M,\n            n_cols=N,\n            eps=eps,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        ctx.save_for_backward(x_reshaped, weight)\n        ctx.original_shape = original_shape\n        ctx.eps = eps\n        return output.reshape(original_shape)\n\n    @staticmethod\n    def backward(ctx, grad_output):\n        x_reshaped, weight = ctx.saved_tensors\n        original_shape = ctx.original_shape\n        eps = ctx.eps\n\n        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 8192:\n            BLOCK_SIZE = 8192\n\n        grid = (M,)\n\n        grad_x = torch.empty_like(x_reshaped)\n        # Create float32 buffer for weight gradient accumulation\n        dw = torch.zeros(N, dtype=torch.float32, device=weight.device)\n\n        rmsnorm_bwd_kernel[grid](\n            x_ptr=x_reshaped,\n            w_ptr=weight,\n            dout_ptr=grad_output_reshaped,\n            dx_ptr=grad_x,\n            dw_ptr=dw,\n            stride=N,\n            n_rows=M,\n            n_cols=N,\n            eps=eps,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        # Cast dw back to weight dtype if necessary\n        if weight.dtype != torch.float32:\n            dw = dw.to(weight.dtype)\n\n        return grad_x.reshape(original_shape), dw, None\n\ndef triton_rmsnorm(x, weight, eps=1e-5):\n    return RMSNorm.apply(x, weight, eps)",
+  "total_tokens_used": 17616,
+  "stage_tokens": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    8157,
+    0
+  ]
+}

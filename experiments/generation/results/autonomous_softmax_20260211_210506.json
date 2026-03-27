@@ -1,0 +1,51 @@
+{
+  "spec_name": "softmax",
+  "success": false,
+  "exit_reason": "max_iterations",
+  "iterations": [
+    {
+      "iteration": 0,
+      "phase": "generation",
+      "validation": {
+        "correct": false,
+        "grad_correct": false,
+        "speedup": 0,
+        "kernel_time_ms": 0,
+        "error_msg": "Numerical mismatch: max_abs=7.09e-02, max_rel=4.37e-01; Gradient mismatch for input 0: max_diff=3.15e-02"
+      },
+      "analysis": null,
+      "tokens_used": 6549,
+      "timestamp": "2026-02-11T20:56:39.339312"
+    },
+    {
+      "iteration": 1,
+      "phase": "correctness_fix",
+      "validation": {
+        "correct": false,
+        "grad_correct": false,
+        "speedup": 0,
+        "kernel_time_ms": 0,
+        "error_msg": "Numerical mismatch: max_abs=6.35e-02, max_rel=4.34e-01; Gradient mismatch for input 0: max_diff=4.39e-02"
+      },
+      "analysis": null,
+      "tokens_used": 10573,
+      "timestamp": "2026-02-11T21:00:34.926226"
+    },
+    {
+      "iteration": 2,
+      "phase": "correctness_fix",
+      "validation": {
+        "correct": false,
+        "grad_correct": false,
+        "speedup": 0,
+        "kernel_time_ms": 0,
+        "error_msg": "Numerical mismatch: max_abs=5.38e-02, max_rel=4.25e-01; Gradient mismatch for input 0: max_diff=4.16e-02"
+      },
+      "analysis": null,
+      "tokens_used": 12949,
+      "timestamp": "2026-02-11T21:05:06.599712"
+    }
+  ],
+  "total_tokens_used": 30071,
+  "total_time_seconds": 665.0422439575195
+}

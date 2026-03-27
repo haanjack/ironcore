@@ -1,0 +1,233 @@
+=== PROMPT ===
+You are an expert GPU kernel developer. Write a triton kernel for the following specification.
+
+# Your code MUST start exactly with these 3 lines - no exceptions:
+import torch
+import triton
+import triton.language as tl
+
+## Kernel Specification
+Name: layernorm
+Description: Fused LayerNorm: normalize by mean/variance then affine transform
+
+## Reference Implementation (PyTorch)
+```python
+def _reference_layernorm(x, weight, bias, eps):
+    """PyTorch reference: LayerNorm forward."""
+    mean = x.mean(dim=-1, keepdim=True)
+    variance = x.var(dim=-1, keepdim=True, unbiased=False)
+    x_normed = (x - mean) * torch.rsqrt(variance + eps)
+    return x_normed * weight + bias
+
+```
+
+## CRITICAL: Your code must follow this structure:
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(..., BLOCK_SIZE: tl.constexpr):
+    # actual Triton code here
+    ...
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ...):
+        ...
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ...
+
+def triton_layernorm(...):
+    return MyFunction.apply(...)
+```
+
+Rules:
+1. Start exactly with `import torch`
+2. Use @triton.jit (not @triton.autotune)
+3. Use `x * x` for squaring (not `x ** 2`, not `tl.pow()`)
+4. Complete implementation - NO placeholders, NO "...", NO "#TODO"
+5. Return ONLY Python code, no markdown blocks
+6. **CRITICAL**: Handle arbitrary input shapes by reshaping to 2D:
+   - In forward: `original_shape = x.shape; x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`
+   - Process `x_reshaped` with kernel
+   - Return output reshaped to `original_shape`
+   - Do the same reshaping for grad_output in backward
+7. Pass `x_reshaped.stride(0)` as stride to kernel (not `x.stride()`)
+
+Generate the full kernel now:
+
+=== RAW RESPONSE ===
+ChatCompletion(id='20260212090518abb6a6e6b9f6425b', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='import torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(\n    x_ptr, y_ptr, w_ptr, b_ptr, mean_ptr, rstd_ptr, \n    M, N, eps,\n    stride_xm, stride_xn, stride_ym, stride_yn,\n    BLOCK_SIZE: tl.constexpr\n):\n    pid = tl.program_id(axis=0)\n    \n    # Compute Mean and Variance\n    m = tl.zeros([], dtype=tl.float32)\n    m2 = tl.zeros([], dtype=tl.float32)\n    \n    for off in range(0, N, BLOCK_SIZE):\n        mask = off + tl.arange(0, BLOCK_SIZE) < N\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n        m += tl.sum(x)\n        m2 += tl.sum(x * x)\n        \n    mean = m / N\n    var = m2 / N - mean * mean\n    rstd = 1.0 / tl.sqrt(var + eps)\n    \n    # Store mean/rstd for backward\n    tl.store(mean_ptr + pid, mean)\n    tl.store(rstd_ptr + pid, rstd)\n    \n    # Compute and store output\n    for off in range(0, N, BLOCK_SIZE):\n        mask = off + tl.arange(0, BLOCK_SIZE) < N\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        \n        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n        b = tl.load(b_ptr + cols, mask=mask).to(tl.float32)\n        \n        x_hat = (x - mean) * rstd\n        y = x_hat * w + b\n        tl.store(y_ptr + pid * stride_ym + cols * stride_yn, y, mask=mask)\n\n@triton.jit\ndef backward_kernel(\n    x_ptr, dy_ptr, w_ptr, dx_ptr, dw_ptr, db_ptr,\n    mean_ptr, rstd_ptr,\n    M, N,\n    stride_xm, stride_xn, stride_dym, stride_dyn,\n    BLOCK_SIZE: tl.constexpr\n):\n    pid = tl.program_id(axis=0)\n    \n    # Load mean/rstd for this row\n    mean = tl.load(mean_ptr + pid)\n    rstd = tl.load(rstd_ptr + pid)\n    \n    # Reduction loop 1: compute dhat_sum and xhat_dhat_sum\n    dhat_sum = tl.zeros([], dtype=tl.float32)\n    xhat_dhat_sum = tl.zeros([], dtype=tl.float32)\n    \n    for off in range(0, N, BLOCK_SIZE):\n        mask = off + tl.arange(0, BLOCK_SIZE) < N\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        \n        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n        dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n        \n        x_hat = (x - mean) * rstd\n        dhat = dy * w\n        \n        dhat_sum += tl.sum(dhat)\n        xhat_dhat_sum += tl.sum(dhat * x_hat)\n    \n    mean_dhat = dhat_sum / N\n    mean_xhat_dhat = xhat_dhat_sum / N\n    \n    # Loop 2: compute dx, dw, db\n    for off in range(0, N, BLOCK_SIZE):\n        mask = off + tl.arange(0, BLOCK_SIZE) < N\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        \n        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n        dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n        \n        x_hat = (x - mean) * rstd\n        dhat = dy * w\n        \n        dx = (dhat - mean_dhat - x_hat * mean_xhat_dhat) * rstd\n        tl.store(dx_ptr + pid * stride_xm + cols * stride_xn, dx, mask=mask)\n        \n        # Accumulate gradients for weights\n        tl.atomic_add(db_ptr + cols, dy, mask=mask)\n        tl.atomic_add(dw_ptr + cols, dy * x_hat, mask=mask)\n\nclass MyFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x, weight, bias, eps):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        M, N = x_reshaped.shape\n        \n        y_reshaped = torch.empty_like(x_reshaped)\n        \n        mean = torch.empty((M,), dtype=torch.float32, device=x.device)\n        rstd = torch.empty((M,), dtype=torch.float32, device=x.device)\n        \n        stride_xm = x_reshaped.stride(0)\n        stride_xn = x_reshaped.stride(1)\n        stride_ym = y_reshaped.stride(0)\n        stride_yn = y_reshaped.stride(1)\n        \n        BLOCK_SIZE = 1024\n        \n        grid = lambda meta: (M,)\n        \n        forward_kernel[grid](\n            x_reshaped, y_reshaped, weight, bias, mean, rstd,\n            M, N, eps,\n            stride_xm, stride_xn, stride_ym, stride_yn,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n        \n        ctx.save_for_backward(x_reshaped, weight, mean, rstd)\n        ctx.eps = eps\n        ctx.BLOCK_SIZE = BLOCK_SIZE\n        ctx.original_shape = original_shape\n        \n        return y_reshaped.reshape(original_shape)\n\n    @staticmethod\n    def backward(ctx, grad_output):\n        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n        M, N = grad_output_reshaped.shape\n        \n        x_reshaped, weight, mean, rstd = ctx.saved_tensors\n        \n        grad_x = torch.empty_like(x_reshaped)\n        grad_weight = torch.zeros_like(weight)\n        grad_bias = torch.zeros_like(weight)\n        \n        stride_xm = x_reshaped.stride(0)\n        stride_xn = x_reshaped.stride(1)\n        stride_dym = grad_output_reshaped.stride(0)\n        stride_dyn = grad_output_reshaped.stride(1)\n        \n        grid = lambda meta: (M,)\n        \n        backward_kernel[grid](\n            x_reshaped, grad_output_reshaped, weight, grad_x, grad_weight, grad_bias,\n            mean, rstd,\n            M, N,\n            stride_xm, stride_xn, stride_dym, stride_dyn,\n            BLOCK_SIZE=ctx.BLOCK_SIZE\n        )\n        \n        return grad_x.reshape(ctx.original_shape), grad_weight, grad_bias, None\n\ndef triton_layernorm(x, weight, bias, eps=1e-5):\n    return MyFunction.apply(x, weight, bias, eps)', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None, reasoning_content='<\nthought>\nThe user wants a Triton kernel for a fused LayerNorm operation.\nThe request is very specific about the structure, imports, and optimization rules.\n\n**Requirements Checklist:**\n1.  **Imports**: Must start with `import torch`, `import triton`, `import triton.language as tl`.\n2.  **Kernel Name**: `layernorm` (though usually the internal kernel is named `forward_kernel` based on the structure provided, the function exposed is `triton_layernorm`). The spec asks for the structure:\n    ```python\n    @triton.jit\n    def forward_kernel(..., BLOCK_SIZE: tl.constexpr): ...\n    class MyFunction(torch.autograd.Function): ...\n    def triton_layernorm(...): ...\n    ```\n3.  **Decorators**: Use `@triton.jit` (no autotune).\n4.  **Squaring**: Use `x * x`.\n5.  **Completeness**: No placeholders.\n6.  **Reshaping**: Handle arbitrary shapes by flattening to 2D `(M, N)` where `N` is the last dimension. Pass strides of the reshaped tensor.\n7.  **Return**: Only Python code, no markdown blocks.\n8.  **Gradient**: Must implement backward pass.\n\n**Math Breakdown (Forward):**\nInput: `x` of shape `(M, N)` (after reshape).\n`mean = sum(x) / N`\n`var = sum((x - mean)^2) / N` (biased variance, as per PyTorch default `unbiased=False`)\n`x_hat = (x - mean) / sqrt(var + eps)`\n`y = x_hat * gamma + beta`\n\n**Math Breakdown (Backward):**\nGiven `grad_y` (dL/dy):\nWe need `grad_x`, `grad_gamma`, `grad_beta`.\n\nLet `x_hat = (x - mean) / sigma` where `sigma = sqrt(var + eps)`.\n`y = x_hat * gamma + beta`\n\n1.  `grad_beta = sum(grad_y, axis=-1)` (sum over N)\n2.  `grad_gamma = sum(grad_y * x_hat, axis=-1)` (sum over N)\n3.  `grad_x`:\n    `dL/dx = dL/dx_hat * dx_hat/dx`\n    `dL/dx_hat = grad_y * gamma`\n\n    `dx_hat/dx` derivation:\n    Let `mu = mean`, `s2 = var`, `s = sigma`.\n    `x_hat = (x - mu) / s`\n    `d(x_hat)_i / dx_j`\n    If `i == j`:\n       `1/s - (1/s^2) * (x_i - mu) * (1/N) - (1/s) * (1/N)`\n       `= (1/s) * (1 - (x_i - mu)^2 / s2 - 1)`\n       Wait, let\'s stick to the standard derivation which is easier to implement efficiently.\n    \n    Standard Layernorm Backprop:\n    `dmean = -sum(dy * gamma) / sigma`\n    `dvar = -0.5 * sum(dy * gamma * (x - mu)) / (var + eps)^1.5`\n    \n    Actually, standard implementation usually combines these into two passes or one pass with accumulation.\n    Let\'s use the standard accumulation approach to match `torch.autograd.gradcheck` expectations for `unbiased=False`.\n    \n    Let `D = grad_y * gamma`\n    `c1 = sum(D) / N`\n    `c2 = sum(D * (x - mean)) / (N * (var + eps))`\n    \n    `grad_x = (D - c1 - (x - mean) * c2) / sqrt(var + eps)`\n    \n    Wait, let\'s double check the math for unbiased=False (which divides by N, not N-1).\n    \n    Forward:\n    `mu = sum(x) / N`\n    `sigma2 = sum((x - mu)^2) / N`\n    `y = gamma * (x - mu) / sqrt(sigma2 + eps) + beta`\n    \n    Backward:\n    `dL/dmu = sum( dL/dy * dy/dmu )`\n    `dL/dsigma2 = sum( dL/dy * dy/dsigma2 )`\n    \n    `dy/dsigma2 = -0.5 * gamma * (x - mu) * (sigma2 + eps)^(-1.5)`\n    `dL/dsigma2 = -0.5 * (sigma2 + eps)^(-1.5) * sum( D * (x - mu) )` where `D = grad_y * gamma`\n    \n    `dy/dmu = gamma * (-1/s) + (gamma * (x - mu) * (-1) * (-0.5) * (sigma2 + eps)^(-1.5) * 2 * (x - mu) * (1/N))`\n    `= -gamma/s + gamma * (x - mu)^2 / (s^3 * N)`\n    \n    `dL/dmu = sum( D * ( -1/s + (x - mu)^2 / (s^3 * N) ) )`\n    \n    `dL/dx = D * (1/s) + dL/dmu * (1/N) + dL/dsigma2 * (2(x-mu)/N)`\n    \n    Combining terms is complex. Let\'s use the reduction approach which is standard in optimized kernels.\n    \n    Let `mean_x` = mean of X\n    Let `var_x` = var of X\n    Let `std_x` = sqrt(var_x + eps)\n    Let `x_hat` = (x - mean_x) / std_x\n    \n    `dhat = grad_y * gamma`\n    \n    `mean_dhat = mean(dhat)`\n    `mean_x_dhat = mean(x * dhat)` -> actually `mean((x - mu) * dhat)`\n    \n    Let `dxhat = (dhat - mean_dhat - x_hat * mean(x_hat * dhat)) / std_x`\n    `dx = dxhat`\n    \n    Wait, looking at the standard PyTorch C++ impl or Triton tutorials.\n    `mean_dhat = sum(dhat) / N`\n    `mean_xhat_dhat = sum(dhat * x_hat) / N`\n    `grad_x = (dhat - mean_dhat - x_hat * mean_xhat_dhat) / std_x`\n    \n    This formula is correct for `unbiased=False`.\n    \n    For grad_gamma and grad_beta:\n    `grad_gamma = sum(grad_y * x_hat)`\n    `grad_beta = sum(grad_y)`\n    \n    **Kernel Strategy:**\n    \n    **Forward:**\n    - We need to compute mean and variance.\n    - Since N (hidden size) can be large, we might need reduction across the block if `N > BLOCK_SIZE`.\n    - However, usually LayerNorm acts on the last dimension. The kernel grid is usually set up such that the row index is the program ID, and the column index is the block ID.\n    - If `N > BLOCK_SIZE`, we loop over blocks in the row to accumulate partial sums (sum and sum of squares).\n    - Then compute mean/var from the partial sums.\n    - Then make a second pass (or in the same loop if we store inputs? No, standard Triton approach is two-pass or efficient accumulation).\n    - Given "expert GPU kernel developer", I should probably implement the efficient single-kernel approach if possible, or the standard multi-pass.\n    - Standard Triton LayerNorm usually does:\n        1. Compute row-wise sums (x) and (x*x).\n        2. Sync if multiple blocks per row (needed if N > MAX_FUSED_SIZE, e.g. 4096 or 64k depending on GPU).\n        3. Compute mean and var.\n        4. Write output.\n    - However, implementing atomic adds for the mean/var reduction is tricky in a single kernel without `tl.atomic_add` (which might be slow or have limitations).\n    - A common pattern for LN in Triton (e.g., from OpenAI tutorials) assumes `N <= BLOCK_SIZE` or uses a two-pass approach. But for arbitrary shapes, we usually want to handle `N` larger than block size.\n    - Actually, a simpler robust way for arbitrary shapes:\n        1. `M = rows`, `N = cols`.\n        2. `pid = tl.program_id(axis=0)` (row index).\n        3. We iterate over `N` in steps of `BLOCK_SIZE`.\n        4. Accumulate `x_sum`, `x2_sum`.\n        5. After loop, `mean = x_sum / N`, `var = x2_sum / N - mean * mean`.\n        6. Iterate over `N` again in steps of `BLOCK_SIZE` to compute normalized values.\n        7. This is two passes over memory per row, but done in one kernel launch. This is very standard and robust for arbitrary N.\n    \n    **Backward:**\n    - We need `dhat = grad_y * gamma`.\n    - We need `mean_dhat` and `mean_xhat_dhat`.\n    - Wait, we need `x_hat` in backward. We should save `mean` and `std` (or `rstd`) in the context in forward. We don\'t need to save `x_hat` itself if we have `x`, `mean`, `rstd`.\n    - `x_hat = (x - mean) * rstd`.\n    - Backward inputs: `x`, `mean`, `rstd`, `grad_y`, `gamma`.\n    - Accumulate sums:\n        - `sum_dhat = sum(grad_y * gamma)`\n        - `sum_xhat_dhat = sum(grad_y * gamma * x_hat)` = `sum(grad_y * gamma * (x - mean) * rstd)`\n    - After reduction:\n        - `mean_dhat = sum_dhat / N`\n        - `mean_xhat_dhat = sum_xhat_dhat / N`\n    - Second pass:\n        - `grad_x = (grad_y * gamma - mean_dhat - x_hat * mean_xhat_dhat) * rstd`\n    - Also accumulate `grad_gamma` and `grad_beta`.\n        - `grad_gamma += grad_y * x_hat`\n        - `grad_beta += grad_y`\n    \n    **Reshaping Logic:**\n    - `x` is arbitrary shape. `x.shape[-1]` is N.\n    - `x_reshaped = x.reshape(-1, N)`.\n    - `stride_xm = x_reshaped.stride(0)`\n    - `stride_xn = x_reshaped.stride(1)`\n    - Output must be reshaped back.\n\n    **Grid:**\n    - Grid size is simply `M` (number of rows).\n    - Since we handle large N via loops inside the kernel, we only need 1D grid.\n    \n    **Code Structure Details:**\n    - `forward_kernel`:\n        - Pointers: `x_ptr`, `y_ptr`, `weight_ptr`, `bias_ptr`, `mean_ptr` (for backward), `rstd_ptr` (for backward).\n        - Strides: `stride_xm`, `stride_xn`, `stride_ym`, `stride_yn`...\n        - Loop 1: Calculate mean, variance.\n        - Loop 2: Compute output, write.\n    - `backward_kernel`:\n        - Pointers: `x_ptr`, `grad_output_ptr`, `weight_ptr`, `grad_x_ptr`, `grad_weight_ptr`, `grad_bias_ptr`, `mean_ptr`, `rstd_ptr`.\n        - Loop 1: Calculate sums for dx, dgamma, dbeta.\n        - Loop 2: Compute dx, write dx.\n        - `dgamma` and `dbeta` are size `N`. They need atomic reduction or separate handling.\n        - Usually, `dgamma` and `dbeta` are accumulated in shared memory or registers across the row, then written out. Since the grid is 1D (rows), multiple programs won\'t write to the same `dgamma` element?\n        - Wait. `dgamma` is of size `N`. Each row `i` contributes to `dgamma[k]` for all `k`.\n        - If the kernel is row-wise (program = row), then program `i` handles row `i`. It computes a partial `dgamma` for that row.\n        - The final `dgamma` is the sum over all rows.\n        - This means we need atomic adds or a separate reduction kernel for `dgamma` and `dbeta`.\n        - Using `tl.atomic_add` is acceptable for simplicity in a single file, or we can use a scratchpad/strategy.\n        - Given the constraints and "expert" persona, `tl.atomic_add` on float32 (usually weight/bias are float32) is fine.\n        - NOTE: `tl.atomic_add` supports float32 on all architectures. float16/bfloat16 might be tricky but `atomic_add` for floats is standard enough for this scope.\n\n    **Refining Backward Reduction:**\n    - `grad_gamma` and `grad_bias` are `(N,)`.\n    - Kernel grid: `M` programs.\n    - Each program `pid` calculates:\n        - `dg_row[k] = grad_y[pid, k] * x_hat[pid, k]`\n        - `db_row[k] = grad_y[pid, k]`\n    - We need `total_dg[k] = sum(dg_row[:, k])`.\n    - We can use `tl.atomic_add(grad_gamma_ptr + k, val)`.\n\n    **Checking specific constraints:**\n    - `x * x` for squaring.\n    - Reshape logic explicitly requested.\n    - `x_reshaped.stride(0)` for stride.\n    \n    **Implementation Details:**\n    \n    Forward:\n    ```python\n    @triton.jit\n    def forward_kernel(x_ptr, y_ptr, w_ptr, b_ptr, mean_ptr, rstd_ptr,\n                       M, N, stride_xm, stride_xn,\n                       stride_ym, stride_yn,\n                       BLOCK_SIZE: tl.constexpr):\n        pid = tl.program_id(axis=0)\n        \n        # Compute Mean and Variance\n        x_sum = tl.zeros([BLOCK_SIZE], dtype=tl.float32)\n        x2_sum = tl.zeros([BLOCK_SIZE], dtype=tl.float32)\n        \n        # offsets for x\n        # Since stride can be arbitrary, we use offsets\n        # Offsets for current row\n        row_offsets = pid * stride_xm + tl.arange(0, BLOCK_SIZE) * stride_xn\n        \n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            x = tl.load(x_ptr + row_offsets + off * stride_xn, mask=mask).to(tl.float32)\n            x_sum += x\n            x2_sum += x * x\n            \n        # Sum across blocks\n        # BLOCK_SIZE is number of elements processed in parallel vector load? \n        # Wait, tl.sum logic.\n        # If N > BLOCK_SIZE, x_sum is a vector of BLOCK_SIZE partial sums?\n        # No, `x_sum` is a vector of size BLOCK_SIZE (the vector width).\n        # If we loop `for off in range...`, `x_sum` accumulates element-wise sums for the blocks.\n        # Example: N=8192, BLOCK=1024. Loop 8 times.\n        # `x_sum` holds partial sums for indices 0..1023 relative to each block start?\n        # No, `x_sum` variable is re-used in the loop.\n        # Let\'s correct the accumulation logic.\n        \n        # We want scalar sum of the row.\n        # `x` loaded is a vector of length BLOCK_SIZE.\n        # `x_sum` should be a scalar accumulator? Or a vector that we sum at the end?\n        # Triton `tl.sum` on a vector is efficient.\n        \n        # Better approach:\n        # x_sum = tl.zeros([], dtype=tl.float32) ? No, we want to keep it in vector width if possible, but `x` loads a vector.\n        # Standard approach:\n        # `sum = tl.zeros([BLOCK_SIZE], dtype=tl.float32)` (if we want to do parallel reduction inside the block?)\n        # Actually, simpler: `sum = tl.zeros([], dtype=tl.float32)`\n        # `for off...`: `x = tl.load(...)`; `sum += tl.sum(x)`.\n        # This is fine for vector loads.\n        \n        # Re-doing Forward Logic:\n        _mean = tl.zeros([BLOCK_SIZE], dtype=tl.float32) # Use vector to hold partials if needed, but scalar is easier to read.\n        # Let\'s use scalar accumulators for simplicity and correctness regarding N.\n        m = tl.zeros([], dtype=tl.float32)\n        m2 = tl.zeros([], dtype=tl.float32)\n        \n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            # Calculate pointer offsets\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            x_ptr_offset = x_ptr + pid * stride_xm + cols * stride_xn\n            \n            x = tl.load(x_ptr_offset, mask=mask, other=0.0).to(tl.float32)\n            m += tl.sum(x)\n            m2 += tl.sum(x * x)\n            \n        mean = m / N\n        var = m2 / N - mean * mean\n        rstd = 1.0 / tl.sqrt(var + eps)\n        \n        # Save mean/rstd for backward\n        tl.store(mean_ptr + pid, mean)\n        tl.store(rstd_ptr + pid, rstd)\n        \n        # Write Output\n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            \n            x_ptr_offset = x_ptr + pid * stride_xm + cols * stride_xn\n            y_ptr_offset = y_ptr + pid * stride_ym + cols * stride_yn\n            \n            x = tl.load(x_ptr_offset, mask=mask, other=0.0).to(tl.float32)\n            w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n            b = tl.load(b_ptr + cols, mask=mask).to(tl.float32)\n            \n            x_hat = (x - mean) * rstd\n            y = x_hat * w + b\n            \n            tl.store(y_ptr_offset, y, mask=mask)\n    ```\n\n    Backward:\n    ```python\n    @triton.jit\n    def backward_kernel(x_ptr, dy_ptr, w_ptr, dx_ptr, dw_ptr, db_ptr,\n                        mean_ptr, rstd_ptr,\n                        M, N, stride_xm, stride_xn, stride_dym, stride_dyn,\n                        BLOCK_SIZE: tl.constexpr):\n        pid = tl.program_id(axis=0)\n        \n        # Load mean/rstd for this row\n        mean = tl.load(mean_ptr + pid)\n        rstd = tl.load(rstd_ptr + pid)\n        \n        # Accumulators\n        dhat_sum = tl.zeros([], dtype=tl.float32) # sum(dhat)\n        xhat_dhat_sum = tl.zeros([], dtype=tl.float32) # sum(x_hat * dhat)\n        \n        # We also need to accumulate dw and db.\n        # Since we need to atomic_add them at the end, we can accumulate partials in local registers first if N is large?\n        # Or just atomic add inside the loop. Atomic add is fast if not contended.\n        # Here every thread (program) handles a different row.\n        # All programs contend for the same `dw_ptr[k]`.\n        # This is a write-after-read hazard.\n        # If M is large (e.g. 4096), 4096 programs trying to write to `dw[0]` simultaneously via atomic_add. That\'s heavy contention.\n        # Expert solution: use shared memory? No, Triton programs are isolated (no shared memory between programs in grid).\n        # Optimization: Accumulate `dw_row` (vector of size BLOCK_SIZE) in registers, then atomic add at the end?\n        # But `dw` size `N` > `BLOCK_SIZE`. We need to loop.\n        # To avoid `N` atomic adds per program, we loop, compute partials, and atomic add.\n        # Is there a better way?\n        # Standard naive Triton layernorm backward uses atomic adds. It\'s acceptable for this prompt unless "high performance" implies solving contention.\n        # Given constraints, simple correct implementation is priority. I will use atomic adds.\n        # To slightly improve: we can accumulate the whole row\'s `dw` in a local buffer?\n        # `N` can be 4096 or 8192. Allocating 8192 floats in registers/local memory is expensive.\n        # We will stick to atomic add inside the loop or accumulators.\n        # Actually, we can accumulate `sum_dy` and `sum_dy_xhat` in scalars, but `dw` is per-element.\n        # So we must atomic add to `dw_ptr`.\n        \n        # Wait, `dw` = sum over rows of `dy * x_hat`.\n        # We can\'t reduce `dw` over rows within one program easily without atomic ops.\n        \n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            \n            x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n            dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)\n            w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n            \n            x_hat = (x - mean) * rstd\n            dhat = dy * w\n            \n            dhat_sum += tl.sum(dhat)\n            xhat_dhat_sum += tl.sum(dhat * x_hat)\n            \n            # Accumulate gradients for weights\n            # db = sum(dy)\n            # dw = sum(dy * x_hat)\n            # tl.atomic_add(db_ptr + cols, dy, mask=mask)\n            # tl.atomic_add(dw_ptr + cols, dy * x_hat, mask=mask)\n        \n        mean_dhat = dhat_sum / N\n        mean_xhat_dhat = xhat_dhat_sum / N\n        \n        # Second pass for dx\n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            \n            x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n            dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)\n            w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n            \n            x_hat = (x - mean) * rstd\n            dhat = dy * w\n            \n            dx = (dhat - mean_dhat - x_hat * mean_xhat_dhat) * rstd\n            tl.store(dx_ptr + pid * stride_xm + cols * stride_xn, dx, mask=mask)\n            \n            # Move weight grad accumulation here to save one pass?\n            # We need mean_dhat which we only have after the first pass.\n            # So 2 passes is necessary for `dx`.\n            # We can combine weight grad accumulation in the second pass to avoid the first pass overhead for weights?\n            # No, `dhat` depends on `w`. `mean_dhat` depends on `dhat`.\n            # So we calculate `mean_dhat` in Pass 1.\n            # Then in Pass 2, we have `dhat` again, so we can do `atomic_add` here.\n            \n            tl.atomic_add(db_ptr + cols, dy, mask=mask)\n            tl.atomic_add(dw_ptr + cols, dy * x_hat, mask=mask)\n    ```\n\n    **Double Check Imports and Rules:**\n    - Start exactly with `import torch`...\n    - `x * x` for squaring.\n    - Return only python code.\n    - Structure: `forward_kernel`, `MyFunction`, `triton_layernorm`.\n    - Reshape logic inside `forward` and `backward`.\n    - Strides from reshaped tensor.\n\n    **Handling `eps`:**\n    - The spec says `eps` is an argument. I should pass it to the kernel.\n\n    **Block Size:**\n    - Standard 1024 or 2048. I\'ll use 1024 as a constant or heuristic. The user didn\'t provide `MAX_FUSED_SIZE`. I\'ll set `BLOCK_SIZE = 1024` or 2048. 1024 is safer for compatibility.\n\n    **Class Structure:**\n    - `MyFunction` needs `save_for_backward`.\n    - Forward: `ctx.save_for_backward(x_reshaped, weight, mean, rstd)` (rstd can be derived from var, but storing rstd is better).\n    - Wait, `mean` and `rstd` are computed in the kernel and stored to CPU/GPU tensors.\n    - In `forward`: allocate `mean`, `rstd` tensors.\n    - Kernel launches.\n    - `ctx.save_for_backward(x_reshaped, weight, mean, rstd)`.\n    - Backward: extract them.\n\n    **Gradient for Weight/Bias initialization:**\n    - Must zero them out before atomic adds.\n    - `grad_weight = torch.empty_like(weight)`\n    - `grad_weight.zero_()`\n\n    **Refining the Kernel Call:**\n    - Need to handle `M` (number of rows) as grid size.\n    - `grid = lambda meta: (M,)`\n\n    **Specific Constraint Check:**\n    - "Handle arbitrary input shapes by reshaping to 2D"\n    - "Pass `x_reshaped.stride(0)` as stride"\n\n    Let\'s assemble.\n\n    One edge case: `N` might not be divisible by `BLOCK_SIZE`. The logic `off + tl.arange... < N` handles masking correctly.\n\n    Squaring: `x * x`.\n\n    ```python\n    import torch\n    import triton\n    import triton.language as tl\n\n    @triton.jit\n    def forward_kernel(x_ptr, y_ptr, w_ptr, b_ptr, mean_ptr, rstd_ptr, \n                       M, N, eps,\n                       stride_xm, stride_xn, stride_ym, stride_yn,\n                       BLOCK_SIZE: tl.constexpr):\n        pid = tl.program_id(axis=0)\n        \n        # Compute mean and variance\n        # Using scalar accumulators for simplicity and correctness for any N\n        m = tl.zeros([], dtype=tl.float32)\n        m2 = tl.zeros([], dtype=tl.float32)\n        \n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n            m += tl.sum(x)\n            m2 += tl.sum(x * x)\n            \n        mean = m / N\n        var = m2 / N - mean * mean\n        rstd = 1.0 / tl.sqrt(var + eps)\n        \n        # Store mean/rstd for backward\n        tl.store(mean_ptr + pid, mean)\n        tl.store(rstd_ptr + pid, rstd)\n        \n        # Compute and store output\n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            \n            x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n            w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n            b = tl.load(b_ptr + cols, mask=mask).to(tl.float32)\n            \n            x_hat = (x - mean) * rstd\n            y = x_hat * w + b\n            tl.store(y_ptr + pid * stride_ym + cols * stride_yn, y, mask=mask)\n\n    @triton.jit\n    def backward_kernel(x_ptr, dy_ptr, w_ptr, dx_ptr, dw_ptr, db_ptr,\n                         mean_ptr, rstd_ptr,\n                         M, N,\n                         stride_xm, stride_xn, stride_dym, stride_dyn,\n                         BLOCK_SIZE: tl.constexpr):\n        pid = tl.program_id(axis=0)\n        \n        # Load mean/rstd for this row\n        mean = tl.load(mean_ptr + pid)\n        rstd = tl.load(rstd_ptr + pid)\n        \n        # Reduction loop 1: compute dhat_sum and xhat_dhat_sum\n        dhat_sum = tl.zeros([], dtype=tl.float32)\n        xhat_dhat_sum = tl.zeros([], dtype=tl.float32)\n        \n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            \n            x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n            dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)\n            w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n            \n            x_hat = (x - mean) * rstd\n            dhat = dy * w\n            \n            dhat_sum += tl.sum(dhat)\n            xhat_dhat_sum += tl.sum(dhat * x_hat)\n        \n        mean_dhat = dhat_sum / N\n        mean_xhat_dhat = xhat_dhat_sum / N\n        \n        # Loop 2: compute dx, dw, db\n        for off in range(0, N, BLOCK_SIZE):\n            mask = off + tl.arange(0, BLOCK_SIZE) < N\n            cols = off + tl.arange(0, BLOCK_SIZE)\n            \n            x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)\n            dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)\n            w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)\n            \n            x_hat = (x - mean) * rstd\n            dhat = dy * w\n            \n            dx = (dhat - mean_dhat - x_hat * mean_xhat_dhat) * rstd\n            tl.store(dx_ptr + pid * stride_xm + cols * stride_xn, dx, mask=mask)\n            \n            # Accumulate gradients for weights\n            # Using atomic_add because multiple threads write to the same dw/db indices\n            tl.atomic_add(db_ptr + cols, dy, mask=mask)\n            tl.atomic_add(dw_ptr + cols, dy * x_hat, mask=mask)\n\n    class LayernormFunction(torch.autograd.Function):\n        @staticmethod\n        def forward(ctx, x, weight, bias, eps):\n            # Reshape to 2D\n            original_shape = x.shape\n            x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n            M, N = x_reshaped.shape\n            \n            # Allocate output\n            y_reshaped = torch.empty_like(x_reshaped)\n            \n            # Allocate buffers for mean and rstd\n            mean = torch.empty((M,), dtype=torch.float32, device=x.device)\n            rstd = torch.empty((M,), dtype=torch.float32, device=x.device)\n            \n            # Constraints check: Strides\n            stride_xm = x_reshaped.stride(0)\n            stride_xn = x_reshaped.stride(1)\n            stride_ym = y_reshaped.stride(0)\n            stride_yn = y_reshaped.stride(1)\n            \n            BLOCK_SIZE = 1024 # Or some reasonable default\n            \n            grid = lambda meta: (M,)\n            \n            forward_kernel[grid](\n                x_reshaped, y_reshaped, weight, bias, mean, rstd,\n                M, N, eps,\n                stride_xm, stride_xn, stride_ym, stride_yn,\n                BLOCK_SIZE=BLOCK_SIZE\n            )\n            \n            # Save for backward\n            ctx.save_for_backward(x_reshaped, weight, mean, rstd)\n            ctx.eps = eps\n            ctx.BLOCK_SIZE = BLOCK_SIZE\n            ctx.original_shape = original_shape\n            \n            return y_reshaped.reshape(original_shape)\n        \n        @staticmethod\n        def backward(ctx, grad_output):\n            # grad_output is the gradient of the loss w.r.t. y\n            # Reshape to 2D\n            grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n            M, N = grad_output_reshaped.shape\n            \n            x_reshaped, weight, mean, rstd = ctx.saved_tensors\n            \n            grad_x = torch.empty_like(x_reshaped)\n            grad_weight = torch.zeros_like(weight)\n            grad_bias = torch.zeros_like(weight) # bias shape same as weight\n            \n            stride_xm = x_reshaped.stride(0)\n            stride_xn = x_reshaped.stride(1)\n            stride_dym = grad_output_reshaped.stride(0)\n            stride_dyn = grad_output_reshaped.stride(1)\n            \n            grid = lambda meta: (M,)\n            \n            backward_kernel[grid](\n                x_reshaped, grad_output_reshaped, weight, grad_x, grad_weight, grad_bias,\n                mean, rstd,\n                M, N,\n                stride_xm, stride_xn, stride_dym, stride_dyn,\n                BLOCK_SIZE=ctx.BLOCK_SIZE\n            )\n            \n            # Return gradients\n            # x, weight, bias, eps\n            # Note: grad_bias was accumulated via atomic_add into grad_bias tensor\n            return grad_x.reshape(ctx.original_shape), grad_weight, grad_bias, None\n\n    def triton_layernorm(x, weight, bias, eps=1e-5):\n        return LayernormFunction.apply(x, weight, bias, eps)\n    ```\n\n    **Reviewing against constraints:**\n    - `import torch` first line? Yes.\n    - `@triton.jit`? Yes.\n    - `x * x`? Yes.\n    - Complete? Yes.\n    - Reshape 2D? Yes.\n    - `x_reshaped.stride(0)`? Yes.\n    - Backward? Yes.\n    - Function name `triton_layernorm`? Yes.\n\n    Wait, in `forward_kernel`, `tl.store` for `mean` and `rstd` uses `mean_ptr + pid`.\n    These tensors are of shape `(M,)`, so stride is 1. `pid` is the index. Correct.\n\n    In `backward_kernel`, `tl.atomic_add` takes `db_ptr + cols`.\n    `db_ptr` is the start of `grad_bias` tensor. `cols` are offsets `0..N-1`. Correct.\n    Masking: `mask` is passed to `tl.atomic_add`. This is important.\n\n    One small detail: `mean` and `rstd` tensors in `save_for_backward`.\n    They are `float32`.\n    In forward:\n    `mean = torch.empty((M,), dtype=torch.float32, device=x.device)`\n    This is correct. LayerNorm statistics are usually kept in FP32 for stability even if inputs are FP16.\n\n    The prompt asks for `layernorm` as name?\n    "Name: layernorm" in the spec block.\n    But the code structure block uses `class MyFunction` and `def triton_layernorm`.\n    I will follow the code structure block exactly as requested in "CRITICAL: Your code must follow this structure".\n    The spec says "Name: layernorm" in description, but the code structure template uses `triton_layernorm` as the entry point. I will use `triton_layernorm`.\n\n    Is `BLOCK_SIZE` constexpr handled correctly?\n    I define `BLOCK_SIZE` in python (e.g., 1024) and pass it.\n    Triton requires compile time constants for `BLOCK_SIZE` if used for array sizing like `tl.zeros([BLOCK_SIZE])`.\n    My code uses scalar accumulators `tl.zeros([])`, so `BLOCK_SIZE` is actually used for loop ranges and `tl.arange`.\n    The `BLOCK_SIZE: tl.constexpr` in the signature is correct.\n    \n    Wait, if I use `cols = off + tl.arange(0, BLOCK_SIZE)`, `BLOCK_SIZE` must be known at compile time.\n    So passing `BLOCK_SIZE=1024` from Python works fine, it becomes a constexpr argument.\n\n    One check on `grad_bias`:\n    In backward, I allocate `grad_bias = torch.zeros_like(weight)`.\n    This ensures the memory is zeroed before `tl.atomic_add`.\n    Correct.\n\n    One check on stride calculations:\n    `stride_xm = x_reshaped.stride(0)`.\n    This is exactly what was requested.\n\n    Final check on imports.\n    `import torch`, `import triton`, `import triton.language as tl`.\n    Correct.'))], created=1770858486, model='glm-4.7', object='chat.completion', service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=9836, prompt_tokens=493, total_tokens=10329, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=8177, rejected_prediction_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=4)), request_id='20260212090518abb6a6e6b9f6425b')
+
+=== REASONING CONTENT ===
+<\nthought>\nThe user wants a Triton kernel for a fused LayerNorm operation.\nThe request is very specific about the structure, imports, and optimization rules.\n\n**Requirements Checklist:**\n1.  **Imports**: Must start with `import torch`, `import triton`, `import triton.language as tl`.\n2.  **Kernel Name**: `layernorm` (though usually the internal kernel is named `forward_kernel` based on the structure provided, the function exposed is `triton_layernorm`). The spec asks for the structure:\n    ```python\n    @triton.jit\n    def forward_kernel(..., BLOCK_SIZE: tl.constexpr): ...\n    class MyFunction(torch.autograd.Function): ...\n    def triton_layernorm(...): ...\n    ```\n3.  **Decorators**: Use `@triton.jit` (no autotune).\n4.  **Squaring**: Use `x * x`.\n5.  **Completeness**: No placeholders.\n6.  **Reshaping**: Handle arbitrary shapes by flattening to 2D `(M, N)` where `N` is the last dimension. Pass strides of the reshaped tensor.\n7.  **Return**: Only Python code, no markdown blocks.\n8.  **Gradient**: Must implement backward pass.\n\n**Math Breakdown (Forward):**\nInput: `x` of shape `(M, N)` (after reshape).\n`mean = sum(x) / N`\n`var = sum((x - mean)^2) / N` (biased variance, as per PyTorch default `unbiased=False`)\n`x_hat = (x - mean) / sqrt(var + eps)`\n`y = x_hat * gamma + beta`\n\n**Math Breakdown (Backward):**\nGiven `grad_y` (dL/dy):\nWe need `grad_x`, `grad_gamma`, `grad_beta`.\n\nLet `x_hat = (x - mean) / sigma` where `sigma = sqrt(var + eps)`.\n`y = x_hat * gamma + beta`\n\n1.  `grad_beta = sum(grad_y, axis=-1)` (sum over N)\n2.  `grad_gamma = sum(grad_y * x_hat, axis=-1)` (sum over N)\n3.  `grad_x`:\n    `dL/dx = dL/dx_hat * dx_hat/dx`\n    `dL/dx_hat = grad_y * gamma`\n\n    `dx_hat/dx` derivation:\n    Let `mu = mean`, `s2 = var`, `s = sigma`.\n    `x_hat = (x - mu) / s`\n    `d(x_hat)_i / dx_j`\n    If `i == j`:\n       `1/s - (1/s^2) * (x_i - mu) * (1/N) - (1/s) * (1/N)`\n       `= (1/s) * (1 - (x_i - mu)^2 / s2 - 1)`\n       Wait, let\
+
+=== EXTRACTED CODE ===
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(
+    x_ptr, y_ptr, w_ptr, b_ptr, mean_ptr, rstd_ptr, 
+    M, N, eps,
+    stride_xm, stride_xn, stride_ym, stride_yn,
+    BLOCK_SIZE: tl.constexpr
+):
+    pid = tl.program_id(axis=0)
+    
+    # Compute Mean and Variance
+    m = tl.zeros([], dtype=tl.float32)
+    m2 = tl.zeros([], dtype=tl.float32)
+    
+    for off in range(0, N, BLOCK_SIZE):
+        mask = off + tl.arange(0, BLOCK_SIZE) < N
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)
+        m += tl.sum(x)
+        m2 += tl.sum(x * x)
+        
+    mean = m / N
+    var = m2 / N - mean * mean
+    rstd = 1.0 / tl.sqrt(var + eps)
+    
+    # Store mean/rstd for backward
+    tl.store(mean_ptr + pid, mean)
+    tl.store(rstd_ptr + pid, rstd)
+    
+    # Compute and store output
+    for off in range(0, N, BLOCK_SIZE):
+        mask = off + tl.arange(0, BLOCK_SIZE) < N
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        
+        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)
+        w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)
+        b = tl.load(b_ptr + cols, mask=mask).to(tl.float32)
+        
+        x_hat = (x - mean) * rstd
+        y = x_hat * w + b
+        tl.store(y_ptr + pid * stride_ym + cols * stride_yn, y, mask=mask)
+
+@triton.jit
+def backward_kernel(
+    x_ptr, dy_ptr, w_ptr, dx_ptr, dw_ptr, db_ptr,
+    mean_ptr, rstd_ptr,
+    M, N,
+    stride_xm, stride_xn, stride_dym, stride_dyn,
+    BLOCK_SIZE: tl.constexpr
+):
+    pid = tl.program_id(axis=0)
+    
+    # Load mean/rstd for this row
+    mean = tl.load(mean_ptr + pid)
+    rstd = tl.load(rstd_ptr + pid)
+    
+    # Reduction loop 1: compute dhat_sum and xhat_dhat_sum
+    dhat_sum = tl.zeros([], dtype=tl.float32)
+    xhat_dhat_sum = tl.zeros([], dtype=tl.float32)
+    
+    for off in range(0, N, BLOCK_SIZE):
+        mask = off + tl.arange(0, BLOCK_SIZE) < N
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        
+        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)
+        dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)
+        w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)
+        
+        x_hat = (x - mean) * rstd
+        dhat = dy * w
+        
+        dhat_sum += tl.sum(dhat)
+        xhat_dhat_sum += tl.sum(dhat * x_hat)
+    
+    mean_dhat = dhat_sum / N
+    mean_xhat_dhat = xhat_dhat_sum / N
+    
+    # Loop 2: compute dx, dw, db
+    for off in range(0, N, BLOCK_SIZE):
+        mask = off + tl.arange(0, BLOCK_SIZE) < N
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        
+        x = tl.load(x_ptr + pid * stride_xm + cols * stride_xn, mask=mask, other=0.0).to(tl.float32)
+        dy = tl.load(dy_ptr + pid * stride_dym + cols * stride_dyn, mask=mask, other=0.0).to(tl.float32)
+        w = tl.load(w_ptr + cols, mask=mask).to(tl.float32)
+        
+        x_hat = (x - mean) * rstd
+        dhat = dy * w
+        
+        dx = (dhat - mean_dhat - x_hat * mean_xhat_dhat) * rstd
+        tl.store(dx_ptr + pid * stride_xm + cols * stride_xn, dx, mask=mask)
+        
+        # Accumulate gradients for weights
+        tl.atomic_add(db_ptr + cols, dy, mask=mask)
+        tl.atomic_add(dw_ptr + cols, dy * x_hat, mask=mask)
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, bias, eps):
+        original_shape = x.shape
+        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()
+        M, N = x_reshaped.shape
+        
+        y_reshaped = torch.empty_like(x_reshaped)
+        
+        mean = torch.empty((M,), dtype=torch.float32, device=x.device)
+        rstd = torch.empty((M,), dtype=torch.float32, device=x.device)
+        
+        stride_xm = x_reshaped.stride(0)
+        stride_xn = x_reshaped.stride(1)
+        stride_ym = y_reshaped.stride(0)
+        stride_yn = y_reshaped.stride(1)
+        
+        BLOCK_SIZE = 1024
+        
+        grid = lambda meta: (M,)
+        
+        forward_kernel[grid](
+            x_reshaped, y_reshaped, weight, bias, mean, rstd,
+            M, N, eps,
+            stride_xm, stride_xn, stride_ym, stride_yn,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+        
+        ctx.save_for_backward(x_reshaped, weight, mean, rstd)
+        ctx.eps = eps
+        ctx.BLOCK_SIZE = BLOCK_SIZE
+        ctx.original_shape = original_shape
+        
+        return y_reshaped.reshape(original_shape)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()
+        M, N = grad_output_reshaped.shape
+        
+        x_reshaped, weight, mean, rstd = ctx.saved_tensors
+        
+        grad_x = torch.empty_like(x_reshaped)
+        grad_weight = torch.zeros_like(weight)
+        grad_bias = torch.zeros_like(weight)
+        
+        stride_xm = x_reshaped.stride(0)
+        stride_xn = x_reshaped.stride(1)
+        stride_dym = grad_output_reshaped.stride(0)
+        stride_dyn = grad_output_reshaped.stride(1)
+        
+        grid = lambda meta: (M,)
+        
+        backward_kernel[grid](
+            x_reshaped, grad_output_reshaped, weight, grad_x, grad_weight, grad_bias,
+            mean, rstd,
+            M, N,
+            stride_xm, stride_xn, stride_dym, stride_dyn,
+            BLOCK_SIZE=ctx.BLOCK_SIZE
+        )
+        
+        return grad_x.reshape(ctx.original_shape), grad_weight, grad_bias, None
+
+def triton_layernorm(x, weight, bias, eps=1e-5):
+    return MyFunction.apply(x, weight, bias, eps)

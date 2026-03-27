@@ -1,0 +1,23 @@
+{
+  "spec_name": "softmax",
+  "success": true,
+  "exit_reason": "success",
+  "iterations": [
+    {
+      "iteration": 0,
+      "phase": "generation",
+      "validation": {
+        "correct": true,
+        "grad_correct": true,
+        "speedup": 3.4273249388161395,
+        "kernel_time_ms": 0.6837279943283647,
+        "error_msg": ""
+      },
+      "analysis": null,
+      "tokens_used": 6261,
+      "timestamp": "2026-02-12T09:49:39.102612"
+    }
+  ],
+  "total_tokens_used": 6261,
+  "total_time_seconds": 114.17190074920654
+}

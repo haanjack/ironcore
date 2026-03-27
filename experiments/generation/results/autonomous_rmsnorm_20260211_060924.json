@@ -1,0 +1,23 @@
+{
+  "spec_name": "rmsnorm",
+  "success": true,
+  "exit_reason": "success",
+  "iterations": [
+    {
+      "iteration": 0,
+      "phase": "generation",
+      "validation": {
+        "correct": true,
+        "grad_correct": true,
+        "speedup": 2.4831921093055898,
+        "kernel_time_ms": 0.05554100789595395,
+        "error_msg": ""
+      },
+      "analysis": null,
+      "tokens_used": 10651,
+      "timestamp": "2026-02-11T06:09:24.636964"
+    }
+  ],
+  "total_tokens_used": 10651,
+  "total_time_seconds": 128.66116309165955
+}

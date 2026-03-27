@@ -1,0 +1,226 @@
+=== PROMPT ===
+You are an expert GPU kernel developer. Write a triton kernel for the following specification.
+
+## Kernel Specification
+Name: rmsnorm
+Description: Fused RMSNorm: normalize by RMS then scale by weight
+
+## Reference Implementation (PyTorch)
+```python
+def _reference_rmsnorm(x, weight, eps):
+    """PyTorch reference: RMSNorm forward."""
+    variance = x.pow(2).mean(dim=-1, keepdim=True)
+    x_normed = x * torch.rsqrt(variance + eps)
+    return x_normed * weight
+
+```
+
+## Input/Output Interface
+The kernel should accept the following inputs:
+```python
+x, weight, eps
+```
+
+## CRITICAL REQUIREMENTS
+- Numerical tolerance: atol=1e-05, rtol=1e-05
+- Gradient support: Yes
+- Export function name: triton_rmsnorm
+- You MUST create a function named `triton_rmsnorm` at module level
+- At the end of your code, you MUST include: `triton_rmsnorm = your_function_name`
+
+
+
+## Instructions
+1. Write a complete, compilable triton kernel
+2. Follow the exact pattern shown in existing kernels
+3. Include both forward and backward kernels (if gradient support required)
+4. Wrap in torch.autograd.Function for gradient support
+5. At the end, assign your main function to `triton_rmsnorm` like: `triton_rmsnorm = YourClassFunction.apply` or `triton_rmsnorm = your_function`
+6. IMPORTANT: Do NOT use Python's ** operator for power in Triton code - use multiplication (e.g., x * x * x) or tl.pow(x, 3)
+7. Return ONLY the Python code without any markdown code blocks, explanations, or additional text
+
+## Expected Format
+Your response should be ONLY Python code starting with imports, like:
+
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def kernel_function(...):
+    ...
+
+class YourFunction(torch.autograd.Function):
+    ...
+
+def triton_rmsnorm(...):
+    return YourFunction.apply(...)
+```
+
+NO markdown blocks, NO explanations, just the code.
+
+=== RAW RESPONSE ===
+ChatCompletion(id='20260210220508c3ab2011c97a4dab', choices=[Choice(finish_reason='length', index=0, logprobs=None, message=ChatCompletionMessage(content='', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None, reasoning_content='1.  **Analyze the Request:**\n    *   **Goal:** Write a Triton kernel for RMSNorm.\n    *   **Inputs:** `x` (input tensor), `weight` (gamma tensor), `eps` (scalar for numerical stability).\n    *   **Logic:** Compute variance along the last dimension, scale input by `1/sqrt(variance + eps)`, multiply by `weight`.\n    *   **Requirements:**\n        *   Numerical tolerance: `atol=1e-05`, `rtol=1e-05`.\n        *   Gradient support: Yes (Backward pass required).\n        *   Export function name: `triton_rmsnorm`.\n        *   Module level assignment.\n        *   No Python `**` operator in JIT (use `tl.pow` or multiplication).\n        *   Format: Pure Python code, starting with imports. No markdown blocks in the final output.\n\n2.  **Kernel Design (Forward Pass):**\n    *   **Block size:** Need to process blocks of the last dimension. Standard practice is `BLOCK_SIZE = 1024` or similar. Let\'s use a tunable block size or a fixed reasonable one (e.g., 1024).\n    *   **Program Grid:** The grid needs to cover all dimensions *except* the last one. `x.stride(-1)` gives the stride of the last dimension. If `x` is `[M, N]`, we need `M` programs.\n    *   **Logic:**\n        1.  Load offsets for the last dimension.\n        2.  Accumulate `x * x` (sum of squares).\n        3.  Compute mean of squares (variance).\n        4.  Compute normalization factor: `1 / sqrt(variance + eps)`.\n        5.  Load `x` again (or use cached values if we loaded the whole block, but usually for fused kernels we might load, compute stats, then normalize). Since RMSNorm requires the mean over the row to normalize the row, we have two phases:\n            *   Phase 1: Compute `sum(x^2)` to get the normalization factor.\n            *   Phase 2: Load `x` again and multiply by the factor and `weight`.\n    *   **Optimization:**\n        *   Use `tl.load` with a mask (boundary check).\n        *   Since we need the stats for the whole row before we can normalize, we either load the whole row into shared memory (SRAM) or pass through the row twice. If the row fits in one block, we load the whole block, reduce, then normalize. If the row is larger than a block, we need atomic adds or a two-pass approach. Standard simple Triton implementations usually assume the row dimension fits in one block or iterate over blocks in the kernel.\n        *   *Simpler approach for this prompt:* Assume the row dimension fits in one block, or handle blocks where each block computes partial sums and atomic adds? The standard Triton RMSNorm pattern often iterates over the row to compute the sum, then iterates again to write the output.\n        *   Let\'s go with the block-strided approach:\n            *   `pid = tl.program_id(axis=0)`\n            *   Loop over blocks in the row (if row size > block size). Wait, the prompt implies a simple fused RMSNorm. Usually, for efficient memory access, we treat the last dimension as the contiguous one.\n            *   Standard pattern:\n                *   `BLOCK_SIZE`: 1024 or 4096.\n                *   `pid`: index of the row (vector being normalized).\n                *   Calculate offsets for the current block of the row.\n                *   Accumulate `ssq` (sum of squares).\n                *   If the row spans multiple blocks, we loop.\n                *   Once `ssq` is fully calculated, compute the `rsqrt`.\n                *   Loop again to load data, normalize, and store.\n    *   **Refined Forward Logic:**\n        *   Inputs: pointers to `x`, pointers to `weight`, `stride_x`, `stride_weight`, `M` (rows), `N` (cols).\n        *   Loop over N (cols) in chunks of `BLOCK_SIZE`.\n        *   Compute sum of squares.\n        *   Compute mean (`ssq / N`).\n        *   Compute `1 / sqrt(mean + eps)`.\n        *   Loop over N again in chunks of `BLOCK_SIZE` to load `x`, compute `out = x * factor * weight`, and store `out`.\n        *   Also save `rsqrt` for backward pass (needed).\n\n3.  **Kernel Design (Backward Pass):**\n    *   **Formula:**\n        *   Let `y = x * w / sqrt(var + eps)` where `var = sum(x^2)/N`.\n        *   Let `r = 1 / sqrt(var + eps)`.\n        *   `y = x * w * r`.\n        *   Loss `L`. Grad `dL/dy` is input `dy`.\n        *   We need `dx` and `dw`.\n    *   **Gradients:**\n        *   `dw = sum(dy * x * r)` (reduce over the row).\n        *   `dx`: This is trickier.\n            *   `y = r * w * x`.\n            *   `dx = dy * r * w` + `dy * x * w * dr`.\n            *   `dr`: `r = (var + eps)^(-1/2)` -> `dr = -0.5 * (var + eps)^(-3/2) * dvar`.\n            *   `dvar = sum(dy * x * w * dr)`. Wait, chain rule is usually applied to x directly.\n            *   Standard RMSNorm derivative derivation:\n                *   Let `v = x^2`. `var = mean(v)`.\n                *   `y = w * x * (var + eps)^-0.5`.\n                *   `dL/dx = dL/dy * w * (var + eps)^-0.5 + dL/dy * w * x * d((var + eps)^-0.5)/dx`.\n                *   The second term involves the derivative w.r.t variance.\n                *   `d((var + eps)^-0.5)/dx = -0.5 * (var + eps)^-1.5 * (2x/N)`. (Sum rule applied to var, derivative of mean is 1/N).\n                *   So, `dx_part2 = dy * w * x * (-0.5 * r^3 * (2 * x / N))`. (Since `r = (var+eps)^-0.5`, `r^3 = (var+eps)^-1.5`).\n                *   `dx_part2 = - dy * w * x * x * r^3 / N`.\n                *   `dx = dy * w * r - (dy * w * x) * (x * r^3) / N`.\n                *   Let `sum1 = sum(dy * w * x)`. Note: `dy` is `dL/dy`.\n                *   `dx = r * w * dy - (r^3 / N) * x * w * sum1`.\n    *   **Backward Kernel Strategy:**\n        *   Inputs: `dy` (grad output), `x`, `weight`, `rsqrt` (saved from forward), `M`, `N`.\n        *   Outputs: `dx`, `dw`.\n        *   Phase 1: Compute `sum1 = sum(dy * weight * x)`.\n        *   Phase 2: Compute `sum2 = sum(dy * weight * x * x)`? No, let\'s look at the formula again.\n            *   `dx = w * r * dy - (w * r^3 / N) * x * sum(dy * x)`. Wait, checking dimensions.\n            *   Term 1: `w * r * dy`.\n            *   Term 2: `(w * r^3 / N) * x * sum(dy * x)`. Wait, `dy * x` element-wise, then sum over row.\n            *   Let\'s re-verify the math.\n            *   `y_i = w_i * x_i * z`, where `z = 1/sqrt(mean(x^2) + eps)`.\n            *   `dL/dx_i = sum_j (dL/dy_j * dy_j/dx_i)`.\n            *   If `i != j`: `dy_j/dx_i = w_j * x_j * dz/dx_i`.\n                *   `dz/dx_i = dz/dvar * dvar/dx_i = (-0.5 * z^3) * (2 * x_i / N) = -z^3 * x_i / N`.\n                *   Term = `w_j * x_j * (-z^3 * x_i / N)`.\n                *   `sum_j` part: `-z^3 * x_i / N * sum(w_j * x_j * dy_j)`. (Note `dL/dy_j` is `dy_j`).\n            *   If `i == j`:\n                *   `dy_i/dx_i = w_i * z + w_i * x_i * (-z^3 * x_i / N)`.\n                *   Term = `dy_i * w_i * z - dy_i * w_i * x_i * x_i * z^3 / N`.\n            *   Total `dx`:\n                *   `dx = w * z * dy - (w * z^3 / N) * x * sum(x * dy)`.\n                *   Note: `w` is broadcasting over columns here? No, `w` is element-wise.\n                *   Term 1: `w * z * dy`.\n                *   Term 2 reduction term: `sum(w * x * dy)`. Let\'s call this `S`.\n                *   `dx = w * z * dy - (z^3 / N) * x * S`. Note `w` is inside the sum `S`.\n        *   Backward Kernel Implementation:\n            *   Compute `S = sum(x * w * dy)`. Reduce over row.\n            *   Compute `dw = sum(x * r * dy)`.\n            *   Compute `dx` using `S` and `r`.\n            *   We need to iterate over the row (or blocks) to compute `S` first, then iterate to write `dx` and `dw`.\n            *   Actually, `dw` requires `sum(x * r * dy)`. This is `S2`.\n            *   So we have two reductions: `S` (for dx) and `S2` (for dw).\n            *   Can do it in one pass or two. One pass is fine.\n            *   Reduction values: `sum_x_dy_w` and `sum_x_r_dy`.\n\n4.  **Refining Code Structure:**\n\n    *   **Imports:** `torch`, `triton`, `triton.language as tl`.\n    *   **Configs:** `triton.Config` definitions for autotuning (optional but good). The prompt asks for "a complete, compilable triton kernel", standard libraries often include autotuning or fixed configs. I will stick to a fixed block size or simple autotuner if standard. Let\'s use `BLOCK_SIZE` argument with a set of values (e.g., 1024, 2048, 4096, 8192).\n\n    *   **Forward Kernel (`rmsnorm_forward`):**\n        *   Args: `x_ptr`, `w_ptr`, `y_ptr`, `r_ptr`, `stride_x`, `stride_w`, `stride_y`, `stride_r`, `M`, `N`, `eps`, `BLOCK_SIZE: tl.constexpr`.\n        *   `pid = tl.program_id(0)`\n        *   `x_ptr += pid * stride_x`\n        *   `y_ptr += pid * stride_y`\n        *   `r_ptr += pid * stride_r`\n        *   *Pass 1:* Loop `i` from 0 to `N` with step `BLOCK_SIZE`.\n            *   Load `x` block. Mask.\n            *   Accumulate `x^2`.\n        *   Compute `mean = ssq / N`.\n        *   Compute `rvar = tl.sqrt(mean + eps)`.\n        *   Compute `r = 1.0 / rvar`.\n        *   Store `r` to `r_ptr`.\n        *   *Pass 2:* Loop `i` again.\n            *   Load `x`, `w`.\n            *   `y = x * w * r`.\n            *   Store `y`.\n\n    *   **Backward Kernel (`rmsnorm_backward`):**\n        *   Args: `x_ptr`, `w_ptr`, `dy_ptr`, `r_ptr`, `dx_ptr`, `dw_ptr`, `M`, `N`, `stride_x`, `stride_w`, `stride_dy`, `stride_r`, `stride_dx`, `stride_dw`, `BLOCK_SIZE: tl.constexpr`.\n        *   `pid = tl.program_id(0)`\n        *   Load `r` (scalar).\n        *   *Pass 1:* Loop `i` from 0 to `N`.\n            *   Load `x`, `w`, `dy`.\n            *   Compute `val_x = x`, `val_w = w`, `val_dy = dy`.\n            *   Accumulate `sum_wx_dy = sum(val_w * val_x * val_dy)`.\n            *   Accumulate `sum_x_dy = sum(val_x * val_dy)`.\n        *   Compute `dw_partial = r * sum_x_dy`.\n        *   Compute `dx_partial_factor = (r * r * r) / N * sum_wx_dy`.\n        *   *Pass 2:* Loop `i` again.\n            *   Load `x`, `w`, `dy`.\n            *   `dx = w * r * dy - x * dx_partial_factor`.\n            *   Store `dx`.\n        *   Store `dw`: `dw = r * sum_x_dy`. Note: `dw` needs atomic add? Yes, multiple blocks?\n            *   Wait, `M` is the grid size. Each program processes one row. `dw` is a vector of size `N`. Each program computes `dw` for its row? No.\n            *   The specification: `rmsnorm(x, weight, eps)`. `x` is `(B, S, H)`, `weight` is `(H,)`. Mean is over `H`.\n            *   In PyTorch `LayerNorm`/`RMSNorm`, weight is shared across the batch.\n            *   However, the PyTorch reference provided: `variance = x.pow(2).mean(dim=-1, keepdim=True)`. `return x_normed * weight`.\n            *   If `x` is `(M, N)` and `weight` is `(N,)`, then normalization is along `dim=-1` (N).\n            *   So `weight` is NOT shared across the batch dimension `M`. It is applied element-wise to the features.\n            *   Wait, standard RMSNorm (e.g., in LLaMA) has weight `dim=[H]` and input `[B, S, H]`. Normalization is over `H`. The weight is element-wise over `H`.\n            *   In this case, `dw` gradient is `sum over Batch and Seq dims`.\n            *   BUT, if the kernel is designed to process one row (vector) per program (grid size = M), and `weight` is `(N,)`, then `dw` contributions from different rows must be summed up.\n            *   Since `dw` is size `N`, we need `tl.atomic_add`.\n            *   Triton atomic add on tensor of floats is supported on modern GPUs, or we can use a separate kernel for reduction or atomic add in float32.\n            *   Let\'s assume standard RMSNorm usage where `weight` is `(hidden_dim)`.\n            *   If `x` is `(M, N)` and we spawn `M` programs, each program calculates `partial_dw` for a specific segment of `N` (if blocking) or for the whole row.\n            *   If each program handles a full row (N fits in BLOCK or we loop over N in program), each program computes `dw_partial` (size N).\n            *   We need to sum `dw_partial` across all `M` programs.\n            *   This requires `tl.atomic_add(dw_ptr + offsets, dw_val)`.\n\n    *   **Autotuner:**\n        *   Define `get_autotune_config`.\n        *   Forward configs.\n        *   Backward configs.\n\n    *   **Class `RMSNormFunction`:**\n        *   `forward`: checks, allocates `r` (for backward), calls kernel, saves tensors.\n        *   `backward`: checks, allocs `dx`, `dw`, calls kernel. Note: `dw` needs to be initialized to zeros.\n\n5.  **Edge Cases/Tweaks:**\n    *   `x` can be any shape. We flatten all but the last dim.\n    *   `stride_x[-1]` is usually 1 if contiguous. We should rely on `tl.load` stride arguments.\n    *   Handling `eps`.\n    *   Handling `N` (last dim size) not divisible by `BLOCK_SIZE` (masks).\n    *   The "No `**` operator" rule. Use `tl.pow`.\n\n6.  **Drafting the Code:**\n\n    *   *Imports:* Standard.\n    *   *Forward Kernel:*\n        *   `@triton.jit`\n        *   `rmsnorm_forward_kernel(...)`\n        *   Offset calc: `x_block_ptr = tl.make_block_ptr(...)`\n        *   Using `make_block_ptr` is cleaner for 2D tensors (rows x cols) but simple pointer arithmetic + loops works too.\n        *   Let\'s use `make_block_ptr` as it\'s "expert" level.\n        *   `x` shape `(M, N)`. Grid `(M, )`.\n        *   Block pointers for `x` and `y` and `w`.\n        *   Reduction pass for `x^2`.\n        *   Loop `i` in range(`tl.ceil_div(N, BLOCK_SIZE)`):\n            *   Load `x`.\n            *   Accumulate.\n        *   Compute `r`.\n        *   Store `r`?\n        *   Pass 2: Loop again.\n            *   Load `x`, `w`.\n            *   Compute `y`.\n            *   Store `y`.\n        *   Store `r` to `r_ptr`.\n\n    *   *Backward Kernel:*\n        *   `@triton.jit`\n        *   `rmsnorm_backward_kernel(...)`\n        *   `M`, `N` grid `(M,)`.\n        *   Load `r`.\n        *   Pass 1:\n            *   Load `x`, `w`, `dy`.\n            *   Accumulate `acc1` (for `dw`: `x * dy * r`... wait, `dw = sum(x * dy * r)` over M).\n                *   Wait, forward: `y = x * w * r`.\n                *   `dL/dw = dL/dy * dy/dw = dy * x * r`.\n                *   So `dw_partial = x * dy * r`. Sum over M.\n            *   Accumulate `acc2` (for `dx`: `sum(x * w * dy)`).\n        *   Pass 2:\n            *   Compute `dx`.\n            *   Store `dx`.\n            *   Atomic Add `dw`.\n        *   *Correction on Backward Math:*\n            *   `y = x * w * r`\n            *   `L = L(y)`\n            *   `dL/dw = dL/dy * dy/dw = dy * (x * r)`.\n                *   Since `r` depends on `x`, `d(r)/dw` is 0. `r` is invariant to `w`.\n                *   So `dw = sum(dy * x * r)` over the batch dim.\n            *   `dL/dx = dL/dy * dy/dx`.\n                *   `dy/dx = w * r + x * w * dr/dx`.\n                *   `dr/dx` derived earlier: `-r^3 * x / N`.\n                *   `dy/dx = w * r - x * w * r^3 * x / N`.\n                *   `dx = dy * w * r - dy * w * x * x * r^3 / N`.\n                *   `dx = w * r * dy - (w * r^3 / N) * x * (dy * x)`.\n                *   Let `part_sum = sum(w * x * dy)`. (Note: `dy * x * w`).\n                *   `dx = w * r * dy - (r^3 / N) * x * part_sum`.\n\n    *   *Function Wrapper:*\n        *   `def triton_rmsnorm(x, weight, eps)`.\n        *   Ensure inputs are contiguous.\n        *   Handle shapes.\n\n7.  **Implementation Details:**\n    *   `eps` is float.\n    *   `BLOCK_SIZE` config.\n    *   Pointer arithmetic must handle 1D weight input (broadcasted).\n    *   The reference `x.pow(2).mean(dim=-1)` implies `x` is at least 1D.\n    *   Kernel grid: `x.stride(-1)`.\n    *   Total rows: `x.numel() // x.shape[-1]`.\n\n    *   *Backward Implementation specifics:*\n        *   We need `dw` to be zeroed out before atomic adds.\n        *   `tl.atomic_add` requires the pointer to be writeable.\n\n    *   *Refining Atomic Add:*\n        *   `tl.atomic_add(dw_ptr + w_offsets, dw_val)`.\n        *   If `weight` is 1D, `dw_ptr` is 1D.\n        *   Offsets are just `0..N`.\n        *   Loop over `N` in blocks.\n        *   `dw_block_ptr = tl.make_block_ptr(...)`? No, for atomic add we often need specific offsets or `make_block_ptr` doesn\'t support atomic add output directly easily in some versions? Actually `tl.atomic_add` with a `tl.load` and scalar add is standard.\n        *   Wait, `tl.atomic_add` is typically `tl.atomic_add(ptr, value)`.\n        *   To be efficient, we can compute the `dw` values in a buffer, then write? No, `dw` needs to be summed over M. If M is large, we can\'t store all partials. We must atomically add.\n        *   Efficient pattern:\n            *   Inside loop over blocks of `N`:\n                *   Load `x`, `dy`.\n                *   Compute `dw_partial = x * dy * r`.\n                *   `tl.atomic_add(dw_ptr + offsets, dw_partial)`.\n                *   Accumulate `part_sum` for `dx`.\n\n8.  **Final Polish:**\n    *   Function names: `rmsnorm_forward`, `rmsnorm_backward`.\n    *   Export name: `triton_rmsnorm`.\n    *   Check strict formatting rules (no `**`).\n    *   Imports.\n\n    *   *Double check `r` in forward:*\n        *   `variance = x.pow(2).mean(dim=-1, keepdim=True)`\n        *   `x_normed = x * torch.rsqrt(variance + eps)`\n        *   `r = torch.rsqrt(variance + eps)`. `r` has shape `(..., 1)`.\n        *   Backward receives `r`.\n\n    *   *Double check `dw` accumulation:*\n        *   `dw` corresponds to `weight`.\n        *   If `x` is `(M, N)`, `weight` is `(N,)`.\n        *   `dw` must be `(N,)`.\n        *   Each of the `M` programs computes a contribution to `dw`.\n        *   We accumulate using `tl.atomic_add`.\n\n    *   *Config:*\n        *   `BLOCK_SIZE` usually 1024, 2048, 4096.\n\n    *   *Code Structure:*\n        *   Imports.\n        *   Kernel JITs.\n        *   Autotune config.\n        *   `RMSNorm` class (subclass of `torch.autograd.Function`).\n        *   `forward` method.\n        *   `backward` method.\n        *   `triton_rmsnorm` assignment.\n\n    *   *Code check on specific requirements:*\n        *   "No Python\'s ** operator in Triton code" -> `x.pow(2)` in reference is fine. In triton: `x * x` or `tl.pow(x, 2)`.\n        *   "Numerical tolerance": Standard float32 arithmetic usually satisfies `1e-5`.\n        *   "Gradient support": Implemented.\n\n    *   *Kernel implementation details (Block Pointer vs manual offsets):*\n        *   Manual offsets are robust for generic shapes (including non-contiguous if we pass strides).\n        *   Let\'s stick to manual offsets for clarity and compatibility.\n        *   `x` stride: `stride_x_row`, `stride_x_col`.\n        *   `weight` stride: `0` (broadcast), `1`.\n        *   Wait, if `weight` is 1D (size N), and we treat `x` as (M, N), `weight` is (1, N). Strides: (0, 1).\n        *   `dw` is (N,). Strides: (1,).\n        *   Offsets for `x`: `row_offset = pid * stride_x_row`. `col_offset = i`.\n        *   Offsets for `w`: `col_offset`.\n        *   Offsets for `dw`: `col_offset`.\n\n    Let\'s write the code.\n\n```python\nimport torch\nimport triton\nimport triton.language as tl\n\n@triton.autotune(\n    configs=[\n        triton.Config({\'BLOCK_SIZE\': 1024}, num_stages=4, num_warps=4),\n        triton.Config({\'BLOCK_SIZE\': 2048}, num_stages=4, num_warps=8),\n        triton.Config({\'BLOCK_SIZE\': 4096}, num_stages=4, num_warms=4),\n    ],\n    key=[\'N\'],\n)\n@triton.jit\ndef rmsnorm_forward_kernel(\n    x_ptr, w_ptr, y_ptr, r_ptr,\n    stride_x_row, stride_x_col,\n    stride_w,\n    stride_y_row, stride_y_col,\n    stride_r,\n    M, N, eps,\n    BLOCK_SIZE: tl.constexpr,\n):\n    pid = tl.program_id(axis=0)\n    # Calculate base pointer for the current row\n    x_row_ptr = x_ptr + pid * stride_x_row\n    y_row_ptr = y_ptr + pid * stride_y_row\n    r_row_ptr = r_ptr + pid * stride_r # r is (M, 1) or similar? No, r is broadcasted.\n\n    # Accumulate variance\n    var_sum = 0.0\n    for i in range(0, N, BLOCK_SIZE):\n        offsets = i + tl.arange(0, BLOCK_SIZE)\n        mask = offsets < N\n        x = tl.load(x_row_ptr + offsets * stride_x_col, mask=mask, other=0.0).to(tl.float32)\n        var_sum += tl.sum(x * x) # x * x is safer/faster than tl.pow(x, 2)\n\n    mean_var = var_sum / N\n    r = tl.rsqrt(mean_var + eps)\n    \n    # Store r for backward\n    # We store r as a scalar per row? \n    # Reference: x_normed = x * r. r is (M, 1).\n    # If M is large, storing r in a tensor of shape M is efficient.\n    tl.store(r_row_ptr, r)\n\n    # Normalize and Scale\n    for i in range(0, N, BLOCK_SIZE):\n        offsets = i + tl.arange(0, BLOCK_SIZE)\n        mask = offsets < N\n        x = tl.load(x_row_ptr + offsets * stride_x_col, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + offsets * stride_w, mask=mask, other=0.0) # w is (N,) -> stride 0, 1. Here we treat it as 1D relative to loop\n        # Note: w_ptr usually points to 1D tensor. \n        # stride_w passed from caller should be 1 (or 0 if scalar, but here it\'s vector).\n        \n        y = x * w * r\n        tl.store(y_row_ptr + offsets * stride_y_col, y, mask=mask)\n\n@triton.autotune(\n    configs=[\n        triton.Config({\'BLOCK_SIZE\': 1024}, num_stages=4, num_warps=4),\n        triton.Config({\'BLOCK_SIZE\': 2048}, num_stages=4, num_warps=8),\n        triton.Config({\'BLOCK_SIZE\': 4096}, num_stages=4, num_warps=4),\n    ],\n    key=[\'N\'],\n)\n@triton.jit\ndef rmsnorm_backward_kernel(\n    x_ptr, w_ptr, dy_ptr, r_ptr,\n    dx_ptr, dw_ptr,\n    stride_x_row, stride_x_col,\n    stride_w,\n    stride_dy_row, stride_dy_col,\n    stride_r,\n    stride_dx_row, stride_dx_col,\n    M, N,\n    BLOCK_SIZE: tl.constexpr,\n):\n    pid = tl.program_id(axis=0)\n    \n    # Load r (scalar) for this row\n    # r_ptr is (M,) or (M, 1)\n    r = tl.load(r_ptr + pid * stride_r)\n    r3 = r * r * r # r^3\n\n    x_row_ptr = x_ptr + pid * stride_x_row\n    dy_row_ptr = dy_ptr + pid * stride_dy_row\n    dx_row_ptr = dx_ptr + pid * stride_dx_row\n\n    # Accumulate sums for dx and dw\n    # dx term 2 requires: sum(w * x * dy) -> let\'s call it sum_wx_dy\n    # dw requires: sum(x * dy * r) -> let\'s call it sum_x_dy\n    sum_wx_dy = 0.0\n    sum_x_dy = 0.0\n\n    for i in range(0, N, BLOCK_SIZE):\n        offsets = i + tl.arange(0, BLOCK_SIZE)\n        mask = offsets < N\n        \n        x = tl.load(x_row_ptr + offsets * stride_x_col, mask=mask, other=0.0).to(tl.float32)\n        w = tl.load(w_ptr + offsets * stride_w, mask=mask, other=0.0)\n        dy = tl.load(dy_row_ptr + offsets * stride_dy_col, mask=mask, other=0.0).to(tl.float32)\n\n        # dw accumulation\n        # dw = sum(x * dy * r). Since r is constant for the row, we can pull r out or keep in.\n        # Keeping in: val = x * dy * r\n        val_dw = x * dy * r\n        sum_x_dy += tl.sum(val_dw)\n\n        # dx accumulation\n        # Term 2 factor involves sum(w * x * dy)\n        val_dx = w * x * dy\n        sum_wx_dy += tl.sum(val_dx)\n\n    # Compute final factors\n    # dx = w * r * dy - (r^3 / N) * x * sum_wx_dy\n    factor_dx = (r3 / N) * sum_wx_dy\n    \n    # dw = sum_x_dy. We need to atomic add this.\n    # Since we loop over blocks again, we can just load data and atomic add.\n    # But we already computed `sum_x_dy` (the scalar sum for the whole row).\n    # `dw` is a vector of size N. Wait.\n    # My previous derivation: `dw = sum(x * dy * r)`.\n    # `r` is `(M, 1)`. `x` is `(M, N)`. `dy` is `(M, N)`.\n    # `x * dy * r` is `(M, N)`.\n    # Summing over `M` (dim 0) gives `(N,)`.\n    # This means `dw` is not a scalar per row. It is a vector per row that needs reduction across rows.\n    # I made a mistake in the accumulation step above: `sum_x_dy` was calculated as `tl.sum(val_dw)`, which sums over N, giving a scalar for the row.\n    # That is WRONG. `dw` needs to sum over M.\n    # So inside the loop `i` (over N), we calculate `dw_part = x * dy * r`.\n    # We must atomic add `dw_part` to the global `dw` pointer at offsets `i`.\n    \n    # Let\'s restructure the loop to do everything in one pass over N.\n    # dx = w * r * dy - x * factor.\n    # `factor` depends on the sum over N of `w * x * dy`.\n    # This is a dependency. We need the sum over N before we can compute dx.\n    # So we must do TWO passes.\n    \n    # Pass 1: Compute `sum_wx_dy` (scalar sum over N).\n    # Pass 2: Compute `dx` and accumulate `dw`.\n\n    # Pass 1 already done conceptually, but I messed up the `dw` calculation logic above.\n    # Let\'s re-do the kernels cleanly.\n\n    # Forward:\n    # 1. Compute ssq (loop N).\n    # 2. Compute r.\n    # 3. Compute y (loop N).\n    \n    # Backward:\n    # Inputs: x, w, dy, r. M, N.\n    # 1. Loop N to compute `sum_wx_dy = sum(w * x * dy)`.\n    # 2. Compute `factor = (r^3 / N) * sum_wx_dy`.\n    # 3. Loop N:\n    #    Load x, w, dy.\n    #    dx = w * r * dy - x * factor.\n    #    Store dx.\n    #    dw_partial = x * dy * r.\n    #    tl.atomic_add(dw_ptr + offsets, dw_partial).\n```\n\n    *   Wait, `r` in forward is `(M, 1)`.\n    *   `x`, `w`, `dy` are compatible.\n    *   `w` is `(N,)`. In the kernel loop over N, we load `w` element-wise.\n    *   `dw` is `(N,)`.\n    *   `dw_ptr` is base pointer of `dw`.\n    *   `offsets` are `i + tl.arange(...)`.\n    *   `tl.atomic_add(dw_ptr + offsets, val)`.\n\n    *   One detail: `r` in backward kernel.\n    *   In forward: `tl.store(r_row_ptr, r)`.\n    *   `r_row_ptr` points to `r_ptr + pid`. This assumes `r` is 1D with stride 1, or `(M, 1)` with `stride_r_row=1, stride_r_col=0`.\n    *   If `r` is 1D of size M, `stride_r` is 1.\n    *   If `r` is `(M, 1)`, `stride_r_row` is stride of dim 0 (say N+1? no, 1 if dense). `stride_r_col` is 0.\n    *   Kernel interface usually takes flat pointer and stride.\n    *   I will implement `r` as a 1D tensor of size `M`. It\'s the most efficient way to store per-row scalar.\n    *   `r_ptr` stride: 1.\n\n    *   Backward kernel Pass 1:\n        *   Load `r`.\n        *   `sum_wx_dy = 0`.\n        *   Loop N:\n            *   Load `x`, `w`, `dy`.\n            *   `sum_wx_dy += sum(w * x * dy)`.\n    *   Compute `factor`.\n    *   Backward kernel Pass 2:\n        *   Loop N:\n            *   Load `x`, `w`, `dy`.\n            *   Compute `dx`.\n            *   Store `dx`.\n            *   Compute `dw_val`.\n            *   `tl.atomic_add(dw_ptr + offsets, dw_val)`.\n\n    *   Double check `dw_val` calculation.\n        *   `y = x * w * r`.\n        *   `dL/dw = sum(dL/dy * dy/dw)`.\n        *   `dy/dw` refers to how `y` changes wrt `w`. `y = (x*r) * w`.\n        *   So `dy/dw = x * r`.\n        *   `dw_grad = sum(dy * x * r)`.\n        *   Yes, this matches `dw_val = x * dy * r`.\n\n    *   Double check `dx_val` calculation.\n        *   `y = x * w * r`.\n        *   `r` depends on `x`. `w` is constant.\n        *   `y = w * x * (1/sqrt(mean(x^2)+eps))`.\n        *   Derived earlier: `dx = w * r * dy - (r^3 / N) * x * sum(w * x * dy)`.\n        *   `factor = (r^3 / N) * sum_wx_dy`.\n        *   `dx = w * r * dy - x * factor`.\n        *   Wait. `sum_wx_dy` is the sum over the'))], created=1770732484, model='glm-4.7', object='chat.completion', service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=8192, prompt_tokens=486, total_tokens=8678, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=8192, rejected_prediction_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=4)), request_id='20260210220508c3ab2011c97a4dab')
+
+=== REASONING CONTENT ===
+1.  **Analyze the Request:**\n    *   **Goal:** Write a Triton kernel for RMSNorm.\n    *   **Inputs:** `x` (input tensor), `weight` (gamma tensor), `eps` (scalar for numerical stability).\n    *   **Logic:** Compute variance along the last dimension, scale input by `1/sqrt(variance + eps)`, multiply by `weight`.\n    *   **Requirements:**\n        *   Numerical tolerance: `atol=1e-05`, `rtol=1e-05`.\n        *   Gradient support: Yes (Backward pass required).\n        *   Export function name: `triton_rmsnorm`.\n        *   Module level assignment.\n        *   No Python `**` operator in JIT (use `tl.pow` or multiplication).\n        *   Format: Pure Python code, starting with imports. No markdown blocks in the final output.\n\n2.  **Kernel Design (Forward Pass):**\n    *   **Block size:** Need to process blocks of the last dimension. Standard practice is `BLOCK_SIZE = 1024` or similar. Let\
+
+=== EXTRACTED CODE ===
+import triton
+import triton.language as tl
+
+@triton.autotune(
+    configs=[
+        triton.Config({'BLOCK_SIZE': 1024}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE': 2048}, num_stages=4, num_warps=8),
+        triton.Config({'BLOCK_SIZE': 4096}, num_stages=4, num_warms=4),
+    ],
+    key=['N'],
+)
+@triton.jit
+def rmsnorm_forward_kernel(
+    x_ptr, w_ptr, y_ptr, r_ptr,
+    stride_x_row, stride_x_col,
+    stride_w,
+    stride_y_row, stride_y_col,
+    stride_r,
+    M, N, eps,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(axis=0)
+    # Calculate base pointer for the current row
+    x_row_ptr = x_ptr + pid * stride_x_row
+    y_row_ptr = y_ptr + pid * stride_y_row
+    r_row_ptr = r_ptr + pid * stride_r # r is (M, 1) or similar? No, r is broadcasted.
+
+    # Accumulate variance
+    var_sum = 0.0
+    for i in range(0, N, BLOCK_SIZE):
+        offsets = i + tl.arange(0, BLOCK_SIZE)
+        mask = offsets < N
+        x = tl.load(x_row_ptr + offsets * stride_x_col, mask=mask, other=0.0).to(tl.float32)
+        var_sum += tl.sum(x * x) # x * x is safer/faster than tl.pow(x, 2)
+
+    mean_var = var_sum / N
+    r = tl.rsqrt(mean_var + eps)
+    
+    # Store r for backward
+    # We store r as a scalar per row? 
+    # Reference: x_normed = x * r. r is (M, 1).
+    # If M is large, storing r in a tensor of shape M is efficient.
+    tl.store(r_row_ptr, r)
+
+    # Normalize and Scale
+    for i in range(0, N, BLOCK_SIZE):
+        offsets = i + tl.arange(0, BLOCK_SIZE)
+        mask = offsets < N
+        x = tl.load(x_row_ptr + offsets * stride_x_col, mask=mask, other=0.0).to(tl.float32)
+        w = tl.load(w_ptr + offsets * stride_w, mask=mask, other=0.0) # w is (N,) -> stride 0, 1. Here we treat it as 1D relative to loop
+        # Note: w_ptr usually points to 1D tensor. 
+        # stride_w passed from caller should be 1 (or 0 if scalar, but here it's vector).
+        
+        y = x * w * r
+        tl.store(y_row_ptr + offsets * stride_y_col, y, mask=mask)
+
+@triton.autotune(
+    configs=[
+        triton.Config({'BLOCK_SIZE': 1024}, num_stages=4, num_warps=4),
+        triton.Config({'BLOCK_SIZE': 2048}, num_stages=4, num_warps=8),
+        triton.Config({'BLOCK_SIZE': 4096}, num_stages=4, num_warps=4),
+    ],
+    key=['N'],
+)
+@triton.jit
+def rmsnorm_backward_kernel(
+    x_ptr, w_ptr, dy_ptr, r_ptr,
+    dx_ptr, dw_ptr,
+    stride_x_row, stride_x_col,
+    stride_w,
+    stride_dy_row, stride_dy_col,
+    stride_r,
+    stride_dx_row, stride_dx_col,
+    M, N,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(axis=0)
+    
+    # Load r (scalar) for this row
+    # r_ptr is (M,) or (M, 1)
+    r = tl.load(r_ptr + pid * stride_r)
+    r3 = r * r * r # r^3
+
+    x_row_ptr = x_ptr + pid * stride_x_row
+    dy_row_ptr = dy_ptr + pid * stride_dy_row
+    dx_row_ptr = dx_ptr + pid * stride_dx_row
+
+    # Accumulate sums for dx and dw
+    # dx term 2 requires: sum(w * x * dy) -> let's call it sum_wx_dy
+    # dw requires: sum(x * dy * r) -> let's call it sum_x_dy
+    sum_wx_dy = 0.0
+    sum_x_dy = 0.0
+
+    for i in range(0, N, BLOCK_SIZE):
+        offsets = i + tl.arange(0, BLOCK_SIZE)
+        mask = offsets < N
+        
+        x = tl.load(x_row_ptr + offsets * stride_x_col, mask=mask, other=0.0).to(tl.float32)
+        w = tl.load(w_ptr + offsets * stride_w, mask=mask, other=0.0)
+        dy = tl.load(dy_row_ptr + offsets * stride_dy_col, mask=mask, other=0.0).to(tl.float32)
+
+        # dw accumulation
+        # dw = sum(x * dy * r). Since r is constant for the row, we can pull r out or keep in.
+        # Keeping in: val = x * dy * r
+        val_dw = x * dy * r
+        sum_x_dy += tl.sum(val_dw)
+
+        # dx accumulation
+        # Term 2 factor involves sum(w * x * dy)
+        val_dx = w * x * dy
+        sum_wx_dy += tl.sum(val_dx)
+
+    # Compute final factors
+    # dx = w * r * dy - (r^3 / N) * x * sum_wx_dy
+    factor_dx = (r3 / N) * sum_wx_dy
+    
+    # dw = sum_x_dy. We need to atomic add this.
+    # Since we loop over blocks again, we can just load data and atomic add.
+    # But we already computed `sum_x_dy` (the scalar sum for the whole row).
+    # `dw` is a vector of size N. Wait.
+    # My previous derivation: `dw = sum(x * dy * r)`.
+    # `r` is `(M, 1)`. `x` is `(M, N)`. `dy` is `(M, N)`.
+    # `x * dy * r` is `(M, N)`.
+    # Summing over `M` (dim 0) gives `(N,)`.
+    # This means `dw` is not a scalar per row. It is a vector per row that needs reduction across rows.
+    # I made a mistake in the accumulation step above: `sum_x_dy` was calculated as `tl.sum(val_dw)`, which sums over N, giving a scalar for the row.
+    # That is WRONG. `dw` needs to sum over M.
+    # So inside the loop `i` (over N), we calculate `dw_part = x * dy * r`.
+    # We must atomic add `dw_part` to the global `dw` pointer at offsets `i`.
+    
+    # Let's restructure the loop to do everything in one pass over N.
+    # dx = w * r * dy - x * factor.
+    # `factor` depends on the sum over N of `w * x * dy`.
+    # This is a dependency. We need the sum over N before we can compute dx.
+    # So we must do TWO passes.
+    
+    # Pass 1: Compute `sum_wx_dy` (scalar sum over N).
+    # Pass 2: Compute `dx` and accumulate `dw`.
+
+    # Pass 1 already done conceptually, but I messed up the `dw` calculation logic above.
+    # Let's re-do the kernels cleanly.
+
+    # Forward:
+    # 1. Compute ssq (loop N).
+    # 2. Compute r.
+    # 3. Compute y (loop N).
+    
+    # Backward:
+    # Inputs: x, w, dy, r. M, N.
+    # 1. Loop N to compute `sum_wx_dy = sum(w * x * dy)`.
+    # 2. Compute `factor = (r^3 / N) * sum_wx_dy`.
+    # 3. Loop N:
+    #    Load x, w, dy.
+    #    dx = w * r * dy - x * factor.
+    #    Store dx.
+    #    dw_partial = x * dy * r.
+    #    tl.atomic_add(dw_ptr + offsets, dw_partial).

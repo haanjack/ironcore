@@ -1,0 +1,236 @@
+=== PROMPT ===
+You are an expert GPU kernel developer. Write a triton kernel for the following specification.
+
+# Your code MUST start exactly with these 3 lines - no exceptions:
+import torch
+import triton
+import triton.language as tl
+
+## Kernel Specification
+Name: rmsnorm
+Description: Fused RMSNorm: normalize by RMS then scale by weight
+
+## Reference Implementation (PyTorch)
+```python
+def _reference_rmsnorm(x, weight, eps):
+    """PyTorch reference: RMSNorm forward."""
+    variance = x.pow(2).mean(dim=-1, keepdim=True)
+    x_normed = x * torch.rsqrt(variance + eps)
+    return x_normed * weight
+
+```
+
+## CRITICAL: Your code must follow this structure:
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(..., BLOCK_SIZE: tl.constexpr):
+    # actual Triton code here
+    ...
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ...):
+        ...
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ...
+
+def triton_rmsnorm(...):
+    return MyFunction.apply(...)
+```
+
+Rules:
+1. Start exactly with `import torch`
+2. Use @triton.jit (not @triton.autotune)
+3. Use tl.pow() for power operations (NOT **)
+4. Complete implementation - NO placeholders, NO "...", NO "#TODO"
+5. Return ONLY Python code, no markdown blocks
+6. **CRITICAL**: Handle arbitrary input shapes by reshaping to 2D:
+   - In forward: `original_shape = x.shape; x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`
+   - Process `x_reshaped` with kernel
+   - Return output reshaped to `original_shape`
+   - Do the same reshaping for grad_output in backward
+7. Pass `x_reshaped.stride(0)` as stride to kernel (not `x.stride()`)
+
+Generate the full kernel now:
+
+=== RAW RESPONSE ===
+ChatCompletion(id='2026021022553107f48372837340f8', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```python\nimport torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(\n    x_ptr, y_ptr, w_ptr,\n    stride_x_m, stride_x_k,\n    stride_y_m, stride_y_k,\n    n_cols, eps,\n    BLOCK_SIZE: tl.constexpr\n):\n    row = tl.program_id(0)\n    \n    # Pass 1: Compute Variance\n    _var = tl.zeros([BLOCK_SIZE], dtype=tl.float32)\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k\n        x = tl.load(x_ptrs, mask=mask, other=0.0)\n        _var = tl.sum(tl.pow(x, 2), axis=0) + _var\n    \n    var = tl.sum(_var, axis=0) / n_cols\n    rstd = tl.rsqrt(var + eps)\n    \n    # Pass 2: Compute Output\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k\n        x = tl.load(x_ptrs, mask=mask, other=0.0)\n        \n        w_ptrs = w_ptr + cols\n        w = tl.load(w_ptrs, mask=mask, other=0.0)\n        \n        y = x * rstd * w\n        \n        y_ptrs = y_ptr + row * stride_y_m + cols * stride_y_k\n        tl.store(y_ptrs, y, mask=mask)\n\n@triton.jit\ndef backward_kernel(\n    x_ptr, dy_ptr, w_ptr, dw_ptr, dx_ptr,\n    stride_x_m, stride_x_k,\n    stride_dy_m, stride_dy_k,\n    stride_dx_m, stride_dx_k,\n    n_cols, eps,\n    BLOCK_SIZE: tl.constexpr\n):\n    row = tl.program_id(0)\n    \n    # Pass 1: Compute statistics needed for backward\n    # We need sum(x^2) to compute rstd again (or pass it forward)\n    # We need sum(dy * w * x)\n    _sum_x2 = tl.zeros([BLOCK_SIZE], dtype=tl.float32)\n    _sum_dsx = tl.zeros([BLOCK_SIZE], dtype=tl.float32)\n    \n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        \n        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k\n        x = tl.load(x_ptrs, mask=mask, other=0.0)\n        \n        dy_ptrs = dy_ptr + row * stride_dy_m + cols * stride_dy_k\n        dy = tl.load(dy_ptrs, mask=mask, other=0.0)\n        \n        w_ptrs = w_ptr + cols\n        w = tl.load(w_ptrs, mask=mask, other=0.0)\n        \n        ds = dy * w\n        \n        _sum_x2 = tl.sum(tl.pow(x, 2), axis=0) + _sum_x2\n        _sum_dsx = tl.sum(ds * x, axis=0) + _sum_dsx\n        \n    sum_x2 = tl.sum(_sum_x2, axis=0)\n    sum_dsx = tl.sum(_sum_dsx, axis=0)\n    \n    var = sum_x2 / n_cols\n    rstd = tl.rsqrt(var + eps)\n    \n    # Pass 2: Compute Gradients\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        \n        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k\n        x = tl.load(x_ptrs, mask=mask, other=0.0)\n        \n        dy_ptrs = dy_ptr + row * stride_dy_m + cols * stride_dy_k\n        dy = tl.load(dy_ptrs, mask=mask, other=0.0)\n        \n        w_ptrs = w_ptr + cols\n        w = tl.load(w_ptrs, mask=mask, other=0.0)\n        \n        ds = dy * w\n        \n        # dx = ds * rstd - x * (sum_dsx / n_cols) * (rstd ** 3)\n        # Note: rstd**3 = rstd * rstd * rstd\n        term1 = ds * rstd\n        term2 = x * (sum_dsx / n_cols) * (rstd * rstd * rstd)\n        dx = term1 - term2\n        \n        dx_ptrs = dx_ptr + row * stride_dx_m + cols * stride_dx_k\n        tl.store(dx_ptrs, dx, mask=mask)\n        \n        # dw = dy * x * rstd\n        # Atomic add because multiple rows write to the same weight location\n        dw_partial = dy * x * rstd\n        dw_ptrs = dw_ptr + cols\n        tl.atomic_add(dw_ptrs, dw_partial, mask=mask)\n\nclass RMSNormFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x, weight, eps):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        rows, n_cols = x_reshaped.shape\n        \n        y = torch.empty_like(x_reshaped)\n        \n        BLOCK_SIZE = 1024\n        grid = lambda meta: (rows, )\n        \n        forward_kernel[grid](\n            x_reshaped, y, weight,\n            x_reshaped.stride(0), x_reshaped.stride(1),\n            y.stride(0), y.stride(1),\n            n_cols, eps,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n        \n        ctx.save_for_backward(x_reshaped, weight)\n        ctx.eps = eps\n        ctx.original_shape = original_shape\n        ctx.BLOCK_SIZE = BLOCK_SIZE\n        \n        return y.reshape(original_shape)\n    \n    @staticmethod\n    def backward(ctx, grad_output):\n        original_shape = grad_output.shape\n        grad_output_reshaped = grad_output.reshape(-1, original_shape[-1]).contiguous()\n        \n        x_reshaped, weight = ctx.saved_tensors\n        eps = ctx.eps\n        BLOCK_SIZE = ctx.BLOCK_SIZE\n        \n        rows, n_cols = x_reshaped.shape\n        \n        dx = torch.empty_like(x_reshaped)\n        dw = torch.empty_like(weight)\n        \n        grid = lambda meta: (rows, )\n        \n        backward_kernel[grid](\n            x_reshaped, grad_output_reshaped, weight, dw, dx,\n            x_reshaped.stride(0), x_reshaped.stride(1),\n            grad_output_reshaped.stride(0), grad_output_reshaped.stride(1),\n            dx.stride(0), dx.stride(1),\n            n_cols, eps,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n        \n        return dx.reshape(original_shape), dw, None\n\ndef triton_rmsnorm(x, weight, eps=1e-5):\n    return RMSNormFunction.apply(x, weight, eps)\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None, reasoning_content='<\nthought>\nThe user wants a Triton kernel for RMSNorm, including forward and backward passes, wrapped in a PyTorch autograd function.\nThe implementation must strictly follow the specified structure and rules.\n\n**Key Requirements:**\n1.  **Imports:** Start with `import torch`, `import triton`, `import triton.language as tl`.\n2.  **Structure:** `@triton.jit` forward kernel, `@triton.jit` backward kernel, `MyFunction` class, and a wrapper function `triton_rmsnorm`.\n3.  **Forward Logic:**\n    *   Compute variance: mean of squares over the last dimension.\n    *   Compute reciprocal square root: `rsqrt(variance + eps)`.\n    *   Scale input.\n    *   Multiply by weight.\n    *   Reshape input to 2D `(rows, hidden_dim)` to handle arbitrary shapes.\n4.  **Backward Logic:**\n    *   Gradients with respect to `x`:\n        *   Let $y = \\frac{x}{\\sqrt{\\sigma^2 + \\epsilon}} \\cdot w$\n        *   Where $\\sigma^2 = \\frac{1}{N} \\sum x_i^2$.\n        *   $\\bar{x} = \\bar{y} \\cdot w \\cdot \\frac{1}{\\sqrt{\\sigma^2 + \\epsilon}} - \\frac{1}{N} \\frac{1}{(\\sigma^2 + \\epsilon)^{3/2}} (\\bar{y} \\cdot w \\cdot x) \\sum x$\n        *   Wait, let\'s derive the RMSNorm backward properly.\n        *   $\\mu = \\frac{1}{n} \\sum x_i^2$\n        *   $\\hat{x} = \\frac{x}{\\sqrt{\\mu + \\epsilon}}$\n        *   $y = \\gamma \\hat{x}$\n        *   $\\frac{\\partial L}{\\partial x} = \\frac{\\partial L}{\\partial y} \\frac{\\partial y}{\\partial x} = \\frac{\\partial L}{\\partial y} \\gamma \\frac{\\partial \\hat{x}}{\\partial x}$\n        *   Let $s = \\sqrt{\\mu + \\epsilon}$.\n        *   $\\hat{x}_i = x_i s^{-1}$\n        *   $\\frac{\\partial \\hat{x}_i}{\\partial x_i} = s^{-1} - \\frac{1}{2} s^{-3} \\cdot \\frac{\\partial \\mu}{\\partial x_i}$\n        *   $\\frac{\\partial \\mu}{\\partial x_i} = \\frac{2}{n} x_i$\n        *   $\\frac{\\partial \\hat{x}_i}{\\partial x_i} = s^{-1} - \\frac{1}{n} s^{-3} x_i^2$\n        *   $\\bar{y}_i = \\frac{\\partial L}{\\partial y_i}$.\n        *   $\\bar{x}_i = \\bar{y}_i \\gamma_i (s^{-1} - \\frac{1}{n} s^{-3} x_i^2)$\n        *   Note: For the first term, we need $\\sum (\\bar{y} \\cdot \\gamma)$. For the second term, we need $\\sum (\\bar{y} \\cdot \\gamma \\cdot x)$. Wait, the term inside the sum involves $x_i$. Let\'s re-check.\n        *   $\\bar{x}_i = \\bar{y}_i \\gamma_i s^{-1} - \\bar{y}_i \\gamma_i \\frac{1}{n} s^{-3} x_i^2$.\n        *   Let $ds = \\bar{y} \\cdot \\gamma$.\n        *   Term 1: $ds \\cdot s^{-1}$.\n        *   Term 2: $\\frac{1}{n} s^{-3} \\sum (ds \\cdot x) \\cdot x$.\n        *   $\\bar{x} = \\frac{ds}{s} - \\frac{x}{n \\cdot s^3} \\sum (ds \\cdot x)$.\n        *   This looks standard for LayerNorm-like operations where the mean is 0. RMSNorm is simpler because mean is not subtracted.\n    *   Gradients with respect to `weight`:\n        *   $\\frac{\\partial L}{\\partial \\gamma} = \\sum \\frac{\\partial L}{\\partial y} \\hat{x}$.\n5.  **Reshaping:** The user explicitly asks to reshape to 2D and use strides of the reshaped tensor.\n    *   `original_shape = x.shape`\n    *   `x_reshaped = x.reshape(-1, x.shape[-1])`\n    *   Pass `x_reshaped.stride(0)` and `x_reshaped.stride(1)`.\n6.  **Triton specifics:**\n    *   `tl.program_id(0)` for the row index.\n    *   Pointers for `x`, `y`, `w`.\n    *   Load block of `x`. Compute variance. Compute `y`. Store `y`.\n    *   Backward: Load block of `x`, `dy`, `w`. Compute intermediates. Store `dx`, `dw`.\n7.  **No `@triton.autotune`.** I need to pick a `BLOCK_SIZE`. 1024 or 2048 is usually good for hidden dimensions, but since it\'s hardcoded without tuning, I\'ll pick 1024 as a safe default or maybe 2048. Let\'s go with 1024.\n\n**Kernel Implementation Details:**\n\n*   **Forward:**\n    *   `row = tl.program_id(0)`\n    *   `col_offsets = row * stride_x_0 + tl.arange(0, BLOCK_SIZE) * stride_x_1`\n    *   `mask = col_offsets < n_cols`\n    *   `x_ptrs = x + col_offsets`\n    *   `x_block = tl.load(x_ptrs, mask=mask, other=0.0)`\n    *   `var = tl.sum(tl.pow(x_block, 2), axis=0) / n_cols`\n    *   `rstd = tl.rsqrt(var + eps)`\n    *   `y_block = x_block * rstd * w_block` (Need to load w_block correctly, w is 1D usually or 2D broadcasted. The spec implies `weight` is 1D matching last dim of x).\n    *   Wait, `weight` is usually shape `(hidden_dim,)`.\n    *   `w_ptrs = w + tl.arange(0, BLOCK_SIZE)` (Assuming stride 1 for w).\n    *   `w_block = tl.load(w_ptrs, mask=mask, other=0.0)`\n    *   `y_block = x_block * rstd * w_block`\n    *   `y_ptrs = y + row * stride_y_0 + tl.arange(0, BLOCK_SIZE) * stride_y_1`\n    *   `tl.store(y_ptrs, y_block, mask=mask)`\n\n*   **Backward:**\n    *   Inputs: `dy` (grad_output), `x`, `w`, `rstd` (calculated in forward? No, calculate again or save).\n    *   Efficient backward usually requires recomputing statistics or storing them. Storing `rstd` is common.\n    *   Let\'s recompute `rstd` in backward to save memory bandwidth/activation storage if it\'s cheap, but it requires loading `x`.\n    *   Given the request structure, I will recompute `var` and `rstd` inside the backward kernel.\n    *   Variables:\n        *   `x_block`: input\n        *   `dy_block`: grad output\n        *   `w_block`: weights\n        *   `var`: sum(x^2)/N\n        *   `rstd`: rsqrt(var + eps)\n    *   Calculation:\n        *   `dx_part1 = dy_block * w_block * rstd`\n        *   `sum_ds_x = tl.sum(dx_part1 * x_block, axis=0)` -> This is wrong dimension. `axis=0` is reducing the block?\n        *   In Triton, if we process a row, `x_block` is shape `(BLOCK_SIZE,)`.\n        *   `var = tl.sum(x_block**2) / N` -> scalar.\n        *   `rstd` -> scalar.\n        *   `w` -> loaded vector.\n        *   `dy` -> loaded vector.\n        *   `ds = dy * w`. (vector)\n        *   `dx`:\n            *   Term 1: `ds * rstd`.\n            *   Term 2 correction: $\\frac{1}{N s^3} (\\sum (ds \\cdot x)) x$.\n            *   `sum_dsx = tl.sum(ds * x)`. (scalar).\n            *   `dx = (ds - (x * sum_dsx) / (N * s^2)) * (1/s)`.\n            *   Wait, algebra check:\n            *   $\\frac{ds}{s} - \\frac{x \\sum(ds \\cdot x)}{N s^3} = \\frac{ds \\cdot N s^2 - x \\sum(ds \\cdot x)}{N s^3}$.\n            *   $N s^2$ is effectively $N(\\mu + \\epsilon)$. Since $s^2 = \\mu + \\epsilon$.\n            *   This looks computationally heavy.\n            *   Standard derivation: $d_i = \\sum \\bar{y}_j \\gamma_j \\frac{\\partial \\hat{x}_j}{\\partial x_i}$.\n            *   Since $i \\neq j$, $\\frac{\\partial \\hat{x}_j}{\\partial x_i} = -\\frac{1}{2} s^{-3} \\frac{2}{n} x_j$.\n            *   $d_i = \\bar{y}_i \\gamma_i s^{-1} + \\sum_{j \\neq i} \\bar{y}_j \\gamma_j (- \\frac{1}{n} s^{-3} x_j)$.\n            *   $d_i = \\bar{y}_i \\gamma_i s^{-1} - \\frac{1}{n} s^{-3} \\sum_j \\bar{y}_j \\gamma_j x_j$.\n            *   $\\bar{x}_i = \\frac{\\bar{y}_i \\gamma_i}{s} - \\frac{x_i}{n \\cdot s^3} \\sum_j (\\bar{y}_j \\gamma_j x_j)$.\n            *   Let $ds = \\bar{y} \\gamma$.\n            *   $s\\_inv = 1/s$.\n            *   $c = \\frac{1}{n} \\sum (ds \\cdot x)$.\n            *   $\\bar{x}_i = ds_i \\cdot s\\_inv - x_i \\cdot c \\cdot s\\_inv^3$.\n            *   Wait, $1/s^3 = (1/s)^3$.\n            *   Correct formula: `dx = (ds - x * mean(ds * x)) * (1/s)`. No.\n            *   `dx = ds * (1/s) - x * (1/(n*s^3)) * sum(ds*x)`.\n            *   Common optimization:\n                *   `norm_factor = 1.0 / (n * s)` ? No.\n                *   `sum_val = sum(ds * x)`.\n                *   `dx = ds / s - x * sum_val / (n * s * s * s)`.\n    *   `dw`:\n        *   $\\frac{\\partial L}{\\partial \\gamma} = \\sum \\bar{y} \\hat{x}$.\n        *   $\\hat{x} = x / s$.\n        *   $dw = \\sum \\bar{y} \\cdot (x / s)$.\n        *   Reduction over batch dimension?\n        *   In the backward kernel, `program_id(0)` usually iterates over rows (batch dim).\n        *   For `dw`, we need to sum across all rows. This implies a grid reduction strategy (2-pass) or atomic adds.\n        *   However, given the prompt\'s constraints ("Generate only the kernel code", specific structure), implementing a full 2-pass reduction for `dw` might be overkill/complex if I\'m expected to fit a simple pattern.\n        *   Usually, in these simple Triton tutorials/implementations, if `dw` is needed, it\'s either done in Python (if small) or via an atomics kernel.\n        *   BUT, `weight` is 1D. `x` is 2D (M, N).\n        *   `dw` has size N. Each kernel instance processes one row of size N.\n        *   Each instance computes `partial_dw = dy * (x / s)`.\n        *   We need to accumulate these partial `dw`s.\n        *   Simplest valid Triton approach: Atomic adds.\n        *   `tl.atomic_add(dw_ptrs, partial_dw, mask=mask)`.\n        *   This is slow but correct for a generic implementation without complex reduction logic.\n\n**Code Structure Refinement:**\n\n1.  **Imports:** Standard.\n2.  **Forward Kernel:**\n    *   Args: `x_ptr`, `y_ptr`, `w_ptr`, `stride_x_0`, `stride_x_1`, `stride_y_0`, `stride_y_1`, `n_cols`, `eps`, `BLOCK_SIZE`.\n3.  **Backward Kernel:**\n    *   Args: `x_ptr`, `dy_ptr`, `dw_ptr`, `dx_ptr`, `stride_x_0`, `stride_x_1`, `stride_dy_0`, ... `n_cols`, `eps`, `BLOCK_SIZE`.\n    *   Computes `x` var, `rstd`.\n    *   Computes `dx`.\n    *   Computes `partial_dw`.\n    *   Stores `dx`.\n    *   Atomics to `dw_ptr`.\n4.  **Autograd Function:**\n    *   `forward`: Reshape, call kernel, save tensors (x, weight, rstd? or just recompute in backward? Recomputing is usually better for memory, easier to code).\n    *   `backward`: Reshape `grad_output`, call kernel.\n5.  **Wrapper:** `triton_rmsnorm(x, weight, eps)`.\n\n**Corner Cases:**\n*   Hidden dimension not divisible by BLOCK_SIZE. Handled by `mask` and `other=0`.\n*   Multi-dimensional input. Handled by reshape.\n\n**Reshaping Rules from Prompt:**\n*   `original_shape = x.shape`\n*   `x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`\n*   Pass `x_reshaped.stride(0)` and `x_reshaped.stride(1)`.\n*   Return output reshaped to `original_shape`.\n\nLet\'s write the code.\n\n```python\nimport torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef rmsnorm_forward_kernel(\n    x_ptr, y_ptr, w_ptr,\n    stride_x_0, stride_x_1,\n    stride_y_0, stride_y_1,\n    n_cols, eps,\n    BLOCK_SIZE: tl.constexpr\n):\n    row = tl.program_id(0)\n    col_offsets = tl.arange(0, BLOCK_SIZE)\n    \n    # Calculate offsets for x\n    x_offsets = row * stride_x_0 + col_offsets * stride_x_1\n    x_mask = col_offsets < n_cols\n    x = tl.load(x_ptr + x_offsets, mask=x_mask, other=0.0)\n    \n    # Compute variance and rstd\n    var = tl.sum(tl.pow(x, 2), axis=0) / n_cols\n    rstd = tl.rsqrt(var + eps)\n    \n    # Load weights (assuming weight is 1D vector of size n_cols, stride 1)\n    w = tl.load(w_ptr + col_offsets, mask=x_mask, other=0.0)\n    \n    # Compute output\n    y = x * rstd * w\n    \n    # Store output\n    y_offsets = row * stride_y_0 + col_offsets * stride_y_1\n    tl.store(y_ptr + y_offsets, y, mask=x_mask)\n\n@triton.jit\ndef rmsnorm_backward_kernel(\n    x_ptr, dy_ptr, dw_ptr, dx_ptr,\n    stride_x_0, stride_x_1,\n    stride_dy_0, stride_dy_1,\n    stride_dx_0, stride_dx_1,\n    n_cols, eps,\n    BLOCK_SIZE: tl.constexpr\n):\n    row = tl.program_id(0)\n    col_offsets = tl.arange(0, BLOCK_SIZE)\n    mask = col_offsets < n_cols\n    \n    # Load inputs and grads\n    x_offsets = row * stride_x_0 + col_offsets * stride_x_1\n    x = tl.load(x_ptr + x_offsets, mask=mask, other=0.0)\n    \n    dy_offsets = row * stride_dy_0 + col_offsets * stride_dy_1\n    dy = tl.load(dy_ptr + dy_offsets, mask=mask, other=0.0)\n    \n    # Compute stats\n    var = tl.sum(tl.pow(x, 2), axis=0) / n_cols\n    rstd = tl.rsqrt(var + eps)\n    \n    # Load weights for gradient calculation\n    # Note: We need weights to compute dL/dx. \n    # However, if we didn\'t save weights in forward (we saved in ctx), \n    # we need to pass w_ptr to backward.\n    # Wait, usually w is available in ctx.\n    w_offsets = col_offsets # Weight is 1D, stride 1\n    w = tl.load(w_ptr + w_offsets, mask=mask, other=0.0)\n    \n    # dL/dx\n    # ds = dy * w\n    ds = dy * w\n    # sum_dsx = sum(ds * x) / n_cols\n    sum_dsx = tl.sum(ds * x, axis=0) / n_cols\n    # dx = ds * rstd - x * sum_dsx * rstd * rstd * rstd?\n    # Formula: dx = ds * rstd - x * (sum(ds * x) / n_cols) * (rstd ** 3)\n    dx = ds * rstd - x * sum_dsx * (rstd * rstd * rstd)\n    \n    dx_offsets = row * stride_dx_0 + col_offsets * stride_dx_1\n    tl.store(dx_ptr + dx_offsets, dx, mask=mask)\n    \n    # dL/dw\n    # dw = sum(dy * (x * rstd)) over batch dim.\n    # Inside kernel: partial_dw = dy * x * rstd\n    # We need atomic add because multiple rows (program_ids) write to same dw element\n    partial_dw = dy * x * rstd\n    tl.atomic_add(dw_ptr + w_offsets, partial_dw, mask=mask)\n\nclass RMSNormFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x, weight, eps):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        rows, n_cols = x_reshaped.shape\n        \n        y = torch.empty_like(x_reshaped)\n        \n        # Grid setup\n        BLOCK_SIZE = 1024 # Must be constexpr, so hardcoded or passed via wrapper\n        grid = lambda meta: (rows, )\n        \n        # Strides\n        stride_x_0, stride_x_1 = x_reshaped.stride(0), x_reshaped.stride(1)\n        stride_y_0, stride_y_1 = y.stride(0), y.stride(1)\n        \n        triton.runtime.driver.active.utils.launch_kernel(\n            rmsnorm_forward_kernel[grid](\n                x_reshaped, y, weight,\n                stride_x_0, stride_x_1,\n                stride_y_0, stride_y_1,\n                n_cols, eps,\n                BLOCK_SIZE=BLOCK_SIZE\n            )\n        )\n        \n        # Save for backward\n        ctx.save_for_backward(x_reshaped, weight)\n        ctx.eps = eps\n        ctx.original_shape = original_shape\n        \n        return y.reshape(original_shape)\n    \n    @staticmethod\n    def backward(ctx, grad_output):\n        # grad_output is the gradient w.r.t y\n        original_shape = grad_output.shape\n        grad_output_reshaped = grad_output.reshape(-1, original_shape[-1]).contiguous()\n        \n        x_reshaped, weight = ctx.saved_tensors\n        eps = ctx.eps\n        \n        rows, n_cols = x_reshaped.shape\n        \n        dx = torch.empty_like(x_reshaped)\n        dw = torch.empty_like(weight)\n        \n        BLOCK_SIZE = 1024\n        grid = lambda meta: (rows, )\n        \n        stride_x_0, stride_x_1 = x_reshaped.stride(0), x_reshaped.stride(1)\n        stride_dy_0, stride_dy_1 = grad_output_reshaped.stride(0), grad_output_reshaped.stride(1)\n        stride_dx_0, stride_dx_1 = dx.stride(0), dx.stride(1)\n        \n        # Note: weight is 1D, stride is implicit in pointer arithmetic or passed as 0/1?\n        # Kernel assumes weight pointer + col_offsets. So stride 1.\n        # The kernel takes stride args for x/dy/dx. For w/dw, it assumes flat 1D access.\n        \n        triton.runtime.driver.active.utils.launch_kernel(\n            rmsnorm_backward_kernel[grid](\n                x_reshaped, grad_output_reshaped, dw, dx,\n                stride_x_0, stride_x_1,\n                stride_dy_0, stride_dy_1,\n                stride_dx_0, stride_dx_1,\n                n_cols, eps,\n                BLOCK_SIZE=BLOCK_SIZE\n            )\n        )\n        \n        return dx.reshape(original_shape), dw, None\n\ndef triton_rmsnorm(x, weight, eps=1e-5):\n    return RMSNormFunction.apply(x, weight, eps)\n```\n\n**Wait, I need to verify the `launch_kernel` syntax.**\nUsually, people use `kernel[grid](...)`. `triton.runtime.driver.active.utils.launch_kernel` is the internal way.\nThe prompt asks for `@triton.jit`.\nUsually:\n```python\nrmsnorm_forward_kernel[grid](\n    x_reshaped, y, weight,\n    stride_x_0, stride_x_1,\n    stride_y_0, stride_y_1,\n    n_cols, eps,\n    BLOCK_SIZE=BLOCK_SIZE\n)\n```\nThis is the standard syntax. I will use that.\n\n**Checking constraints:**\n1. Start with imports? Yes.\n2. `@triton.jit`? Yes.\n3. `tl.pow`? Yes.\n4. Complete implementation? Yes.\n5. Only Python code? Yes.\n6. Arbitrary shape handling (reshape to 2D)? Yes.\n7. Pass `x_reshaped.stride(0)`? Yes.\n8. Structure `MyFunction`? Yes.\n\n**One logic check on Backward `dw`:**\nThe backward kernel iterates over rows.\n`dw` is size `n_cols`.\nInside the kernel:\n`partial_dw = dy * x * rstd`. Shape `(BLOCK_SIZE,)`.\n`tl.atomic_add(dw_ptr + col_offsets, partial_dw, mask=mask)`.\nThis accumulates the sum for each column `i` across all rows.\nThis is correct.\n\n**One logic check on `weight` access:**\nForward: `w` is passed. `tl.load(w_ptr + col_offsets)`.\nBackward: `w` is passed from `ctx`. `tl.load(w_ptr + col_offsets)`.\nSince `weight` is provided as a tensor argument in `forward`, and saved in `ctx`, in `backward`, it is accessible via `ctx.saved_tensors`.\nThe pointer `w_ptr` in the kernel is the `data_ptr` of the `weight` tensor.\nWait, if `weight` is saved, `weight.data_ptr()` points to the memory.\nIn forward, we read `weight`.\nIn backward, we read `weight` again (it\'s a parameter).\nAnd we write to `dw`.\nDoes the backward kernel need the `weight` pointer?\nYes, for `ds = dy * w`.\nDoes it need the `dw` pointer?\nYes, to write to it.\nSo the kernel args should be `... w_ptr, dw_ptr ...`.\n\n**Refining the backward kernel arguments:**\n`def rmsnorm_backward_kernel(x_ptr, dy_ptr, w_ptr, dw_ptr, dx_ptr, ...)`\n\n**Refining Block Size:**\nIf I hardcode 1024, and the hidden dimension is 4096 (common in LLMs), the loop needs multiple iterations?\nThe code provided uses `col_offsets = tl.arange(0, BLOCK_SIZE)`.\nIf `n_cols > BLOCK_SIZE`, we need a loop.\nThe prompt says "Handle arbitrary input shapes". It doesn\'t explicitly say "handle hidden dimensions larger than BLOCK_SIZE with a loop", but a robust kernel should.\nHowever, simple tutorial kernels often assume `n_cols <= BLOCK_SIZE` or just `BLOCK_SIZE` is chosen large enough.\nGiven "expert GPU kernel developer", I should probably handle the loop or pick a large block size.\nBut `tl.atomic_add` inside a loop is tricky with atomics? No, just iterate.\nActually, to keep it concise and match the simplicity of the provided reference, I\'ll assume `BLOCK_SIZE` covers the dimension or use a loop.\nUsing a loop is safer.\n`for i in range(tl.cdiv(n_cols, BLOCK_SIZE)):`\nHowever, Triton kernels with loops are slightly more complex.\nLet\'s stick to the single-block-per-row approach. If `n_cols` is large, 1024 might fail.\nI\'ll define `BLOCK_SIZE` as a variable in the python function and pass it.\nI will assume the user might have large dimensions.\nActually, checking the prompt again: "Handle arbitrary input shapes by reshaping to 2D".\nIf I pick `BLOCK_SIZE = 2048`, it covers most cases up to 2048.\nFor arbitrary (e.g. 4096), I really should loop.\nBut loop overhead + atomics + complexity...\nLet\'s look at the standard "Triton RMSNorm" examples. They usually loop over the dimension if it\'s large.\nExample:\n```python\n    # Loop over columns\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        # load, compute, store\n```\nI will include this loop logic to ensure correctness for arbitrary `n_cols`.\n\n**Loop Logic details:**\nForward:\n```python\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x_ptrs = x_ptr + row * stride_x_0 + cols * stride_x_1\n        x_block = tl.load(x_ptrs, mask=mask, other=0.0)\n        # Accumulate variance\n        # Wait, variance is a scalar reduction over the whole row.\n        # We need to accumulate across blocks.\n```\nIf we use a loop, we need to store partial sums.\nLet\'s go with the simpler assumption: `BLOCK_SIZE` is large enough, or we just process one block.\nHowever, "arbitrary input shapes" is the requirement.\nIf I strictly follow "arbitrary shapes", I must handle `n_cols > BLOCK_SIZE`.\nBut writing a reduction kernel that accumulates `x^2` across blocks efficiently requires a shared memory buffer or register accumulation.\nGiven the prompt\'s simplicity (no autotune, specific structure), I will assume a single block per row is sufficient or acceptable for the scope of this generated code, OR I will write a loop but be careful with the accumulation.\n\nActually, simpler approach: just make `BLOCK_SIZE` large, like 4096 or 8192, but stack size limits apply.\nLet\'s look at the `BLOCK_SIZE` usage in the prompt: `BLOCK_SIZE: tl.constexpr`.\nLet\'s stick to the single-pass version without loops for code clarity, as fully generic loop-based Triton kernels for reduction norms are significantly longer.\nWait, I can choose `BLOCK_SIZE = 1024` and hope the user knows. But the prompt says "arbitrary".\nOkay, I will use `range(tl.cdiv(n_cols, BLOCK_SIZE))` and a loop.\nTo accumulate variance:\n`var = tl.zeros((), dtype=tl.float32)`\n`for off in ...:`\n  `x = ...`\n  `var += tl.sum(x**2)`\n`var /= n_cols`\n\nThen second loop for output?\nOr compute `rstd` first, then second loop for `y`.\nThis requires two passes over the data (or caching `x` in registers/SMEM).\nCaching `x` in SMEM is complex.\nStandard Triton approach for LayerNorm/RMSNorm:\n1. Loop 1: Compute Mean/Variance. (Stream load `x`, compute, accumulate).\n2. Compute Rstd.\n3. Loop 2: Apply normalization. (Stream load `x` again? Or load from SMEM? Loading from global memory is fine if `x` is in cache).\n\nThis is the correct expert way. I will implement the two-pass approach.\n\n**Revised Plan:**\n\n**Forward:**\n1. `variance = tl.zeros(...)`\n2. `for off in range(0, n_cols, BLOCK_SIZE):` Load `x`. `variance += tl.sum(x**2)`.\n3. `variance /= n_cols`. `rstd = rsqrt(...)`.\n4. `for off in range(0, n_cols, BLOCK_SIZE):` Load `x`. Load `w`. `y = x * rstd * w`. Store `y`.\n\n**Backward:**\n1. `sum_dsx = tl.zeros(...)`\n2. Loop 1:\n   Load `x`, `dy`, `w`.\n   Compute `ds = dy * w`.\n   `sum_dsx += tl.sum(ds * x)`.\n   Compute `partial_dw = dy * x`. Wait, `rstd` is needed for `dw` too.\n   `partial_dw = dy * x`. We need `rstd`.\n   So we must compute `rstd` first.\n   We also need `x` again for the second pass if we stream it.\n   \n   Pass 1: Compute `sum_x2` (for `variance`) and `sum_dsx` (for `dx`).\n   `variance += tl.sum(x**2)`\n   `ds = dy * w`\n   `sum_dsx += tl.sum(ds * x)`\n   \n   `rstd = rsqrt(variance/n + eps)`\n   \n   Pass 2: Compute `dx` and `dw`.\n   Load `x`, `dy`, `w`.\n   `ds = dy * w`\n   `dx = ds * rstd - x * (sum_dsx / n) * (rstd**3)`\n   `dw_partial = dy * x * rstd`\n   Store `dx`. AtomicAdd `dw`.\n\nThis looks correct and handles arbitrary dimensions.\n\n**Check constraints on `x.stride()`:**\n"In forward: ... Pass `x_reshaped.stride(0)` as stride to kernel".\nIf I use a loop, `stride` usage is `row * stride_0 + col * stride_1`.\nThis works fine.\n\n**Code Structure:**\n```python\nimport torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(..., BLOCK_SIZE: tl.constexpr):\n    # Pass 1: Variance\n    row = tl.program_id(0)\n    var = tl.zeros([BLOCK_SIZE], dtype=tl.float32) # or just scalar\n    # tl.sum on vector returns scalar\n    # Accumulate into scalar\n    _var = tl.zeros((), dtype=tl.float32)\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k\n        x = tl.load(x_ptrs, mask=mask, other=0.)\n        _var += tl.sum(x * x, axis=0)\n    \n    var = _var / n_cols\n    rstd = tl.rsqrt(var + eps)\n    \n    # Pass 2: Output\n    for off in range(0, n_cols, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < n_cols\n        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k\n        x = tl.load(x_ptrs, mask=mask, other=0.)\n        \n        w_ptrs = w_ptr + cols\n        w = tl.load(w_ptrs, mask=mask, other=0.)\n        \n        y = x * rstd * w\n        \n        y_ptrs = y_ptr + row * stride_y_m + cols * stride_y_k\n        tl.store(y_ptrs, y, mask=mask)\n\n# ... Backward similar ...\n```\n\n**Refining Backward Pass 1:**\nNeed `sum_dsx`.\n`_sum_dsx = tl.zeros((), dtype=tl.float32)`\nLoop 1:\n   `x`, `dy`, `w`.\n   `ds = dy * w`.\n   `_sum_dsx += tl.sum(ds * x, axis=0)`.\n   \n`rstd` calculation: `variance` is `tl.sum(x*x) / n`. Need `_var` in pass 1 too.\nSo Pass 1 accumulates `_var` and `_sum_dsx`.\nPass 2 computes `dx` and `dw`.\n\n**One optimization:**\nIf `n_cols` is small (e.g. 768), the loop overhead of 2 passes might be annoying, but for generic code, this is safer.\nHowever, simple Triton kernels often skip the loop and rely on `BLOCK_SIZE` matching or being a divisor, or just handle up to `BLOCK_SIZE`.\nGiven the strict prompt requirements and the "expert" persona, I should probably implement the loop version to be robust. But I must ensure the code isn\'t too long.\nActually, I\'ll check if I can assume `BLOCK_SIZE` covers `n_cols`.\n"Handle arbitrary input shapes". Usually implies the dimension `N` can be anything.\nIf I pick `BLOCK_SIZE=1024`, and `N=2048`, it breaks.\nI will implement the loop. It\'s the "expert" thing to do.\n\nWait, there is a simpler way: use `tl.dot` for large dimensions? No, `tl.dot` implies matrix mult, here we are just reducing rows.\nI will stick to the loop with `BLOCK_SIZE` chunks.\n\n**Final check on `tl.pow`**:\nPrompt: "Use tl.pow() for power operations (NOT **)".\nSo `x * x` should be `tl.pow(x, 2)`? Or is `x*x` okay? "power operations" usually implies `x**2`. The prompt is specific about `tl.pow`. I will use `tl.pow(x, 2)`.\n\n**Handling `weight` loading in backward loop:**\n`w` is 1D. `w_ptrs = w_ptr + cols`. Correct.\n\n**Handling `dw` atomic add:**\n`dw` is initialized to `zeros`.\n`tl.atomic_add(dw_ptr + cols, dw_partial, mask=mask)`. Correct.\n\n**Python Wrapper:**\nNeeds to handle the reshape.\n`x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`\n`original_shape = x.shape`\n`y_reshaped = ...`\n`y = y_reshaped.reshape(original_shape)`\n\nBackward:\n`grad_output_reshaped = grad_output.reshape(-1, ...).contiguous()`\n... kernel ...\n`dx = dx_reshaped.reshape(original_shape)`\n\n**Kernel Arguments:**\nForward:\n`x_ptr`, `y_ptr`, `w_ptr`\n`stride_x_m`, `stride_x_k`, `stride_y_m`, `stride_y_k` (row/col strides)\n`n_cols`, `eps`, `BLOCK_SIZE`\n\nBackward:\n`x_ptr`, `dy_ptr`, `w_ptr`, `dw_ptr`, `dx_ptr`\n`stride_x_m`, `stride_x_k`, `stride_dy_m`, `stride_dy_k`, `stride_dx_m`, `stride_dx_k`\n`n_cols`, `eps`, `BLOCK_SIZE`\n\nLet\'s assemble.'))], created=1770735571, model='glm-4.7', object='chat.completion', service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=9427, prompt_tokens=457, total_tokens=9884, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=7868, rejected_prediction_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=339)), request_id='2026021022553107f48372837340f8')
+
+=== REASONING CONTENT ===
+<\nthought>\nThe user wants a Triton kernel for RMSNorm, including forward and backward passes, wrapped in a PyTorch autograd function.\nThe implementation must strictly follow the specified structure and rules.\n\n**Key Requirements:**\n1.  **Imports:** Start with `import torch`, `import triton`, `import triton.language as tl`.\n2.  **Structure:** `@triton.jit` forward kernel, `@triton.jit` backward kernel, `MyFunction` class, and a wrapper function `triton_rmsnorm`.\n3.  **Forward Logic:**\n    *   Compute variance: mean of squares over the last dimension.\n    *   Compute reciprocal square root: `rsqrt(variance + eps)`.\n    *   Scale input.\n    *   Multiply by weight.\n    *   Reshape input to 2D `(rows, hidden_dim)` to handle arbitrary shapes.\n4.  **Backward Logic:**\n    *   Gradients with respect to `x`:\n        *   Let $y = \\frac{x}{\\sqrt{\\sigma^2 + \\epsilon}} \\cdot w$\n        *   Where $\\sigma^2 = \\frac{1}{N} \\sum x_i^2$.\n        *   $\\bar{x} = \\bar{y} \\cdot w \\cdot \\frac{1}{\\sqrt{\\sigma^2 + \\epsilon}} - \\frac{1}{N} \\frac{1}{(\\sigma^2 + \\epsilon)^{3/2}} (\\bar{y} \\cdot w \\cdot x) \\sum x$\n        *   Wait, let\
+
+=== EXTRACTED CODE ===
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(
+    x_ptr, y_ptr, w_ptr,
+    stride_x_m, stride_x_k,
+    stride_y_m, stride_y_k,
+    n_cols, eps,
+    BLOCK_SIZE: tl.constexpr
+):
+    row = tl.program_id(0)
+    
+    # Pass 1: Compute Variance
+    _var = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+    for off in range(0, n_cols, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < n_cols
+        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k
+        x = tl.load(x_ptrs, mask=mask, other=0.0)
+        _var = tl.sum(tl.pow(x, 2), axis=0) + _var
+    
+    var = tl.sum(_var, axis=0) / n_cols
+    rstd = tl.rsqrt(var + eps)
+    
+    # Pass 2: Compute Output
+    for off in range(0, n_cols, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < n_cols
+        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k
+        x = tl.load(x_ptrs, mask=mask, other=0.0)
+        
+        w_ptrs = w_ptr + cols
+        w = tl.load(w_ptrs, mask=mask, other=0.0)
+        
+        y = x * rstd * w
+        
+        y_ptrs = y_ptr + row * stride_y_m + cols * stride_y_k
+        tl.store(y_ptrs, y, mask=mask)
+
+@triton.jit
+def backward_kernel(
+    x_ptr, dy_ptr, w_ptr, dw_ptr, dx_ptr,
+    stride_x_m, stride_x_k,
+    stride_dy_m, stride_dy_k,
+    stride_dx_m, stride_dx_k,
+    n_cols, eps,
+    BLOCK_SIZE: tl.constexpr
+):
+    row = tl.program_id(0)
+    
+    # Pass 1: Compute statistics needed for backward
+    # We need sum(x^2) to compute rstd again (or pass it forward)
+    # We need sum(dy * w * x)
+    _sum_x2 = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+    _sum_dsx = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+    
+    for off in range(0, n_cols, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < n_cols
+        
+        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k
+        x = tl.load(x_ptrs, mask=mask, other=0.0)
+        
+        dy_ptrs = dy_ptr + row * stride_dy_m + cols * stride_dy_k
+        dy = tl.load(dy_ptrs, mask=mask, other=0.0)
+        
+        w_ptrs = w_ptr + cols
+        w = tl.load(w_ptrs, mask=mask, other=0.0)
+        
+        ds = dy * w
+        
+        _sum_x2 = tl.sum(tl.pow(x, 2), axis=0) + _sum_x2
+        _sum_dsx = tl.sum(ds * x, axis=0) + _sum_dsx
+        
+    sum_x2 = tl.sum(_sum_x2, axis=0)
+    sum_dsx = tl.sum(_sum_dsx, axis=0)
+    
+    var = sum_x2 / n_cols
+    rstd = tl.rsqrt(var + eps)
+    
+    # Pass 2: Compute Gradients
+    for off in range(0, n_cols, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < n_cols
+        
+        x_ptrs = x_ptr + row * stride_x_m + cols * stride_x_k
+        x = tl.load(x_ptrs, mask=mask, other=0.0)
+        
+        dy_ptrs = dy_ptr + row * stride_dy_m + cols * stride_dy_k
+        dy = tl.load(dy_ptrs, mask=mask, other=0.0)
+        
+        w_ptrs = w_ptr + cols
+        w = tl.load(w_ptrs, mask=mask, other=0.0)
+        
+        ds = dy * w
+        
+        # dx = ds * rstd - x * (sum_dsx / n_cols) * (rstd ** 3)
+        # Note: rstd**3 = rstd * rstd * rstd
+        term1 = ds * rstd
+        term2 = x * (sum_dsx / n_cols) * (rstd * rstd * rstd)
+        dx = term1 - term2
+        
+        dx_ptrs = dx_ptr + row * stride_dx_m + cols * stride_dx_k
+        tl.store(dx_ptrs, dx, mask=mask)
+        
+        # dw = dy * x * rstd
+        # Atomic add because multiple rows write to the same weight location
+        dw_partial = dy * x * rstd
+        dw_ptrs = dw_ptr + cols
+        tl.atomic_add(dw_ptrs, dw_partial, mask=mask)
+
+class RMSNormFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, eps):
+        original_shape = x.shape
+        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()
+        rows, n_cols = x_reshaped.shape
+        
+        y = torch.empty_like(x_reshaped)
+        
+        BLOCK_SIZE = 1024
+        grid = lambda meta: (rows, )
+        
+        forward_kernel[grid](
+            x_reshaped, y, weight,
+            x_reshaped.stride(0), x_reshaped.stride(1),
+            y.stride(0), y.stride(1),
+            n_cols, eps,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+        
+        ctx.save_for_backward(x_reshaped, weight)
+        ctx.eps = eps
+        ctx.original_shape = original_shape
+        ctx.BLOCK_SIZE = BLOCK_SIZE
+        
+        return y.reshape(original_shape)
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        original_shape = grad_output.shape
+        grad_output_reshaped = grad_output.reshape(-1, original_shape[-1]).contiguous()
+        
+        x_reshaped, weight = ctx.saved_tensors
+        eps = ctx.eps
+        BLOCK_SIZE = ctx.BLOCK_SIZE
+        
+        rows, n_cols = x_reshaped.shape
+        
+        dx = torch.empty_like(x_reshaped)
+        dw = torch.empty_like(weight)
+        
+        grid = lambda meta: (rows, )
+        
+        backward_kernel[grid](
+            x_reshaped, grad_output_reshaped, weight, dw, dx,
+            x_reshaped.stride(0), x_reshaped.stride(1),
+            grad_output_reshaped.stride(0), grad_output_reshaped.stride(1),
+            dx.stride(0), dx.stride(1),
+            n_cols, eps,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+        
+        return dx.reshape(original_shape), dw, None
+
+def triton_rmsnorm(x, weight, eps=1e-5):
+    return RMSNormFunction.apply(x, weight, eps)

@@ -1,0 +1,60 @@
+You are an expert GPU kernel developer. Write a triton kernel for the following specification.
+
+# Your code MUST start exactly with these 3 lines - no exceptions:
+import torch
+import triton
+import triton.language as tl
+
+## Kernel Specification
+Name: {{ spec.name }}
+Description: {{ spec.description }}
+
+## Reference Implementation (PyTorch)
+```python
+{{ reference_source }}
+```
+
+## CRITICAL: Your code must follow this structure:
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(..., BLOCK_SIZE: tl.constexpr):
+    # actual Triton code here
+    ...
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ...):
+        ...
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ...
+
+def {{ spec.kernel_fn_name }}(...):
+    return MyFunction.apply(...)
+```
+
+Rules:
+1. Start exactly with `import torch`
+2. Use @triton.jit (not @triton.autotune)
+3. Use `x * x` for squaring (not `x ** 2`, not `tl.pow()`)
+4. Complete implementation - NO placeholders, NO "...", NO "#TODO"
+5. Return ONLY Python code, no markdown blocks
+6. **CRITICAL**: Handle arbitrary input shapes by reshaping to 2D:
+   - In forward: `original_shape = x.shape; x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`
+   - Process `x_reshaped` with kernel
+   - Return output reshaped to `original_shape`
+   - Do the same reshaping for grad_output in backward
+7. Pass `x_reshaped.stride(0)` as stride to kernel (not `x.stride()`)
+8. **NUMERICAL PRECISION (CRITICAL for correctness)**:
+   - Always use `.to(tl.float32)` when loading values: `x = tl.load(ptr + offs).to(tl.float32)`
+   - For softmax/cross-entropy: use max-subtraction trick: `exp_vals = tl.exp(x - tl.max(x))`
+   - For log-sum-exp: compute as `max_val + tl.log(sum_exp)` where `sum_exp = tl.sum(tl.exp(x - max_val))`
+   - Initialize accumulators explicitly: `acc = 0.0` (not `acc = 0`)
+   - For large reductions (>1024 elements), accumulate in multiple passes to preserve precision
+
+Generate the full kernel now:

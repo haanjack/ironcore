@@ -1,0 +1,11 @@
+{
+  "name": "layernorm",
+  "correct": false,
+  "grad_correct": false,
+  "ref_time_ms": 0,
+  "kernel_time_ms": 0,
+  "speedup": 0,
+  "error_msg": "Kernel file not found: ironcore/kernels/triton/layernorm.py\nExpected at: /home/hanjack/ironcore-dsl/ironcore/kernels/triton/layernorm.py\nImplement the kernel and place it there.",
+  "max_abs_diff": 0.0,
+  "max_rel_diff": 0.0
+}

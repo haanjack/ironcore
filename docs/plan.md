@@ -25,10 +25,17 @@
 - [ ] ALiBi
 - [ ] LongRoPE
 
-## Layer Optimizations
-- [ ] Triton
-- [ ] TileLang
+## Layer Optimizations (see [DSL Plan](dsl_plan.md))
+- [ ] Triton kernels
+  - [ ] Fused RMSNorm
+  - [ ] Fused LayerNorm
+  - [ ] Fused Softmax
+  - [ ] Fused SwiGLU
+  - [ ] Fused RoPE
+  - [ ] Fused Cross-Entropy
+- [ ] TileLang kernels
 - [ ] Mojo
+- [x] Validation harness (`experiments/generation/`)
 
 ## Training
 - [x] Training loop
@@ -85,4 +92,9 @@
 
 # Agentic Design
 1. Kernel Optimization Experiments
+- [x] Kernel spec format and registry (`experiments/generation/spec.py`)
+- [x] Validation + benchmark harness (`experiments/generation/harness.py`)
+- [x] Specs: RMSNorm, LayerNorm, Softmax
+- [ ] Specs: RoPE, SwiGLU, Cross-Entropy
 - [ ] Triton Kernel Generation / Optimization
+- [ ] TileLang Kernel Generation / Optimization

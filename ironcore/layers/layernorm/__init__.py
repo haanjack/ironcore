@@ -11,7 +11,7 @@
 from ironcore.config import MainConfig
 
 from .fused_layer_norm import LayerNorm
-from .fused_rms_norm import RmsNorm
+from .rms_norm import get_rmsnorm_layer
 
 
 def get_norm(config: MainConfig):
@@ -21,6 +21,6 @@ def get_norm(config: MainConfig):
     if ln_type == "layernorm":
         return LayerNorm(config)
     if ln_type == "rmsnorm":
-        return RmsNorm(config)
+        return get_rmsnorm_layer(config)
 
     raise NotImplementedError(f"{config.ln_type} is not supported")

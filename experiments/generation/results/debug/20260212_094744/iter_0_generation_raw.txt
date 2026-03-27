@@ -1,0 +1,172 @@
+=== PROMPT ===
+You are an expert GPU kernel developer. Write a triton kernel for the following specification.
+
+# Your code MUST start exactly with these 3 lines - no exceptions:
+import torch
+import triton
+import triton.language as tl
+
+## Kernel Specification
+Name: softmax
+Description: Fused safe softmax: max-subtract + exp + normalize in one pass
+
+## Reference Implementation (PyTorch)
+```python
+def _reference_safe_softmax(x):
+    """PyTorch reference: numerically stable softmax along last dimension."""
+    max_vals = x.max(dim=-1, keepdim=True)[0]
+    x_shifted = x - max_vals
+    exp_x = torch.exp(x_shifted)
+    return exp_x / exp_x.sum(dim=-1, keepdim=True)
+
+```
+
+## CRITICAL: Your code must follow this structure:
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(..., BLOCK_SIZE: tl.constexpr):
+    # actual Triton code here
+    ...
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ...):
+        ...
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ...
+
+def triton_softmax(...):
+    return MyFunction.apply(...)
+```
+
+Rules:
+1. Start exactly with `import torch`
+2. Use @triton.jit (not @triton.autotune)
+3. Use `x * x` for squaring (not `x ** 2`, not `tl.pow()`)
+4. Complete implementation - NO placeholders, NO "...", NO "#TODO"
+5. Return ONLY Python code, no markdown blocks
+6. **CRITICAL**: Handle arbitrary input shapes by reshaping to 2D:
+   - In forward: `original_shape = x.shape; x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`
+   - Process `x_reshaped` with kernel
+   - Return output reshaped to `original_shape`
+   - Do the same reshaping for grad_output in backward
+7. Pass `x_reshaped.stride(0)` as stride to kernel (not `x.stride()`)
+
+Generate the full kernel now:
+
+=== RAW RESPONSE ===
+ChatCompletion(id='2026021208474575d15303796b473f', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="import torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(\n    x_ptr, output_ptr,\n    stride, n_cols,\n    BLOCK_SIZE: tl.constexpr\n):\n    pid = tl.program_id(axis=0)\n    row_start = pid * stride\n    col_offsets = tl.arange(0, BLOCK_SIZE)\n    mask = col_offsets < n_cols\n\n    x_ptrs = x_ptr + row_start + col_offsets\n    x = tl.load(x_ptrs, mask=mask, other=-float('inf'))\n\n    # Online softmax algorithm: max -> subtract max -> exp -> sum -> normalize\n    max_val = tl.max(x, axis=0)\n    x = tl.exp(x - max_val)\n    sum_val = tl.sum(x, axis=0)\n    out = x / sum_val\n\n    out_ptrs = output_ptr + row_start + col_offsets\n    tl.store(out_ptrs, out, mask=mask)\n\n@triton.jit\ndef backward_kernel(\n    output_ptr, grad_output_ptr, grad_input_ptr,\n    stride, n_cols,\n    BLOCK_SIZE: tl.constexpr\n):\n    pid = tl.program_id(axis=0)\n    row_start = pid * stride\n    col_offsets = tl.arange(0, BLOCK_SIZE)\n    mask = col_offsets < n_cols\n\n    y_ptrs = output_ptr + row_start + col_offsets\n    dy_ptrs = grad_output_ptr + row_start + col_offsets\n\n    y = tl.load(y_ptrs, mask=mask)\n    dy = tl.load(dy_ptrs, mask=mask)\n\n    # Softmax backward: y * (dy - sum(y * dy))\n    s = tl.sum(dy * y, axis=0)\n    dx = y * (dy - s)\n\n    dx_ptrs = grad_input_ptr + row_start + col_offsets\n    tl.store(dx_ptrs, dx, mask=mask)\n\nclass MyFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        n_rows, n_cols = x_reshaped.shape\n        stride = x_reshaped.stride(0)\n\n        output = torch.empty_like(x_reshaped)\n\n        BLOCK_SIZE = triton.next_power_of_2(n_cols)\n        grid = (n_rows,)\n\n        forward_kernel[grid](\n            x_reshaped, output,\n            stride, n_cols,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        ctx.save_for_backward(output)\n        ctx.stride = stride\n        ctx.n_cols = n_cols\n        ctx.original_shape = original_shape\n\n        return output.reshape(original_shape)\n\n    @staticmethod\n    def backward(ctx, grad_output):\n        output, = ctx.saved_tensors\n        original_shape = ctx.original_shape\n        stride = ctx.stride\n        n_cols = ctx.n_cols\n\n        grad_reshaped = grad_output.reshape(-1, n_cols).contiguous()\n        output_reshaped = output.reshape(-1, n_cols).contiguous()\n        n_rows = grad_reshaped.shape[0]\n\n        grad_input = torch.empty_like(grad_reshaped)\n\n        BLOCK_SIZE = triton.next_power_of_2(n_cols)\n        grid = (n_rows,)\n\n        backward_kernel[grid](\n            output_reshaped, grad_reshaped, grad_input,\n            stride, n_cols,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n\n        return grad_input.reshape(original_shape)\n\ndef triton_softmax(x):\n    return MyFunction.apply(x)", refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None, reasoning_content='The user wants a Triton kernel for a fused safe softmax operation.\nThe requirements are very strict regarding the structure, imports, and handling of arbitrary input shapes.\n\n1.  **Imports**: Must start with `import torch`, `import triton`, `import triton.language as tl`.\n2.  **Function Name**: `softmax` (in the spec description), but the structure requires `triton_softmax` as the public wrapper and `forward_kernel` as the internal kernel. The class should be `MyFunction` (as per the critical structure requirement).\n3.  **Algorithm**:\n    *   Max calculation.\n    *   Subtract max.\n    *   Exp.\n    *   Sum.\n    *   Divide.\n    *   This is the standard two-pass fused softmax strategy within a kernel (one loop for max, one for sum/exp/accumulate, or combined). However, typically, for performance on GPUs, we do it in two passes within the same kernel or a single pass if we have enough shared memory.\n    *   Given the constraint "one pass" in the description ("Fused safe softmax: max-subtract + exp + normalize in one pass"), strictly speaking, a mathematically correct softmax requires finding the global max before subtracting. However, in the context of Triton kernels, "one pass" often refers to processing the row in a single kernel launch, sometimes performing an online algorithm (like parallel reduction or sequential reduction).\n    *   Let\'s look at the standard efficient Triton softmax implementation. It usually does:\n        1. Load tiles.\n        2. Compute row-wise max via `tl.max`.\n        3. Compute row-wise sum via `tl.sum`.\n        4. Normalize.\n        This looks like "one pass" over the tiles if the BLOCK_SIZE covers the dimension, or just the standard efficient way.\n    *   Wait, the spec says "max-subtract + exp + normalize in one pass". It likely refers to the kernel launch handling the sequence.\n    *   Standard approach:\n        *   Read input block.\n        *   Compute `m = max(block)`.\n        *   Compute `e = exp(block - m)`.\n        *   Compute `s = sum(e)`.\n        *   Write `e / s`.\n    *   Constraint 4 says: "NO placeholders, NO ...".\n    *   Constraint 6 says: Handle arbitrary shapes by reshaping to 2D.\n\n4.  **Structure**:\n    ```python\n    import torch\n    import triton\n    import triton.language as tl\n\n    @triton.jit\n    def forward_kernel(..., BLOCK_SIZE: tl.constexpr):\n        ...\n\n    class MyFunction(torch.autograd.Function):\n        @staticmethod\n        def forward(ctx, ...):\n            ...\n\n        @staticmethod\n        def backward(ctx, grad_output):\n            ...\n\n    def triton_softmax(...):\n        return MyFunction.apply(...)\n    ```\n\n5.  **Autograd**: The prompt asks for `forward_kernel` but implies the class structure with `backward`. The reference implementation is just the forward pass logic. I need to implement the backward pass as well to make it a complete `torch.autograd.Function`.\n    *   Softmax backward: Given $y = \\text{softmax}(x)$, $\\frac{\\partial L}{\\partial x} = y \\cdot (\\frac{\\partial L}{\\partial y} - \\sum y \\cdot \\frac{\\partial L}{\\partial y})$.\n    *   The backward kernel needs `y` (the output of forward) and `grad_output`.\n    *   The prompt structure shows `MyFunction`. I should implement both forward and backward.\n\n6.  **Detailed Implementation Plan**:\n\n    *   **Forward**:\n        *   Reshape input `x` to 2D `(rows, cols)`.\n        *   Grid: `(rows,)`.\n        *   `forward_kernel`:\n            *   Pointers to input, output.\n            *   Strides.\n            *   `BLOCK_SIZE` for the last dimension.\n            *   Load block. Handle padding if the last dim is not a multiple of `BLOCK_SIZE` (though usually we just mask or pad. Masking is safer/triton standard).\n            *   `m = tl.max(x_block, axis=1)[:, None]`\n            *   `z = tl.exp(x_block - m)`\n            *   `s = tl.sum(z, axis=1)[:, None]`\n            *   `out_block = z / s`\n            *   Store.\n\n    *   **Backward**:\n        *   Reshape `grad_output` to 2D.\n        *   Reshape `y` (saved from forward) to 2D.\n        *   Grid: `(rows,)`.\n        *   `backward_kernel`:\n            *   Load `dy`, `y`.\n            *   Compute `s = tl.sum(dy * y, axis=1)[:, None]`\n            *   Compute `dx = y * (dy - s)`\n            *   Store.\n\n    *   **Constraint Check**:\n        *   `import torch` (Check).\n        *   `@triton.jit` (Check).\n        *   `x * x` for squaring (Not applicable for softmax usually, but good to keep in mind if I need variance or something, but softmax doesn\'t require squaring).\n        *   Complete implementation (Check).\n        *   Reshape to 2D (Check).\n        *   Pass `x_reshaped.stride(0)` (Check).\n\n    *   **Refining "one pass"**:\n        The prompt says "max-subtract + exp + normalize in one pass". In Triton, if we load the whole row into SRAM, we do `max`, then `exp`, then `sum`, then `div`. This is the standard efficient implementation.\n\n    *   **Coding the Kernel**:\n        *   Grid calculation: `triton.cdiv(n_rows, BLOCK_M)`? No, usually grid is 1D over rows.\n        *   `pid = tl.program_id(axis=0)`\n        *   `offs = pid * stride + tl.arange(0, BLOCK_SIZE)`\n        *   `x_ptrs = x + offs`\n        *   `x_block = tl.load(x_ptrs, mask=offs < n_cols, other=-float(\'inf\'))` -> needed for max.\n        *   Wait, `x` is 2D view of 1D pointer. `x + row_offset * stride_xm + col_offset * stride_xn`.\n        *   Since we process one row per program instance (usually), `pid` corresponds to the row index.\n        *   `row_start = pid * stride_xm`\n        *   `col_offsets = tl.arange(0, BLOCK_SIZE)`\n        *   `x_ptrs = x + row_start + col_offsets * stride_xn`\n        *   Load, compute, store.\n\n    *   **Backward Implementation details**:\n        *   Input: `grad_output`, `y` (saved tensor).\n        *   `dx = y * (dy - sum(dy * y))`\n\n    *   **Autotune**: Prompt says "Use @triton.jit (not @triton.autotune)". So I need to pick a `BLOCK_SIZE` or expose it as an argument. The prompt structure shows `BLOCK_SIZE: tl.constexpr` in the kernel signature. I should probably set a default in the wrapper (e.g., 1024 or 2048) and pass it.\n\n    *   **Reshaping logic**:\n        *   Forward: `x` -> `x_reshaped`.\n        *   Backward: `grad_output` -> `grad_reshaped`.\n        *   Returns: `out` -> `out_reshaped.reshape(original_shape)`.\n\n    *   **Specifics on Constraints**:\n        *   "x * x" rule: Softmax doesn\'t use squaring. I will assume this rule is for general kernels but doesn\'t force me to add a useless squaring op here.\n        *   "Return ONLY Python code".\n\n    *   **Drafting the code**:\n\n    ```python\n    import torch\n    import triton\n    import triton.language as tl\n\n    @triton.jit\n    def softmax_forward_kernel(\n        x_ptr, output_ptr,\n        stride, n_cols,\n        BLOCK_SIZE: tl.constexpr\n    ):\n        # Get program ID\n        pid = tl.program_id(axis=0)\n        # Calculate pointers for this row\n        row_start = pid * stride\n        col_offsets = tl.arange(0, BLOCK_SIZE)\n        x_ptrs = x_ptr + row_start + col_offsets\n        # Mask\n        mask = col_offsets < n_cols\n        # Load\n        x = tl.load(x_ptrs, mask=mask, other=-float(\'inf\'))\n        # Max\n        max_val = tl.max(x, axis=0)\n        # Subtract max and Exp\n        x = tl.exp(x - max_val)\n        # Sum\n        sum_val = tl.sum(x, axis=0)\n        # Normalize\n        output = x / sum_val\n        # Store\n        output_ptrs = output_ptr + row_start + col_offsets\n        tl.store(output_ptrs, output, mask=mask)\n\n    @triton.jit\n    def softmax_backward_kernel(\n        output_ptr, grad_output_ptr, grad_input_ptr,\n        stride, n_cols,\n        BLOCK_SIZE: tl.constexpr\n    ):\n        pid = tl.program_id(axis=0)\n        row_start = pid * stride\n        col_offsets = tl.arange(0, BLOCK_SIZE)\n        mask = col_offsets < n_cols\n\n        y_ptrs = output_ptr + row_start + col_offsets\n        dy_ptrs = grad_output_ptr + row_start + col_offsets\n\n        y = tl.load(y_ptrs, mask=mask)\n        dy = tl.load(dy_ptrs, mask=mask)\n\n        # Dot product sum(dy * y)\n        # Since y sums to 1, sum(dy * y) is the scaling factor\n        s = tl.sum(dy * y, axis=0)\n\n        # dx = y * (dy - s)\n        dx = y * (dy - s)\n\n        dx_ptrs = grad_input_ptr + row_start + col_offsets\n        tl.store(dx_ptrs, dx, mask=mask)\n\n    class MyFunction(torch.autograd.Function):\n        @staticmethod\n        def forward(ctx, x):\n            # Reshape to 2D\n            original_shape = x.shape\n            x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n            n_rows, n_cols = x_reshaped.shape\n            stride = x_reshaped.stride(0)\n\n            output = torch.empty_like(x_reshaped)\n\n            BLOCK_SIZE = triton.next_power_of_2(n_cols)\n            # Ensure BLOCK_SIZE is not too large\n            if BLOCK_SIZE > 1024:\n                 BLOCK_SIZE = 1024 # arbitrary cap or just rely on tuning, but no autotune allowed.\n                 # Actually, let\'s just use a sensible default like 1024 or max(128, next_power_of_2(n_cols))\n                 # Since we can\'t autotune, picking 1024 is standard for last dim.\n                 pass\n\n            grid = (n_rows,)\n\n            # Block size needs to be constexpr.\n            # If n_cols varies, we need to handle it. Usually we pass BLOCK_SIZE.\n            # Let\'s assume standard 1024 or similar, or handle dynamic n_cols if possible (Triton supports dynamic block size via config, but prompt asks for BLOCK_SIZE: tl.constexpr).\n            # So I must pick a fixed size or derive it in Python and call kernel specialized for it.\n            # Given the constraint "Use @triton.jit (not @triton.autotune)",\n            # I will select a block size (e.g. 1024) and if n_cols is larger, loop or use larger block.\n            # Simplest valid approach for a generic "one pass" kernel without autotune:\n            # Use a large enough BLOCK_SIZE (e.g. 4096? No, 1024 is safer for occupancy) or loop.\n            # However, "one pass" implies we load the whole row.\n            # If n_cols > BLOCK_SIZE, we need to loop.\n            # But the spec description "Fused safe softmax: max-subtract + exp + normalize in one pass"\n            # usually implies handling the whole row in one go.\n            # Let\'s stick to the provided structure and use a reasonably large fixed block size or calculate it and JIT compile on the fly (which is what python-side dispatch does).\n            # Since I cannot use autotune, I will calculate `BLOCK_SIZE = triton.next_power_of_2(n_cols)` inside `forward` and pass it.\n            # Note: `triton.jit` functions are compiled per `constexpr` values. Changing `BLOCK_SIZE` recompiles. This is acceptable behavior for a manual kernel.\n\n            softmax_forward_kernel[grid](\n                x_reshaped, output,\n                stride, n_cols,\n                BLOCK_SIZE=BLOCK_SIZE\n            )\n            ctx.save_for_backward(output)\n            ctx.stride = stride\n            ctx.n_cols = n_cols\n            ctx.original_shape = original_shape\n            return output.reshape(original_shape)\n\n        @staticmethod\n        def backward(ctx, grad_output):\n            output, = ctx.save_for_backward()\n            original_shape = ctx.original_shape\n            stride = ctx.stride\n            n_cols = ctx.n_cols\n\n            # Reshape\n            grad_reshaped = grad_output.reshape(-1, n_cols).contiguous()\n            n_rows = grad_reshaped.shape[0]\n            grad_input = torch.empty_like(grad_reshaped)\n\n            BLOCK_SIZE = triton.next_power_of_2(n_cols)\n            grid = (n_rows,)\n\n            softmax_backward_kernel[grid](\n                output, grad_reshaped, grad_input,\n                stride, n_cols,\n                BLOCK_SIZE=BLOCK_SIZE\n            )\n\n            return grad_input.reshape(original_shape)\n\n    def triton_softmax(x):\n        return MyFunction.apply(x)\n    ```\n\n    *   **Checking constraints again**:\n        *   Start with `import torch`? Yes.\n        *   `@triton.jit`? Yes.\n        *   `x * x` for squaring? Not used.\n        *   Complete implementation? Yes.\n        *   Reshape to 2D? Yes.\n        *   Pass `x_reshaped.stride(0)`? Yes.\n        *   `BLOCK_SIZE` logic: Calculating `triton.next_power_of_2(n_cols)` ensures we cover the dimension. If `n_cols` is huge (e.g. 100k), block size might be too big. But for a basic kernel, this is the standard logic without autotuning. I will cap it at a reasonable limit if necessary, but usually next_power_2 is fine for compilation.\n        *   Masking: `mask = col_offsets < n_cols`. `other=-float(\'inf\')` for forward load.\n\n    *   **Refinement on Backward**:\n        In `backward`, I need `output` (the saved tensor). It was saved as a tensor on CPU/GPU. It is already reshaped in the forward pass logic?\n        Wait, in `forward`, I saved `output` which is `output.reshape(original_shape)`.\n        In `backward`, I access `output`. I should reshape it back to 2D `(-1, n_cols)` to be consistent with the memory layout used in the kernel.\n        However, since `output` is contiguous and just a view, the pointer passed to the kernel is the start of the data. The stride passed is `stride`. As long as the pointer and stride match the 2D expectation, it works.\n        Actually, `output` saved in `ctx` is the reshaped tensor (original shape).\n        In `backward`, I should `output_reshaped = output.reshape(-1, n_cols).contiguous()`.\n        Or just rely on the pointer if I\'m careful.\n        Let\'s stick to reshaping for clarity and safety.\n\n    *   **One Edge Case**: `n_cols` being 0? PyTorch tensors rarely have 0 dim.\n    *   **Handling `BLOCK_SIZE`**: If I use `BLOCK_SIZE = triton.next_power_of_2(n_cols)`, and `n_cols` is 10, `BLOCK_SIZE` is 16. Kernel loads 16 elements, mask 10. `max` handles the rest. Correct.\n\n    *   **Kernel Signature check**:\n        `def forward_kernel(..., BLOCK_SIZE: tl.constexpr):`\n        My signature: `def softmax_forward_kernel(..., BLOCK_SIZE: tl.constexpr):`\n        The prompt implies the kernel name should be `forward_kernel` in the example structure, but the spec says "Write a triton kernel for the following specification". The structure example uses `forward_kernel`. I will follow the example structure exactly for names: `forward_kernel`, `backward_kernel`.\n\n    *   **Wait, `triton.next_power_of_2(n_cols)`**:\n        If `n_cols` is, say, 1. `BLOCK_SIZE` = 1.\n        If `n_cols` is 10000. `BLOCK_SIZE` = 16384.\n        Triton has a limit on block size (max threads). Usually 1024 is the safe "large" number.\n        If I use `next_power_of_2`, I might exceed limits for large dims.\n        However, without autotune, I have to pick something.\n        Common non-autotuned implementations pick 1024 or similar.\n        If I pick 1024 and n_cols is 5000, I can\'t do it "in one pass" without looping.\n        The prompt says "Fused safe softmax: max-subtract + exp + normalize in one pass". This strongly implies the row fits in registers/SRAM in one go, or that we don\'t do multiple kernel launches.\n        Standard "one-pass" Triton softmax assumes BLOCK_SIZE >= dimension.\n        Given the constraints, `next_power_of_2` is the most robust way to ensure it fits, even if it leads to large block compilation for large dimensions.\n        I will add a cap (e.g., 4096 or 8192) to prevent compilation errors on GPUs, or just leave it as `next_power_of_2`. Given the strictness, I\'ll stick to `next_power_of_2` as it guarantees correctness for "one pass" logic.\n\n    *   **Final Polish of Code**:\n        *   Ensure `stride` is passed correctly.\n        *   Ensure pointers are offsets correctly.\n        *   Check `tl.max`, `tl.exp`, `tl.sum` usage.\n        *   Backward formula: $S = \\sum (y \\cdot \\frac{\\partial L}{\\partial y})$, result = $y \\cdot (\\frac{\\partial L}{\\partial y} - S)$.\n\n    *   **Structure Verification**:\n        ```python\n        import torch\n        import triton\n        import triton.language as tl\n\n        @triton.jit\n        def forward_kernel(...): ...\n\n        class MyFunction(torch.autograd.Function): ...\n\n        def triton_softmax(...): ...\n        ```\n        Matches exactly.\n\n    *   **Backward Kernel Naming**:\n        The structure example doesn\'t explicitly show the backward kernel signature, but I need to define it to use it.\n\n    *   **Code**:\n        ```python\n        import torch\n        import triton\n        import triton.language as tl\n\n        @triton.jit\n        def forward_kernel(\n            x_ptr, output_ptr,\n            stride, n_cols,\n            BLOCK_SIZE: tl.constexpr\n        ):\n            pid = tl.program_id(axis=0)\n            row_start = pid * stride\n            col_offsets = tl.arange(0, BLOCK_SIZE)\n            mask = col_offsets < n_cols\n\n            x_ptrs = x_ptr + row_start + col_offsets\n            x = tl.load(x_ptrs, mask=mask, other=-float(\'inf\'))\n\n            # Max\n            max_val = tl.max(x, axis=0)\n            # Exp\n            x = tl.exp(x - max_val)\n            # Sum\n            sum_val = tl.sum(x, axis=0)\n            # Normalize\n            out = x / sum_val\n\n            out_ptrs = output_ptr + row_start + col_offsets\n            tl.store(out_ptrs, out, mask=mask)\n\n        @triton.jit\n        def backward_kernel(\n            output_ptr, grad_output_ptr, grad_input_ptr,\n            stride, n_cols,\n            BLOCK_SIZE: tl.constexpr\n        ):\n            pid = tl.program_id(axis=0)\n            row_start = pid * stride\n            col_offsets = tl.arange(0, BLOCK_SIZE)\n            mask = col_offsets < n_cols\n\n            y_ptrs = output_ptr + row_start + col_offsets\n            dy_ptrs = grad_output_ptr + row_start + col_offsets\n\n            y = tl.load(y_ptrs, mask=mask)\n            dy = tl.load(dy_ptrs, mask=mask)\n\n            # dot(dy, y)\n            s = tl.sum(dy * y, axis=0)\n\n            # y * (dy - s)\n            dx = y * (dy - s)\n\n            dx_ptrs = grad_input_ptr + row_start + col_offsets\n            tl.store(dx_ptrs, dx, mask=mask)\n\n        class MyFunction(torch.autograd.Function):\n            @staticmethod\n            def forward(ctx, x):\n                original_shape = x.shape\n                x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n                n_rows, n_cols = x_reshaped.shape\n                stride = x_reshaped.stride(0)\n\n                output = torch.empty_like(x_reshaped)\n\n                BLOCK_SIZE = triton.next_power_of_2(n_cols)\n                grid = (n_rows,)\n\n                forward_kernel[grid](\n                    x_reshaped, output,\n                    stride, n_cols,\n                    BLOCK_SIZE=BLOCK_SIZE\n                )\n\n                ctx.save_for_backward(output)\n                ctx.stride = stride\n                ctx.n_cols = n_cols\n                ctx.original_shape = original_shape\n\n                return output.reshape(original_shape)\n\n            @staticmethod\n            def backward(ctx, grad_output):\n                output, = ctx.saved_tensors\n                original_shape = ctx.original_shape\n                stride = ctx.stride\n                n_cols = ctx.n_cols\n\n                grad_reshaped = grad_output.reshape(-1, n_cols).contiguous()\n                output_reshaped = output.reshape(-1, n_cols).contiguous()\n                n_rows = grad_reshaped.shape[0]\n\n                grad_input = torch.empty_like(grad_reshaped)\n\n                BLOCK_SIZE = triton.next_power_of_2(n_cols)\n                grid = (n_rows,)\n\n                backward_kernel[grid](\n                    output_reshaped, grad_reshaped, grad_input,\n                    stride, n_cols,\n                    BLOCK_SIZE=BLOCK_SIZE\n                )\n\n                return grad_input.reshape(original_shape)\n\n        def triton_softmax(x):\n            return MyFunction.apply(x)\n        ```\n    *   One detail: `stride` in `tl.load`.\n        If `x_reshaped` is `(M, N)` contiguous, `stride(0)` is `N`, `stride(1)` is `1`.\n        Pointer arithmetic: `x_ptr + row_start + col_offsets`.\n        `row_start = pid * stride(0) = pid * N`. This points to the start of the row.\n        `col_offsets` are 0..BLOCK.\n        Since `stride(1)` is 1, `x_ptr + row_start + col_offsets` correctly accesses elements `[pid, 0]` to `[pid, BLOCK-1]`.\n        This assumes the last dimension is contiguous (which `.reshape(-1, x.shape[-1]).contiguous()` ensures).\n\n    *   Double check the spec: "Return ONLY Python code, no markdown blocks".'))], created=1770857373, model='glm-4.7', object='chat.completion', service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=5781, prompt_tokens=480, total_tokens=6261, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=5041, rejected_prediction_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=2)), request_id='2026021208474575d15303796b473f')
+
+=== REASONING CONTENT ===
+The user wants a Triton kernel for a fused safe softmax operation.\nThe requirements are very strict regarding the structure, imports, and handling of arbitrary input shapes.\n\n1.  **Imports**: Must start with `import torch`, `import triton`, `import triton.language as tl`.\n2.  **Function Name**: `softmax` (in the spec description), but the structure requires `triton_softmax` as the public wrapper and `forward_kernel` as the internal kernel. The class should be `MyFunction` (as per the critical structure requirement).\n3.  **Algorithm**:\n    *   Max calculation.\n    *   Subtract max.\n    *   Exp.\n    *   Sum.\n    *   Divide.\n    *   This is the standard two-pass fused softmax strategy within a kernel (one loop for max, one for sum/exp/accumulate, or combined). However, typically, for performance on GPUs, we do it in two passes within the same kernel or a single pass if we have enough shared memory.\n    *   Given the constraint "one pass" in the description ("Fused safe softmax: max-subtract + exp + normalize in one pass"), strictly speaking, a mathematically correct softmax requires finding the global max before subtracting. However, in the context of Triton kernels, "one pass" often refers to processing the row in a single kernel launch, sometimes performing an online algorithm (like parallel reduction or sequential reduction).\n    *   Let\
+
+=== EXTRACTED CODE ===
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(
+    x_ptr, output_ptr,
+    stride, n_cols,
+    BLOCK_SIZE: tl.constexpr
+):
+    pid = tl.program_id(axis=0)
+    row_start = pid * stride
+    col_offsets = tl.arange(0, BLOCK_SIZE)
+    mask = col_offsets < n_cols
+
+    x_ptrs = x_ptr + row_start + col_offsets
+    x = tl.load(x_ptrs, mask=mask, other=-float('inf'))
+
+    # Online softmax algorithm: max -> subtract max -> exp -> sum -> normalize
+    max_val = tl.max(x, axis=0)
+    x = tl.exp(x - max_val)
+    sum_val = tl.sum(x, axis=0)
+    out = x / sum_val
+
+    out_ptrs = output_ptr + row_start + col_offsets
+    tl.store(out_ptrs, out, mask=mask)
+
+@triton.jit
+def backward_kernel(
+    output_ptr, grad_output_ptr, grad_input_ptr,
+    stride, n_cols,
+    BLOCK_SIZE: tl.constexpr
+):
+    pid = tl.program_id(axis=0)
+    row_start = pid * stride
+    col_offsets = tl.arange(0, BLOCK_SIZE)
+    mask = col_offsets < n_cols
+
+    y_ptrs = output_ptr + row_start + col_offsets
+    dy_ptrs = grad_output_ptr + row_start + col_offsets
+
+    y = tl.load(y_ptrs, mask=mask)
+    dy = tl.load(dy_ptrs, mask=mask)
+
+    # Softmax backward: y * (dy - sum(y * dy))
+    s = tl.sum(dy * y, axis=0)
+    dx = y * (dy - s)
+
+    dx_ptrs = grad_input_ptr + row_start + col_offsets
+    tl.store(dx_ptrs, dx, mask=mask)
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        original_shape = x.shape
+        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()
+        n_rows, n_cols = x_reshaped.shape
+        stride = x_reshaped.stride(0)
+
+        output = torch.empty_like(x_reshaped)
+
+        BLOCK_SIZE = triton.next_power_of_2(n_cols)
+        grid = (n_rows,)
+
+        forward_kernel[grid](
+            x_reshaped, output,
+            stride, n_cols,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+
+        ctx.save_for_backward(output)
+        ctx.stride = stride
+        ctx.n_cols = n_cols
+        ctx.original_shape = original_shape
+
+        return output.reshape(original_shape)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        output, = ctx.saved_tensors
+        original_shape = ctx.original_shape
+        stride = ctx.stride
+        n_cols = ctx.n_cols
+
+        grad_reshaped = grad_output.reshape(-1, n_cols).contiguous()
+        output_reshaped = output.reshape(-1, n_cols).contiguous()
+        n_rows = grad_reshaped.shape[0]
+
+        grad_input = torch.empty_like(grad_reshaped)
+
+        BLOCK_SIZE = triton.next_power_of_2(n_cols)
+        grid = (n_rows,)
+
+        backward_kernel[grid](
+            output_reshaped, grad_reshaped, grad_input,
+            stride, n_cols,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+
+        return grad_input.reshape(original_shape)
+
+def triton_softmax(x):
+    return MyFunction.apply(x)

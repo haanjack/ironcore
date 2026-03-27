@@ -104,6 +104,12 @@ class ModelConfig(BaseConfig):
     ln_eps: float = field(default=1e-5, metadata={"help": "layernorm epsilon"})
     post_ln: bool = field(default=False, metadata={
                           "help": "use post layer norm"})
+    kernel_backend: str = field(
+        default="torch",
+        metadata={
+            "help": "Kernel backend for layer ops. Options: 'torch' (PyTorch native, stable), 'auto' (triton if available, else torch), 'triton' (Triton kernels, fastest)"
+        },
+    )
 
     # attention attributes
     head_dim: int = field(default=128, metadata={
@@ -152,3 +158,5 @@ class ModelConfig(BaseConfig):
     def __post_init__(self):
         if self.ln_type not in ["layernorm", "rmsnorm"]:
             raise ValueError(f"Invalid layer norm type: {self.ln_type}")
+        if self.kernel_backend not in ["torch", "auto", "triton"]:
+            raise ValueError(f"Invalid kernel backend: {self.kernel_backend}. Must be one of: 'torch', 'auto', 'triton'")

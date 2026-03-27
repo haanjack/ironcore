@@ -9,7 +9,7 @@ IronCore is a personal project for practicing AI development and testing trainin
 - **Consumer Hardware**: Developed on Dual RTX 3090 (with NVLINK!!)
 - **RL Integration**: Bridge training and inference for RLHF/RLAIF experiments - not yet
 - **Inference Engine**: Integrate rollout and evaluation capabilities - not yet
-- **DSL Experimentation**: Testing Triton kernels and low-level optimizations (with or without agent) - not yet
+- **DSL Experimentation**: Testing Triton kernels and low-level optimizations (with or without agent) - in progress
 
 This project inspired by NVIDIA Megatron-LM and HuggingFace's Transformers.
 
@@ -164,10 +164,18 @@ ironcore/
 │   ├── cli/            # Command-line interface
 │   ├── config/         # Configuration classes
 │   ├── dataloader/     # Data loading utilities
+│   ├── kernels/        # DSL kernel implementations
+│   │   ├── triton/     # Triton kernels
+│   │   └── tilelang/   # TileLang kernels
 │   ├── models/         # Model implementations (TransformerModel)
 │   ├── layers/         # Attention, MLP, normalization layers
 │   ├── parallel/       # Parallelism utilities (TP, DP)
 │   └── trainer.py      # Main trainer
+├── experiments/
+│   └── generation/     # DSL kernel generation pipeline
+│       ├── spec.py     # Kernel spec definitions
+│       ├── harness.py  # Validation & benchmark harness
+│       └── specs/      # Per-kernel specifications
 ├── data/
 │   ├── preprocessed/   # Preprocessed binary data
 │   └── cache/          # HuggingFace cache

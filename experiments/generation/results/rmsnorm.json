@@ -1,0 +1,22 @@
+{
+  "name": "rmsnorm",
+  "correct": true,
+  "grad_correct": true,
+  "ref_time_ms": 5.785831000000002,
+  "kernel_time_ms": 1.2360579999999912,
+  "speedup": 4.680873389436453,
+  "error_msg": "",
+  "max_abs_diff": 9.5367431640625e-07,
+  "max_rel_diff": 3.5036967460655433e-07,
+  "profiler_name": "torch",
+  "profiler_metrics": {
+    "wallclock_min_ms": 0.05112300277687609,
+    "wallclock_max_ms": 1.6092720034066588,
+    "wallclock_median_ms": 0.07621399709023535,
+    "wallclock_std_ms": 0.21186703028944806,
+    "kernel_count": 100,
+    "cuda_time_total_ms": 1.2360579999999912,
+    "profiler_events": 9
+  },
+  "profiler_output": "/home/hanjack/ironcore-dsl-alpha/experiments/generation/results/profiler/rmsnorm/rmsnorm_kernel_torch_trace.json"
+}

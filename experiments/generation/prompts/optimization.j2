@@ -1,0 +1,56 @@
+You are an expert GPU kernel optimizer. Optimize the following kernel implementation based on profiling analysis.
+
+## Kernel Specification
+Name: {{ spec.name }}
+Description: {{ spec.description }}
+
+## Performance Target
+Minimum Speedup: {{ spec.performance_targets.min_speedup }}x
+Current Speedup: {{ validation_result.speedup }}x
+
+## Profiling Analysis
+{{ analysis.bottleneck_identified }}
+
+## Optimization Suggestions (Ranked by Priority)
+{% for suggestion, priority in analysis.priority_rankings %}
+- [{{ "%.1f"|format(priority * 100) }}] {{ suggestion }}
+{% endfor %}
+
+## Expected Impact
+{{ analysis.estimated_impact }}
+
+## Areas to Focus On
+{% for area in analysis.code_areas_to_modify %}
+- {{ area }}
+{% endfor %}
+
+## Current Implementation
+```python
+{{ current_code }}
+```
+
+## Reference Implementation (for correctness verification)
+```python
+{{ reference_source }}
+```
+
+## Requirements
+- Maintain numerical correctness: atol={{ spec.atol }}, rtol={{ spec.rtol }}
+- Maintain gradient support: {{ "Yes" if spec.check_backward else "No" }}
+- Export function name: {{ spec.kernel_fn_name }}
+- Target file: {{ spec.target_file }}
+
+## Instructions
+1. Apply the highest-priority optimizations first
+2. Focus on the identified bottleneck areas
+3. Use Triton best practices:
+   - Appropriate BLOCK_SIZE for the problem
+   - Minimize global memory accesses
+   - Use shared memory when beneficial
+   - Ensure memory coalescing
+   - Avoid unnecessary synchronization
+4. Add @triton.autotune configurations for different BLOCK_SIZE values
+5. DO NOT use Python's ** operator for power in Triton code - use multiplication or tl.pow()
+6. Return ONLY the optimized kernel code without markdown code blocks or explanations
+
+Your code should be ready to save directly to the target file and should achieve the performance target.

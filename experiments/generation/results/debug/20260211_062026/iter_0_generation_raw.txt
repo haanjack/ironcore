@@ -1,0 +1,199 @@
+=== PROMPT ===
+You are an expert GPU kernel developer. Write a triton kernel for the following specification.
+
+# Your code MUST start exactly with these 3 lines - no exceptions:
+import torch
+import triton
+import triton.language as tl
+
+## Kernel Specification
+Name: swiglu
+Description: SwiGLU activation: silu(x_feature) * x_gate
+
+## Reference Implementation (PyTorch)
+```python
+def _reference_swiglu(x):
+    """PyTorch reference: SwiGLU forward."""
+    x_feature, x_gate = x.chunk(2, dim=-1)
+    return torch.nn.functional.silu(x_feature) * x_gate
+
+```
+
+## CRITICAL: Your code must follow this structure:
+```python
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(..., BLOCK_SIZE: tl.constexpr):
+    # actual Triton code here
+    ...
+
+class MyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ...):
+        ...
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ...
+
+def triton_swiglu(...):
+    return MyFunction.apply(...)
+```
+
+Rules:
+1. Start exactly with `import torch`
+2. Use @triton.jit (not @triton.autotune)
+3. Use `x * x` for squaring (not `x ** 2`, not `tl.pow()`)
+4. Complete implementation - NO placeholders, NO "...", NO "#TODO"
+5. Return ONLY Python code, no markdown blocks
+6. **CRITICAL**: Handle arbitrary input shapes by reshaping to 2D:
+   - In forward: `original_shape = x.shape; x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()`
+   - Process `x_reshaped` with kernel
+   - Return output reshaped to `original_shape`
+   - Do the same reshaping for grad_output in backward
+7. Pass `x_reshaped.stride(0)` as stride to kernel (not `x.stride()`)
+
+Generate the full kernel now:
+
+=== RAW RESPONSE ===
+ChatCompletion(id='20260211052027b13fd92be3364296', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```python\nimport torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef forward_kernel(\n    x_ptr,\n    output_ptr,\n    stride_x,\n    stride_out,\n    n_cols,\n    BLOCK_SIZE: tl.constexpr,\n):\n    pid = tl.program_id(axis=0)\n    row_start = pid * stride_x\n    col_offsets = tl.arange(0, BLOCK_SIZE)\n    mask = col_offsets < n_cols\n    \n    x_ptrs = x_ptr + row_start + col_offsets\n    x = tl.load(x_ptrs, mask=mask, other=0.0)\n    \n    half_cols = n_cols // 2\n    x_feature = tl.where(col_offsets < half_cols, x, 0.0)\n    x_gate = tl.where(col_offsets >= half_cols, x, 0.0)\n    \n    sigmoid_x_feature = 1.0 / (1.0 + tl.exp(-x_feature))\n    silu_x_feature = x_feature * sigmoid_x_feature\n    \n    output = silu_x_feature * x_gate\n    \n    output_ptrs = output_ptr + pid * stride_out + col_offsets\n    tl.store(output_ptrs, output, mask=mask)\n\n@triton.jit\ndef backward_kernel(\n    grad_output_ptr,\n    x_feature_ptr,\n    x_gate_ptr,\n    grad_input_ptr,\n    stride_go,\n    stride_xf,\n    stride_xg,\n    stride_gi,\n    n_cols,\n    BLOCK_SIZE: tl.constexpr,\n):\n    pid = tl.program_id(axis=0)\n    col_offsets = tl.arange(0, BLOCK_SIZE)\n    mask = col_offsets < n_cols\n    \n    go_ptrs = grad_output_ptr + pid * stride_go + col_offsets\n    grad_output = tl.load(go_ptrs, mask=mask, other=0.0)\n    \n    xf_ptrs = x_feature_ptr + pid * stride_xf + col_offsets\n    x_feature = tl.load(xf_ptrs, mask=mask, other=0.0)\n    \n    xg_ptrs = x_gate_ptr + pid * stride_xg + col_offsets\n    x_gate = tl.load(xg_ptrs, mask=mask, other=0.0)\n    \n    sigmoid_x_feature = 1.0 / (1.0 + tl.exp(-x_feature))\n    sigmoid_x_feature_sq = sigmoid_x_feature * sigmoid_x_feature\n    dsilu = sigmoid_x_feature * (1.0 + x_feature * (1.0 - sigmoid_x_feature))\n    \n    grad_x_feature = grad_output * dsilu * x_gate\n    grad_x_gate = grad_output * sigmoid_x_feature * x_feature\n    \n    half_cols = n_cols // 2\n    grad_input = tl.where(col_offsets < half_cols, grad_x_feature, grad_x_gate)\n    \n    gi_ptrs = grad_input_ptr + pid * stride_gi + col_offsets\n    tl.store(gi_ptrs, grad_input, mask=mask)\n\nclass SwiGLUFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, x):\n        original_shape = x.shape\n        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()\n        n_rows, n_cols = x_reshaped.shape\n        \n        output = torch.empty_like(x_reshaped)\n        \n        BLOCK_SIZE = triton.next_power_of_2(n_cols)\n        grid = lambda meta: (n_rows,)\n        \n        forward_kernel[grid](\n            x_reshaped,\n            output,\n            x_reshaped.stride(0),\n            output.stride(0),\n            n_cols,\n            BLOCK_SIZE=BLOCK_SIZE,\n        )\n        \n        half_cols = n_cols // 2\n        x_feature = x_reshaped[..., :half_cols].clone()\n        x_gate = x_reshaped[..., half_cols:].clone()\n        \n        ctx.save_for_backward(x_feature, x_gate)\n        ctx.original_shape = original_shape\n        \n        return output.reshape(original_shape)\n    \n    @staticmethod\n    def backward(ctx, grad_output):\n        x_feature, x_gate = ctx.saved_tensors\n        original_shape = ctx.original_shape\n        \n        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()\n        n_rows, n_cols = grad_output_reshaped.shape\n        \n        grad_input = torch.empty_like(grad_output_reshaped)\n        \n        BLOCK_SIZE = triton.next_power_of_2(n_cols)\n        grid = lambda meta: (n_rows,)\n        \n        backward_kernel[grid](\n            grad_output_reshaped,\n            x_feature,\n            x_gate,\n            grad_input,\n            grad_output_reshaped.stride(0),\n            x_feature.stride(0),\n            x_gate.stride(0),\n            grad_input.stride(0),\n            n_cols,\n            BLOCK_SIZE=BLOCK_SIZE,\n        )\n        \n        return grad_input.reshape(original_shape)\n\ndef triton_swiglu(x):\n    return SwiGLUFunction.apply(x)\n```', refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None, reasoning_content="The-用户要求生成Triton实现的SwiGLU激活函数的kernel代码，需要严格按照规范实现。\n\n我需要实现：\n1. 前向kernel：实现silu(x_feature) * x_gate\n2. 反向kernel：计算梯度\n\nSwiGLU的定义：\n- 输入x被分成两部分：x_feature和x_gate\n- 输出 = silu(x_feature) * x_gate\n\n其中silu(x) = x * sigmoid(x) = x / (1 + exp(-x))\n\n前向计算：\n- x_feature = x[:, 0:half]\n- x_gate = x[:, half:]\n- silu(x_feature) = x_feature / (1 + exp(-x_feature))\n- output = silu(x_feature) * x_gate\n\n反向计算：\n设 y = silu(a) * b，其中 a = x_feature, b = x_gate\n\nsilu(a) = a * sigmoid(a) = a * s，其中 s = sigmoid(a) = 1/(1+exp(-a))\n\ndsigmoid/da = s * (1 - s)\n\ndsilu/da = s + a * dsigmoid/da = s + a * s * (1 - s) = s * (1 + a * (1 - s)) = s * (1 + a - a*s)\n\ndy/da = dsilu/da * b\ndy/db = silu(a)\n\n所以：\n- grad_x_feature = grad_output * silu'(x_feature) * x_gate\n- grad_x_gate = grad_output * silu(x_feature)\n\n\n准备设计kernel的参数和实现细节。kernel需要处理输入张量的特征维度，并计算SwiGLU激活函数的前向和反向传播。关键是高效地分块计算，并正确处理特征门控和特征激活的乘法操作。\n\n我将设计一个包含输入、输出指针、步幅和块大小的kernel函数，使用Triton的JIT编译器进行优化。核心目标是实现高效的并行计算，同时支持不同大小的输入张量。\n\n通过获取程序ID，我可以精确计算每个块的起始位置，并加载相应数据到寄存器中。这种方法确保了灵活性和性能。\n\n我计算了silu激活函数，通过门控值和特征值的组合，最终将结果存储回输出指针。这个实现简洁地实现了前向传播的核心逻辑。\n\n接下来需要定义自动微分函数，为梯度反向传播做准备。\n\n前向方法将输入x重塑为二维张量，并分配相应的输出空间。通过调用forward_kernel，在GPU上并行计算，并准备缓存中间结果，以便后续反向传播。\n\n在反向传播中，我从缓存中获取x_feature和x_gate，并重塑梯度输出。准备计算梯度，分配梯度输入和输出的内存空间，以便进行反向传播计算。\n\n我将调用反向kernel来计算梯度，然后返回梯度。具体实现包括设置kernel的网格大小和调用kernel函数，并确保梯度形状与原始输入一致。\n\n最终，我将返回梯度，完成反向传播过程。\n\n接下来，我将设计一个自动微分函数，包含前向和反向传播方法。这个函数将使用Triton优化库来实现高效的激活函数计算。前向方法将处理输入数据，缓存中间变量，为反向传播做准备。反向传播将计算梯度并返回。\n\n最终函数将把输入传递给自动微分函数，实现激活函数的前向传播。通过这种方式，我可以灵活地处理不同维度的输入数据，并支持梯度计算。\n\n在kernel实现中，我将使用程序ID和块大小来高效地并行计算激活函数。通过计算特征和门控值，并应用sigmoid激活，我可以生成最终的输出。这种方法可以充分利用GPU的并行计算能力。\n\n我确保每个线程块处理数据的连续块，通过指针偏移和掩码处理边界情况。对于步幅为0的情况，我会特别小心，直接使用寄存器中的值。最终将计算结果存储到输出缓冲区中，实现高效的内存访问和计算。\n\n这种方法能够处理不同形状和步幅的输入张量，同时保持计算的精确性和性能。通过灵活的指针操作和掩码技术，我可以处理复杂的张量布局。\n\n在反向传播中，我计算了silu激活函数的梯度，并生成了门控梯度。通过组合不同的梯度分量，我得到了最终的输入梯度，并确保其形状与原始输入一致。这种实现允许高效的自动微分，特别是在处理复杂的神经网络层时。\n\n关键点是通过块并行和掩码技术优化计算，同时保持梯度计算的精确性。我使用了Triton语言的高级特性，如自动调整grid大小和掩码处理，以确保GPU计算的高效性。\n\n对于反向传播，我计算了silu的导数，并通过门控和特征值的组合得到了梯度。最终将梯度拼接并重塑为原始形状，实现了完整的反向传播逻辑。这种方法既保持了计算的并行性，又确保了梯度计算的准确性。"))], created=1770758467, model='glm-4.7', object='chat.completion', service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=2041, prompt_tokens=460, total_tokens=2501, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=1019, rejected_prediction_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=72)), request_id='20260211052027b13fd92be3364296')
+
+=== REASONING CONTENT ===
+(not extracted)
+
+=== EXTRACTED CODE ===
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def forward_kernel(
+    x_ptr,
+    output_ptr,
+    stride_x,
+    stride_out,
+    n_cols,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(axis=0)
+    row_start = pid * stride_x
+    col_offsets = tl.arange(0, BLOCK_SIZE)
+    mask = col_offsets < n_cols
+    
+    x_ptrs = x_ptr + row_start + col_offsets
+    x = tl.load(x_ptrs, mask=mask, other=0.0)
+    
+    half_cols = n_cols // 2
+    x_feature = tl.where(col_offsets < half_cols, x, 0.0)
+    x_gate = tl.where(col_offsets >= half_cols, x, 0.0)
+    
+    sigmoid_x_feature = 1.0 / (1.0 + tl.exp(-x_feature))
+    silu_x_feature = x_feature * sigmoid_x_feature
+    
+    output = silu_x_feature * x_gate
+    
+    output_ptrs = output_ptr + pid * stride_out + col_offsets
+    tl.store(output_ptrs, output, mask=mask)
+
+@triton.jit
+def backward_kernel(
+    grad_output_ptr,
+    x_feature_ptr,
+    x_gate_ptr,
+    grad_input_ptr,
+    stride_go,
+    stride_xf,
+    stride_xg,
+    stride_gi,
+    n_cols,
+    BLOCK_SIZE: tl.constexpr,
+):
+    pid = tl.program_id(axis=0)
+    col_offsets = tl.arange(0, BLOCK_SIZE)
+    mask = col_offsets < n_cols
+    
+    go_ptrs = grad_output_ptr + pid * stride_go + col_offsets
+    grad_output = tl.load(go_ptrs, mask=mask, other=0.0)
+    
+    xf_ptrs = x_feature_ptr + pid * stride_xf + col_offsets
+    x_feature = tl.load(xf_ptrs, mask=mask, other=0.0)
+    
+    xg_ptrs = x_gate_ptr + pid * stride_xg + col_offsets
+    x_gate = tl.load(xg_ptrs, mask=mask, other=0.0)
+    
+    sigmoid_x_feature = 1.0 / (1.0 + tl.exp(-x_feature))
+    sigmoid_x_feature_sq = sigmoid_x_feature * sigmoid_x_feature
+    dsilu = sigmoid_x_feature * (1.0 + x_feature * (1.0 - sigmoid_x_feature))
+    
+    grad_x_feature = grad_output * dsilu * x_gate
+    grad_x_gate = grad_output * sigmoid_x_feature * x_feature
+    
+    half_cols = n_cols // 2
+    grad_input = tl.where(col_offsets < half_cols, grad_x_feature, grad_x_gate)
+    
+    gi_ptrs = grad_input_ptr + pid * stride_gi + col_offsets
+    tl.store(gi_ptrs, grad_input, mask=mask)
+
+class SwiGLUFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        original_shape = x.shape
+        x_reshaped = x.reshape(-1, x.shape[-1]).contiguous()
+        n_rows, n_cols = x_reshaped.shape
+        
+        output = torch.empty_like(x_reshaped)
+        
+        BLOCK_SIZE = triton.next_power_of_2(n_cols)
+        grid = lambda meta: (n_rows,)
+        
+        forward_kernel[grid](
+            x_reshaped,
+            output,
+            x_reshaped.stride(0),
+            output.stride(0),
+            n_cols,
+            BLOCK_SIZE=BLOCK_SIZE,
+        )
+        
+        half_cols = n_cols // 2
+        x_feature = x_reshaped[..., :half_cols].clone()
+        x_gate = x_reshaped[..., half_cols:].clone()
+        
+        ctx.save_for_backward(x_feature, x_gate)
+        ctx.original_shape = original_shape
+        
+        return output.reshape(original_shape)
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        x_feature, x_gate = ctx.saved_tensors
+        original_shape = ctx.original_shape
+        
+        grad_output_reshaped = grad_output.reshape(-1, grad_output.shape[-1]).contiguous()
+        n_rows, n_cols = grad_output_reshaped.shape
+        
+        grad_input = torch.empty_like(grad_output_reshaped)
+        
+        BLOCK_SIZE = triton.next_power_of_2(n_cols)
+        grid = lambda meta: (n_rows,)
+        
+        backward_kernel[grid](
+            grad_output_reshaped,
+            x_feature,
+            x_gate,
+            grad_input,
+            grad_output_reshaped.stride(0),
+            x_feature.stride(0),
+            x_gate.stride(0),
+            grad_input.stride(0),
+            n_cols,
+            BLOCK_SIZE=BLOCK_SIZE,
+        )
+        
+        return grad_input.reshape(original_shape)
+
+def triton_swiglu(x):
+    return SwiGLUFunction.apply(x)

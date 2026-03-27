@@ -1,0 +1,204 @@
+=== ERROR ===
+Numerical mismatch: max_abs=1.48e-02, max_rel=1.96e-03; Gradient mismatch for input 0: max_diff=1.89e-02
+
+=== RAW RESPONSE ===
+ChatCompletion(id='20260212091057011794c9c9e24c03', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content="```python\nimport torch\nimport triton\nimport triton.language as tl\n\n@triton.jit\ndef cross_entropy_forward_kernel(\n    logits_ptr,\n    labels_ptr,\n    loss_ptr,\n    softmax_ptr,\n    stride_m,\n    stride_n,\n    M,\n    N,\n    ignore_index: tl.constexpr,\n    BLOCK_SIZE: tl.constexpr\n):\n    row_idx = tl.program_id(0)\n    \n    if row_idx >= M:\n        return\n    \n    label = tl.load(labels_ptr + row_idx)\n    \n    # Calculate row pointer offset\n    row_start = row_idx * stride_m\n    \n    # Pass 1: Find Max\n    m_max = -float('inf')\n    for off in range(0, N, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < N\n        # Use correct stride arithmetic\n        logits_offsets = row_start + cols * stride_n\n        x = tl.load(logits_ptr + logits_offsets, mask=mask, other=-float('inf'))\n        m_max = tl.maximum(m_max, tl.max(x))\n        \n    # Pass 2: Compute Sum, Target Logit, Softmax, and Loss\n    m_sum = 0.0\n    target_logits = 0.0\n    \n    # Accumulate sum and target logits\n    for off in range(0, N, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < N\n        logits_offsets = row_start + cols * stride_n\n        \n        x = tl.load(logits_ptr + logits_offsets, mask=mask, other=0.0)\n        \n        shifted = x - m_max\n        exps = tl.exp(shifted)\n        \n        m_sum += tl.sum(exps)\n        \n        # Extract target logit\n        target_logits += tl.sum(x * (cols == label))\n\n    # Compute LogSumExp for stability\n    # log(sum(exp(x - max))) + max\n    log_sum_exp = tl.log(m_sum + 1e-8) + m_max\n    \n    # Loss = log_sum_exp - target_logits\n    loss = log_sum_exp - target_logits\n    \n    # Handle ignore index\n    # If label is ignore_index, set loss to 0. \n    # We also need to handle the case where target_logits was 0 because the label was out of bounds (if not handled by mask)\n    # but here label is a single int.\n    loss = tl.where(label == ignore_index, 0.0, loss)\n    \n    tl.store(loss_ptr + row_idx, loss)\n    \n    # Pass 3: Write Softmax (for backward pass)\n    # We need the normalization factor\n    inv_sum = 1.0 / (m_sum + 1e-8)\n    \n    for off in range(0, N, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < N\n        logits_offsets = row_start + cols * stride_n\n        \n        x = tl.load(logits_ptr + logits_offsets, mask=mask, other=0.0)\n        shifted = x - m_max\n        exps = tl.exp(shifted)\n        probs = exps * inv_sum\n        \n        # If ignored, we can technically store anything, but 0 is safe/clean\n        # However, standard softmax is expected for backprop if not ignored.\n        # Backward kernel will zero out gradients for ignored rows anyway.\n        \n        sm_offsets = row_idx * stride_m + cols * stride_n\n        tl.store(softmax_ptr + sm_offsets, probs, mask=mask)\n\n@triton.jit\ndef cross_entropy_backward_kernel(\n    softmax_ptr,\n    labels_ptr,\n    grad_output_ptr,\n    grad_logits_ptr,\n    stride_m,\n    stride_n,\n    M,\n    N,\n    ignore_index: tl.constexpr,\n    BLOCK_SIZE: tl.constexpr\n):\n    row_idx = tl.program_id(0)\n    if row_idx >= M:\n        return\n        \n    label = tl.load(labels_ptr + row_idx)\n    grad_out = tl.load(grad_output_ptr + row_idx)\n    \n    is_ignored = (label == ignore_index)\n    \n    row_start = row_idx * stride_m\n    \n    for off in range(0, N, BLOCK_SIZE):\n        cols = off + tl.arange(0, BLOCK_SIZE)\n        mask = cols < N\n        \n        sm_offsets = row_start + cols * stride_n\n        sm = tl.load(softmax_ptr + sm_offsets, mask=mask, other=0.0)\n        \n        # Gradient: (softmax - one_hot) * grad_output\n        one_hot = tl.where(cols == label, 1.0, 0.0)\n        dsm = sm - one_hot\n        \n        grad = dsm * grad_out\n        \n        # Zero out gradient for ignored indices\n        grad = tl.where(is_ignored, 0.0, grad)\n        \n        grad_offsets = row_start + cols * stride_n\n        tl.store(grad_logits_ptr + grad_offsets, grad, mask=mask)\n\nclass CrossEntropyFunction(torch.autograd.Function):\n    @staticmethod\n    def forward(ctx, logits, labels, ignore_index=-100):\n        M, N = logits.shape\n        stride_m = logits.stride(0)\n        stride_n = logits.stride(1)\n        \n        # Allocate output tensors\n        loss = torch.empty(M, dtype=logits.dtype, device=logits.device)\n        softmax = torch.empty_like(logits)\n        \n        # Heuristic for BLOCK_SIZE\n        BLOCK_SIZE = triton.next_power_of_2(N)\n        if BLOCK_SIZE > 1024:\n            BLOCK_SIZE = 1024\n            \n        grid = lambda META: (M,)\n        \n        # Launch forward kernel\n        cross_entropy_forward_kernel[grid](\n            logits, labels, loss, softmax,\n            stride_m, stride_n, M, N,\n            ignore_index,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n        \n        ctx.save_for_backward(softmax, labels)\n        ctx.ignore_index = ignore_index\n        ctx.M = M\n        ctx.N = N\n        ctx.stride_m = stride_m\n        ctx.stride_n = stride_n\n        ctx.BLOCK_SIZE = BLOCK_SIZE\n        \n        return loss, softmax\n\n    @staticmethod\n    def backward(ctx, grad_loss, grad_softmax):\n        softmax, labels = ctx.saved_tensors\n        ignore_index = ctx.ignore_index\n        M = ctx.M\n        N = ctx.N\n        stride_m = ctx.stride_m\n        stride_n = ctx.stride_n\n        BLOCK_SIZE = ctx.BLOCK_SIZE\n        \n        grad_logits = torch.empty_like(softmax)\n        \n        grid = lambda META: (M,)\n        \n        cross_entropy_backward_kernel[grid](\n            softmax, labels, grad_loss, grad_logits,\n            stride_m, stride_n, M, N,\n            ignore_index,\n            BLOCK_SIZE=BLOCK_SIZE\n        )\n        \n        # grad_softmax is unused as softmax is an intermediate, but required by autograd signature\n        return grad_logits, None, None\n\ntriton_cross_entropy = CrossEntropyFunction.apply\n```", refusal=None, role='assistant', annotations=None, audio=None, function_call=None, tool_calls=None, reasoning_content='The user wants a Triton GPU kernel for Softmax Cross Entropy.\nThe previous attempt had numerical mismatches and gradient mismatches, and the class definition was cut off.\nI need to implement a numerically stable forward pass and the correct backward pass.\nI must adhere to the specific export name `triton_cross_entropy`.\n\nKey requirements:\n1.  **Stable Computation**: Softmax needs log-sum-exp trick.\n    *   $L = -\\log(\\frac{e^{x_t}}{\\sum e^{x_i}}) = -(x_t - \\log(\\sum e^{x_i}))$.\n2.  **Gradient**:\n    *   $\\frac{\\partial L}{\\partial x_i} = p_i - \\mathbb{1}(y=i)$ where $p_i$ is softmax probability and $y$ is the label.\n    *   If `grad_output` is provided (often 1.0 for loss, but in case of scaling), the formula is $(p_i - \\mathbb{1}(y=i)) \\times \\text{grad\\_output}$.\n3.  **Ignore Index**: Loss is 0, gradient is 0 if label equals `ignore_index`.\n4.  **Performance**: Use efficient reduction (max then sum) or vectorized loads. Given the previous code structure, I will stick to a standard reduction approach but clean up the logic.\n5.  **Triton specifics**:\n    *   Use `tl.dot` or loops. For generic N, loops are safer.\n    *   Block size needs to be handled carefully.\n    *   The previous code had `stride_n` passed but didn\'t strictly use it correctly in some places (it assumed contiguous memory usually). The spec implies a 2D tensor [M, N].\n    *   `triton_cross_entropy` must be the exported name.\n\n**Fixing the specific errors:**\n\n*   **Numerical mismatch (Forward)**:\n    *   The previous forward pass calculated `target_exp` and `m_sum` separately.\n    *   Logic check: `shifted = x - m_max`. `exps = exp(shifted)`. `sum = sum(exps)`. `log_sum_exp = log(sum) + m_max`.\n    *   Loss = `- (logits[label] - log_sum_exp)`.\n    *   The previous code did: `prob_target = target_exp * inv_sum`. `loss = -log(prob_target)`.\n    *   `target_exp` is just `exp(logits[label] - m_max)`. `inv_sum` is `1 / sum(exps)`.\n    *   This looks algebraically correct. Why the mismatch?\n    *   Maybe the `BLOCK_SIZE` handling or boundary conditions? Or the `other` value in load?\n    *   The previous code used `other=-float(\'inf\')` for max pass. `other=0.0` for sum pass. If `cols >= N`, we load 0.0.\n    *   The mask logic seems okay, but let\'s double check precision. `1e-8` epsilon is standard but maybe unnecessary if we avoid div by zero.\n    *   **Major Issue**: The previous code did *three* passes over memory (Max, Sum, Softmax Write). While correct, it might be slow, but shouldn\'t cause numerical errors unless the reduction logic is flawed.\n    *   Let\'s look at `m_max` accumulation. `tl.maximum` is a reduction. Inside a loop, it accumulates. Correct.\n    *   Let\'s look at `m_sum` accumulation. Correct.\n    *   Let\'s look at `target_exp`. `target_exp += tl.sum(exps * (cols == label))`. Correct.\n    *   *Wait*, the `BLOCK_SIZE` might be too small or the `stride` calculation is weird.\n    *   `stride_m`: Usually the distance between row starts.\n    *   The previous code: `row_start = row_idx * stride_m`.\n    *   If logits are [M, N], `stride_m` is N, `stride_n` is 1.\n    *   Let\'s ensure we use the `triton.autotune` or heuristics for `BLOCK_SIZE` effectively or pick a safe default like 1024 or 2048.\n\n*   **Gradient mismatch**:\n    *   Formula: `grad = (softmax - one_hot) * grad_out`.\n    *   The previous code did exactly this.\n    *   Why mismatch?\n    *   Possibly `softmax` calculation in forward didn\'t match exactly what PyTorch expects or the precision of `exp`.\n    *   Or maybe the `ignore_index` handling in the gradient is slightly off?\n    *   In PyTorch, if `ignore_index` is set, the loss is 0. The gradient is *also* 0 for that sample.\n    *   The previous code: `grad = tl.where(is_ignored, 0.0, grad)`. This is correct.\n    *   The issue might be how `softmax_ptr` is written/read. If the forward pass writes `softmax` with slight deviations (e.g. due to reduction order), the backward pass reads those deviations and propagates them.\n    *   **Standard Cross Entropy optimization**: Usually, we don\'t need to save the full Softmax matrix if we just want gradients for logits, but here the spec implies `softmax_ptr` is an output/input.\n    *   Let\'s make sure the reduction order is consistent or use high precision accumulators.\n\n*   **Refining the Forward Logic (One Pass or Two Pass)**:\n    *   Two passes are better for stability: 1. Find Max. 2. Find Sum and write Softmax/Loss.\n    *   Merging Pass 2 and 3 reduces memory bandwidth.\n    *   However, to ensure exact numerical matching with PyTorch\'s reference implementation (which is usually very stable), sticking to `log_softmax` style logic is best.\n    *   Loss = `log_sum_exp - logits[target]`.\n    *   Gradient calculation requires the actual softmax probabilities.\n\n*   **Code Structure Fixes**:\n    *   The provided snippet was cut off at `def forward`. I need to complete the `MyFunction` class.\n    *   I need to wrap it in the standard `torch.autograd.Function` boilerplate.\n    *   The `stride_n` argument in the kernel might be redundant if we assume row-major and contiguous columns, but it\'s good to keep if the input is transposed. However, usually `stride_n` is 1. I will assume standard contiguous [M, N] tensors for simplicity unless `stride_n` suggests otherwise. The previous code used `row_start + cols`. `cols` is an offset. If `stride_n != 1`, this is wrong. It should be `row_start + cols * stride_n`.\n    *   **Correction**: The previous code used `cols` as a linear index offset `0..N`. This implies `stride_n=1`. I will assume `stride_n` is the stride in the N dimension (usually 1).\n\n*   **Algorithm**:\n    *   **Forward**:\n        *   Loop over row chunks.\n        *   Compute `max_x`.\n        *   Loop over row chunks.\n        *   Load `x`. Compute `exp(x - max_x)`.\n        *   Accumulate `sum_exp`.\n        *   Accumulate `target_logit` (actually `x[target]`)?\n        *   Better: accumulate `sum_exp` and `exp(target_x - max_x)`.\n        *   Loss = `max_x + log(sum_exp) - target_x`.\n        *   Wait, `target_x` is needed. I need to load `target_x`.\n        *   Actually, I need `logits[label]`.\n        *   Logic: `log_sum_exp = log(sum(exp(x - max))) + max`. `loss = log_sum_exp - logits[label]`.\n        *   I also need to store `softmax = exp(x - max) / sum`.\n    *   **Backward**:\n        *   Read `softmax`.\n        *   `grad = softmax`.\n        *   `grad[label] -= 1`.\n        *   `grad *= grad_out`.\n\n*   **Optimization**: Combine the second loop of forward (sum + softmax write).\n\n*   **Addressing the "max_abs" mismatch**:\n    *   The previous code used `m_max = -float(\'inf\')`.\n    *   Inside the loop: `x = tl.load(...)`. `m_max = tl.maximum(m_max, tl.max(x))`.\n    *   This is correct.\n    *   Maybe the issue is `BLOCK_SIZE`. If `BLOCK_SIZE` is small, the loop overhead is fine, but maybe `N` isn\'t perfectly divisible? Masking handles that.\n    *   Let\'s clean up the pointers and types. Ensure `float32` for accumulation? Triton kernels default to input type, usually float32. If inputs are float16, accumulation might overflow/underflow or lose precision.\n    *   I will cast to float32 for the reduction if possible, or trust the compiler. Given the "numerical mismatch" error, explicit float32 accumulation for sum/exp is safer.\n    *   However, strict type casting in Triton can be verbose.\n    *   Let\'s look at the provided error again: `max_abs=1.48e-02`. This is small but non-zero.\n    *   One common bug: `stride` calculation.\n    *   `row_start = row_idx * stride_m`.\n    *   `cols` = `tl.arange(0, BLOCK_SIZE)`.\n    *   Address: `logits_ptr + row_start + cols`.\n    *   This assumes `stride_n = 1`. If the tensor is not contiguous in the last dimension (e.g. `stride_n = 128`), this code is wrong.\n    *   However, standard cross entropy inputs are usually `[Batch, Classes]` which is contiguous.\n    *   But the function signature takes `stride_n`. I *must* use it.\n    *   Correct address: `logits_ptr + row_idx * stride_m + cols * stride_n`.\n    *   The previous code ignored `stride_n`. This is likely the cause of incorrect data loading if the test cases use non-default strides.\n\n*   **Implementation Plan**:\n    1.  Define `triton_cross_entropy_forward`.\n    2.  Use `stride_m` and `stride_n` correctly in pointer arithmetic.\n    3.  Pass 1: Max reduction. Use `mask` for tail.\n    4.  Pass 2: Sum reduction + Softmax + Loss.\n        *   Compute `shifted = x - m_max`.\n        *   Compute `exps = tl.exp(shifted)`.\n        *   Sum `exps`.\n        *   Normalize `exps` to get `softmax`. Store.\n        *   Calculate `loss`.\n        *   Handle `ignore_index`.\n    5.  Define `triton_cross_entropy_backward`.\n    6.  Use `stride_m` and `stride_n`.\n    7.  Load `softmax`.\n    8.  Subtract one-hot at `label`.\n    9.  Multiply by `grad_out`.\n    10. Handle `ignore_index`.\n    11. Wrap in `CrossEntropyFunction`.\n    12. Export `triton_cross_entropy = CrossEntropyFunction.apply`.\n\n*   **Refining the reduction**:\n    *   Triton doesn\'t have a global reduction across warps automatically inside a kernel unless you use `tl.reduce` or manual loops.\n    *   Since we loop over blocks in a single program (program ID is row), we handle the whole row in one thread block.\n    *   If `N` is large (e.g., 50k vocab), `BLOCK_SIZE` (e.g., 128) is small. We iterate.\n    *   The loop variable `off` goes `0` to `N` by `BLOCK_SIZE`.\n    *   We need a `tl.exp` accumulation.\n    *   Floating point addition is not associative. The order of summation affects the result.\n    *   To match PyTorch exactly, we usually want to sum in the same order, but PyTorch\'s `cross_entropy` runs in parallel. The variance should be within tolerance.\n    *   The specific error `max_abs=1.48e-02` suggests a logic error (like stride) rather than precision, or a very unstable numerical calculation.\n    *   The stride theory is strong.\n\n*   **One detail**: `stride_m` is often N, `stride_n` is 1.\n    *   If I use `cols * stride_n`, it handles both.\n    *   I will update the code to use `cols * stride_n`.\n\n*   **Another detail**: `ignore_index`.\n    *   In forward: Loss = 0 if `label == ignore_index`.\n    *   In backward: Grad = 0 if `label == ignore_index`.\n    *   The previous code did this.\n\n*   **Kernel Inputs**:\n    *   `logits_ptr`: float.\n    *   `labels_ptr`: int/long.\n    *   `loss_ptr`: float.\n    *   `softmax_ptr`: float (needed for backward).\n    *   `stride_m`, `stride_n`.\n\n*   **Autotune**:\n    *   I should include an autotuner for `BLOCK_SIZE` to ensure performance across different N, but the prompt asks to "Fix the issues", implying I should provide a robust kernel. A fixed `BLOCK_SIZE=1024` or similar is usually fine for a generic solution, but I\'ll define a helper or just a sensible default. I will keep it simple with a standard block size logic.\n\n*   **Code Construction**:\n    *   I will not use the `MyFunction` name if I can avoid it, but the snippet had it. I\'ll create `TritonCrossEntropyFunction` and alias it.\n    *   The user requirement: `Export function name: triton_cross_entropy`. `You MUST create a function named triton_cross_entropy at module level`.\n    *   Actually, `triton_cross_entropy = YourClass.apply` makes `triton_cross_entropy` a bound method or similar, effectively a function handle. This satisfies the requirement.\n\n*   **Specific Fix on Numerical Stability**:\n    *   Make sure `log_sum_exp` is computed robustly.\n    *   `log_sum_exp = m_max + tl.log(m_sum)`.\n    *   Loss = `log_sum_exp - x_target`.\n    *   Wait, `x_target` is `logits[target]`. I need to fetch this value.\n    *   In the second pass, `x` is loaded. I can check `cols == label` to get `x_target`.\n    *   `x_target = tl.sum(x * (cols == label))`. Since only one is true, this extracts the value.\n    *   Then `loss = log_sum_exp - x_target`.\n    *   If `label == ignore_index`, `loss = 0`.\n    *   Also need to handle `prob_target`.\n    *   If I use the `log_sum_exp - x_target` formula, I don\'t need to extract `prob_target` and do `-log(p)`. It is numerically more stable.\n\n*   **Backward check**:\n    *   `grad = (softmax - one_hot) * grad_out`.\n    *   This is mathematically correct for the cross entropy loss $L = - \\sum y_i \\log(p_i)$ where $y$ is one-hot.\n    *   Derivative: $\\frac{\\partial L}{\\partial x_j} = \\sum_i \\frac{\\partial L}{\\partial p_i} \\frac{\\partial p_i}{\\partial x_j}$.\n    *   $\\frac{\\partial L}{\\partial p_i} = -\\frac{y_i}{p_i}$.\n    *   $\\frac{\\partial p_i}{\\partial x_j} = p_i(\\delta_{ij} - p_j)$.\n    *   Result: $-y_i \\frac{1}{p_i} p_i (\\delta_{ij} - p_j) = -y_i (\\delta_{ij} - p_j) = p_j y_i - y_i \\delta_{ij}$.\n    *   Summing over $i$: $p_j \\sum y_i - y_j$.\n    *   Since $y$ is one-hot, $\\sum y_i = 1$.\n    *   Result: $p_j - y_j$.\n    *   With chain rule (grad_out): $(p_j - y_j) \\times \\text{grad\\_out}$.\n    *   Correct.\n\n*   **Python Wrapper**:\n    *   Must handle shapes and strides.\n    *   Contiguous checks?\n    *   I\'ll write the wrapper to call the kernels with the grid size `M`.\n\n*   **Writing the code**:\n    *   Include imports.\n    *   Forward kernel.\n    *   Backward kernel.\n    *   Autograd Function class.\n    *   Wrapper function `triton_cross_entropy`.\n\n*   **Wait**, the user wants `triton_cross_entropy` at module level.\n    If I do:\n    ```python\n    class _CrossEntropy(torch.autograd.Function): ...\n    triton_cross_entropy = _CrossEntropy.apply\n    ```\n    This satisfies it.\n\n*   **Final check on `BLOCK_SIZE`**:\n    *   If `N` is large, we need loops.\n    *   The previous code had loops. I will keep them.\n    *   I will add `BLOCK_SIZE` as a `constexpr` or config.\n\n*   **Double Check Strides**:\n    *   `logits`: shape `[M, N]`.\n    *   `logits_ptr + row_idx * stride_m + col_idx * stride_n`.\n    *   In the loop: `offs = col_offset + tl.arange(0, BLOCK_SIZE)`.\n    *   `pointers = logits_ptr + row_idx * stride_m + offs * stride_n`.\n    *   This covers the stride logic correctly.\n\nLet\'s generate the code.'))], created=1770858740, model='glm-4.7', object='chat.completion', service_tier=None, system_fingerprint=None, usage=CompletionUsage(completion_tokens=5324, prompt_tokens=1160, total_tokens=6484, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=None, audio_tokens=None, reasoning_tokens=3846, rejected_prediction_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=None, cached_tokens=5)), request_id='20260212091057011794c9c9e24c03')
+
+=== EXTRACTED CODE ===
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def cross_entropy_forward_kernel(
+    logits_ptr,
+    labels_ptr,
+    loss_ptr,
+    softmax_ptr,
+    stride_m,
+    stride_n,
+    M,
+    N,
+    ignore_index: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr
+):
+    row_idx = tl.program_id(0)
+    
+    if row_idx >= M:
+        return
+    
+    label = tl.load(labels_ptr + row_idx)
+    
+    # Calculate row pointer offset
+    row_start = row_idx * stride_m
+    
+    # Pass 1: Find Max
+    m_max = -float('inf')
+    for off in range(0, N, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < N
+        # Use correct stride arithmetic
+        logits_offsets = row_start + cols * stride_n
+        x = tl.load(logits_ptr + logits_offsets, mask=mask, other=-float('inf'))
+        m_max = tl.maximum(m_max, tl.max(x))
+        
+    # Pass 2: Compute Sum, Target Logit, Softmax, and Loss
+    m_sum = 0.0
+    target_logits = 0.0
+    
+    # Accumulate sum and target logits
+    for off in range(0, N, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < N
+        logits_offsets = row_start + cols * stride_n
+        
+        x = tl.load(logits_ptr + logits_offsets, mask=mask, other=0.0)
+        
+        shifted = x - m_max
+        exps = tl.exp(shifted)
+        
+        m_sum += tl.sum(exps)
+        
+        # Extract target logit
+        target_logits += tl.sum(x * (cols == label))
+
+    # Compute LogSumExp for stability
+    # log(sum(exp(x - max))) + max
+    log_sum_exp = tl.log(m_sum + 1e-8) + m_max
+    
+    # Loss = log_sum_exp - target_logits
+    loss = log_sum_exp - target_logits
+    
+    # Handle ignore index
+    # If label is ignore_index, set loss to 0. 
+    # We also need to handle the case where target_logits was 0 because the label was out of bounds (if not handled by mask)
+    # but here label is a single int.
+    loss = tl.where(label == ignore_index, 0.0, loss)
+    
+    tl.store(loss_ptr + row_idx, loss)
+    
+    # Pass 3: Write Softmax (for backward pass)
+    # We need the normalization factor
+    inv_sum = 1.0 / (m_sum + 1e-8)
+    
+    for off in range(0, N, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < N
+        logits_offsets = row_start + cols * stride_n
+        
+        x = tl.load(logits_ptr + logits_offsets, mask=mask, other=0.0)
+        shifted = x - m_max
+        exps = tl.exp(shifted)
+        probs = exps * inv_sum
+        
+        # If ignored, we can technically store anything, but 0 is safe/clean
+        # However, standard softmax is expected for backprop if not ignored.
+        # Backward kernel will zero out gradients for ignored rows anyway.
+        
+        sm_offsets = row_idx * stride_m + cols * stride_n
+        tl.store(softmax_ptr + sm_offsets, probs, mask=mask)
+
+@triton.jit
+def cross_entropy_backward_kernel(
+    softmax_ptr,
+    labels_ptr,
+    grad_output_ptr,
+    grad_logits_ptr,
+    stride_m,
+    stride_n,
+    M,
+    N,
+    ignore_index: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr
+):
+    row_idx = tl.program_id(0)
+    if row_idx >= M:
+        return
+        
+    label = tl.load(labels_ptr + row_idx)
+    grad_out = tl.load(grad_output_ptr + row_idx)
+    
+    is_ignored = (label == ignore_index)
+    
+    row_start = row_idx * stride_m
+    
+    for off in range(0, N, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < N
+        
+        sm_offsets = row_start + cols * stride_n
+        sm = tl.load(softmax_ptr + sm_offsets, mask=mask, other=0.0)
+        
+        # Gradient: (softmax - one_hot) * grad_output
+        one_hot = tl.where(cols == label, 1.0, 0.0)
+        dsm = sm - one_hot
+        
+        grad = dsm * grad_out
+        
+        # Zero out gradient for ignored indices
+        grad = tl.where(is_ignored, 0.0, grad)
+        
+        grad_offsets = row_start + cols * stride_n
+        tl.store(grad_logits_ptr + grad_offsets, grad, mask=mask)
+
+class CrossEntropyFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, logits, labels, ignore_index=-100):
+        M, N = logits.shape
+        stride_m = logits.stride(0)
+        stride_n = logits.stride(1)
+        
+        # Allocate output tensors
+        loss = torch.empty(M, dtype=logits.dtype, device=logits.device)
+        softmax = torch.empty_like(logits)
+        
+        # Heuristic for BLOCK_SIZE
+        BLOCK_SIZE = triton.next_power_of_2(N)
+        if BLOCK_SIZE > 1024:
+            BLOCK_SIZE = 1024
+            
+        grid = lambda META: (M,)
+        
+        # Launch forward kernel
+        cross_entropy_forward_kernel[grid](
+            logits, labels, loss, softmax,
+            stride_m, stride_n, M, N,
+            ignore_index,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+        
+        ctx.save_for_backward(softmax, labels)
+        ctx.ignore_index = ignore_index
+        ctx.M = M
+        ctx.N = N
+        ctx.stride_m = stride_m
+        ctx.stride_n = stride_n
+        ctx.BLOCK_SIZE = BLOCK_SIZE
+        
+        return loss, softmax
+
+    @staticmethod
+    def backward(ctx, grad_loss, grad_softmax):
+        softmax, labels = ctx.saved_tensors
+        ignore_index = ctx.ignore_index
+        M = ctx.M
+        N = ctx.N
+        stride_m = ctx.stride_m
+        stride_n = ctx.stride_n
+        BLOCK_SIZE = ctx.BLOCK_SIZE
+        
+        grad_logits = torch.empty_like(softmax)
+        
+        grid = lambda META: (M,)
+        
+        cross_entropy_backward_kernel[grid](
+            softmax, labels, grad_loss, grad_logits,
+            stride_m, stride_n, M, N,
+            ignore_index,
+            BLOCK_SIZE=BLOCK_SIZE
+        )
+        
+        # grad_softmax is unused as softmax is an intermediate, but required by autograd signature
+        return grad_logits, None, None
+
+triton_cross_entropy = CrossEntropyFunction.apply
