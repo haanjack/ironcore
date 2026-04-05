@@ -1,4 +1,3 @@
-from ironcore.config.config_model import BiasConfig
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: MIT
@@ -36,17 +35,18 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_model import BiasConfig
 from ironcore.global_vars import global_states_cleanup, set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
-
-# Initialize parallel states for testing (TP=1)
-parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
 
 
 @pytest.fixture(scope="module")
 def tp1_config():
     """Create and initialize config for TP=1 testing."""
+    # Initialize parallel states first
+    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+
     # Create KV cache config
     kv_cache_config = KVCacheConfig(
         enabled=True,
@@ -72,6 +72,8 @@ def tp1_config():
         dropout_embd=0.0,
         positional_embedding=pos_emb_config,
         kv_cache=kv_cache_config,
+        bias=BiasConfig.all_true(),
+        layernorm_bias=True,
     )
     model_config.name = "GPT"
 
@@ -109,6 +111,7 @@ def tp1_config():
     yield config
     # Cleanup after all tests
     global_states_cleanup()
+    parallel_states.destroy_model_parallel()
 
 
 @pytest.fixture
@@ -224,13 +227,16 @@ def test_tp1_numerical_equivalence(model, tp1_config):
 
         for i in range(seq_len):
             token = input_ids[:, i : i + 1]
-            logits, past_kv = model(token, use_cache=True, past_key_values=past_kv)
+            output = model(token, use_cache=True, past_key_values=past_kv)
+            logits = output[0] if isinstance(output, tuple) else output
+            past_kv = output[1] if isinstance(output, tuple) else None
             cached_logits.append(logits)
 
         cached_logits_concat = torch.cat(cached_logits, dim=1)
 
-        # Process without cache (full sequence)
-        full_logits = model(input_ids, use_cache=False)
+        # Process without cache (full sequence) - may return tuple in eval mode
+        full_output = model(input_ids, use_cache=False)
+        full_logits = full_output[0] if isinstance(full_output, tuple) else full_output
 
         # Compare all logits
         torch.testing.assert_close(
@@ -258,14 +264,17 @@ def test_tp1_cache_reuse(model, tp1_config):
 
     with torch.no_grad():
         # Process first sequence
-        _, past_kv_1 = model(input_ids_1, use_cache=True, past_key_values=None)
+        output_1 = model(input_ids_1, use_cache=True, past_key_values=None)
+        past_kv_1 = output_1[1] if isinstance(output_1, tuple) else None
 
         # Process second sequence with cache
-        logits_2, past_kv_2 = model(input_ids_2, use_cache=True, past_key_values=past_kv_1)
+        output_2 = model(input_ids_2, use_cache=True, past_key_values=past_kv_1)
+        logits_2 = output_2[0] if isinstance(output_2, tuple) else output_2
 
-        # Process full sequence without cache
+        # Process full sequence without cache - may return tuple in eval mode
         full_input = torch.cat([input_ids_1, input_ids_2], dim=1)
-        full_logits = model(full_input, use_cache=False)
+        full_output = model(full_input, use_cache=False)
+        full_logits = full_output[0] if isinstance(full_output, tuple) else full_output
 
         # The last 10 logits should match
         torch.testing.assert_close(
