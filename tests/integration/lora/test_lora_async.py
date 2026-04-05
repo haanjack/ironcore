@@ -146,6 +146,11 @@ class TestLoRAAsyncChunking:
 
             with torch.no_grad():
                 output_chunked = model_chunked(input_ids)
+                # Handle tuple return (logits, past_kv) when in eval mode with KV cache
+                if isinstance(output_chunked, tuple):
+                    output_chunked = output_chunked[0]
+                if isinstance(output_no_chunk, tuple):
+                    output_no_chunk = output_no_chunk[0]
 
             # Compare outputs
             if rank == 0:

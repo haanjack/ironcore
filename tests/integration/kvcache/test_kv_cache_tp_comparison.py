@@ -140,7 +140,7 @@ class TestKVCacheShapeComparison:
         """
         Test: Compare KVCacheManager shapes between TP configurations.
 
-        Cache shape: [batch, num_local_kv_groups, max_seq_len, head_dim]
+        Cache shape: [batch, max_seq_len, num_local_kv_groups, head_dim]
         """
         num_kv_groups = 4
         num_layers = 2
@@ -157,8 +157,8 @@ class TestKVCacheShapeComparison:
 
         # Verify TP=1 cache shape
         for key_cache in cache_tp1.key_caches:
-            # Shape: [batch, num_local_kv_groups, max_seq_len, head_dim]
-            assert key_cache.shape[1] == 4  # num_local_kv_groups for TP=1
+            # Shape: [batch, max_seq_len, num_local_kv_groups, head_dim]
+            assert key_cache.shape[2] == 4  # num_local_kv_groups for TP=1
 
         # Note: TP=2 cache would need parallel_states to be initialized with TP=2
         # Here we just verify the calculation logic

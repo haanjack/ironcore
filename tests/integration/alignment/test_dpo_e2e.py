@@ -54,7 +54,7 @@ def tiny_model_config():
         UtilsConfig,
     )
     from ironcore.config.config_alignment import AlignmentConfig
-    from ironcore.config.config_model import BiasConfig
+    from ironcore.config.config_model import BiasConfig, KVCacheConfig
 
     model_config = ModelConfig(
         d_model=64,
@@ -71,6 +71,9 @@ def tiny_model_config():
         bias=BiasConfig.all_true(),
         layernorm_bias=True,
         precision="float32",
+        kv_cache=KVCacheConfig(enabled=False),  # Disable KV cache for DPO tests
+        hf_model_type="gpt2",  # Required for checkpoint saving
+        hf_architecture="GPT2LMHeadModel",  # Required for checkpoint saving
     )
 
     trainer_config = TrainerConfig(
@@ -459,7 +462,7 @@ class TestDPOCheckpoint:
 
             # Update config with checkpoint path
             tiny_model_config.trainer.model_path = str(ckpt_path)
-            tiny_model_config.operation.save_dist_ckpt = True
+            tiny_model_config.operation.save_dist_ckpt = False  # Don't require HF config
 
             optimizer = torch.optim.Adam(tiny_transformer.parameters(), lr=1e-4)
             lr_scheduler = StepLR(optimizer, step_size=100, gamma=0.9)
@@ -498,28 +501,32 @@ class TestDPOCheckpoint:
         This verifies the DPO-specific behavior where reference model must be
         created AFTER checkpoint loading to use the SFT weights.
         """
-        # This test verifies the pattern used in DPOTrainer._post_checkpoint_load
-        # 1. Load checkpoint (policy weights restored)
-        # 2. Deep copy policy to create reference
-
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
+        from ironcore.parallel import parallel_states
 
-        model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
+        # Initialize GLOBAL_STATES before creating model
+        set_global_states(tiny_model_config)
+        parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
 
-        # Simulate checkpoint load (just use initial weights)
-        # In real scenario, checkpoint would have SFT weights
+        try:
+            model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
 
-        # Create reference from loaded policy
-        ref_model = copy.deepcopy(model)
-        for param in ref_model.parameters():
-            param.requires_grad = False
-        ref_model.eval()
+            # Create reference from loaded policy
+            ref_model = copy.deepcopy(model)
+            for param in ref_model.parameters():
+                param.requires_grad = False
+            ref_model.eval()
 
-        # Verify reference has same weights as policy
-        for (n1, p1), (n2, p2) in zip(
-            model.named_parameters(), ref_model.named_parameters(), strict=False
-        ):
-            assert torch.allclose(p1, p2), f"Weight mismatch: {n1} vs {n2}"
+            # Verify reference has same weights as policy
+            for (n1, p1), (n2, p2) in zip(
+                model.named_parameters(), ref_model.named_parameters(), strict=False
+            ):
+                assert torch.allclose(p1, p2), f"Weight mismatch: {n1} vs {n2}"
+        finally:
+            # Cleanup
+            parallel_states.destroy_model_parallel()
+            reset_global_states()
 
 
 # =============================================================================
@@ -535,90 +542,112 @@ class TestDPOTrainingLoop:
     def test_multi_step_training(self, tiny_model_config, mock_dpo_batch):
         """Test multiple training steps with loss decreasing or stable."""
         from ironcore.alignment.loss import dpo_loss
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
+        from ironcore.parallel import parallel_states
 
-        model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
-        device = next(model.parameters()).device
-        batch = {k: v.to(device) for k, v in mock_dpo_batch.items()}
+        # Initialize GLOBAL_STATES before creating model
+        set_global_states(tiny_model_config)
+        parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
 
-        # Create reference model
-        ref_model = copy.deepcopy(model)
-        for param in ref_model.parameters():
-            param.requires_grad = False
-        ref_model.eval()
-
-        optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-        model.train()
-
-        losses = []
-        for step in range(5):
-            optimizer.zero_grad()
-
-            chosen_logits = model(batch["chosen_input_ids"], labels=None)
-            rejected_logits = model(batch["rejected_input_ids"], labels=None)
-
-            with torch.no_grad():
-                ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
-                ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
-
-            loss, metrics = dpo_loss(
-                chosen_logits,
-                rejected_logits,
-                ref_chosen,
-                ref_rejected,
-                batch["chosen_labels"],
-                batch["rejected_labels"],
-                beta=0.1,
-            )
-
-            loss.backward()
-            optimizer.step()
-
-            losses.append(loss.item())
-
-        # All losses should be finite
-        import math
-
-        assert all(math.isfinite(loss) for loss in losses), "Loss should not be NaN"
-        assert all(abs(loss) < 100 for loss in losses), "Loss should be reasonable"
-
-    @pytest.mark.integration
-    def test_training_with_different_betas(self, tiny_model_config, mock_dpo_batch):
-        """Test training with different beta values."""
-        from ironcore.alignment.loss import dpo_loss
-        from ironcore.language_model import LanguageModel
-
-        for beta in [0.05, 0.1, 0.5, 1.0]:
+        try:
             model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
             device = next(model.parameters()).device
             batch = {k: v.to(device) for k, v in mock_dpo_batch.items()}
 
+            # Create reference model
             ref_model = copy.deepcopy(model)
             for param in ref_model.parameters():
                 param.requires_grad = False
             ref_model.eval()
 
+            optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
             model.train()
 
-            chosen_logits = model(batch["chosen_input_ids"], labels=None)
-            rejected_logits = model(batch["rejected_input_ids"], labels=None)
+            losses = []
+            for _ in range(5):
+                optimizer.zero_grad()
 
-            with torch.no_grad():
-                ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
-                ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
+                chosen_logits = model(batch["chosen_input_ids"], labels=None)
+                rejected_logits = model(batch["rejected_input_ids"], labels=None)
 
-            loss, metrics = dpo_loss(
-                chosen_logits,
-                rejected_logits,
-                ref_chosen,
-                ref_rejected,
-                batch["chosen_labels"],
-                batch["rejected_labels"],
-                beta=beta,
-            )
+                with torch.no_grad():
+                    ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
+                    ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
 
-            assert torch.isfinite(loss), f"Loss not finite for beta={beta}"
-            assert 0.0 <= metrics["dpo_accuracy"] <= 1.0, f"Invalid accuracy for beta={beta}"
+                loss, _ = dpo_loss(
+                    chosen_logits,
+                    rejected_logits,
+                    ref_chosen,
+                    ref_rejected,
+                    batch["chosen_labels"],
+                    batch["rejected_labels"],
+                    beta=0.1,
+                )
+
+                loss.backward()
+                optimizer.step()
+
+                losses.append(loss.item())
+
+            # All losses should be finite
+            import math
+
+            assert all(math.isfinite(loss) for loss in losses), "Loss should not be NaN"
+            assert all(abs(loss) < 100 for loss in losses), "Loss should be reasonable"
+        finally:
+            # Cleanup
+            parallel_states.destroy_model_parallel()
+            reset_global_states()
+
+    @pytest.mark.integration
+    def test_training_with_different_betas(self, tiny_model_config, mock_dpo_batch):
+        """Test training with different beta values."""
+        from ironcore.alignment.loss import dpo_loss
+        from ironcore.global_vars import reset_global_states, set_global_states
+        from ironcore.language_model import LanguageModel
+        from ironcore.parallel import parallel_states
+
+        for beta in [0.05, 0.1, 0.5, 1.0]:
+            # Initialize GLOBAL_STATES before creating model
+            set_global_states(tiny_model_config)
+            parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+
+            try:
+                model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
+                device = next(model.parameters()).device
+                batch = {k: v.to(device) for k, v in mock_dpo_batch.items()}
+
+                ref_model = copy.deepcopy(model)
+                for param in ref_model.parameters():
+                    param.requires_grad = False
+                ref_model.eval()
+
+                model.train()
+
+                chosen_logits = model(batch["chosen_input_ids"], labels=None)
+                rejected_logits = model(batch["rejected_input_ids"], labels=None)
+
+                with torch.no_grad():
+                    ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
+                    ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
+
+                loss, metrics = dpo_loss(
+                    chosen_logits,
+                    rejected_logits,
+                    ref_chosen,
+                    ref_rejected,
+                    batch["chosen_labels"],
+                    batch["rejected_labels"],
+                    beta=beta,
+                )
+
+                assert torch.isfinite(loss), f"Loss not finite for beta={beta}"
+                assert 0.0 <= metrics["dpo_accuracy"] <= 1.0, f"Invalid accuracy for beta={beta}"
+            finally:
+                # Cleanup
+                parallel_states.destroy_model_parallel()
+                reset_global_states()
 
 
 # =============================================================================

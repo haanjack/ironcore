@@ -173,9 +173,14 @@ class TestLoRAUniversalCheckpoint:
     """Test universal checkpoint: save with TP=1, load with TP=2."""
 
     def test_tp1_to_tp2_checkpoint(self):
-        """LoRA checkpoint saved with TP=1 should load correctly with TP=2."""
-        if not dist.is_initialized():
-            dist.init_process_group(backend="nccl")
+        """LoRA checkpoint saved with TP=1 should load correctly with TP=2.
+
+        This test requires torchrun with 2 GPUs:
+            torchrun --nproc_per_node=2 -m pytest tests/integration/lora/test_lora_checkpoint.py -v
+        """
+        # Skip if not running with torchrun with 2+ GPUs
+        if not dist.is_initialized() or dist.get_world_size() < 2:
+            pytest.skip("This test requires torchrun with 2+ GPUs")
 
         rank = dist.get_rank()
         device = torch.device(f"cuda:{rank}")

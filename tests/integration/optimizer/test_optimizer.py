@@ -112,6 +112,8 @@ class TestOptimizerTrainerIntegration:
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
+        # Ensure clean state before starting
+        reset_global_states()
         setup_distributed()
         config = create_small_test_config()
         config.optim.optimizer = "adamw"
@@ -146,10 +148,11 @@ class TestOptimizerTrainerIntegration:
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
+        # Ensure clean state before starting
+        reset_global_states()
         setup_distributed()
         config = create_small_test_config()
         config.optim.optimizer = "muon"
-        config.optim.muon_lr = 0.01
         config.trainer.gradient_accumulation_steps = 1
 
         try:

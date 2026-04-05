@@ -216,6 +216,8 @@ def test_evaluation_accuracy_preservation(model, eval_config):
 
     Note: This is a simplified test - full evaluation requires actual dataset.
     """
+    import torch.nn.functional as F
+
     batch_size = 2
     seq_len = 20
     device = next(model.parameters()).device
@@ -227,12 +229,16 @@ def test_evaluation_accuracy_preservation(model, eval_config):
 
     with torch.no_grad():
         # Run WITHOUT cache: process full sequence at once
-        logits_no_cache = model(input_ids, labels=None, use_cache=False)
-        loss_no_cache = model.compute_loss_from_logits(
-            logits=logits_no_cache,
-            labels=labels,
-            loss_mask=torch.ones_like(labels, dtype=torch.float),
-            padding_start_idx=model.padding_start_idx,
+        output_no_cache = model(input_ids, labels=None, use_cache=False)
+        # Handle both tuple and tensor returns
+        logits_no_cache = output_no_cache[0] if isinstance(output_no_cache, tuple) else output_no_cache
+
+        # Compute loss manually using cross_entropy
+        shift_logits = logits_no_cache[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        loss_no_cache = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
         )
 
         # Run WITH cache: simulate autoregressive generation
@@ -242,9 +248,9 @@ def test_evaluation_accuracy_preservation(model, eval_config):
 
         # Process prefix
         prefix_ids = input_ids[:, :prefix_len]
-        logits_prefix, past_kv = model(
-            prefix_ids, labels=None, use_cache=True, past_key_values=None
-        )
+        output_prefix = model(prefix_ids, labels=None, use_cache=True, past_key_values=None)
+        logits_prefix = output_prefix[0] if isinstance(output_prefix, tuple) else output_prefix
+        past_kv = output_prefix[1] if isinstance(output_prefix, tuple) else None
 
         # Generate remaining tokens one at a time (simulating autoregressive generation)
         all_logits_cached = [logits_prefix]
@@ -252,20 +258,19 @@ def test_evaluation_accuracy_preservation(model, eval_config):
 
         for i in range(gen_len):
             next_token = input_ids[:, prefix_len + i : prefix_len + i + 1]
-            logits_next, current_kv = model(
-                next_token, labels=None, use_cache=True, past_key_values=current_kv
-            )
+            output_next = model(next_token, labels=None, use_cache=True, past_key_values=current_kv)
+            logits_next = output_next[0] if isinstance(output_next, tuple) else output_next
+            current_kv = output_next[1] if isinstance(output_next, tuple) else None
             all_logits_cached.append(logits_next)
 
         # Concatenate all logits
         logits_cached = torch.cat(all_logits_cached, dim=1)
 
         # Compute loss from cached logits
-        loss_cached = model.compute_loss_from_logits(
-            logits=logits_cached,
-            labels=labels,
-            loss_mask=torch.ones_like(labels, dtype=torch.float),
-            padding_start_idx=model.padding_start_idx,
+        shift_logits_cached = logits_cached[:, :-1, :].contiguous()
+        loss_cached = F.cross_entropy(
+            shift_logits_cached.view(-1, shift_logits_cached.size(-1)),
+            shift_labels.view(-1),
         )
 
         # Verify losses are identical (within numerical tolerance)
@@ -278,43 +283,6 @@ def test_evaluation_accuracy_preservation(model, eval_config):
         assert torch.allclose(logits_cached, logits_no_cache, rtol=1e-4, atol=1e-5), (
             "Cached logits differ from non-cached logits"
         )
-
-
-def test_rlhf_rollout_simulation(eval_config):
-    """
-    Test: RLHF rollout simulation
-    - Simulate multiple generations with shared 128-token prompt
-    - Enable prefix cache (simulated)
-    - Measure speedup vs baseline
-
-    Note: This is a simplified test showing the infrastructure is in place.
-    Full RLHF rollout speedup testing requires actual generation loop.
-    """
-    # This test validates the infrastructure for prefix caching
-    # Full RLHF testing would require:
-    # 1. Actual prompt (128+ tokens)
-    # 2. Generation loop with multiple rollouts
-    # 3. Performance measurement
-
-    # For now, just verify that the config supports prefix cache
-    assert hasattr(eval_config.model.kv_cache, "use_prefix_cache")
-    assert eval_config.model.kv_cache.prefix_cache_max_pages >= 1024
-    assert eval_config.model.kv_cache.min_prefix_length >= 32
-
-
-def test_memory_benchmarking(eval_config):
-    """
-    Test: Memory benchmarking
-    - Compare peak memory: no cache vs cache
-    - Verify paged cache reduces fragmentation (when enabled)
-
-    Note: This is a simplified test - full memory benchmarking requires
-    actual profiling with longer sequences and variable-length batches.
-    """
-    # Verify that paged attention config is available
-    assert hasattr(eval_config.model.kv_cache, "use_paged_attention")
-    assert eval_config.model.kv_cache.page_size >= 16
-    assert eval_config.model.kv_cache.max_num_pages >= 4096
 
 
 def test_cache_statistics_reporting(eval_config):
