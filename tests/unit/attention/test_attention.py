@@ -18,6 +18,7 @@ Tests:
 import time
 import unittest
 
+import pytest
 import torch
 
 from ironcore.config import (
@@ -38,12 +39,18 @@ from ironcore.layers.attention import Attention
 from ironcore.models.transformer import TransformerLayer
 from ironcore.parallel import parallel_states
 
+
 # =============================================================================
 # Test Configuration Helpers
 # =============================================================================
 
-# Initialize parallel states for testing (TP=1 by default)
-parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_parallel_states():
+    """Initialize parallel states for testing (TP=1 by default)."""
+    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+    yield
+    parallel_states.destroy_model_parallel()
 
 
 def create_test_config(

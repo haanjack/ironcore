@@ -17,6 +17,15 @@ from ironcore.alignment.loss.dpo import (
     compute_logps,
     dpo_loss,
 )
+from ironcore.parallel import parallel_states
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_parallel_states():
+    """Initialize parallel states for testing (TP=1 by default)."""
+    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+    yield
+    parallel_states.destroy_model_parallel()
 
 
 class TestComputeLogSoftmaxTPSafe:

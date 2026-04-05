@@ -40,13 +40,12 @@ from ironcore.global_vars import global_states_cleanup, set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
 
-# Initialize parallel states for testing (TP=1)
-parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
-
 
 @pytest.fixture(scope="module")
 def global_config():
     """Create and initialize global states for the entire test module."""
+    # Initialize parallel states first
+    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
     # Create KV cache config
     kv_cache_config = KVCacheConfig(
         enabled=True,
@@ -112,6 +111,7 @@ def global_config():
     yield config
     # Cleanup after all tests
     global_states_cleanup()
+    parallel_states.destroy_model_parallel()
 
 
 @pytest.fixture

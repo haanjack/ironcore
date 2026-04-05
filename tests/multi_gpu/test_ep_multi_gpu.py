@@ -13,6 +13,7 @@ Usage:
 
 import os
 
+import pytest
 import torch
 import torch.distributed as dist
 
@@ -34,6 +35,13 @@ from ironcore.parallel.expert_parallel import (
 from ironcore.parallel.parallel_states import (
     destroy_model_parallel,
     initialize_model_parallel,
+)
+
+
+# Skip all tests in this module if not running with torchrun (world_size < 2)
+pytestmark = pytest.mark.skipif(
+    not dist.is_initialized() or dist.get_world_size() < 2,
+    reason="Expert parallel tests require torchrun with 2+ GPUs",
 )
 
 
