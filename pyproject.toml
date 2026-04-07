@@ -90,7 +90,7 @@ pythonpath = ["tests", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short -m 'not e2e' --ignore=tests/unit/profiler/ --ignore=tests/integration/kvcache/test_kv_cache_tp2.py --ignore=tests/integration/attention/test_tp_comparison_simple.py --ignore=tests/integration/lora/test_lora_tp_correctness.py"
+addopts = "-v --tb=short -m 'not rlvr' --ignore=tests/unit/profiler/ --ignore=tests/integration/kvcache/test_kv_cache_tp2.py --ignore=tests/integration/attention/test_tp_comparison_simple.py --ignore=tests/integration/lora/test_lora_tp_correctness.py"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
@@ -105,5 +105,5 @@ markers = [
     "kv_cache: KV cache related tests",
     "paged_attention: Paged attention tests",
     "prefix_cache: Prefix cache tests",
-    "e2e: End-to-end tests that run actual torchrun training jobs (slow, GPU required)",
+    "rlvr: RLVR training smoke tests: GRPO + verifiable rewards, 2 GPUs, ~10 min",
 ]

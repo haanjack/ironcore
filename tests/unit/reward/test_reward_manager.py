@@ -876,17 +876,21 @@ def _extract_reward_stats(output: str) -> dict:
     return {"mean": mean, "std": std, "n": len(values)}
 
 
-class TestE2ETraining:
-    """E2E tests that run actual distributed training.
+class TestRLVRTraining:
+    """GRPO smoke tests that run actual distributed training.
 
-    Marked @pytest.mark.e2e and excluded from default test runs:
-        pytest -m "not e2e"   # skip E2E (default CI)
-        pytest -m e2e         # run only E2E (manual)
+    Marked @pytest.mark.rlvr and excluded from default test runs:
+        pytest -m "not rlvr"   # skip RLVR tests (default CI)
+        pytest -m rlvr         # run only RLVR tests
 
-    Each test takes ~5-10 minutes on dual RTX 3090.
+    Uses rule-based rewards (no API keys). Requires:
+        - 2 GPUs (torchrun --nproc_per_node=2)
+        - Qwen/Qwen2.5-0.5B-Instruct cached in ~/.cache/huggingface/
+        - Flash attention support
+        - ~5-10 minutes per test
     """
 
-    @pytest.mark.e2e
+    @pytest.mark.rlvr
     def test_reward_manager_config_trains(self):
         """10-step GRPO training with reward_manager config runs cleanly."""
         result = _run_training(E2E_RM_CONFIG)
@@ -903,7 +907,7 @@ class TestE2ETraining:
             f"STDOUT tail:\n{result.stdout[-2000:]}"
         )
 
-    @pytest.mark.e2e
+    @pytest.mark.rlvr
     def test_reward_manager_composite_math_trains(self):
         """GRPO training with composite_math reward via RewardManager."""
         result = _run_training(E2E_RM_MATH_CONFIG)
