@@ -40,7 +40,9 @@ from ironcore.parallel.parallel_states import (
 
 # Skip all tests if not running with torchrun (fewer than 2 GPUs available)
 pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    "RANK" not in os.environ
+    or not torch.cuda.is_available()
+    or torch.cuda.device_count() < 2,
     reason="Expert parallel tests require torchrun with 2+ GPUs",
 )
 
