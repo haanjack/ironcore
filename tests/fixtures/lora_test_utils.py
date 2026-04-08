@@ -20,9 +20,11 @@ from ironcore.config import (
     OptimConfig,
     ParallelConfig,
     PEFTConfig,
+    ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_model import BiasConfig
 from ironcore.parallel import parallel_states
 
 
@@ -74,8 +76,7 @@ def create_lora_test_config(
         dropout_attn=0.0,
         dropout_mlp=0.0,
         dropout_embd=0.0,
-        attention_bias=True,
-        mlp_bias=True,
+        bias=BiasConfig.all_true(),
         layernorm_bias=True,
         untie_embed=untie_embed,
     )
@@ -116,6 +117,7 @@ def create_lora_test_config(
         parallel=parallel_config,
         operation=operation_config,
         utils=utils_config,
+        profiler=ProfilerConfig(),
         peft=peft_config,
     )
 

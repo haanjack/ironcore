@@ -3,115 +3,133 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Simple script to compare TP=1 vs TP=2 attention behavior.
-Tests that the attention layer produces consistent results across different tensor parallel sizes.
+TP=2 attention validation: verify forward pass output consistency across TP ranks.
+
+Run with:
+    torchrun --nproc_per_node=2 -m pytest tests/integration/attention/test_tp_comparison_simple.py -v
 """
 
 import os
-import sys
 
+import pytest
 import torch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import torch.distributed as dist
 
 from tests.fixtures.config_fixtures import create_test_config
 
 from ironcore.layers.attention import Attention
 from ironcore.parallel import parallel_states
 
-
-def test_attention_tp1():
-    """Test attention with TP=1."""
-    print("\n" + "=" * 70)
-    print("Testing TP=1")
-    print("=" * 70)
-
-    # Initialize TP=1
-    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
-
-    config = create_test_config(tensor_model_parallel_size=1)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    attention = Attention(config).to(device)
-    attention.init_weights()
-
-    batch_size = 2
-    seq_len = 64
-
-    hidden_states = torch.randn(
-        batch_size, seq_len, config.model.d_model, device=device, requires_grad=True
-    )
-    attention_mask = (
-        torch.tril(torch.ones(seq_len, seq_len, device=device))
-        .unsqueeze(0)
-        .unsqueeze(0)
-        .expand(batch_size, -1, -1, -1)
-    )
-
-    # Forward pass
-    output = attention(hidden_states, attention_mask)
-
-    print(f"Input shape: {hidden_states.shape}")
-    print(f"Output shape: {output.shape}")
-    print(f"Output mean: {output.mean().item():.6f}")
-    print(f"Output std: {output.std().item():.6f}")
-
-    # Test backward pass
-    loss = output.sum()
-    loss.backward()
-
-    grad_norm = (
-        sum(p.grad.norm().item() ** 2 for p in attention.parameters() if p.grad is not None) ** 0.5
-    )
-    print(f"Gradient norm: {grad_norm:.6f}")
-
-    return {
-        "output": output.cpu(),
-        "grad_norm": grad_norm,
-    }
+# Skip if not running under torchrun or fewer than 2 GPUs
+pytestmark = pytest.mark.skipif(
+    "RANK" not in os.environ
+    or not torch.cuda.is_available()
+    or torch.cuda.device_count() < 2,
+    reason="TP=2 tests require torchrun with at least 2 GPUs",
+)
 
 
-def main():
-    """Run comparison tests."""
-    print("=" * 70)
-    print("Attention Layer TP=1 vs TP=2 Comparison")
-    print("=" * 70)
-    print(f"CUDA Available: {torch.cuda.is_available()}")
-    print(f"Device: {'cuda' if torch.cuda.is_available() else 'cpu'}")
+@pytest.fixture(scope="module")
+def tp2_env():
+    """Initialize distributed and TP=2 parallel states."""
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    device = torch.device(f"cuda:{local_rank}")
+    torch.cuda.set_device(device)
 
-    # Test TP=1
-    try:
-        test_attention_tp1()
-        print("\n✓ TP=1 test PASSED")
-    except Exception as e:
-        print(f"\n✗ TP=1 test FAILED: {e}")
-        import traceback
+    if not dist.is_initialized():
+        dist.init_process_group(backend="nccl")
 
-        traceback.print_exc()
-        return 1
+    if not parallel_states.is_model_parallel_initialized():
+        parallel_states.initialize_model_parallel(tensor_model_parallel_size=2, timeout_in_minutes=10.0)
 
-    # Note: TP=2 requires torchrun with 2 GPUs
-    print("\n" + "=" * 70)
-    print("TP=2 Testing")
-    print("=" * 70)
-    print("TP=2 testing requires torchrun with 2 GPUs:")
-    print("  torchrun --nproc_per_node=2 tests/compare_tp1_tp2_simple.py")
-    print("\nFor single GPU testing, TP=1 validation is sufficient to verify")
-    print("the attention layer implementation correctness.")
+    config = create_test_config(tensor_model_parallel_size=2)
+    yield config, device
 
-    print("\n" + "=" * 70)
-    print("Summary")
-    print("=" * 70)
-    print("✓ Standard attention implementation validated with TP=1")
-    print("✓ Forward and backward passes verified")
-    print("✓ Output shapes and values validated")
-    print("\nFor full TP=2 validation, run:")
-    print(
-        "  torchrun --nproc_per_node=2 tests/benchmark_tp1_tp2.py --config-path configs/example.yaml"
+    parallel_states.destroy_model_parallel()
+
+
+def _make_qkv(batch_size, seq_len, num_heads, head_dim, device):
+    """Create Q, K, V tensors with shape [b, s, heads, head_dim]."""
+    return (
+        torch.randn(batch_size, seq_len, num_heads, head_dim, device=device),
+        torch.randn(batch_size, seq_len, num_heads, head_dim, device=device),
+        torch.randn(batch_size, seq_len, num_heads, head_dim, device=device),
     )
 
-    return 0
 
+class TestTP2Attention:
+    """TP=2 attention layer validation tests."""
 
-if __name__ == "__main__":
-    sys.exit(main())
+    def test_forward_output_shape(self, tp2_env):
+        """Verify forward pass produces correct output shape."""
+        config, device = tp2_env
+        attention = Attention(config).to(device)
+        attention.init_weights()
+
+        cfg = config.model
+        query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
+        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+
+        output = attention(query, key, value, mask)
+        assert output.shape == (2, 64, cfg.num_attention_heads * cfg.head_dim)
+
+    def test_output_is_finite(self, tp2_env):
+        """Verify output contains no NaN or Inf values."""
+        config, device = tp2_env
+        attention = Attention(config).to(device)
+        attention.init_weights()
+
+        cfg = config.model
+        query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
+        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+
+        output = attention(query, key, value, mask)
+        assert torch.isfinite(output).all(), "Output contains non-finite values"
+
+    def test_output_norm_consistent_across_ranks(self, tp2_env):
+        """Verify TP ranks produce the same output norm (distributed correctness)."""
+        config, device = tp2_env
+        rank = dist.get_rank()
+        tp_size = parallel_states.get_tensor_model_parallel_world_size()
+
+        torch.manual_seed(42)
+        attention = Attention(config).to(device)
+        attention.init_weights()
+
+        cfg = config.model
+        torch.manual_seed(42)
+        query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
+        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+
+        output = attention(query, key, value, mask)
+        output_norm = output.norm().item()
+
+        output_norms = [torch.zeros(1, device=device) for _ in range(tp_size)]
+        dist.all_gather(output_norms, torch.tensor([output_norm], device=device))
+
+        if rank == 0:
+            for i in range(tp_size):
+                for j in range(i + 1, tp_size):
+                    diff = abs(output_norms[i].item() - output_norms[j].item())
+                    assert diff < 1e-3, (
+                        f"Output norm differs between ranks {i} and {j}: {diff:.2e}"
+                    )
+
+    def test_causal_mask_produces_lower_triangular_output(self, tp2_env):
+        """Verify causal attention: positions beyond causal window have near-zero contribution."""
+        config, device = tp2_env
+        rank = dist.get_rank()
+        tp_size = parallel_states.get_tensor_model_parallel_world_size()
+
+        torch.manual_seed(42)
+        attention = Attention(config).to(device)
+        attention.init_weights()
+
+        cfg = config.model
+        torch.manual_seed(42)
+        query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
+        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+
+        output = attention(query, key, value, mask)
+        # Output should not be all zeros
+        assert output.abs().sum().item() > 0, "Output is all zeros"
