@@ -274,6 +274,95 @@ class TestGRPOLoss:
             assert isinstance(metrics[key], float), f"Metric {key} should be float"
 
 
+class TestGrpoLossEntropy:
+    """grpo_loss entropy bonus correctness."""
+
+    @pytest.fixture
+    def base_tensors(self):
+        torch.manual_seed(0)
+        B = 8
+        policy_lp = -torch.rand(B)
+        ref_lp = policy_lp + 0.05 * torch.randn(B)
+        adv = torch.randn(B)
+        kl = (policy_lp - ref_lp).abs()
+        entropy = torch.rand(B) * 2.0 + 0.5  # in [0.5, 2.5]
+        return policy_lp, ref_lp, adv, kl, entropy
+
+    def test_no_entropy_args_succeeds(self, base_tensors):
+        """grpo_loss with no entropy args must not raise TypeError."""
+        from ironcore.alignment.loss.grpo import grpo_loss
+
+        p, r, a, kl, _ = base_tensors
+        loss, metrics = grpo_loss(p, r, a, kl)
+        assert torch.isfinite(loss)
+        assert "entropy" in metrics
+
+    def test_entropy_coef_zero_metric_is_zero(self, base_tensors):
+        """When entropy_coef=0, the entropy metric must be 0.0."""
+        from ironcore.alignment.loss.grpo import grpo_loss
+
+        p, r, a, kl, entropy = base_tensors
+        _, metrics = grpo_loss(p, r, a, kl, entropy=entropy, entropy_coef=0.0)
+        assert metrics["entropy"] == 0.0, (
+            f"entropy metric should be 0.0 when entropy_coef=0, got {metrics['entropy']}"
+        )
+
+    def test_entropy_metric_is_raw_mean_not_scaled(self, base_tensors):
+        """When entropy_coef>0, metric must be raw mean H (not coef*H)."""
+        from ironcore.alignment.loss.grpo import grpo_loss
+
+        p, r, a, kl, entropy = base_tensors
+        coef = 0.01
+        _, metrics = grpo_loss(p, r, a, kl, entropy=entropy, entropy_coef=coef)
+
+        expected = entropy.mean().item()
+        assert abs(metrics["entropy"] - expected) < 1e-5, (
+            f"entropy metric should be raw mean ({expected:.4f}), got {metrics['entropy']:.4f}"
+        )
+
+    def test_entropy_bonus_reduces_loss(self, base_tensors):
+        """Loss with entropy bonus must be lower than without."""
+        from ironcore.alignment.loss.grpo import grpo_loss
+
+        p, r, a, kl, entropy = base_tensors
+        loss_no_entropy, _ = grpo_loss(p, r, a, kl)
+        loss_with_entropy, _ = grpo_loss(p, r, a, kl, entropy=entropy, entropy_coef=0.1)
+        assert loss_with_entropy.item() < loss_no_entropy.item(), (
+            "Entropy bonus (subtracted) should reduce loss"
+        )
+
+    def test_entropy_none_skips_bonus(self, base_tensors):
+        """entropy=None must produce same loss as entropy_coef=0."""
+        from ironcore.alignment.loss.grpo import grpo_loss
+
+        p, r, a, kl, entropy = base_tensors
+        loss_none, _ = grpo_loss(p, r, a, kl, entropy=None, entropy_coef=0.1)
+        loss_zero_coef, _ = grpo_loss(p, r, a, kl, entropy=entropy, entropy_coef=0.0)
+        loss_baseline, _ = grpo_loss(p, r, a, kl)
+        assert abs(loss_none.item() - loss_baseline.item()) < 1e-6
+        assert abs(loss_zero_coef.item() - loss_baseline.item()) < 1e-6
+
+    def test_required_metrics_present(self, base_tensors):
+        """All expected metric keys must be present in returned dict."""
+        from ironcore.alignment.loss.grpo import grpo_loss
+
+        p, r, a, kl, entropy = base_tensors
+        _, metrics = grpo_loss(p, r, a, kl, entropy=entropy, entropy_coef=0.01)
+        required = {
+            "grpo_loss",
+            "policy_loss",
+            "kl_loss",
+            "kl_per_seq",
+            "entropy",
+            "mean_advantage",
+            "std_advantage",
+            "mean_ratio",
+            "clip_fraction",
+        }
+        missing = required - set(metrics.keys())
+        assert not missing, f"Missing metric keys: {missing}"
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 class TestTPSafeSoftmax:
     """Tests for tensor-parallel safe softmax operations."""

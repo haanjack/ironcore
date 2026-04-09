@@ -150,14 +150,12 @@ else
 
     # Integration tests that require torchrun --nproc_per_node=1 (single GPU)
     INTEGRATION_NP1_FILES=(
-        "tests/integration/alignment/test_dpo_e2e.py"
-        "tests/integration/attention/test_attention_tp_simple.py"
-        "tests/integration/attention/test_chunked_tp.py"
+        "tests/integration/alignment/test_dpo_integration.py"
+        "tests/integration/attention/test_chunked_parallel.py"
         "tests/integration/attention/test_flash_attention_cache.py"
         "tests/integration/dataloader/test_eval_integration.py"
+        "tests/integration/kvcache/test_kv_cache.py"
         "tests/integration/kvcache/test_kv_cache_stateful.py"
-        "tests/integration/kvcache/test_kv_cache_tp1.py"
-        "tests/integration/kvcache/test_kv_cache_tp_comparison.py"
         "tests/integration/lora/test_lora_async.py"
         "tests/integration/lora/test_lora_checkpoint.py"
         "tests/integration/moe/test_moe_correctness.py"
@@ -169,16 +167,17 @@ else
 
     # Integration tests that require torchrun --nproc_per_node=2 (TP=2)
     INTEGRATION_NP2_FILES=(
-        "tests/integration/kvcache/test_kv_cache_tp2.py"
-        "tests/integration/attention/test_tp_comparison_simple.py"
-        "tests/integration/lora/test_lora_tp_correctness.py"
+        "tests/integration/attention/test_attention_multi_gpu.py"
+        "tests/integration/kvcache/test_kv_cache.py"
+        "tests/integration/lora/test_lora_correctness.py"
     )
 
     # Multi-GPU tests that require torchrun --nproc_per_node=2
     MULTI_GPU_NP2_FILES=(
-        "tests/multi_gpu/test_ep_multi_gpu.py"
-        "tests/multi_gpu/test_grad_norm_multi_gpu.py"
+        "tests/multi_gpu/test_expert_parallel.py"
+        "tests/multi_gpu/test_grad_norm.py"
         "tests/multi_gpu/test_all_to_all_ep.py"
+        "tests/multi_gpu/test_distributed_optimizer.py"
         "tests/multi_gpu/test_distributed_optimizer_checkpoint.py"
     )
 

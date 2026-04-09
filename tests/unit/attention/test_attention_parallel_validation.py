@@ -12,8 +12,8 @@ This script validates:
 4. Numerical equivalence
 
 Run with:
-- TP=1: python tests/test_attention_tp_validation.py
-- TP=2: torchrun --nproc_per_node=2 tests/test_attention_tp_validation.py
+- TP=1: python tests/test_attention_parallel_validation.py
+- TP=2: torchrun --nproc_per_node=2 tests/test_attention_parallel_validation.py
 """
 
 import json

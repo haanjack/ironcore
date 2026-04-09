@@ -5,10 +5,10 @@
 """Multi-GPU tests for gradient norm and clipping.
 
 Run with torchrun:
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test dp2
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test tp2
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm_multi_gpu.py --test fsdp
+    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm.py
+    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm.py --test dp2
+    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm.py --test tp2
+    torchrun --nproc_per_node=2 tests/multi_gpu/test_grad_norm.py --test fsdp
 
 Note: EP2 tests are skipped due to an existing MoE backward pass bug.
 The process group is initialized once in main() and kept alive across all tests.

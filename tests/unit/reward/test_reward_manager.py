@@ -7,6 +7,7 @@
 import re
 import subprocess
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -763,6 +764,210 @@ pattern: '['
 
         with pytest.raises(re.error):
             fn.compute("prompt", "completion", {})
+
+
+# =============================================================================
+# 7b. Reward Weight Edge Cases
+# =============================================================================
+
+
+class TestRewardWeightEdgeCases:
+    """Edge cases for weighted sum semantics."""
+
+    def test_equal_weights_sum_beyond_one(self):
+        """Two functions with weight=1.0 each must return sum of both scores (2.0)."""
+        manager = RewardManager()
+        manager.register("kw1", KeywordRewardFunction(keyword="hello"), weight=1.0)
+        manager.register("kw2", KeywordRewardFunction(keyword="world"), weight=1.0)
+
+        result = manager.compute("p", "hello world", {})
+        assert abs(result - 2.0) < 1e-6, f"Expected 2.0, got {result}"
+
+    def test_zero_total_weight_raises_value_error(self):
+        """Total weight of zero must raise ValueError."""
+        manager = RewardManager()
+        manager.register("kw", KeywordRewardFunction(), weight=0.0)
+        with pytest.raises(ValueError, match="[Ww]eight"):
+            manager.compute("p", "c", {})
+
+    def test_code_reward_raises_without_test_cases(self):
+        """CodeRewardFunction must raise NotImplementedError even without test_cases."""
+        from ironcore.alignment.rewards import CodeRewardFunction
+
+        fn = CodeRewardFunction()
+        with pytest.raises(NotImplementedError):
+            fn.compute("prompt", "code", {})
+
+
+# =============================================================================
+# 7c. DeepSeek Format Token (2083)
+# =============================================================================
+
+
+class TestDeepSeekFormatToken:
+    """DeepSeek <think > tag format validation."""
+
+    FORMAT_DEEPSEEK_YAML = "configs/rewards/format_deepseek.yaml"
+
+    def test_default_pattern_rejects_currwork_tag(self):
+        """<currwork> tag must NOT match StrictFormatRewardFunction default pattern."""
+        from ironcore.alignment.rewards import StrictFormatRewardFunction
+
+        fn = StrictFormatRewardFunction()
+        score = fn.compute("", "<currwork>reasoning</currwork>#### 42", {})
+        assert score == 0.0, f"<currwork> tag should NOT match default pattern, got {score}"
+
+    def test_deepseek_yaml_uses_think_tag(self):
+        """format_deepseek.yaml must use <think > and not <currwork>."""
+        import yaml
+
+        with open(self.FORMAT_DEEPSEEK_YAML, encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        pattern = config.get("pattern", "")
+        assert "<think" in pattern, f"format_deepseek.yaml pattern must contain <think, got: {pattern}"
+        assert "<currwork>" not in pattern, "format_deepseek.yaml must not reference <currwork>"
+
+    def test_deepseek_yaml_rejects_currwork(self):
+        """format_deepseek.yaml template must reject <currwork> completions."""
+        fn = TemplateRuleReward.from_yaml(self.FORMAT_DEEPSEEK_YAML)
+        score = fn.compute("", "<currwork>reasoning</currwork>#### 7", {})
+        assert score == 0.0
+
+
+# =============================================================================
+# 7d. LRU Cache Tests
+# =============================================================================
+
+
+class TestLocalEndpointRewardCache:
+    """LocalEndpointRewardFunction LRU cache behavior."""
+
+    def _make_fn(self, cache_size: int = 3):
+        """Build LocalEndpointRewardFunction with a fully mocked openai module."""
+        import sys
+
+        from ironcore.alignment.rewards import LocalEndpointRewardFunction
+
+        mock_openai_module = MagicMock()
+        mock_openai_module.OpenAI.return_value = MagicMock()
+
+        with patch.dict(sys.modules, {"openai": mock_openai_module}):
+            fn = LocalEndpointRewardFunction(
+                endpoint="http://localhost:8000",
+                model="test-model",
+                cache_size=cache_size,
+            )
+        return fn
+
+    def test_cache_hit_returns_cached_value(self):
+        fn = self._make_fn(cache_size=10)
+
+        key = (hash("p"), hash("c"), hash("{}"))
+        fn._cache[key] = 0.77
+
+        result = fn._compute_cached(hash("p"), hash("c"), hash("{}"), "p", "c", {})
+        assert abs(result - 0.77) < 1e-9, f"Expected cached 0.77, got {result}"
+
+    def test_lru_eviction_oldest_entry(self):
+        fn = self._make_fn(cache_size=3)
+
+        keys = [(i, i, i) for i in range(3)]
+        for k in keys:
+            fn._cache[k] = float(k[0]) * 0.1
+
+        assert len(fn._cache) == 3
+
+        if len(fn._cache) >= fn._cache_size:
+            fn._cache.popitem(last=False)
+        fn._cache[(99, 99, 99)] = 0.99
+
+        assert keys[0] not in fn._cache, "Oldest entry should have been evicted"
+        assert (99, 99, 99) in fn._cache
+        assert len(fn._cache) == 3
+
+    def test_cache_size_zero_clamped_to_one(self):
+        fn = self._make_fn(cache_size=0)
+        assert fn._cache_size == 1, f"cache_size=0 should be clamped to 1, got {fn._cache_size}"
+
+    def test_cache_size_negative_clamped_to_one(self):
+        fn = self._make_fn(cache_size=-100)
+        assert fn._cache_size == 1
+
+    def test_cache_is_ordered_dict(self):
+        fn = self._make_fn()
+        assert isinstance(fn._cache, OrderedDict)
+
+
+class TestLocalInferenceRewardCache:
+    """LocalInferenceRewardFunction LRU cache behavior."""
+
+    def _make_fn(self, cache_size: int = 3):
+        from ironcore.alignment.rewards import LocalInferenceRewardFunction
+
+        mock_tokenizer = MagicMock()
+        mock_model = MagicMock()
+        mock_model.eval.return_value = mock_model
+
+        with (
+            patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer),
+            patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_model),
+        ):
+            fn = LocalInferenceRewardFunction(
+                model_path="fake/path",
+                cache_size=cache_size,
+            )
+        return fn
+
+    def test_cache_size_zero_clamped_to_one(self):
+        fn = self._make_fn(cache_size=0)
+        assert fn._cache_size == 1
+
+    def test_cache_is_ordered_dict(self):
+        fn = self._make_fn()
+        assert isinstance(fn._cache, OrderedDict)
+
+    def test_lru_eviction_on_overflow(self):
+        fn = self._make_fn(cache_size=2)
+
+        fn._cache[(1, 1, 1)] = 0.1
+        fn._cache[(2, 2, 2)] = 0.2
+        assert len(fn._cache) == 2
+
+        if len(fn._cache) >= fn._cache_size:
+            fn._cache.popitem(last=False)
+        fn._cache[(3, 3, 3)] = 0.3
+
+        assert (1, 1, 1) not in fn._cache
+        assert (3, 3, 3) in fn._cache
+        assert len(fn._cache) == 2
+
+    def test_extract_score_skips_absent_vocab_tokens(self):
+        """_extract_score_from_logits must skip tokens not in vocabulary (tid=None)."""
+        from ironcore.alignment.rewards import LocalInferenceRewardFunction
+
+        mock_tokenizer = MagicMock()
+
+        def convert(tok):
+            return {"1": 10, "5": 50}.get(tok, None)
+
+        mock_tokenizer.convert_tokens_to_ids = convert
+        mock_model = MagicMock()
+        mock_model.eval.return_value = mock_model
+
+        with (
+            patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer),
+            patch("transformers.AutoModelForCausalLM.from_pretrained", return_value=mock_model),
+        ):
+            fn = LocalInferenceRewardFunction(model_path="fake/path")
+
+        logits = torch.zeros(1, 100)
+        logits[0, 10] = 5.0
+        logits[0, 50] = 10.0
+
+        score = fn._extract_score_from_logits(logits)
+        assert 0.0 <= score <= 1.0, f"Score out of range: {score}"
+        assert score > 0.3, f"Expected score near 0.5 (token '5' dominant), got {score}"
 
 
 # =============================================================================

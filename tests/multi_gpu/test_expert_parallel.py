@@ -8,7 +8,7 @@
 This test verifies EP functionality with multiple GPUs.
 
 Usage:
-    torchrun --nproc_per_node=2 tests/multi_gpu/test_ep_multi_gpu.py
+    torchrun --nproc_per_node=2 tests/multi_gpu/test_expert_parallel.py
 """
 
 import os

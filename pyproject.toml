@@ -90,7 +90,7 @@ pythonpath = ["tests", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short -m 'not rlvr' --ignore=tests/unit/profiler/ --ignore=tests/multi_gpu/ --ignore=tests/integration/ --ignore=tests/integration/kvcache/test_kv_cache_tp2.py"
+addopts = "-v --tb=short -m 'not rlvr' --ignore=tests/unit/profiler/ --ignore=tests/multi_gpu/ --ignore=tests/integration/"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
