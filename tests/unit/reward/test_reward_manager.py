@@ -1065,7 +1065,7 @@ def _resolve_config_paths(config_path: str) -> str:
 
     Args:
         config_path: Path to YAML config file
-   
+
     Returns:
         Path to resolved config file (stored in temp location)
     """
@@ -1092,6 +1092,9 @@ def _resolve_config_paths(config_path: str) -> str:
                 if isinstance(value, str) and value.startswith("configs/"):
                     # Convert to absolute path relative to repo root
                     abs_path = str((REPO_ROOT / value).resolve())
+                    # Remove .yaml extension if present (IronCore loader adds it automatically)
+                    if abs_path.endswith(".yaml"):
+                        abs_path = abs_path[:-5]
                     obj[key] = abs_path
                     modified = True
                 elif isinstance(value, (dict, list)):
@@ -1101,6 +1104,9 @@ def _resolve_config_paths(config_path: str) -> str:
             for i, item in enumerate(obj):
                 if isinstance(item, str) and item.startswith("configs/"):
                     abs_path = str((REPO_ROOT / item).resolve())
+                    # Remove .yaml extension if present (IronCore loader adds it automatically)
+                    if abs_path.endswith(".yaml"):
+                        abs_path = abs_path[:-5]
                     obj[i] = abs_path
                     modified = True
                 elif isinstance(item, (dict, list)):
