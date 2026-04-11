@@ -111,8 +111,21 @@ def eval_config():
 
     # Initialize global states
     set_global_states(config)
+
+    # Initialize tensor model parallel (required for LanguageModel)
+    from ironcore.parallel import parallel_states
+    parallel_states.initialize_model_parallel(
+        tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
+        timeout_in_minutes=10.0,
+    )
+
     yield config
+
     # Cleanup after all tests
+    try:
+        parallel_states.destroy_model_parallel()
+    except Exception:
+        pass
     global_states_cleanup()
 
 
