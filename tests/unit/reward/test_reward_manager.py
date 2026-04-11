@@ -1061,19 +1061,18 @@ def _resolve_config_paths(config_path: str) -> str:
 
     For fixture configs with relative path references like '../model/...',
     IronCore's loader handles them automatically based on config file location.
-    
+
     This function only needs to handle absolute references like 'configs/...'
     (used when config files are in the repo root or need to force repo-root resolution).
-    
+
     Handles nested structures (e.g., data.config_path).
 
     Args:
         config_path: Path to YAML config file
-   
+
     Returns:
         Path to resolved config file (stored in temp location if modifications needed)
     """
-    import tempfile
     import yaml
 
     config_file = Path(config_path)
@@ -1124,8 +1123,10 @@ def _resolve_config_paths(config_path: str) -> str:
     if not modified:
         return config_path
 
-    # Write resolved config to temp file with absolute paths
-    temp_file = Path(tempfile.gettempdir()) / f"resolved_config_{config_file.stem}.yaml"
+    # Write resolved config to same directory as original config file
+    # This preserves relative path context (../) which IronCore loader depends on
+    config_dir = config_file.parent
+    temp_file = config_dir / f"resolved_{config_file.stem}.yaml"
     with open(temp_file, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
 
