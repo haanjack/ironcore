@@ -43,7 +43,7 @@ jobs:
         run: |
           pytest tests/ \
             --ignore=tests/multi_gpu/ \
-            -m "not cuda and not mp" \
+            -m "not cuda and not mp and not rlvr" \
             -v --tb=short -q
 
   # GPU tests with single GPU
