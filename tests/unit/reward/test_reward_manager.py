@@ -1049,7 +1049,7 @@ scoring:
 # 9. E2E Training Tests
 # =============================================================================
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+REPO_ROOT = Path(__file__).parents[3]  # tests/unit/reward → repo root
 E2E_RM_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_fsdp.yaml")
 E2E_RM_MATH_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_rm_math.yaml")
 TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=2"]

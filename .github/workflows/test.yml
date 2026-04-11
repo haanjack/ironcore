@@ -54,9 +54,10 @@ jobs:
     runs-on: [self-hosted, gpu, mp]
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    # Run if: main push, OR manual workflow_dispatch with gpu/all mode
+    # Run if: main push, PR, OR manual workflow_dispatch with gpu/all mode
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request') ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'gpu' || github.event.inputs.test_mode == 'all'))
 
     steps:
