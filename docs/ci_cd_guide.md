@@ -202,6 +202,47 @@ gh workflow run test.yml -f test_mode=gpu
 
 ---
 
+## Test Configuration & Models
+
+All test-specific configurations reside in `tests/fixtures/configs/` (separate from user-facing `configs/`).
+
+### Test Models
+
+**Qwen2.5-0.5B** (`tests/fixtures/configs/model/qwen2.5-0.5B.yaml`)
+- Lightweight model for E2E smoke tests (GRPO, DPO)
+- Requires: `Qwen/Qwen2.5-0.5B-Instruct` from HuggingFace (auto-downloaded on first use)
+- Used in: `grpo_gsm8k_smoke_*.yaml` configs
+
+### Test Dataset Configs
+
+**GSM8K** (`tests/fixtures/configs/data/grpo_gsm8k.yaml`)
+- Sample dataset for math reasoning GRPO training
+- Used in smoke tests to validate reward manager and training loop
+- Subset: ~100 examples (fast validation)
+
+### Smoke Test Configs
+
+Located in `tests/fixtures/configs/`:
+- `grpo_gsm8k_smoke_fsdp.yaml` — FSDP distributed training (2-GPU)
+- `grpo_gsm8k_smoke_rm_math.yaml` — Math reward function variant
+- `grpo_gsm8k_smoke_rm_composite.yaml` — Composite reward (format + correctness)
+- `grpo_gsm8k_smoke_rm.yaml` — Base reward config
+
+**Usage in E2E Tests:**
+```python
+# tests/unit/reward/test_reward_manager.py
+@pytest.mark.rlvr  # Requires 2+ GPUs
+def test_reward_manager_config_trains():
+    _run_training("tests/fixtures/configs/grpo_gsm8k_smoke_fsdp.yaml")
+```
+
+Run GRPO smoke tests:
+```bash
+pytest -m rlvr tests/unit/reward/test_reward_manager.py -v
+```
+
+---
+
 ## Files & References
 
 - [CLAUDE.md](../CLAUDE.md): Commands, architecture, test markers (for Claude)
