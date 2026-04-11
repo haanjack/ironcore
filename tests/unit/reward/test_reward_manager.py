@@ -1057,10 +1057,11 @@ TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node
 
 def _resolve_config_paths(config_path: str) -> str:
     """
-    Resolve relative paths in config YAML to absolute paths.
+    Resolve relative paths in config YAML to absolute paths recursively.
     
-    For test configs in tests/fixtures/configs/, convert relative references
+    For test configs in tests/fixtures/configs/, convert all relative references
     like 'configs/data/...' to absolute paths so they resolve from repo root.
+    Handles nested structures (e.g., data.config_path).
     
     Args:
         config_path: Path to YAML config file
@@ -1082,17 +1083,30 @@ def _resolve_config_paths(config_path: str) -> str:
     if not config:
         return config_path
     
-    # Resolve relative paths in model and data fields
-    modified = False
-    for key in ["model", "data"]:
-        if isinstance(config.get(key), str):
-            value = config[key]
-            # If it's a relative path starting with 'configs/'
-            if value.startswith("configs/"):
-                # Convert to absolute path relative to repo root
-                abs_path = REPO_ROOT / value
-                config[key] = str(abs_path)
-                modified = True
+    # Recursively resolve all 'configs/...' paths
+    def resolve_paths(obj):
+        """Recursively resolve paths in nested structures."""
+        modified = False
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if isinstance(value, str) and value.startswith("configs/"):
+                    # Convert to absolute path relative to repo root
+                    obj[key] = str(REPO_ROOT / value)
+                    modified = True
+                elif isinstance(value, (dict, list)):
+                    if resolve_paths(value):
+                        modified = True
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                if isinstance(item, str) and item.startswith("configs/"):
+                    obj[i] = str(REPO_ROOT / item)
+                    modified = True
+                elif isinstance(item, (dict, list)):
+                    if resolve_paths(item):
+                        modified = True
+        return modified
+    
+    modified = resolve_paths(config)
     
     # If no modifications needed, return original path
     if not modified:
