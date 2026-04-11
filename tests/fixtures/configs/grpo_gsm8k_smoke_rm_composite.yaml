@@ -4,7 +4,7 @@
 # Used for E2E test 67 (RM side): verifies RewardManager wrapping composite_math
 # produces equivalent rewards to the legacy composite_math reward path.
 
-model: qwen2.5-0.5B
+model: configs/model/qwen2.5-0.5B.yaml
 
 trainer:
   micro_batch_size: 2

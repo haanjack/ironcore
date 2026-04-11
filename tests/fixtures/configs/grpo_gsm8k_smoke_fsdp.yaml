@@ -7,7 +7,7 @@
 #
 # VALIDATED: 2026-03-12 - 20 steps completed, coherent text, stable training
 
-model: qwen2.5-0.5B
+model: configs/model/qwen2.5-0.5B.yaml
 
 trainer:
   micro_batch_size: 2

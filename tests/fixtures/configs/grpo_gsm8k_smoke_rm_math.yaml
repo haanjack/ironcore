@@ -5,7 +5,7 @@
 # Used for E2E test 67: verifies that RewardManager produces equivalent reward
 # signals to the legacy math reward (both configs should have <5% mean_reward difference).
 
-model: qwen2.5-0.5B
+model: configs/model/qwen2.5-0.5B.yaml
 
 trainer:
   micro_batch_size: 2

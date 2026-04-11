@@ -1083,7 +1083,7 @@ def _resolve_config_paths(config_path: str) -> str:
     if not config:
         return config_path
 
-    # Recursively resolve all 'configs/...' paths
+    # Recursively resolve all 'configs/...' paths to absolute paths
     def resolve_paths(obj):
         """Recursively resolve paths in nested structures."""
         modified = False
@@ -1091,7 +1091,8 @@ def _resolve_config_paths(config_path: str) -> str:
             for key, value in obj.items():
                 if isinstance(value, str) and value.startswith("configs/"):
                     # Convert to absolute path relative to repo root
-                    obj[key] = str(REPO_ROOT / value)
+                    abs_path = str((REPO_ROOT / value).resolve())
+                    obj[key] = abs_path
                     modified = True
                 elif isinstance(value, (dict, list)):
                     if resolve_paths(value):
@@ -1099,7 +1100,8 @@ def _resolve_config_paths(config_path: str) -> str:
         elif isinstance(obj, list):
             for i, item in enumerate(obj):
                 if isinstance(item, str) and item.startswith("configs/"):
-                    obj[i] = str(REPO_ROOT / item)
+                    abs_path = str((REPO_ROOT / item).resolve())
+                    obj[i] = abs_path
                     modified = True
                 elif isinstance(item, (dict, list)):
                     if resolve_paths(item):
@@ -1112,10 +1114,10 @@ def _resolve_config_paths(config_path: str) -> str:
     if not modified:
         return config_path
 
-    # Write resolved config to temp file
+    # Write resolved config to temp file with absolute paths
     temp_file = Path(tempfile.gettempdir()) / f"resolved_config_{config_file.stem}.yaml"
     with open(temp_file, "w") as f:
-        yaml.dump(config, f)
+        yaml.dump(config, f, default_flow_style=False)
 
     return str(temp_file)
 
