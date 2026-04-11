@@ -1059,15 +1059,19 @@ def _resolve_config_paths(config_path: str) -> str:
     """
     Resolve relative paths in config YAML to absolute paths recursively.
 
-    For test configs in tests/fixtures/configs/, convert all relative references
-    like 'configs/data/...' to absolute paths so they resolve from repo root.
+    For fixture configs with relative path references like '../model/...',
+    IronCore's loader handles them automatically based on config file location.
+    
+    This function only needs to handle absolute references like 'configs/...'
+    (used when config files are in the repo root or need to force repo-root resolution).
+    
     Handles nested structures (e.g., data.config_path).
 
     Args:
         config_path: Path to YAML config file
-
+   
     Returns:
-        Path to resolved config file (stored in temp location)
+        Path to resolved config file (stored in temp location if modifications needed)
     """
     import tempfile
     import yaml
@@ -1083,9 +1087,9 @@ def _resolve_config_paths(config_path: str) -> str:
     if not config:
         return config_path
 
-    # Recursively resolve all 'configs/...' paths to absolute paths
+    # Only resolve 'configs/...' absolute references; relative paths (../) are auto-handled
     def resolve_paths(obj):
-        """Recursively resolve paths in nested structures."""
+        """Recursively resolve absolute paths in nested structures."""
         modified = False
         if isinstance(obj, dict):
             for key, value in obj.items():

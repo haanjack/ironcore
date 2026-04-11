@@ -7,7 +7,7 @@
 #
 # VALIDATED: 2026-03-12 - 20 steps completed, coherent text, stable training
 
-model: configs/model/qwen2.5-0.5B
+model: ../model/qwen2.5-0.5B
 
 trainer:
   micro_batch_size: 2
@@ -18,7 +18,7 @@ trainer:
   load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
 
 data:
-  config_path: configs/data/grpo_gsm8k
+  config_path: ../data/grpo_gsm8k
   task_type: grpo
 
 optim:
