@@ -1058,30 +1058,30 @@ TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node
 def _resolve_config_paths(config_path: str) -> str:
     """
     Resolve relative paths in config YAML to absolute paths.
-
+    
     For test configs in tests/fixtures/configs/, convert relative references
-    like 'configs/data/...' to absolute paths.
-
+    like 'configs/data/...' to absolute paths so they resolve from repo root.
+    
     Args:
         config_path: Path to YAML config file
-
+        
     Returns:
         Path to resolved config file (stored in temp location)
     """
     import tempfile
     import yaml
-
+    
     config_file = Path(config_path)
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
-
+    
     # Load YAML
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
-
+    
     if not config:
         return config_path
-
+    
     # Resolve relative paths in model and data fields
     modified = False
     for key in ["model", "data"]:
@@ -1089,20 +1089,20 @@ def _resolve_config_paths(config_path: str) -> str:
             value = config[key]
             # If it's a relative path starting with 'configs/'
             if value.startswith("configs/"):
-                # Convert to absolute path
+                # Convert to absolute path relative to repo root
                 abs_path = REPO_ROOT / value
                 config[key] = str(abs_path)
                 modified = True
-
+    
     # If no modifications needed, return original path
     if not modified:
         return config_path
-
+    
     # Write resolved config to temp file
     temp_file = Path(tempfile.gettempdir()) / f"resolved_config_{config_file.stem}.yaml"
     with open(temp_file, "w") as f:
         yaml.dump(config, f)
-
+    
     return str(temp_file)
 
 
