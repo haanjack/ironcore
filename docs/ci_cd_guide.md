@@ -84,19 +84,27 @@ Register your GPU machine so GitHub Actions automatically runs GPU tests.
 cd ~
 mkdir -p github-runner && cd github-runner
 
-# Download runner
-curl -o actions-runner-linux-x64-2.333.1.tar.gz \
-  -L https://github.com/actions/runner/releases/download/v2.333.1/actions-runner-linux-x64-2.333.1.tar.gz
-tar xzf ./actions-runner-linux-x64-2.333.1.tar.gz
+# Download latest runner (update version if newer available)
+# Check: https://github.com/actions/runner/releases
+RUNNER_VERSION="2.333.1"  # Update this to latest if needed
+curl -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
+  -L https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
+tar xzf ./actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 
-# Configure
+# Configure (replace YOUR_USER and NEW_TOKEN with actual values)
 ./config.sh \
   --url https://github.com/YOUR_USER/ironcore \
-  --token YOUR_TOKEN_HERE \
+  --token NEW_TOKEN_HERE \
   --labels gpu,mp \
   --unattended \
   --replace
 ```
+
+⚠️ **Important:**
+1. Replace `YOUR_USER` with your GitHub username (e.g., `haanjack`)
+2. Replace `NEW_TOKEN_HERE` with fresh token from Step 1 (tokens expire ~1 hour)
+3. Check runner version: `https://github.com/actions/runner/releases`
+4. Update `RUNNER_VERSION="X.X.X"` if newer available
 
 ### Step 3: Install as Service
 
@@ -178,6 +186,19 @@ Fix: Install CUDA drivers (`nvidia-smi`) or update PyTorch: `pip install torch==
 gh workflow run test.yml -f test_mode=gpu
 # Will queue and wait for runner to come online
 ```
+
+### Runner Registration 404 Error
+
+**Cause:** Token expired, invalid URL, or network issue
+
+**Fix:**
+1. Generate **new** token (Step 1 tokens expire ~1 hour)
+   - Visit: `https://github.com/YOUR_USER/ironcore/settings/actions/runners`
+   - Click **"New self-hosted runner"** → **Linux** → **x64**
+   - Copy fresh token
+2. Verify URL is correct: `https://github.com/YOUR_USER/ironcore` (replace YOUR_USER)
+3. Check network connectivity: `curl -I https://api.github.com`
+4. Re-run `./config.sh` with new token and correct URL
 
 ---
 
