@@ -19,6 +19,8 @@ jobs:
   logic-tests:
     name: Logic Tests
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     # Skip if manual run with GPU/all mode
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.test_mode != 'gpu'
 
@@ -50,6 +52,8 @@ jobs:
   gpu-tests:
     name: GPU Tests
     runs-on: [self-hosted, gpu, mp]
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     # Run if: main push, OR manual workflow_dispatch with gpu/all mode
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -75,6 +79,8 @@ jobs:
   distributed-tests:
     name: Distributed Tests
     runs-on: [self-hosted, gpu, mp]
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:

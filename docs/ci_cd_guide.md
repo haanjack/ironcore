@@ -85,9 +85,9 @@ cd ~
 mkdir -p github-runner && cd github-runner
 
 # Download runner
-curl -o actions-runner-linux-x64-2.321.0.tar.gz \
-  -L https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
-tar xzf ./actions-runner-linux-x64-2.321.0.tar.gz
+curl -o actions-runner-linux-x64-2.333.1.tar.gz \
+  -L https://github.com/actions/runner/releases/download/v2.333.1/actions-runner-linux-x64-2.333.1.tar.gz
+tar xzf ./actions-runner-linux-x64-2.333.1.tar.gz
 
 # Configure
 ./config.sh \
