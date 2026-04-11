@@ -133,53 +133,59 @@ else
     fi
 fi
 
+# Integration tests that require torchrun --nproc_per_node=1 (single GPU)
+INTEGRATION_NP1_FILES=(
+    "tests/integration/alignment/test_dpo_integration.py"
+    "tests/integration/attention/test_chunked_parallel.py"
+    "tests/integration/attention/test_flash_attention_cache.py"
+    "tests/integration/dataloader/test_eval_integration.py"
+    "tests/integration/kvcache/test_kv_cache.py"
+    "tests/integration/kvcache/test_kv_cache_stateful.py"
+    "tests/integration/lora/test_lora_async.py"
+    "tests/integration/lora/test_lora_checkpoint.py"
+    "tests/integration/moe/test_moe_correctness.py"
+    "tests/integration/moe/test_moe_functional.py"
+    "tests/integration/moe/test_moe_layer.py"
+    "tests/integration/optimizer/test_optimizer.py"
+    "tests/integration/test_integration.py"
+)
+
+# Integration tests that require torchrun --nproc_per_node=2 (TP=2)
+INTEGRATION_NP2_FILES=(
+    "tests/integration/attention/test_attention_multi_gpu.py"
+    "tests/integration/kvcache/test_kv_cache.py"
+    "tests/integration/lora/test_lora_correctness.py"
+)
+
+# Multi-GPU tests that require torchrun --nproc_per_node=2
+MULTI_GPU_NP2_FILES=(
+    "tests/multi_gpu/test_expert_parallel.py"
+    "tests/multi_gpu/test_grad_norm.py"
+    "tests/multi_gpu/test_all_to_all_ep.py"
+    "tests/multi_gpu/test_distributed_optimizer.py"
+    "tests/multi_gpu/test_distributed_optimizer_checkpoint.py"
+)
+
 # Check if we should skip multi-GPU tests
 if [ "$QUICK_MODE" = true ]; then
     echo ""
     echo -e "${YELLOW}Skipping multi-GPU tests (--quick mode)${NC}"
+    INTEGRATION_NP2_FILES=()
+    MULTI_GPU_NP2_FILES=()
 elif [ "$NUM_GPUS" -lt 2 ]; then
     echo ""
     echo -e "${YELLOW}Skipping multi-GPU tests (need 2+ GPUs, found $NUM_GPUS)${NC}"
-else
+    INTEGRATION_NP2_FILES=()
+    MULTI_GPU_NP2_FILES=()
+fi
+
+if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 0 ] || [ ${#MULTI_GPU_NP2_FILES[@]} -gt 0 ]; then
     print_header "Running Integration Tests (torchrun)"
 
     GPU_START=$(date +%s)
     GPU_PASSED=0
     GPU_FAILED=0
     GPU_SKIPPED=0
-
-    # Integration tests that require torchrun --nproc_per_node=1 (single GPU)
-    INTEGRATION_NP1_FILES=(
-        "tests/integration/alignment/test_dpo_integration.py"
-        "tests/integration/attention/test_chunked_parallel.py"
-        "tests/integration/attention/test_flash_attention_cache.py"
-        "tests/integration/dataloader/test_eval_integration.py"
-        "tests/integration/kvcache/test_kv_cache.py"
-        "tests/integration/kvcache/test_kv_cache_stateful.py"
-        "tests/integration/lora/test_lora_async.py"
-        "tests/integration/lora/test_lora_checkpoint.py"
-        "tests/integration/moe/test_moe_correctness.py"
-        "tests/integration/moe/test_moe_functional.py"
-        "tests/integration/moe/test_moe_layer.py"
-        "tests/integration/optimizer/test_optimizer.py"
-        "tests/integration/test_integration.py"
-    )
-
-    # Integration tests that require torchrun --nproc_per_node=2 (TP=2)
-    INTEGRATION_NP2_FILES=(
-        "tests/integration/attention/test_attention_multi_gpu.py"
-        "tests/integration/kvcache/test_kv_cache.py"
-        "tests/integration/lora/test_lora_correctness.py"
-    )
-
-    # Multi-GPU tests that require torchrun --nproc_per_node=2
-    MULTI_GPU_NP2_FILES=(
-        "tests/multi_gpu/test_expert_parallel.py"
-        "tests/multi_gpu/test_grad_norm.py"
-        "tests/multi_gpu/test_all_to_all_ep.py"
-        "tests/multi_gpu/test_distributed_optimizer.py"
-        "tests/multi_gpu/test_distributed_optimizer_checkpoint.py"
-    )
 
     # Run single-GPU integration tests
     for test_file in "${INTEGRATION_NP1_FILES[@]}"; do

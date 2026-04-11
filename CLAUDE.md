@@ -18,13 +18,26 @@ pytest tests/unit/                                    # unit tests only (no GPU)
 pytest tests/                                         # all non-e2e tests
 pytest tests/unit/attention/test_attention.py -v      # single file
 pytest tests/unit/attention/test_attention.py::TestAttention::test_forward -v  # single test
-pytest -m "not cuda and not distributed" tests/unit/  # skip GPU/distributed tests
-pytest -m integration tests/                          # integration tests only
+pytest -m "not cuda and not mp" tests/                # CPU-only (GH Actions env)
+pytest -m "cuda or mp" tests/                         # GPU tests (requires GPU)
 
 # Train
 ironcore train --config configs/<name>.yaml
 torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 ```
+
+## Testing & CI/CD
+
+See [docs/ci_cd_guide.md](docs/ci_cd_guide.md) for complete testing and CI/CD setup.
+
+**Quick reference:**
+- `pytest tests/unit/` — fast logic validation tests
+- `pytest tests/` — full test suite (skips if resources unavailable)
+- `pytest tests/ -m "not cuda and not mp"` — logic validation (GitHub Actions, GPU disabled)
+- `pytest tests/ -m "cuda or mp"` — GPU tests (2+ GPUs)
+
+**Test markers:** `@pytest.mark.unit`, `@pytest.mark.cuda`, `@pytest.mark.mp`, `@pytest.mark.integration`, etc.
+**Auto-skip:** Tests gracefully skip if required resources (GPU, multiple GPUs) unavailable.
 
 ## Architecture
 

@@ -104,13 +104,12 @@ def _seed_all(seed=42):
     torch.manual_seed(seed)
 
 
-@pytest.mark.cuda
 class TestLoRACheckpointTP1:
     """Test save and load LoRA checkpoint with TP=1."""
 
     def test_save_load_preserves_lora_weights(self):
         """LoRA parameters should be exactly restored after save/load."""
-        device = torch.device("cuda:0")
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         if os.path.exists("test_outputs/lora_checkpoint_test"):
             shutil.rmtree("test_outputs/lora_checkpoint_test")
@@ -125,7 +124,8 @@ class TestLoRACheckpointTP1:
             _seed_all()
             model = LanguageModel(config)
             model.to(device)
-            optimizer = get_optimizer(config, model, device_type="cuda")
+            device_type = "cuda" if torch.cuda.is_available() else "cpu"
+            optimizer = get_optimizer(config, model, device_type=device_type)
 
             from torch.optim.lr_scheduler import StepLR
 

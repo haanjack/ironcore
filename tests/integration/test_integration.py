@@ -128,10 +128,10 @@ class TestConfigurationValidation:
 # =============================================================================
 
 
-@pytest.mark.cuda
 class TestModelInitialization:
     """Test model initialization across configurations."""
 
+    @pytest.mark.cuda
     @pytest.mark.parametrize("config_name", ["small_baseline", "gqa_attention", "mqa_attention"])
     def test_model_forward_pass(self, config_name):
         """Verify model forward pass works for all attention types."""
@@ -390,7 +390,6 @@ class TestDataPipeline:
 # =============================================================================
 
 
-@pytest.mark.cuda
 class TestGRPOIntegration:
     """Test GRPO training integration."""
 

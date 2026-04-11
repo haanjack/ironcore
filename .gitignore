@@ -1,13 +1,20 @@
 # project
-.*/
-cache/
-tensorboards/
-checkpoints/
-logs/
+
+# IDE & tools
+.venv/
+.pytest_cache/
+.hypothesis/
+.idea/
 .claude/
 .nv/
 .triton/
 .ipython/
+
+# data & artifacts
+cache/
+tensorboards/
+checkpoints/
+logs/
 
 # data artifacts (large binary files)
 # Track only data/README.md for documentation

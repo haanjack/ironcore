@@ -1,0 +1,97 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test mode to run'
+        required: true
+        default: 'cpu'
+        type: choice
+        options: [cpu, gpu, all]
+
+jobs:
+  # Logic validation tests - runs on every PR
+  logic-tests:
+    name: Logic Tests
+    runs-on: ubuntu-latest
+    # Skip if manual run with GPU/all mode
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.test_mode != 'gpu'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run logic validation tests (device-agnostic, GPU disabled)
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+        run: |
+          pytest tests/ \
+            --ignore=tests/multi_gpu/ \
+            -m "not cuda and not mp" \
+            -v --tb=short -q
+
+  # GPU tests with single GPU
+  gpu-tests:
+    name: GPU Tests
+    runs-on: [self-hosted, gpu, mp]
+    # Run if: main push, OR manual workflow_dispatch with gpu/all mode
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'gpu' || github.event.inputs.test_mode == 'all'))
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run GPU tests (excluding distributed tests)
+        run: |
+          pytest tests/ \
+            --ignore=tests/multi_gpu/ \
+            -m "cuda or mp" \
+            --tb=short -v -q
+
+  # Distributed tests with multiple GPUs
+  distributed-tests:
+    name: Distributed Tests
+    runs-on: [self-hosted, gpu, mp]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run distributed tests (multi-GPU with torchrun)
+        run: |
+          torchrun --nproc_per_node=2 -m pytest tests/multi_gpu/ -v --tb=short -q
