@@ -18,10 +18,9 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-
-from ironcore.parallel import parallel_states
 from tests.fixtures.config_fixtures import create_small_test_config
 
+from ironcore.parallel import parallel_states
 
 # =============================================================================
 # Helper Functions
@@ -71,9 +70,11 @@ def create_mock_forward_step_func():
 
         # Debug: verify loss has gradients
         if not loss.requires_grad:
-            print(f"WARNING: loss does not require grad! logits.requires_grad={shift_logits.requires_grad}")
+            print(
+                f"WARNING: loss does not require grad! logits.requires_grad={shift_logits.requires_grad}"
+            )
         elif loss.grad_fn is None:
-            print(f"WARNING: loss has no grad_fn!")
+            print("WARNING: loss has no grad_fn!")
 
         return loss
 
@@ -120,12 +121,15 @@ class TestOptimizerTrainerIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -156,12 +160,15 @@ class TestOptimizerTrainerIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -193,12 +200,15 @@ class TestOptimizerTrainerIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -213,7 +223,7 @@ class TestOptimizerTrainerIntegration:
                     losses.append(loss)
 
                 # Losses should change as model trains
-                assert len(set(round(l, 4) for l in losses)) > 1
+                assert len(set(round(v, 4) for v in losses)) > 1
         finally:
             reset_global_states()
             cleanup_distributed()
@@ -229,12 +239,15 @@ class TestOptimizerTrainerIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -331,12 +344,15 @@ class TestOptimizerTPIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -378,12 +394,15 @@ class TestOptimizerTPIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -423,12 +442,15 @@ class TestOptimizerTPIntegration:
         config.trainer.gradient_accumulation_steps = 1
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -443,10 +465,10 @@ class TestOptimizerTPIntegration:
                     losses.append(loss)
 
                 # Losses should change as model trains
-                assert len(set(round(l, 4) for l in losses)) > 1
+                assert len(set(round(v, 4) for v in losses)) > 1
 
                 if rank == 0:
-                    print(f"TP=2 multi-step test passed: losses={[f'{l:.4f}' for l in losses]}")
+                    print(f"TP=2 multi-step test passed: losses={[f'{v:.4f}' for v in losses]}")
         finally:
             reset_global_states()
             self._cleanup_tp_distributed(tp_size)
@@ -511,12 +533,15 @@ class TestOptimizerFSDPIntegration:
         config.parallel.fsdp_sharding_strategy = "full"
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -554,12 +579,15 @@ class TestOptimizerFSDPIntegration:
         config.parallel.fsdp_sharding_strategy = "full"
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -573,10 +601,10 @@ class TestOptimizerFSDPIntegration:
                     loss, _, _ = trainer.train_step(step=step)
                     losses.append(loss)
 
-                assert len(set(round(l, 4) for l in losses)) > 1
+                assert len(set(round(v, 4) for v in losses)) > 1
 
                 if rank == 0:
-                    print(f"FSDP multi-step test passed: losses={[f'{l:.4f}' for l in losses]}")
+                    print(f"FSDP multi-step test passed: losses={[f'{v:.4f}' for v in losses]}")
         finally:
             reset_global_states()
             self._cleanup_fsdp_distributed()
@@ -599,12 +627,15 @@ class TestOptimizerFSDPIntegration:
         config.parallel.fsdp_sharding_strategy = "full"
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -618,7 +649,10 @@ class TestOptimizerFSDPIntegration:
 
                 # Save state dict
                 state_dict = trainer.optimizer.state_dict()
-                assert len(state_dict.get("state", {})) > 0 or len(state_dict.get("param_groups", [])) > 0
+                assert (
+                    len(state_dict.get("state", {})) > 0
+                    or len(state_dict.get("param_groups", [])) > 0
+                )
 
                 if rank == 0:
                     print("FSDP state dict test passed")
@@ -683,12 +717,15 @@ class TestDistributedOptimizerIntegration:
         config.parallel.use_distributed_optimizer = True
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,
@@ -725,12 +762,15 @@ class TestDistributedOptimizerIntegration:
         config.parallel.use_distributed_optimizer = True
 
         try:
-            with patch(
-                "ironcore.trainers.base_trainer.get_data_iterator",
-                return_value=create_mock_data_iterator(),
-            ), patch(
-                "ironcore.trainers.base_trainer.get_evaluators",
-                return_value=create_mock_evaluators(),
+            with (
+                patch(
+                    "ironcore.trainers.base_trainer.get_data_iterator",
+                    return_value=create_mock_data_iterator(),
+                ),
+                patch(
+                    "ironcore.trainers.base_trainer.get_evaluators",
+                    return_value=create_mock_evaluators(),
+                ),
             ):
                 trainer = LanguageModelTrainer(
                     config,

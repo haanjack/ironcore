@@ -14,7 +14,7 @@ Run:
     torchrun --nproc_per_node=2 -m pytest tests/integration/kvcache/test_kv_cache.py -v
 """
 
-import os
+import os  # noqa: F401 — used in pytest.mark.skipif expression
 
 import pytest
 import torch
@@ -42,7 +42,9 @@ from ironcore.parallel import parallel_states
 
 def _tp_config(tp_size: int, d_model: int = 512, num_layers: int = 2):
     """Create config for the given TP size."""
-    parallel_states.initialize_model_parallel(tensor_model_parallel_size=tp_size, timeout_in_minutes=10.0)
+    parallel_states.initialize_model_parallel(
+        tensor_model_parallel_size=tp_size, timeout_in_minutes=10.0
+    )
 
     kv_cache_config = KVCacheConfig(enabled=True, max_batch_size=4, max_seq_length=256)
     pos_emb_config = PositionalEmbeddingConfig(type="rope")
@@ -133,7 +135,9 @@ class TestKVCacheTP1:
             _, past_kv = model(input_ids, use_cache=True)
         for layer_kv in past_kv:
             key, value = layer_kv
-            expected_groups = config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+            expected_groups = (
+                config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+            )
             assert key.shape == (1, 5, expected_groups, config.model.head_dim)
             assert value.shape == (1, 5, expected_groups, config.model.head_dim)
 
@@ -146,10 +150,14 @@ class TestKVCacheTP1:
             past_kv = None
             cached_logits = []
             for i in range(5):
-                logits, past_kv = model(input_ids[:, i : i + 1], use_cache=True, past_key_values=past_kv)
+                logits, past_kv = model(
+                    input_ids[:, i : i + 1], use_cache=True, past_key_values=past_kv
+                )
                 cached_logits.append(logits)
             full_logits, _ = model(input_ids, use_cache=False)
-        torch.testing.assert_close(torch.cat(cached_logits, dim=1), full_logits, rtol=1e-4, atol=1e-5)
+        torch.testing.assert_close(
+            torch.cat(cached_logits, dim=1), full_logits, rtol=1e-4, atol=1e-5
+        )
 
     def test_cache_reuse_across_passes(self, model, config):
         """Process two sequences using cache; verify the second sequence's output matches."""
@@ -161,7 +169,9 @@ class TestKVCacheTP1:
             _, kv_1 = model(ids_1, use_cache=True)
             logits_2, _ = model(ids_2, use_cache=True, past_key_values=kv_1)
             full_logits, _ = model(torch.cat([ids_1, ids_2], dim=1), use_cache=False)
-        torch.testing.assert_close(logits_2[:, -10:, :], full_logits[:, -10:, :], rtol=1e-4, atol=1e-5)
+        torch.testing.assert_close(
+            logits_2[:, -10:, :], full_logits[:, -10:, :], rtol=1e-4, atol=1e-5
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -174,7 +184,6 @@ class TestKVCacheTP1:
     reason="TP=2 tests require torchrun with 2 GPUs",
 )
 class TestKVCacheTP2:
-
     @pytest.fixture(scope="class")
     def config(self):
         cfg = _tp_config(tp_size=2, d_model=512, num_layers=2)
@@ -194,9 +203,13 @@ class TestKVCacheTP2:
         device = next(model.parameters()).device
         cache_manager = KVCacheManager(config)
         cache_manager.initialize(
-            batch_size=2, num_layers=config.model.num_layers, device=device,
+            batch_size=2,
+            num_layers=config.model.num_layers,
+            device=device,
         )
-        expected_groups = config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        expected_groups = (
+            config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        )
         assert expected_groups == 1
 
         stats = cache_manager.get_statistics()
@@ -212,7 +225,9 @@ class TestKVCacheTP2:
         cache_manager = KVCacheManager(config)
         cache_manager.initialize(batch_size=1, num_layers=config.model.num_layers, device=device)
 
-        expected_groups = config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        expected_groups = (
+            config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        )
         dummy_kv = torch.randn(1, 5, expected_groups, config.model.head_dim, device=device)
         for layer_idx in range(config.model.num_layers):
             key, value = cache_manager.update_layer(layer_idx, dummy_kv, dummy_kv, position=0)
@@ -227,7 +242,9 @@ class TestKVCacheTP2:
         cache_manager = KVCacheManager(config)
         cache_manager.initialize(batch_size=2, num_layers=config.model.num_layers, device=device)
 
-        expected_groups = config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        expected_groups = (
+            config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        )
         dummy_kv = torch.randn(2, 8, expected_groups, config.model.head_dim, device=device)
 
         # Update cache for all layers
@@ -254,7 +271,9 @@ class TestKVCacheTP2:
         cache_manager = KVCacheManager(config)
         cache_manager.initialize(batch_size=2, num_layers=config.model.num_layers, device=device)
 
-        expected_groups = config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        expected_groups = (
+            config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
+        )
         dummy_kv = torch.randn(2, 8, expected_groups, config.model.head_dim, device=device)
 
         # Fill cache for both sequences across all layers
@@ -274,8 +293,12 @@ class TestKVCacheTP2:
 
         for layer_idx in range(config.model.num_layers):
             # Sequence 0 cache should be zeroed
-            key_0, value_0 = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8, batch_idx=0)
+            key_0, value_0 = cache_manager.get_layer_kv(
+                layer_idx, start_pos=0, end_pos=8, batch_idx=0
+            )
             assert torch.all(value_0 == 0), f"Sequence 0 not reset in layer {layer_idx}"
             # Sequence 1 cache should be non-zero
-            key_1, value_1 = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8, batch_idx=1)
+            key_1, value_1 = cache_manager.get_layer_kv(
+                layer_idx, start_pos=0, end_pos=8, batch_idx=1
+            )
             assert value_1.abs().sum() > 0, f"Sequence 1 unexpectedly reset in layer {layer_idx}"

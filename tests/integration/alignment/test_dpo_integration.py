@@ -507,7 +507,9 @@ class TestDPOCheckpoint:
 
         # Initialize GLOBAL_STATES before creating model
         set_global_states(tiny_model_config)
-        parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+        parallel_states.initialize_model_parallel(
+            tensor_model_parallel_size=1, timeout_in_minutes=10.0
+        )
 
         try:
             model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
@@ -548,7 +550,9 @@ class TestDPOTrainingLoop:
 
         # Initialize GLOBAL_STATES before creating model
         set_global_states(tiny_model_config)
-        parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+        parallel_states.initialize_model_parallel(
+            tensor_model_parallel_size=1, timeout_in_minutes=10.0
+        )
 
         try:
             model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())
@@ -611,7 +615,9 @@ class TestDPOTrainingLoop:
         for beta in [0.05, 0.1, 0.5, 1.0]:
             # Initialize GLOBAL_STATES before creating model
             set_global_states(tiny_model_config)
-            parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+            parallel_states.initialize_model_parallel(
+                tensor_model_parallel_size=1, timeout_in_minutes=10.0
+            )
 
             try:
                 model = LanguageModel(tiny_model_config, loss_fn=nn.CrossEntropyLoss())

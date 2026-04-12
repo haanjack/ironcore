@@ -114,6 +114,7 @@ def eval_config():
 
     # Initialize tensor model parallel (required for LanguageModel)
     from ironcore.parallel import parallel_states
+
     parallel_states.initialize_model_parallel(
         tensor_model_parallel_size=config.trainer.tensor_model_parallel_size,
         timeout_in_minutes=10.0,
@@ -244,7 +245,9 @@ def test_evaluation_accuracy_preservation(model, eval_config):
         # Run WITHOUT cache: process full sequence at once
         output_no_cache = model(input_ids, labels=None, use_cache=False)
         # Handle both tuple and tensor returns
-        logits_no_cache = output_no_cache[0] if isinstance(output_no_cache, tuple) else output_no_cache
+        logits_no_cache = (
+            output_no_cache[0] if isinstance(output_no_cache, tuple) else output_no_cache
+        )
 
         # Compute loss manually using cross_entropy
         shift_logits = logits_no_cache[:, :-1, :].contiguous()

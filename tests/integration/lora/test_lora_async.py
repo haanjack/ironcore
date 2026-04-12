@@ -32,13 +32,11 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
+from ironcore.config.config_model import BiasConfig
 from ironcore.global_vars import reset_global_states, set_global_states
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
 from ironcore.peft.utils import freeze_base_model
-
-
-from ironcore.config.config_model import BiasConfig
 
 
 def create_model_config(tp_size=1, chunk_size=None):

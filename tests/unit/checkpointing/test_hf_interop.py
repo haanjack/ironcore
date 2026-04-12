@@ -14,7 +14,6 @@ Usage:
     pytest tests/test_hf_interop.py -v -k "llama"  # LLaMA tests only
 """
 
-import os
 import tempfile
 from pathlib import Path
 

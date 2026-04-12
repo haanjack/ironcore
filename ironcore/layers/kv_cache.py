@@ -215,8 +215,11 @@ class KVCacheManager:
 
         else:
             if position is None:
-                unique_positions = self.cache_positions.unique()
-                if len(unique_positions) > 1:
+                # Use min/max instead of .unique() to avoid a blocking GPU sync.
+                # After the first layer writes cache_positions[:] = end_pos,
+                # all subsequent layers see uniform positions, so divergence
+                # can only occur on the first layer after a selective reset.
+                if self.cache_positions.min().item() != self.cache_positions.max().item():
                     raise RuntimeError(
                         "Position divergence detected: sequences are at different cache positions. "
                         "Use explicit 'position' or 'positions' parameter."

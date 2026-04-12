@@ -1,9 +1,7 @@
-from ironcore.config.config_model import BiasConfig
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""
-Comprehensive validation for chunked tensor parallelism with TP=1 and TP=2.
+"""Comprehensive validation for chunked tensor parallelism with TP=1 and TP=2.
 
 Compares baseline (no chunking) against chunked execution across:
 - TP sizes: 1 (single GPU) and 2 (2 GPUs with async all-reduce)
@@ -19,22 +17,22 @@ Usage:
 
     # Test TP=2 (2 GPUs) - requires manual invocation
     torchrun --nproc_per_node=2 tests/test_chunked_validation.py TestChunkedValidationTP2
-"""
+"""  # noqa: E402
 
-import argparse
-import os
-import sys
-import unittest
+import argparse  # noqa: E402
+import os  # noqa: E402
+import sys  # noqa: E402
+import unittest  # noqa: E402
 
-import torch
-import torch.distributed as dist
+import torch  # noqa: E402
+import torch.distributed as dist  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tests.fixtures.config_fixtures import create_test_config
+from tests.fixtures.config_fixtures import create_test_config  # noqa: E402
 
-from ironcore.models.transformer import TransformerModel
-from ironcore.parallel import parallel_states
+from ironcore.models.transformer import TransformerModel  # noqa: E402
+from ironcore.parallel import parallel_states  # noqa: E402
 
 D_MODEL = 128
 NUM_HEADS = 4
