@@ -184,7 +184,7 @@ deep_merge(base, overlay)
 base.setdefault('profiler', {})['output_dir'] = './logs/profile/${profile_name}/'
 base.setdefault('profiler', {})['name'] = '${profile_name}'
 yaml.dump(base, open('${merged_config}', 'w'), default_flow_style=False)
-" 2>/dev/null
+"
 
     echo "------------------------------------------"
     echo "Running: ${profile_name} (${profile_ngpu} GPUs)"
