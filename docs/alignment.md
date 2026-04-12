@@ -20,7 +20,7 @@
 Implemented in `ironcore/alignment/loss/dpo.py` — `dpo_loss()`.
 
 ```
-L = -log(sigmoid(β · (log π_chosen − log πref_chosen − log π_rejected + log πref_rejected)))
+L = -log(sigmoid(β · (log π_chosen − log π_ref_chosen − log π_rejected + log π_ref_rejected)))
 ```
 
 `compute_logps()` computes per-sequence log probabilities from logits via a TP-safe log-softmax (`_compute_log_softmax_tp_safe()`). Under tensor parallelism the vocabulary is sharded across ranks; the function all-gathers logits before applying `F.log_softmax` to ensure correct normalization.
