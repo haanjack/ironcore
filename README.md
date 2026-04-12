@@ -37,7 +37,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete container-first setup gu
 
 ```bash
 git clone <repo-url>
-cd ironcore-dev
+cd ironcore
 pip install -e .[dev]
 ```
 
@@ -85,7 +85,12 @@ trainer:
 torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml
 ```
 
-**Data Parallel (2 GPUs):**
+**Data Parallel (2 GPUs) — ensure TP degree is 1 in config:**
+```yaml
+# In your config YAML
+trainer:
+  tensor_model_parallel_size: 1
+```
 ```bash
 torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml
 ```
