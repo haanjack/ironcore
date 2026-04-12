@@ -77,13 +77,12 @@ class TestFIMEndToEnd:
 
     def test_fim_config_integration_with_mainconfig(self):
         """Verify FIM config integrates with MainConfig."""
-        from ironcore.config import MainConfig
+        from ironcore.config import MainConfig, PEFTConfig
         from ironcore.config.config_model import ModelConfig
-        from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
         from ironcore.config.config_optim import OptimConfig
         from ironcore.config.config_parallel import ParallelConfig
+        from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
         from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
-        from ironcore.config import PEFTConfig
 
         config = MainConfig(
             model=ModelConfig(),

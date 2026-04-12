@@ -75,7 +75,9 @@ def clip_grad_norm(
             max(p.grad.detach().abs().max() for p in expert_params) if expert_params else 0.0
         )
         local_non_expert = (
-            max(p.grad.detach().abs().max() for p in non_expert_params) if non_expert_params else 0.0
+            max(p.grad.detach().abs().max() for p in non_expert_params)
+            if non_expert_params
+            else 0.0
         )
 
         # Use tensors for collective communication

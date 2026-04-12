@@ -825,7 +825,9 @@ class TestDeepSeekFormatToken:
             config = yaml.safe_load(f)
 
         pattern = config.get("pattern", "")
-        assert "<think" in pattern, f"format_deepseek.yaml pattern must contain <think, got: {pattern}"
+        assert "<think" in pattern, (
+            f"format_deepseek.yaml pattern must contain <think, got: {pattern}"
+        )
         assert "<currwork>" not in pattern, "format_deepseek.yaml must not reference <currwork>"
 
     def test_deepseek_yaml_rejects_currwork(self):
@@ -1051,7 +1053,9 @@ scoring:
 
 REPO_ROOT = Path(__file__).parents[3]  # tests/unit/reward → repo root
 E2E_RM_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_fsdp.yaml")
-E2E_RM_MATH_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_rm_math.yaml")
+E2E_RM_MATH_CONFIG = str(
+    REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_rm_math.yaml"
+)
 TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=2"]
 
 
@@ -1080,7 +1084,7 @@ def _resolve_config_paths(config_path: str) -> str:
         raise FileNotFoundError(f"Config file not found: {config_file}")
 
     # Load YAML
-    with open(config_file, "r") as f:
+    with open(config_file) as f:
         config = yaml.safe_load(f)
 
     if not config:

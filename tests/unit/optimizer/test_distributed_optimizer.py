@@ -4,7 +4,6 @@
 
 """Unit tests for DistributedOptimizer."""
 
-import pytest
 import torch
 from torch import nn
 from torch.optim import AdamW

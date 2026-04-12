@@ -14,7 +14,6 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
-
 from tests.fixtures.config_fixtures import create_test_config
 
 from ironcore.layers.attention import Attention
@@ -22,9 +21,7 @@ from ironcore.parallel import parallel_states
 
 # Skip if not running under torchrun or fewer than 2 GPUs
 pytestmark = pytest.mark.skipif(
-    "RANK" not in os.environ
-    or not torch.cuda.is_available()
-    or torch.cuda.device_count() < 2,
+    "RANK" not in os.environ or not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="TP=2 tests require torchrun with at least 2 GPUs",
 )
 
@@ -40,7 +37,9 @@ def tp2_env():
         dist.init_process_group(backend="nccl")
 
     if not parallel_states.is_model_parallel_initialized():
-        parallel_states.initialize_model_parallel(tensor_model_parallel_size=2, timeout_in_minutes=10.0)
+        parallel_states.initialize_model_parallel(
+            tensor_model_parallel_size=2, timeout_in_minutes=10.0
+        )
 
     config = create_test_config(tensor_model_parallel_size=2)
     yield config, device
@@ -68,7 +67,12 @@ class TestTP2Attention:
 
         cfg = config.model
         query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
-        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+        mask = (
+            torch.tril(torch.ones(64, 64, device=device))
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(2, -1, -1, -1)
+        )
 
         output = attention(query, key, value, mask)
         assert output.shape == (2, 64, cfg.num_attention_heads * cfg.head_dim)
@@ -81,7 +85,12 @@ class TestTP2Attention:
 
         cfg = config.model
         query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
-        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+        mask = (
+            torch.tril(torch.ones(64, 64, device=device))
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(2, -1, -1, -1)
+        )
 
         output = attention(query, key, value, mask)
         assert torch.isfinite(output).all(), "Output contains non-finite values"
@@ -99,7 +108,12 @@ class TestTP2Attention:
         cfg = config.model
         torch.manual_seed(42)
         query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
-        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+        mask = (
+            torch.tril(torch.ones(64, 64, device=device))
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(2, -1, -1, -1)
+        )
 
         output = attention(query, key, value, mask)
         output_norm = output.norm().item()
@@ -111,15 +125,11 @@ class TestTP2Attention:
             for i in range(tp_size):
                 for j in range(i + 1, tp_size):
                     diff = abs(output_norms[i].item() - output_norms[j].item())
-                    assert diff < 1e-3, (
-                        f"Output norm differs between ranks {i} and {j}: {diff:.2e}"
-                    )
+                    assert diff < 1e-3, f"Output norm differs between ranks {i} and {j}: {diff:.2e}"
 
     def test_causal_mask_produces_lower_triangular_output(self, tp2_env):
         """Verify causal attention: positions beyond causal window have near-zero contribution."""
         config, device = tp2_env
-        rank = dist.get_rank()
-        tp_size = parallel_states.get_tensor_model_parallel_world_size()
 
         torch.manual_seed(42)
         attention = Attention(config).to(device)
@@ -128,7 +138,12 @@ class TestTP2Attention:
         cfg = config.model
         torch.manual_seed(42)
         query, key, value = _make_qkv(2, 64, cfg.num_attention_heads, cfg.head_dim, device)
-        mask = torch.tril(torch.ones(64, 64, device=device)).unsqueeze(0).unsqueeze(0).expand(2, -1, -1, -1)
+        mask = (
+            torch.tril(torch.ones(64, 64, device=device))
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(2, -1, -1, -1)
+        )
 
         output = attention(query, key, value, mask)
         # Output should not be all zeros

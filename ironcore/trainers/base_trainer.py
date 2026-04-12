@@ -650,7 +650,9 @@ class BaseTrainer(ABC):
             if dist.is_initialized() and not isinstance(self.model, FSDP) and dp_size > 1:
                 # Parameters are replicated across DP ranks, so SUM would scale by dp_size.
                 # Average to maintain consistency.
-                dist.all_reduce(param_norm_sq, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
+                dist.all_reduce(
+                    param_norm_sq, op=dist.ReduceOp.SUM, group=get_data_parallel_group()
+                )
                 param_norm_sq /= dp_size
 
             param_norm = param_norm_sq.item() ** 0.5

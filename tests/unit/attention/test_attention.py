@@ -29,8 +29,8 @@ from ironcore.config import (
     ModelConfig,
     OperationConfig,
     OptimConfig,
-    PEFTConfig,
     ParallelConfig,
+    PEFTConfig,
     ProfilerConfig,
     TrainerConfig,
     UtilsConfig,
@@ -38,7 +38,6 @@ from ironcore.config import (
 from ironcore.layers.attention import Attention
 from ironcore.models.transformer import TransformerLayer
 from ironcore.parallel import parallel_states
-
 
 # =============================================================================
 # Test Configuration Helpers
@@ -646,9 +645,15 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
 
         # Create identical Q, K, V inputs
         torch.manual_seed(42)
-        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
-        key = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
-        value = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
+        query = torch.randn(
+            self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype
+        )
+        key = torch.randn(
+            self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype
+        )
+        value = torch.randn(
+            self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype
+        )
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -696,9 +701,25 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         # Create identical Q, K, V inputs
         # Q has num_heads, K/V have num_groups
         torch.manual_seed(42)
-        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
-        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
-        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
+        query = torch.randn(
+            self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype
+        )
+        key = torch.randn(
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        value = torch.randn(
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            dtype=self.dtype,
+        )
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)
@@ -746,9 +767,25 @@ class TestAttentionStandardVsFlash(unittest.TestCase):
         # Create identical Q, K, V inputs
         # Q has num_heads, K/V have 1 group
         torch.manual_seed(42)
-        query = torch.randn(self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype)
-        key = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
-        value = torch.randn(self.batch_size, self.seq_len, num_groups, head_dim, device=self.device, dtype=self.dtype)
+        query = torch.randn(
+            self.batch_size, self.seq_len, num_heads, head_dim, device=self.device, dtype=self.dtype
+        )
+        key = torch.randn(
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            dtype=self.dtype,
+        )
+        value = torch.randn(
+            self.batch_size,
+            self.seq_len,
+            num_groups,
+            head_dim,
+            device=self.device,
+            dtype=self.dtype,
+        )
 
         # Create causal mask for standard attention
         attention_mask = create_causal_mask(self.batch_size, self.seq_len, self.device)

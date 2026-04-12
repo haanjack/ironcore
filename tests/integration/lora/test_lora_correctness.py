@@ -20,9 +20,7 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
-
 from tests.fixtures.lora_test_utils import (
-    assert_gradient_correctness,
     cleanup_parallel,
     create_lora_test_config,
     create_test_input,
@@ -38,9 +36,7 @@ from ironcore.peft.utils import freeze_base_model
 
 # Skip if not running under torchrun or fewer than 2 GPUs
 pytestmark = pytest.mark.skipif(
-    "RANK" not in os.environ
-    or not torch.cuda.is_available()
-    or torch.cuda.device_count() < 2,
+    "RANK" not in os.environ or not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="LoRA TP tests require torchrun with at least 2 GPUs",
 )
 

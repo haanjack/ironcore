@@ -23,14 +23,13 @@ from pathlib import Path
 import pytest
 import torch
 import torch.nn.functional as F
-
-from ironcore.parallel import parallel_states
 from tests.fixtures.config_fixtures import (
-    create_small_test_config,
     create_gqa_config,
     create_mqa_config,
+    create_small_test_config,
 )
 
+from ironcore.parallel import parallel_states
 
 # =============================================================================
 # Test Configuration
@@ -39,7 +38,7 @@ from tests.fixtures.config_fixtures import (
 VOCAB_SIZE = 1000  # GPT-2 standard vocab size for testing
 
 HOLISTIC_TEST_CONFIGS = {
-    "small_baseline": lambda: create_small_test_config(),
+    "small_baseline": create_small_test_config,
     "gqa_attention": lambda: create_gqa_config(num_heads=8, num_groups=2),
     "mqa_attention": lambda: create_mqa_config(num_heads=8),
 }
@@ -111,7 +110,7 @@ class TestConfigurationValidation:
         """Verify configuration validation catches invalid settings."""
         from ironcore.config import ModelConfig
 
-        with pytest.raises(Exception):  # Should raise validation error
+        with pytest.raises((ValueError, AssertionError)):  # Should raise validation error
             ModelConfig(
                 d_model=-1,  # Invalid: must be positive
                 num_attention_heads=8,
@@ -135,7 +134,7 @@ class TestModelInitialization:
     @pytest.mark.parametrize("config_name", ["small_baseline", "gqa_attention", "mqa_attention"])
     def test_model_forward_pass(self, config_name):
         """Verify model forward pass works for all attention types."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
@@ -168,7 +167,7 @@ class TestModelInitialization:
 
     def test_model_parameter_count_reasonable(self):
         """Verify model parameter count is reasonable."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
@@ -196,7 +195,7 @@ class TestTrainingStep:
 
     def test_single_training_step(self):
         """Verify single training step completes without errors."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
@@ -235,7 +234,7 @@ class TestTrainingStep:
 
     def test_gradients_flow_to_all_parameters(self):
         """Verify gradients reach all trainable parameters."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
@@ -266,7 +265,7 @@ class TestTrainingStep:
 
     def test_loss_decreases_over_steps(self):
         """Verify loss decreases over multiple training steps."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
@@ -297,7 +296,9 @@ class TestTrainingStep:
                 losses.append(loss.item())
 
             # Loss should generally decrease (allow some variance)
-            assert losses[-1] < losses[0], f"Loss didn't decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
+            assert losses[-1] < losses[0], (
+                f"Loss didn't decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
+            )
         finally:
             reset_global_states()
 
@@ -313,7 +314,7 @@ class TestCheckpointing:
 
     def test_checkpoint_roundtrip(self):
         """Verify checkpoint can be saved and loaded."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
@@ -339,10 +340,13 @@ class TestCheckpointing:
             with tempfile.TemporaryDirectory() as tmpdir:
                 checkpoint_path = Path(tmpdir) / "checkpoint.pt"
 
-                torch.save({
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                }, checkpoint_path)
+                torch.save(
+                    {
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                    },
+                    checkpoint_path,
+                )
 
                 # Load into new model
                 model2 = LanguageModel(config)
@@ -434,7 +438,7 @@ class TestMemoryEfficiency:
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_no_memory_leak(self):
         """Verify no memory leak over multiple forward passes."""
-        from ironcore.global_vars import set_global_states, reset_global_states
+        from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
         ensure_parallel_initialized()
