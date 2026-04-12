@@ -13,29 +13,21 @@ ruff check ironcore/          # check errors
 ruff format ironcore/         # auto-format
 ruff check --fix ironcore/    # auto-fix fixable errors
 
-# Run tests (e2e excluded by default via pyproject.toml)
-pytest tests/unit/                                    # unit tests only (no GPU)
-pytest tests/                                         # all non-e2e tests
+# Run tests (rlvr/profiler/integration/multi_gpu excluded by default via pyproject.toml)
+pytest tests/                                         # default: unit + regression (CPU OK)
 pytest tests/unit/attention/test_attention.py -v      # single file
 pytest tests/unit/attention/test_attention.py::TestAttention::test_forward -v  # single test
-pytest -m "not cuda and not mp" tests/                # CPU-only (GH Actions env)
-pytest -m "cuda or mp" tests/                         # GPU tests (requires GPU)
+pytest -m "not cuda and not mp" tests/                # CPU-only (GitHub Actions env)
+pytest -m "cuda or mp" tests/                         # GPU tests (single-GPU)
+./scripts/run_tests.sh                                # full suite incl. multi-GPU (torchrun)
 
 # Train
 ironcore train --config configs/<name>.yaml
 torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 ```
 
-## Testing & CI/CD
-
-**Quick commands:**
-- `pytest tests/unit/` — unit tests (no GPU)
-- `pytest tests/ -m "not cuda and not mp"` — CPU-only (GitHub Actions)
-- `pytest -m "cuda or mp" tests/` — GPU tests (requires GPU)
-
-**For complete guide:**
-- Writing tests, markers, fixtures: [tests/test_suite.md](tests/test_suite.md)
-- CI/CD setup & runner registration: [docs/ci_cd_guide.md](docs/ci_cd_guide.md)
+For writing tests / markers / fixtures, see [tests/test_suite.md](tests/test_suite.md).
+For CI/CD setup and self-hosted runner, see [docs/ci_cd_guide.md](docs/ci_cd_guide.md).
 
 ## Architecture
 
@@ -77,16 +69,22 @@ ironcore/
 
 **Distributed optimizer vs FSDP.** The `DistributedOptimizer` in `ironcore/optimizer/` is an alternative to FSDP for optimizer state sharding — shards optimizer states across DP ranks without changing model weight layout. Use when you need ZeRO-1 style sharding without full FSDP wrapping.
 
+**Checkpointing.** Native save/load with universal vs distributed TP format; HuggingFace interop. See `docs/checkpointing.md`.
+
+**Optimizer.** Muon (Newton-Schulz) + AdamW hybrid, ZeRO-1 `DistributedOptimizer`. See `docs/optimizer.md`.
+
+**Trainers.** `BaseTrainer` lifecycle, gradient accumulation, mixed-precision hooks. See `docs/trainers.md`.
+
+**Alignment (DPO/GRPO).** Offline preference + online rollout training. See `docs/alignment.md`.
+
+**Dataloader.** Streaming datasets, bin-packing SFT collator, FIM preprocessing. See `docs/dataloader.md`.
+
+**Inference & KV cache.** Prefill/decode loop, `KVCacheManager`, prefix caching. See `docs/inference.md`.
+
+**Eval.** HellaSwag + perplexity, pluggable `Task` interface. See `docs/eval.md`.
+
+**Getting started.** Install, CLI, configs. See `docs/getting_started.md`.
+
 ### Test structure
 
-Tests organized by execution requirements: `unit/`, `integration/`, `multi_gpu/`, `regression/`, `property/`.
-
-Test fixtures & configs in `tests/fixtures/`; E2E GRPO smoke tests in `tests/fixtures/configs/`.
-
-See [tests/test_suite.md](tests/test_suite.md) for directory structure, markers, and adding new tests.
-
-### CI/CD
-
-GitHub Actions runs on every PR/push: **logic-tests** (CPU), **gpu-tests** (GPU), **distributed-tests** (multi-GPU).
-
-See [docs/ci_cd_guide.md](docs/ci_cd_guide.md) for workflow details and runner setup.
+Tests organized by execution requirements: `unit/` (CPU), `integration/` (single-GPU, torchrun), `multi_gpu/` (2+ GPU, torchrun), `regression/`, `property/`. Fixtures and smoke-test configs live in `tests/fixtures/`. See [tests/test_suite.md](tests/test_suite.md) for markers, fixtures, and adding tests; [docs/ci_cd_guide.md](docs/ci_cd_guide.md) for CI workflow and self-hosted GPU runner setup.
