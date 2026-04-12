@@ -103,17 +103,14 @@ The GitHub Actions workflow (`.github/workflows/lint.yml`) runs `ruff check` and
 
 ### Type hints
 
-Every new public function and method signature must include type annotations on all parameters and the return type. Use `from __future__ import annotations` at the top of new modules so PEP 604 union syntax (`X | Y`) works on Python 3.10+:
+Every new public function and method signature must include type annotations on all parameters and the return type:
 
 ```python
-from __future__ import annotations
-
-
 def compute_loss(logits: torch.Tensor, labels: torch.Tensor, beta: float = 0.1) -> torch.Tensor:
     ...
 ```
 
-Follow the style of `ironcore/utils/mfu.py` for dataclass-based APIs.
+Use `from __future__ import annotations` at the top of new modules to enable forward references without imports. Follow the style of `ironcore/utils/mfu.py` for dataclass-based APIs.
 
 ### Language
 
@@ -125,10 +122,10 @@ Formatting is defined in `pyproject.toml` under `[tool.ruff]` and `[tool.ruff.fo
 
 | Setting | Value |
 |---|---|
-| Line length | 100 |
 | Target Python | 3.12 |
 | Quote style | Double |
 | Indent style | Space |
+| Line length | Not enforced (E501 ignored) |
 
 Run `ruff format` — do not hand-format. Do not add per-file `# noqa` overrides or `.ruff.toml` overrides without discussion.
 
