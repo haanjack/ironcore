@@ -12,15 +12,18 @@ on:
         required: true
         default: 'cpu'
         type: choice
-        options: [cpu, gpu, all]
+        options: [cpu, gpu, distributed, all]
 
 jobs:
   # Logic validation tests - runs on every PR
   logic-tests:
     name: Logic Tests
     runs-on: ubuntu-latest
-    # Skip if manual run with GPU/all mode
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.test_mode != 'gpu'
+    # Run on: push to main, PR, or manual with cpu/all mode
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'cpu' || github.event.inputs.test_mode == 'all'))
 
     steps:
       - name: Checkout repository
@@ -78,11 +81,13 @@ jobs:
             -m "cuda or mp" \
             --tb=short -v -q
 
-  # Distributed tests with multiple GPUs
+  # Distributed tests with multiple GPUs (requires 2+ GPUs)
   distributed-tests:
     name: Distributed Tests
     runs-on: [self-hosted, gpu, mp]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'distributed' || github.event.inputs.test_mode == 'all'))
 
     steps:
       - name: Checkout repository
