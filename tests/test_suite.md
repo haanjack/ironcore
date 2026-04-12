@@ -1,5 +1,161 @@
 # Test Suite
 
+## Quick Start for Developers
+
+### Directory Structure
+
+```
+tests/
+├── fixtures/                    # Reusable test configs and helpers
+│   ├── config_fixtures.py       # Config builders: create_small_test_config(), create_moe_test_config(), etc.
+│   ├── model_fixtures.py        # Model fixtures
+│   ├── configs/                 # Test YAML configurations
+│   │   ├── model/               # Test models (e.g., qwen2.5-0.5B.yaml)
+│   │   ├── data/                # Dataset configs (e.g., grpo_gsm8k.yaml)
+│   │   └── *.yaml               # Smoke test configs (grpo_gsm8k_smoke_*.yaml)
+│   └── utils.py, mocks.py       # Utility functions
+├── unit/                        # Fast logic tests (no GPU, ~5 min)
+│   ├── alignment/               # GRPO, DPO loss tests
+│   ├── attention/               # Attention mechanism tests
+│   ├── checkpointing/           # Save/load functionality
+│   ├── dataloader/              # Dataset & preprocessing
+│   ├── layers/                  # Component layers (MLP, embedding, etc.)
+│   ├── models/                  # Model architecture
+│   ├── moe/                     # Mixture of Experts
+│   ├── optimizer/               # Optimizer & scheduler
+│   ├── parallel/                # TP/DP/EP initialization
+│   ├── peft/                    # LoRA adapter tests
+│   ├── reward/                  # Reward system (unit + E2E GRPO)
+│   ├── sequence/                # Sequence generation
+│   ├── tokenizer/               # Tokenization
+│   ├── trainer/                 # Training loop logic
+│   └── utils/                   # Utility functions
+├── integration/                 # Multi-component tests (requires GPU)
+│   ├── alignment/               # GRPO/DPO training
+│   ├── attention/               # Attention variants
+│   ├── dataloader/              # Dataset integration
+│   ├── kvcache/                 # KV cache with training
+│   ├── lora/                    # LoRA training
+│   ├── memory/                  # Memory optimization
+│   ├── moe/                     # MoE routing
+│   └── training/                # Full training loops
+├── multi_gpu/                   # Multi-GPU tests (2+ GPUs with torchrun)
+│   ├── test_distributed_optimizer.py
+│   ├── test_expert_parallel.py
+│   └── ...
+├── regression/                  # Bug fix validation tests
+├── property/                    # Property-based tests (invariant validation)
+└── benchmarks/                  # Performance benchmarks (not auto-collected)
+```
+
+### Pytest Markers System
+
+When adding tests, use appropriate markers to control execution:
+
+```python
+import pytest
+
+# Logic-only tests (fast, no GPU required)
+@pytest.mark.unit
+def test_attention_shape():
+    ...
+
+# GPU-required tests (single GPU)
+@pytest.mark.cuda
+def test_attention_forward_cuda():
+    ...
+
+# Multi-GPU tests (2+ GPUs, torchrun --nproc_per_node=2)
+@pytest.mark.mp  # "multi-process"
+def test_tensor_parallel():
+    ...
+
+# E2E GRPO training tests (2+ GPUs, expensive, ~10 min)
+@pytest.mark.rlvr  # "Reinforcement Learning Value-based Reward"
+def test_reward_manager_config_trains():
+    ...
+
+# Other markers
+@pytest.mark.integration    # Multi-component
+@pytest.mark.slow          # Long-running logic tests
+@pytest.mark.regression    # Bug fix validation
+@pytest.mark.property      # Property-based/invariant tests
+```
+
+**Marker execution:**
+```bash
+# Logic-only (no GPU)
+pytest tests/ -m "not cuda and not mp and not rlvr"
+
+# GPU tests (single GPU)
+pytest tests/ -m "cuda or mp"
+
+# E2E GRPO (requires 2+ GPUs)
+pytest tests/ -m rlvr
+
+# All except E2E
+pytest tests/ -m "not rlvr"
+```
+
+### Adding New Tests
+
+1. **Choose location** based on what you're testing:
+   - Logic test → `tests/unit/[feature]/test_*.py`
+   - Multi-component → `tests/integration/[feature]/test_*.py`
+   - Multi-GPU → `tests/multi_gpu/test_*.py`
+
+2. **Add appropriate markers:**
+   - Unit: `@pytest.mark.unit` (or no marker)
+   - GPU single: `@pytest.mark.cuda`
+   - Multi-GPU: `@pytest.mark.mp`
+   - E2E training: `@pytest.mark.rlvr`
+
+3. **Use shared fixtures:**
+   ```python
+   from tests.fixtures.config_fixtures import create_small_test_config
+
+   def test_my_feature(create_small_test_config):
+       config = create_small_test_config()
+       # ... test code
+   ```
+
+4. **Run and verify:**
+   ```bash
+   # Locally (CPU only)
+   pytest tests/unit/path/test_file.py::TestClass::test_method -v
+
+   # With GPU (if available)
+   pytest tests/ -m cuda -v -k test_method
+   ```
+
+### CI/CD Integration
+
+All tests are automatically validated:
+
+- **Every PR:** Logic tests only (CPU, ~5 min)
+  ```bash
+  pytest tests/ -m "not cuda and not mp and not rlvr"
+  ```
+
+- **Main branch + manual:** GPU tests (1 GPU, ~15 min)
+  ```bash
+  pytest tests/ -m "cuda or mp"
+  ```
+
+- **Main branch:** Distributed tests (2 GPUs, ~10 min)
+  ```bash
+  torchrun --nproc_per_node=2 -m pytest tests/multi_gpu/ -v
+  ```
+
+- **Manual workflow:** E2E training smoke tests (2 GPUs, ~10 min)
+  ```bash
+  pytest tests/ -m rlvr
+  ```
+
+See [docs/ci_cd_guide.md](../docs/ci_cd_guide.md) for workflow configuration and runner setup.
+
+---
+
 ## Overview
 
 | Tier | Runner | Tests | GPU | Runtime |

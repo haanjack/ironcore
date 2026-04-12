@@ -28,16 +28,14 @@ torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 
 ## Testing & CI/CD
 
-See [docs/ci_cd_guide.md](docs/ci_cd_guide.md) for complete testing and CI/CD setup.
+**Quick commands:**
+- `pytest tests/unit/` — unit tests (no GPU)
+- `pytest tests/ -m "not cuda and not mp"` — CPU-only (GitHub Actions)
+- `pytest -m "cuda or mp" tests/` — GPU tests (requires GPU)
 
-**Quick reference:**
-- `pytest tests/unit/` — fast logic validation tests
-- `pytest tests/` — full test suite (skips if resources unavailable)
-- `pytest tests/ -m "not cuda and not mp"` — logic validation (GitHub Actions, GPU disabled)
-- `pytest tests/ -m "cuda or mp"` — GPU tests (2+ GPUs)
-
-**Test markers:** `@pytest.mark.unit`, `@pytest.mark.cuda`, `@pytest.mark.mp`, `@pytest.mark.integration`, etc.
-**Auto-skip:** Tests gracefully skip if required resources (GPU, multiple GPUs) unavailable.
+**For complete guide:**
+- Writing tests, markers, fixtures: [tests/test_suite.md](tests/test_suite.md)
+- CI/CD setup & runner registration: [docs/ci_cd_guide.md](docs/ci_cd_guide.md)
 
 ## Architecture
 
@@ -81,19 +79,14 @@ ironcore/
 
 ### Test structure
 
-```
-tests/
-├── fixtures/        # Shared fixtures: config_fixtures.py, model_fixtures.py, utils.py, mocks.py
-├── unit/            # Fast, no-GPU tests organized by feature (alignment, attention, moe, optimizer, …)
-├── integration/     # Multi-component tests organized by feature
-├── multi_gpu/       # Tests requiring multiple GPUs (torchrun)
-├── regression/      # Tests pinning specific bug fixes
-├── property/        # Property-based tests (FIM invariants)
-└── benchmarks/      # Performance benchmarks (not collected by pytest by default)
-```
+Tests organized by execution requirements: `unit/`, `integration/`, `multi_gpu/`, `regression/`, `property/`.
 
-Config helpers in `tests/fixtures/config_fixtures.py` (`create_small_test_config`, `create_moe_test_config`, `create_lora_test_config`, `create_grpo_test_config`, etc.) are the standard way to build test configs — prefer them over constructing `ModelConfig` directly.
+Test fixtures & configs in `tests/fixtures/`; E2E GRPO smoke tests in `tests/fixtures/configs/`.
 
-### CI
+See [tests/test_suite.md](tests/test_suite.md) for directory structure, markers, and adding new tests.
 
-GitHub Actions runs `ruff check` and `ruff format --check` on push to `main` (Python 3.10 and 3.12).
+### CI/CD
+
+GitHub Actions runs on every PR/push: **logic-tests** (CPU), **gpu-tests** (GPU), **distributed-tests** (multi-GPU).
+
+See [docs/ci_cd_guide.md](docs/ci_cd_guide.md) for workflow details and runner setup.
