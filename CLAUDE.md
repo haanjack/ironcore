@@ -2,11 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+For contribution guidelines (container setup, coding standards, testing policy, performance guide, PR workflow), see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Commands
 
 ```bash
-# Install
-pip install -e .
+# Install (inside the NGC container — see CONTRIBUTING.md for container setup)
+# Flash attention is only available inside the container; integration tests require it.
+pip install -e .[dev]
 
 # Lint and format
 ruff check ironcore/          # check errors
@@ -26,8 +29,17 @@ ironcore train --config configs/<name>.yaml
 torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 ```
 
-For writing tests / markers / fixtures, see [tests/test_suite.md](tests/test_suite.md).
-For CI/CD setup and self-hosted runner, see [docs/ci_cd_guide.md](docs/ci_cd_guide.md).
+## Testing & CI/CD
+
+**Quick commands:**
+- `pytest tests/unit/` — unit tests (no GPU)
+- `pytest tests/ -m "not cuda and not mp"` — CPU-only (GitHub Actions)
+- `pytest -m "cuda or mp" tests/` — GPU tests (requires GPU)
+
+**For complete guide:**
+- Contribution setup, coding standards, PR workflow: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Writing tests, markers, fixtures: [tests/test_suite.md](tests/test_suite.md)
+- CI/CD setup & runner registration: [docs/ci_cd_guide.md](docs/ci_cd_guide.md)
 
 ## Architecture
 
