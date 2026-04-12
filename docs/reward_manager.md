@@ -262,8 +262,61 @@ scoring:
 
 ## RewardModelFunction Backends
 
-| Backend | What it does | When to use |
+`RewardModelFunction` (type: `reward_model`) supports three backends for getting reward scores from a model.
+
+| Backend | What it does | Needs |
 |---|---|---|
-| `local_endpoint` | POSTs to `{endpoint}/reward`, expects `{"reward": float}` or `{"score": float}` | vLLM/SGLang reward endpoint running locally |
-| `api` | Sends prompt+completion as chat messages, parses scalar from response | OpenAI-compatible reward API |
-| `local_inference` | Loads `AutoModelForSequenceClassification`, reads reward head output | HF reward model on GPU (no server needed) |
+| `local_endpoint` | POSTs to `{endpoint}/reward`, expects `{"reward": float}` or `{"score": float}` | Running vLLM/SGLang server |
+| `api` | Sends prompt+completion as chat messages, parses scalar from response | `OPENAI_API_KEY` env var |
+| `local_inference` | Loads `AutoModelForSequenceClassification` on GPU, reads reward head output | HF model weights + GPU |
+
+### Example: External API reward model
+
+```yaml
+alignment:
+  method: grpo
+  reward_manager:
+    functions:
+      - name: helpfulness
+        type: reward_model
+        rm_backend: api
+        api_provider: openai        # openai | anthropic | google | zhipu
+        api_model: gpt-4o-mini
+        weight: 1.0
+```
+
+Requires `OPENAI_API_KEY` environment variable. The API sends prompt+completion as a chat conversation and parses the response as a float reward.
+
+### Example: Local server (vLLM/SGLang)
+
+```yaml
+alignment:
+  method: grpo
+  reward_manager:
+    functions:
+      - name: helpfulness
+        type: reward_model
+        rm_backend: local_endpoint
+        local_endpoint: http://localhost:8000/v1
+        weight: 1.0
+```
+
+Expects a reward endpoint at `{local_endpoint}/reward` that accepts `{"prompt": ..., "completion": ...}` and returns `{"reward": float}`.
+
+### Example: Local GPU inference (no server, no API key)
+
+```yaml
+alignment:
+  method: grpo
+  reward_manager:
+    functions:
+      - name: helpfulness
+        type: reward_model
+        rm_backend: local_inference
+        local_model_path: OpenAssistant/reward-model-deberta-v3-large-v2
+        local_device: cuda:0
+        local_dtype: bfloat16
+        weight: 1.0
+```
+
+Loads a HuggingFace `AutoModelForSequenceClassification` model directly on GPU. No server or API key needed. Model is downloaded once and cached in `~/.cache/huggingface/`.

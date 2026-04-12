@@ -28,7 +28,7 @@ import torch
 
 from ironcore.config import MainConfig
 from ironcore.layers.kv_cache_utils import compute_memory_mb, compute_utilization
-from ironcore.utils import get_model_dtype
+from ironcore.utils import get_model_dtype, profile_context
 
 
 class KVCacheManager:
@@ -142,8 +142,12 @@ class KVCacheManager:
             self.cache_positions.zero_()
             # Note: we don't strictly need to zero the cache data, just positions
         else:
-            # Reset specific sequences
+            # Reset specific sequences: zero positions and cache data
             self.cache_positions[batch_indices] = 0
+            for key_cache in self.key_caches:
+                key_cache[batch_indices] = 0
+            for value_cache in self.value_caches:
+                value_cache[batch_indices] = 0
 
     def update_layer(
         self,
@@ -168,6 +172,21 @@ class KVCacheManager:
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized. Call initialize() first.")
 
+        if position is not None and positions is not None:
+            raise ValueError("Cannot specify both 'position' and 'positions' simultaneously")
+
+        with profile_context("kv_cache_update"):
+            return self._update_layer_impl(layer_idx, key, value, position, positions)
+
+    def _update_layer_impl(
+        self,
+        layer_idx: int,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        position: int | None = None,
+        positions: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Internal implementation of update_layer."""
         batch_size, seq_len, num_groups, head_dim = key.shape
 
         # Determine write positions
@@ -195,6 +214,13 @@ class KVCacheManager:
             full_value = self.value_caches[layer_idx][:, :max_end_pos]
 
         else:
+            if position is None:
+                unique_positions = self.cache_positions.unique()
+                if len(unique_positions) > 1:
+                    raise RuntimeError(
+                        "Position divergence detected: sequences are at different cache positions. "
+                        "Use explicit 'position' or 'positions' parameter."
+                    )
             start_pos = position if position is not None else self.cache_positions[0].item()
             end_pos = start_pos + seq_len
 
@@ -227,17 +253,18 @@ class KVCacheManager:
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized")
 
-        if end_pos is None:
-            end_pos = self.cache_positions.max().item()
+        with profile_context("kv_cache_get"):
+            if end_pos is None:
+                end_pos = self.cache_positions.max().item()
 
-        if batch_idx is not None:
-            key = self.key_caches[layer_idx][batch_idx, start_pos:end_pos]
-            value = self.value_caches[layer_idx][batch_idx, start_pos:end_pos]
-        else:
-            key = self.key_caches[layer_idx][:, start_pos:end_pos]
-            value = self.value_caches[layer_idx][:, start_pos:end_pos]
+            if batch_idx is not None:
+                key = self.key_caches[layer_idx][batch_idx, start_pos:end_pos]
+                value = self.value_caches[layer_idx][batch_idx, start_pos:end_pos]
+            else:
+                key = self.key_caches[layer_idx][:, start_pos:end_pos]
+                value = self.value_caches[layer_idx][:, start_pos:end_pos]
 
-        return key, value
+            return key, value
 
     def get_sequence_position(self, batch_idx: int) -> int:
         """Get current cache position for a specific sequence.

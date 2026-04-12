@@ -21,8 +21,9 @@ from ironcore.config import (
     TrainerConfig,
     UtilsConfig,
 )
-from ironcore.config.config_alignment import AlignmentConfig
+from ironcore.config.config_alignment import AlignmentConfig, GenerationConfig
 from ironcore.config.config_model import BiasConfig
+from ironcore.config.config_moe import MoEConfig
 
 # =============================================================================
 # Configuration Presets
@@ -182,6 +183,91 @@ def create_tp_config(tp_size: int = 2, **kwargs) -> MainConfig:
         tensor_model_parallel_size=tp_size,
         **kwargs,
     )
+
+
+def create_moe_test_config(
+    hidden_size: int = 256,
+    intermediate_size: int = 512,
+    num_shared_experts: int = 1,
+    num_routed_experts: int = 4,
+    num_experts_per_token: int = 2,
+    aux_loss_alpha: float = 0.01,
+    expert_model_parallel_size: int = 1,
+    **kwargs,
+) -> MainConfig:
+    """Create a test configuration with MoE enabled."""
+    moe_config = MoEConfig(
+        use_moe=True,
+        num_shared_experts=num_shared_experts,
+        num_routed_experts=num_routed_experts,
+        num_experts_per_token=num_experts_per_token,
+        aux_loss_alpha=aux_loss_alpha,
+        expert_model_parallel_size=expert_model_parallel_size,
+        expert_intermediate_size=intermediate_size,
+    )
+    base = create_test_config(
+        d_model=hidden_size,
+        d_ffn=intermediate_size,
+        **kwargs,
+    )
+    base.model.moe = moe_config
+    base.model.activation_type = "gelu"
+    return base
+
+
+def create_lora_test_config(
+    lora_rank: int = 4,
+    lora_alpha: float = 8.0,
+    lora_dropout: float = 0.0,
+    target_modules: list[str] | None = None,
+    enable_lora: bool = True,
+    tp_size: int = 1,
+    d_model: int = 256,
+    num_attention_heads: int = 8,
+    max_seq_len: int = 64,
+    **kwargs,
+) -> MainConfig:
+    """Create a test configuration with LoRA enabled."""
+    from ironcore.config import LoRAConfig
+
+    if target_modules is None:
+        target_modules = ["q_proj", "v_proj", "o_proj", "up_proj", "down_proj"]
+
+    base = create_test_config(
+        d_model=d_model,
+        num_attention_heads=num_attention_heads,
+        num_attention_groups=num_attention_heads,
+        head_dim=d_model // num_attention_heads,
+        max_seq_len=max_seq_len,
+        tensor_model_parallel_size=tp_size,
+        **kwargs,
+    )
+    if enable_lora:
+        lora_config = LoRAConfig(
+            r=lora_rank,
+            alpha=lora_alpha,
+            dropout=lora_dropout,
+            target_modules=target_modules,
+        )
+        base.peft = PEFTConfig(method="lora", lora=lora_config)
+    return base
+
+
+def create_grpo_test_config(
+    group_size: int = 4,
+    max_new_tokens: int = 32,
+    grpo_beta: float = 0.1,
+    **kwargs,
+) -> MainConfig:
+    """Create a test configuration for GRPO training."""
+    base = create_small_test_config(**kwargs)
+    base.alignment = AlignmentConfig(
+        method="grpo",
+        grpo_group_size=group_size,
+        grpo_beta=grpo_beta,
+        generation=GenerationConfig(max_new_tokens=max_new_tokens),
+    )
+    return base
 
 
 # =============================================================================

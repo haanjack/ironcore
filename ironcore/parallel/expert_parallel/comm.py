@@ -100,6 +100,7 @@ class _AllReduceEP(torch.autograd.Function):
             return grad_output, None
 
         with timed_comm("ep_all_reduce_bwd"):
+            grad_output = grad_output.contiguous()
             dist.all_reduce(grad_output, group=ep_group)
         return grad_output, None
 

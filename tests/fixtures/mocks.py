@@ -50,44 +50,69 @@ class MockTokenizer:
 
 
 class MockDataset(Dataset):
-    """Mock dataset for testing without loading real data."""
+    """Mock dataset for testing without loading real data.
+
+    If ``data`` is provided, it is used as-is (list of dicts with any fields).
+    Otherwise, random token data is generated from ``num_samples``/``seq_len``/``vocab_size``.
+    """
 
     def __init__(
         self,
-        num_samples: int = 100,
+        num_samples: int | list = 100,
         seq_len: int = 128,
         vocab_size: int = 1000,
         seed: int = 42,
+        data: list | None = None,
     ):
-        self.num_samples = num_samples
-        self.seq_len = seq_len
-        self.vocab_size = vocab_size
-        self.seed = seed
-        random.seed(seed)
-        self._data = [
-            {
-                "input_ids": [random.randint(0, vocab_size - 1) for _ in range(seq_len)],
-                "labels": [random.randint(0, vocab_size - 1) for _ in range(seq_len)],
-            }
-            for _ in range(num_samples)
-        ]
+        # Support passing a list of raw data as the first argument
+        if isinstance(num_samples, list):
+            data = num_samples
+            num_samples = len(data)
+        if data is not None:
+            self._data = data
+            self.num_samples = len(data)
+            self.seq_len = seq_len
+            self.vocab_size = vocab_size
+            self.seed = seed
+        else:
+            self.num_samples = num_samples
+            self.seq_len = seq_len
+            self.vocab_size = vocab_size
+            self.seed = seed
+            random.seed(seed)
+            self._data = [
+                {
+                    "input_ids": [random.randint(0, vocab_size - 1) for _ in range(seq_len)],
+                    "labels": [random.randint(0, vocab_size - 1) for _ in range(seq_len)],
+                }
+                for _ in range(num_samples)
+            ]
 
     def __len__(self) -> int:
         return self.num_samples
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         item = self._data[idx]
-        return {
-            "input_ids": torch.tensor(item["input_ids"], dtype=torch.long),
-            "labels": torch.tensor(item["labels"], dtype=torch.long),
-        }
+        # If the item has input_ids as lists, convert to tensors
+        if "input_ids" in item and isinstance(item["input_ids"], list):
+            return {
+                "input_ids": torch.tensor(item["input_ids"], dtype=torch.long),
+                "labels": torch.tensor(item.get("labels", item["input_ids"]), dtype=torch.long),
+            }
+        return item
 
 
 class MockRandom:
-    """Mock random for reproducible testing."""
+    """Mock random for reproducible testing.
 
-    def __init__(self, return_value: float = 0.5):
+    Args:
+        return_value: Fixed value returned by random() and uniform().
+        samples: If provided, returned by sample() calls in sequence.
+    """
+
+    def __init__(self, return_value: float = 0.5, samples: list | None = None):
         self.return_value = return_value
+        self._samples = samples
         self.calls = []
 
     def random(self) -> float:
@@ -97,6 +122,13 @@ class MockRandom:
     def randint(self, a: int, b: int) -> int:
         self.calls.append(("randint", a, b))
         return a
+
+    def sample(self, population, k: int) -> list:
+        self.calls.append(("sample", k))
+        if self._samples is not None:
+            return self._samples[:k]
+        population_list = list(population)
+        return population_list[:k]
 
     def choice(self, seq: list) -> Any:
         self.calls.append(("choice", seq))

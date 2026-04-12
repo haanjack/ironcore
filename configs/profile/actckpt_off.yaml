@@ -1,0 +1,3 @@
+# Overlay: activation checkpointing disabled
+operation:
+  activation_recompute: false

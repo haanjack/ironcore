@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import dataclasses
+import pathlib
 from pathlib import Path
 from typing import Union
 
@@ -271,6 +272,10 @@ def load_checkpoint(
             PositionalEmbeddingConfig,
             PEFTConfig,
             LoRAConfig,
+            pathlib.PosixPath,
+            pathlib.WindowsPath,
+            pathlib.PurePosixPath,
+            pathlib.PureWindowsPath,
         ]
     )
     checkpoint = torch.load(

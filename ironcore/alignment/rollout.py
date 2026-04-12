@@ -17,6 +17,8 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
+from ironcore.utils import profile_context
+
 from .buffer import RolloutBuffer
 
 if TYPE_CHECKING:
@@ -198,31 +200,36 @@ def generate_rollouts_batched(
             pass
 
     # === Step 1: Prefill all prompts ===
-    prefill_logits, prefix_kv = model.forward(
-        prompt_ids, labels=None, use_cache=True, past_key_values=None
-    )
+    with profile_context("grpo_prefill"):
+        prefill_logits, prefix_kv = model.forward(
+            prompt_ids, labels=None, use_cache=True, past_key_values=None
+        )
     # prefill_logits: [B, prompt_len, vocab]
     # prefix_kv: List of (key, value) per layer
     #   key: [B, prompt_len, num_heads, head_dim]
 
     # === Step 2: Expand KV-cache to [B×G, ...] ===
-    expanded_kv = _expand_kv_cache(prefix_kv, G)
+    with profile_context("grpo_kv_expand"):
+        expanded_kv = _expand_kv_cache(prefix_kv, G)
 
     # === Step 3: Sample first tokens ===
-    # Get logits at last position
-    last_logits = prefill_logits[:, -1, :]  # [B, vocab]
+    with profile_context("grpo_sampling"):
+        # Get logits at last position
+        last_logits = prefill_logits[:, -1, :]  # [B, vocab]
 
-    # Expand logits for G samples per prompt: [B, vocab] -> [B*G, vocab]
-    expanded_logits = last_logits.unsqueeze(1).expand(B, G, -1).reshape(total_samples, -1)
+        # Expand logits for G samples per prompt: [B, vocab] -> [B*G, vocab]
+        expanded_logits = last_logits.unsqueeze(1).expand(B, G, -1).reshape(total_samples, -1)
 
-    # Sample first tokens for all B×G
-    first_tokens = _sample_tokens_batched(
-        expanded_logits, temperature, top_p, top_k, do_sample, tp_group
-    )
-    # first_tokens: [B×G, 1]
+        # Sample first tokens for all B×G
+        first_tokens = _sample_tokens_batched(
+            expanded_logits, temperature, top_p, top_k, do_sample, tp_group
+        )
+        # first_tokens: [B×G, 1]
 
-    # Compute log probs for first tokens
-    first_log_probs = _compute_token_log_probs_batched(expanded_logits, first_tokens.squeeze(-1))
+        # Compute log probs for first tokens
+        first_log_probs = _compute_token_log_probs_batched(
+            expanded_logits, first_tokens.squeeze(-1)
+        )
 
     # === Step 4: Autoregressive generation (batched) ===
     # Pre-allocate tensors for efficiency
@@ -241,39 +248,40 @@ def generate_rollouts_batched(
         response_lengths[newly_done] = 1
         done_mask = done_mask | newly_done
 
-    for t in range(1, max_new_tokens):
-        if done_mask.all():
-            break
+    with profile_context("grpo_decode_loop"):
+        for t in range(1, max_new_tokens):
+            if done_mask.all():
+                break
 
-        # Forward with cached KV
-        logits, past_kv = model.forward(
-            generated[:, t - 1 : t],  # Only last token
-            labels=None,
-            use_cache=True,
-            past_key_values=past_kv,
-        )
-        # logits: [B×G, 1, vocab]
+            # Forward with cached KV
+            logits, past_kv = model.forward(
+                generated[:, t - 1 : t],  # Only last token
+                labels=None,
+                use_cache=True,
+                past_key_values=past_kv,
+            )
+            # logits: [B×G, 1, vocab]
 
-        next_logits = logits[:, 0, :]  # [B×G, vocab]
+            next_logits = logits[:, 0, :]  # [B×G, vocab]
 
-        next_tokens = _sample_tokens_batched(
-            next_logits, temperature, top_p, top_k, do_sample, tp_group
-        )
-        # next_tokens: [B×G, 1]
+            next_tokens = _sample_tokens_batched(
+                next_logits, temperature, top_p, top_k, do_sample, tp_group
+            )
+            # next_tokens: [B×G, 1]
 
-        # Compute log probs
-        next_log_probs = _compute_token_log_probs_batched(next_logits, next_tokens.squeeze(-1))
+            # Compute log probs
+            next_log_probs = _compute_token_log_probs_batched(next_logits, next_tokens.squeeze(-1))
 
-        # Mask log probs for sequences that are already done
-        if eos_token_id is not None:
-            newly_done = (~done_mask) & (next_tokens.squeeze(-1) == eos_token_id)
-            response_lengths[newly_done] = t + 1  # +1: EOS token is included
-            log_probs_list.append(next_log_probs * (~done_mask).float())
-            done_mask = done_mask | newly_done
-        else:
-            log_probs_list.append(next_log_probs)
+            # Mask log probs for sequences that are already done
+            if eos_token_id is not None:
+                newly_done = (~done_mask) & (next_tokens.squeeze(-1) == eos_token_id)
+                response_lengths[newly_done] = t + 1  # +1: EOS token is included
+                log_probs_list.append(next_log_probs * (~done_mask).float())
+                done_mask = done_mask | newly_done
+            else:
+                log_probs_list.append(next_log_probs)
 
-        generated[:, t] = next_tokens.squeeze(-1)
+            generated[:, t] = next_tokens.squeeze(-1)
 
     # Trim to actual length if all sequences reached EOS early
     actual_len = len(log_probs_list)

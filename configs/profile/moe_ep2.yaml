@@ -1,0 +1,8 @@
+# Overlay: MoE with Expert Parallelism across 2 GPUs
+model:
+  moe:
+    use_moe: true
+    num_shared_experts: 1
+    num_routed_experts: 4
+    num_experts_per_token: 2
+    expert_model_parallel_size: 2

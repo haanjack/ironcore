@@ -12,10 +12,11 @@ Provides:
 """
 
 import pytest
+import torch
 
 # Register custom markers
 markers = [
-    "unit: Fast, isolated unit tests",
+    "unit: Fast, isolated unit tests (no GPU required)",
     "integration: Multi-component integration tests",
     "performance: Performance and benchmark tests",
     "property: Property-based tests",
@@ -23,23 +24,41 @@ markers = [
     "slow: Tests that take longer to run",
     "distributed: Tests requiring multiple GPUs or distributed setup",
     "cuda: Tests requiring CUDA/GPU",
+    "mp: Tests requiring Model Parallel (2+ GPUs: TP, EP, PP, etc.)",
     "flash_attn: Tests requiring flash-attn package",
 ]
 
 
 def pytest_configure(config):
-    """Register custom markers."""
+    """
+    Register custom pytest markers.
+
+    CI/CD note: GitHub Actions runs CPU-only tests (pytest -m "not cuda and not mp").
+    Local development should test all markers before creating PRs.
+    """
     for marker in markers:
         config.addinivalue_line("markers", marker)
 
 
 def pytest_collection_modifyitems(config, items):
-    """Add marker for distributed tests based on file name patterns."""
-    for item in items:
-        # Auto-mark distributed tests
-        if "tp_" in item.nodeid or "distributed" in item.nodeid:
-            item.add_marker(pytest.mark.distributed)
+    """
+    Smart test skipping based on GPU availability.
 
-        # Auto-mark cuda tests
-        if any(x in item.nodeid for x in ["cuda", "attention", "transformer", "tp_"]):
-            item.add_marker(pytest.mark.cuda)
+    Skips tests that explicitly require CUDA or MP=2 if resources unavailable.
+    Use @pytest.mark.cuda or @pytest.mark.mp on test functions/classes.
+
+    CI/CD strategy:
+    - GitHub Actions: Runs with "not cuda and not mp" filter (CPU-only)
+    - Local development: All tests can run (cpu + gpu + distributed)
+    """
+    skip_cuda = pytest.mark.skip(reason="GPU not available (CUDA required)")
+    skip_mp = pytest.mark.skip(reason="MP requires 2+ GPUs")
+
+    for item in items:
+        # Skip cuda tests if no GPU
+        if "cuda" in item.keywords and not torch.cuda.is_available():
+            item.add_marker(skip_cuda)
+
+        # Skip mp tests if insufficient GPUs
+        if "mp" in item.keywords and torch.cuda.device_count() < 2:
+            item.add_marker(skip_mp)

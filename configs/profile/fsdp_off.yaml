@@ -1,0 +1,3 @@
+# Overlay: FSDP disabled
+parallel:
+  use_fsdp: false

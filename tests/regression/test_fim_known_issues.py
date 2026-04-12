@@ -22,19 +22,23 @@ class TestDefaultInconsistencyRegression:
     def test_regression_fim_rate_consistency(self):
         """
         REGRESSION: Verify that dataclass and parser defaults match.
+
+        FIM config is at DataConfig level (not per-dataset).
         """
         # Direct instantiation
-        config_direct = DatasetConfig(name="test", source="dummy", task_type="pretrain")
+        config_direct = UniversalDataConfig(
+            datasets=[DatasetConfig(name="test", source="dummy", task_type="pretrain")]
+        )
 
         # YAML parsing
         config_dict = {
             "train_datasets": [{"name": "test", "dataset_path": "dummy", "task_type": "pretrain"}],
             "vocab_name_or_path": "gpt2",
         }
-        config_from_yaml = UniversalDataConfig.from_dict(config_dict)
+        config_from_yaml = UniversalDataConfig._parse_config_dict(config_dict)
 
         # CONSISTENT: Default value should be the same
-        assert config_direct.fim_rate == config_from_yaml.datasets[0].fim_rate
+        assert config_direct.fim_rate == config_from_yaml.fim_rate
 
 
 class TestMissingTokenErrorRegression:
@@ -194,13 +198,13 @@ class TestMetadataTypeRegression:
                     name="test",
                     source="dummy",
                     task_type="pretrain",
-                    fim_rate=0.5,  # Mix of FIM and non-FIM
-                    fim_prefix_token="<fim_prefix>",
-                    fim_suffix_token="<fim_suffix>",
-                    fim_middle_token="<fim_middle>",
                     text_column="text",
                 )
             ],
+            fim_rate=0.5,  # Mix of FIM and non-FIM (FIM config is at DataConfig level)
+            fim_prefix_token="<fim_prefix>",
+            fim_suffix_token="<fim_suffix>",
+            fim_middle_token="<fim_middle>",
             vocab_name_or_path="gpt2",
             seq_length=1024,
             preprocessed_dir=temp_dir / "preprocessed",

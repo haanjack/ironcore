@@ -1,0 +1,3 @@
+# Overlay: FSDP enabled, 2 GPUs
+parallel:
+  use_fsdp: true

@@ -1,0 +1,4 @@
+# Overlay: standard TP (no async chunking), 2 GPUs
+trainer:
+  tensor_model_parallel_size: 2
+  sequence_chunk_size: null
