@@ -360,6 +360,8 @@ All PRs target `main`. Direct pushes to `main` and force-pushes to shared branch
 
 Use the template in [Section 6](#6-pr-description-template). The minimum required sections are **Summary** and **Test plan**. The MFU and Memory sections are required only when the change touches layer compute or hot-path tensor ops respectively.
 
+**For feature PRs:** If you add new user-facing capabilities (e.g., new training mode, optimizer, loss function, logger, evaluator), update the Features list in `README.md` to document the new capability concisely.
+
 ### Before opening a PR
 
 1. `ruff check ironcore/ tests/ && ruff format --check ironcore/ tests/` — must be clean.
