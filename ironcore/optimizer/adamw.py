@@ -7,6 +7,8 @@ import math
 import torch
 from torch.optim import Optimizer
 
+from ironcore.offload.optimizer_helpers import _adamw_offloaded_step, _should_offload_param
+
 
 class AdamWOptimizer(Optimizer):
     def __init__(
@@ -17,6 +19,8 @@ class AdamWOptimizer(Optimizer):
         eps=1e-08,
         weight_decay=1e-2,
         amsgrad=False,
+        offload_enabled: bool = False,
+        offload_min_param_elements: int = 65536,
         **kwargs,
     ):
         # hyperparameters
@@ -25,6 +29,8 @@ class AdamWOptimizer(Optimizer):
         super().__init__(params, defaults)
 
         self.state_dtype = torch.float32
+        self.offload_enabled = offload_enabled
+        self.offload_min_param_elements = offload_min_param_elements
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -51,15 +57,30 @@ class AdamWOptimizer(Optimizer):
 
                 state = self.state[p]
 
-                # State initialization
+                # Offload path: optimizer states live on CPU
+                if self.offload_enabled and _should_offload_param(
+                    p, self.offload_min_param_elements
+                ):
+                    _adamw_offloaded_step(
+                        p=p,
+                        grad=grad,
+                        state=state,
+                        lr=lr,
+                        beta1=beta1,
+                        beta2=beta2,
+                        eps=eps,
+                        weight_decay=weight_decay,
+                        amsgrad=amsgrad,
+                        state_dtype=self.state_dtype,
+                    )
+                    continue
+
+                # Standard in-VRAM path
                 if len(state) == 0:
                     state["step"] = 0
-                    # Exponential moving average of gradient values
                     state["exp_avg"] = torch.zeros_like(p, dtype=self.state_dtype)
-                    # Exponential moving average of squared gradient values
                     state["exp_avg_sq"] = torch.zeros_like(p, dtype=self.state_dtype)
                     if amsgrad:
-                        # Maintains max of all exp. moving avg. of sq. grad. values
                         state["max_exp_avg_sq"] = torch.zeros_like(p, dtype=self.state_dtype)
 
                 exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
@@ -72,9 +93,7 @@ class AdamWOptimizer(Optimizer):
                 exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
                 exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
                 if amsgrad:
-                    # Maintains the maximum of all 2nd moment running avg. till now
                     torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-                    # Use the max. for normalizing running avg. of gradient
                     denom = max_exp_avg_sq.sqrt().add_(eps)
                 else:
                     denom = exp_avg_sq.sqrt().add_(eps)
@@ -84,7 +103,6 @@ class AdamWOptimizer(Optimizer):
                 step_size = lr * math.sqrt(bias_correction2) / bias_correction1
 
                 if weight_decay != 0:
-                    # Apply decoupled weight decay (AdamW style)
                     p.data.mul_(1 - lr * weight_decay)
 
                 p.data.addcdiv_(exp_avg, denom, value=-step_size)

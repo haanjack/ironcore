@@ -11,6 +11,7 @@ from typing import Any, Optional, Union, get_args, get_origin
 import torch
 from dotenv import load_dotenv
 
+from ironcore.offload.config import OffloadConfig
 from ironcore.utils import load_yaml_config
 
 from .config import BaseConfig
@@ -68,6 +69,7 @@ class MainConfig(BaseConfig):
     profiler: ProfilerConfig
     peft: PEFTConfig
     alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
+    offload: OffloadConfig = field(default_factory=OffloadConfig)
 
 
 def _config_validation(config: MainConfig):
@@ -167,6 +169,21 @@ def _config_validation(config: MainConfig):
                 "Increase world_size or decrease tensor_model_parallel_size to enable partitioning.",
                 stacklevel=2,
             )
+
+    # Offload validation
+    if config.offload.optimizer_offload and not config.offload.enabled:
+        raise ValueError(
+            "offload.optimizer_offload requires offload.enabled to be true"
+        )
+    if config.offload.optimizer_state_precision not in ("fp32", "fp16", "bf16"):
+        raise ValueError(
+            f"offload.optimizer_state_precision must be fp32, fp16, or bf16, "
+            f"got '{config.offload.optimizer_state_precision}'"
+        )
+    if config.offload.activation_prefetch and not config.offload.activation_spill:
+        raise ValueError(
+            "offload.activation_prefetch requires offload.activation_spill to be enabled"
+        )
 
 
 # arguments utilities
@@ -416,6 +433,7 @@ def load_trainer_config() -> MainConfig:
         profiler=ProfilerConfig(),
         peft=PEFTConfig(),
         alignment=AlignmentConfig(),
+        offload=OffloadConfig(),
     )
 
     # get config from command line
