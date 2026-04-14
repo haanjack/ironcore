@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from ironcore.offload.config import OffloadConfig
 from ironcore.utils import load_yaml_config
 from ironcore.utils.config import sanitize_path_component as _sanitize_path_component
 from ironcore.utils.config import validate_path_within_dir as _validate_path_within_dir
@@ -41,6 +42,7 @@ class MainConfig(BaseConfig):
     profiler: ProfilerConfig
     peft: PEFTConfig
     alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
+    offload: OffloadConfig = field(default_factory=OffloadConfig)
 
 
 def _config_validation(config: MainConfig):
@@ -140,6 +142,21 @@ def _config_validation(config: MainConfig):
                 "Increase world_size or decrease tensor_model_parallel_size to enable partitioning.",
                 stacklevel=2,
             )
+
+    # Offload validation
+    if config.offload.optimizer_offload and not config.offload.enabled:
+        raise ValueError(
+            "offload.optimizer_offload requires offload.enabled to be true"
+        )
+    if config.offload.optimizer_state_precision not in ("fp32", "fp16", "bf16"):
+        raise ValueError(
+            f"offload.optimizer_state_precision must be fp32, fp16, or bf16, "
+            f"got '{config.offload.optimizer_state_precision}'"
+        )
+    if config.offload.activation_prefetch and not config.offload.activation_spill:
+        raise ValueError(
+            "offload.activation_prefetch requires offload.activation_spill to be enabled"
+        )
 
 
 def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:

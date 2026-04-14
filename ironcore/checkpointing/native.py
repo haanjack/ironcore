@@ -378,9 +378,15 @@ def load_checkpoint(
                 processed_state = {}
                 for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
                     if state_key in ["exp_avg", "exp_avg_sq"]:
-                        # ensure device matches
-                        if state_tensor.device != param.device:
-                            state_tensor = state_tensor.to(param.device)
+                        # Determine target device: CPU when optimizer offload is enabled,
+                        # otherwise match the parameter's device (GPU).
+                        offload_active = getattr(optimizer, "offload_enabled", False)
+                        if _is_distributed_optimizer(optimizer):
+                            offload_active = getattr(optimizer.optimizer, "offload_enabled", False)
+                        target_device = torch.device("cpu") if offload_active else param.device
+
+                        if state_tensor.device != target_device:
+                            state_tensor = state_tensor.to(target_device)
 
                         # ensure param shape
                         if state_tensor.shape != param.shape:
@@ -402,6 +408,10 @@ def load_checkpoint(
 
             # split optimizer state for tensor parallel
             if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
+                offload_active = getattr(optimizer, "offload_enabled", False)
+                if _is_distributed_optimizer(optimizer):
+                    offload_active = getattr(optimizer.optimizer, "offload_enabled", False)
+
                 for name, param in model.named_parameters():
                     if param not in loaded_optim_state["state"]:
                         continue
@@ -431,9 +441,11 @@ def load_checkpoint(
                                 )
                             )
 
-                        loaded_optim_state["state"][param][state_key] = loaded_optim_state["state"][
-                            param
-                        ][state_key].reshape(param.shape)
+                        tensor = loaded_optim_state["state"][param][state_key].reshape(param.shape)
+                        # Keep optimizer state on CPU when offload is active
+                        if offload_active and state_key in ("exp_avg", "exp_avg_sq"):
+                            tensor = tensor.to("cpu")
+                        loaded_optim_state["state"][param][state_key] = tensor
 
             # Handle DistributedOptimizer: partition state for local rank
             is_dist_opt = _is_distributed_optimizer(optimizer)
