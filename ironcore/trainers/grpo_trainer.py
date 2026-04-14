@@ -273,7 +273,7 @@ class GRPOTrainer(BaseTrainer):
         # Move reference model back to CPU if offloading is enabled
         if ref_on_cpu:
             self.reference_model = self.reference_model.to("cpu")
-            pass
+            # Skipping empty_cache: frequent calls force GPU sync and hurt throughput.
 
         return res.to(device) if offload_to_cpu else res
 
