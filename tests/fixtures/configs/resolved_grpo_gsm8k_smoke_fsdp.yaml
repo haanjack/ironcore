@@ -1,0 +1,56 @@
+alignment:
+  generation:
+    do_sample: true
+    max_new_tokens: 128
+    system_prompt: 'Solve the math problem step by step. Put your final numerical
+      answer after ####.'
+    temperature: 0.6
+    top_k: 50
+    top_p: 0.95
+    use_chat_template: true
+  grpo_beta: 0.04
+  grpo_clip_eps: 0.0
+  grpo_eps: 1.0e-08
+  grpo_group_size: 2
+  grpo_num_epochs: 1
+  method: grpo
+  metrics_interval: 5
+  reward_manager:
+    functions:
+    - name: correctness
+      rule_template: /home/runner/work/ironcore/ironcore/configs/rewards/math_gsm8k
+      type: rule_template
+      weight: 1.0
+    num_workers: 4
+    timeout: 30
+data:
+  config_path: ../data/grpo_gsm8k
+  task_type: grpo
+init:
+  seed: 42
+model: ../model/qwen2.5-0.5B
+operation:
+  eval_interval: 10
+  train_steps: 20
+optim:
+  annealing_steps: 20
+  clip_grad: 1.0
+  lr_scheduler: cosine
+  max_lr: 1.0e-05
+  min_lr: 1.0e-06
+  optimizer: adamw
+  warmup_steps: 5
+  weight_decay: 0.01
+parallel:
+  fsdp_mixed_precision: bf16
+  fsdp_sharding_strategy: full
+  fsdp_state_dict_type: sharded
+  use_fsdp: true
+  world_size: 2
+trainer:
+  gradient_accumulation_steps: 2
+  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+  log_interval: 1
+  micro_batch_size: 2
+  train_batch_size: 8
+  use_flash_attn: true

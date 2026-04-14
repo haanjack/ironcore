@@ -228,7 +228,7 @@ def main():
         "--output-dir", type=str, default="experiments/scaling/",
     )
     analyze_scaling_parser.add_argument(
-        "--fit-law", action="store_true", default=True,
+        "--fit-law", action=argparse.BooleanOptionalAction, default=True,
         help="Fit Chinchilla-style scaling law (requires scipy)",
     )
     analyze_scaling_parser.add_argument(
