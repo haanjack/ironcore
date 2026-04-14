@@ -194,6 +194,11 @@ cython_debug/
 # train logs
 mlruns/
 
+# CLI tool temp configs
+.ironcore_tmp_*.yaml
+.ironcore_parity_*.yaml
+.ironcore_scaling_*.yaml
+
 # Test outputs
 smoke_test_output/
 toy_test_output/

@@ -111,6 +111,19 @@ class GRPOTrainer(BaseTrainer):
         self.logger.info("Creating reference model for GRPO...")
         self.reference_model = self._create_reference_model()
 
+        # Offload reference model to CPU to free GPU memory for policy model
+        offload_ref = getattr(self.config.alignment, "offload_ref_model", False)
+        is_fsdp = isinstance(self.model, FSDP)
+        if offload_ref:
+            if is_fsdp:
+                self.logger.warning(
+                    "offload_ref_model=True is not compatible with FSDP. "
+                    "Reference model will remain on GPU. Disable FSDP to enable offloading."
+                )
+            else:
+                self.reference_model = self.reference_model.to("cpu")
+                self.logger.info("Reference model offloaded to CPU")
+
         # Initialize reward worker via RewardManager
         reward_manager_cfg = self.config.alignment.reward_manager
         # BaseConfig.__call__ cannot convert Union[X, None] typed fields, so the
@@ -202,6 +215,8 @@ class GRPOTrainer(BaseTrainer):
         """Pre-compute reference model log probabilities for generated completions.
 
         Reference model is kept on GPU for fast inference during GRPO training.
+        When offload_ref_model is True, the model is moved to GPU for the inference
+        loop and back to CPU afterward.
         Memory is explicitly freed after computing log probs.
         """
         if self.reference_model is None:
@@ -213,6 +228,12 @@ class GRPOTrainer(BaseTrainer):
         # Performance optimization: Accumulate on GPU by default to avoid sync overhead.
         # If memory is an issue, this can be moved back to CPU via config.
         offload_to_cpu = getattr(self.config.alignment, "grpo_offload_ref_logps", False)
+
+        # Move reference model to GPU if it was offloaded to CPU
+        offload_ref_model = getattr(self.config.alignment, "offload_ref_model", False)
+        ref_on_cpu = offload_ref_model and not isinstance(self.model, FSDP)
+        if ref_on_cpu:
+            self.reference_model = self.reference_model.to(device)
 
         # Determine micro-batch size for reference inference
         # Match rollout chunk size for memory consistency
@@ -248,6 +269,12 @@ class GRPOTrainer(BaseTrainer):
             del mb_completion_ids
 
         res = torch.cat(all_ref_log_probs, dim=0)
+
+        # Move reference model back to CPU if offloading is enabled
+        if ref_on_cpu:
+            self.reference_model = self.reference_model.to("cpu")
+            torch.cuda.empty_cache()
+
         return res.to(device) if offload_to_cpu else res
 
     def _prepare_labels_and_mask(self, rollout: RolloutBuffer) -> tuple[torch.Tensor, torch.Tensor]:

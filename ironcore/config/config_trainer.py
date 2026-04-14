@@ -59,10 +59,6 @@ class TrainerConfig(BaseConfig):
     tensor_model_parallel_size: int = field(
         default=1, metadata={"help": "model parallel size on a same transformer layer"}
     )
-    pipeline_model_parallel_size: int = field(
-        default=1,
-        metadata={"help": "pipeline model parallel size splits model vertically"},
-    )
 
     vocab_padding_unit: int = field(
         default=128,
