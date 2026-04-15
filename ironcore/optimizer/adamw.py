@@ -21,6 +21,7 @@ class AdamWOptimizer(Optimizer):
         amsgrad=False,
         offload_enabled: bool = False,
         offload_min_param_elements: int = 65536,
+        optimizer_state_precision: str = "fp32",
         **kwargs,
     ):
         # hyperparameters
@@ -28,9 +29,11 @@ class AdamWOptimizer(Optimizer):
 
         super().__init__(params, defaults)
 
-        self.state_dtype = torch.float32
         self.offload_enabled = offload_enabled
         self.offload_min_param_elements = offload_min_param_elements
+        self.state_dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[
+            optimizer_state_precision
+        ]
 
     @torch.no_grad()
     def step(self, closure=None):

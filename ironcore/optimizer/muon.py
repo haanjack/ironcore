@@ -127,6 +127,7 @@ class MuonOptimizer(Optimizer):
         # Offload settings
         offload_enabled: bool = False,
         offload_min_param_elements: int = 65536,
+        optimizer_state_precision: str = "fp32",
     ):
         # Store Muon-specific settings
         self.momentum = momentum
@@ -135,6 +136,9 @@ class MuonOptimizer(Optimizer):
         self.adamw_lr = adamw_lr if adamw_lr is not None else lr
         self.offload_enabled = offload_enabled
         self.offload_min_param_elements = offload_min_param_elements
+        self.state_dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[
+            optimizer_state_precision
+        ]
 
         # Build param groups list following standard torch.optim.Optimizer pattern
         param_groups = []
@@ -165,8 +169,6 @@ class MuonOptimizer(Optimizer):
             param_groups.append(param_group)
 
         super().__init__(param_groups, {})
-
-        self.state_dtype = torch.float32
 
     @torch.no_grad()
     def step(self, closure=None):
