@@ -93,6 +93,7 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
             eps=config.optim.adam_eps,
             offload_enabled=config.offload.enabled and config.offload.optimizer_offload,
             offload_min_param_elements=config.offload.optimizer_min_param_elements,
+            optimizer_state_precision=config.offload.optimizer_state_precision,
             **extra_args,
         )
 
@@ -209,6 +210,7 @@ def get_muon_optimizer(config: MainConfig, model, device_type: str | None = None
         adamw_weight_decay=weight_decay,
         offload_enabled=config.offload.enabled and config.offload.optimizer_offload,
         offload_min_param_elements=config.offload.optimizer_min_param_elements,
+        optimizer_state_precision=config.offload.optimizer_state_precision,
     )
 
     return optimizer

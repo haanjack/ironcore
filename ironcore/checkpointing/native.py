@@ -377,13 +377,18 @@ def load_checkpoint(
 
                 processed_state = {}
                 for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
-                    if state_key in ["exp_avg", "exp_avg_sq"]:
-                        # Determine target device: CPU when optimizer offload is enabled,
-                        # otherwise match the parameter's device (GPU).
-                        offload_active = getattr(optimizer, "offload_enabled", False)
-                        if _is_distributed_optimizer(optimizer):
-                            offload_active = getattr(optimizer.optimizer, "offload_enabled", False)
-                        target_device = torch.device("cpu") if offload_active else param.device
+                    if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
+                        # Determine target device using the same per-param criteria
+                        # as the optimizer step: offload_enabled, offloadable attr,
+                        # and min_param_elements threshold.
+                        offload_enabled = getattr(optimizer, "offload_enabled", False)
+                        offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
+                        is_offloaded = (
+                            offload_enabled
+                            and getattr(param, "offloadable", True)
+                            and param.numel() >= offload_min_elements
+                        )
+                        target_device = torch.device("cpu") if is_offloaded else param.device
 
                         if state_tensor.device != target_device:
                             state_tensor = state_tensor.to(target_device)
@@ -408,9 +413,8 @@ def load_checkpoint(
 
             # split optimizer state for tensor parallel
             if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
-                offload_active = getattr(optimizer, "offload_enabled", False)
-                if _is_distributed_optimizer(optimizer):
-                    offload_active = getattr(optimizer.optimizer, "offload_enabled", False)
+                offload_enabled = getattr(optimizer, "offload_enabled", False)
+                offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
 
                 for name, param in model.named_parameters():
                     if param not in loaded_optim_state["state"]:
@@ -442,8 +446,13 @@ def load_checkpoint(
                             )
 
                         tensor = loaded_optim_state["state"][param][state_key].reshape(param.shape)
-                        # Keep optimizer state on CPU when offload is active
-                        if offload_active and state_key in ("exp_avg", "exp_avg_sq"):
+                        # Keep optimizer state on CPU using same per-param criteria as step()
+                        is_offloaded = (
+                            offload_enabled
+                            and getattr(param, "offloadable", True)
+                            and param.numel() >= offload_min_elements
+                        )
+                        if is_offloaded and state_key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
                             tensor = tensor.to("cpu")
                         loaded_optim_state["state"][param][state_key] = tensor
 
