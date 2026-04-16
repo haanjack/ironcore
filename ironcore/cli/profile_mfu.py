@@ -214,5 +214,3 @@ def run_profile_mfu(args: Namespace) -> None:
         print(f"\nResults written to: {output_path}")
 
     print()
-
-
