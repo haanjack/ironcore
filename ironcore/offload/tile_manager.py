@@ -109,7 +109,7 @@ class TileManager:
         return cls(
             pool=pool,
             device=device,
-            precision=config.weight_storage_precision,
+            precision=config.optimizer_state_precision,
         )
 
     @staticmethod

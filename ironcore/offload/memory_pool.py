@@ -234,8 +234,8 @@ class _PinnedChunk:
                     # This is rare since we always allocate from aligned offsets.
                     continue
 
-                byte_slice = self._storage.narrow(0, byte_offset, required_bytes)
-                tensor = byte_slice.view(dtype)
+                dtype_offset = byte_offset // element_size
+                tensor = self._storage.to(dtype)[dtype_offset : dtype_offset + numel]
 
                 # Update free list
                 self._free_list.pop(i)

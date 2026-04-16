@@ -28,7 +28,7 @@ class OffloadConfig(BaseConfig):
         optimizer_min_param_elements
 
     M2 fields (active):
-        weight_offload, weight_storage_precision, weight_prefetch_layers,
+        weight_offload, weight_prefetch_layers,
         pinned_memory_pool_gb, pinned_chunk_gb
 
     M3+ fields (declared but not wired until those milestones):

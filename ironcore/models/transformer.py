@@ -335,7 +335,7 @@ class TransformerModel(BaseModule):
             if scheduler is not None:
                 scheduler.on_layer_end(i)
 
-            if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
+            if use_cache or kv_cache_manager is not None:
                 hidden_states, new_kv = layer_out
                 if use_cache:
                     new_key_values.append(new_kv)
