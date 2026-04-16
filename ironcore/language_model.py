@@ -16,6 +16,7 @@ from ironcore.models import get_model_provider_func
 from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
+    vocab_parallel_cross_entropy,
 )
 from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
 
@@ -149,6 +150,38 @@ class LanguageModel(BaseModule):
         )
         return losses
 
+    def compute_loss_from_logits(
+        self, logits, labels, loss_mask, fp16_lm_cross_entropy=False, padding_start_idx=None
+    ):
+        """Compute loss from logits using vocab_parallel_cross_entropy.
+
+        Args:
+            logits: [batch, seq_len, vocab_size] or [batch, seq_len, vocab_size/tp]
+            labels: [batch, seq_len] ground truth token IDs
+            loss_mask: [batch, seq_len] valid token mask
+            fp16_lm_cross_entropy: Whether to use fp16 for cross entropy
+            padding_start_idx: Index where padding tokens start in vocab
+
+        Returns:
+            Scalar loss value
+        """
+        labels = labels.contiguous()
+
+        if fp16_lm_cross_entropy:
+            logits = logits.to(dtype=torch.half)
+        else:
+            logits = logits.float()
+
+        per_token_losses = vocab_parallel_cross_entropy(
+            vocab_parallel_logits=logits,
+            labels=labels,
+            padding_start_idx=padding_start_idx,
+        ).contiguous()
+
+        loss = self.loss_fn(per_token_losses, loss_mask)
+
+        return loss
+
     @torch.no_grad()
     def generate(
         self,
@@ -277,7 +310,11 @@ class LanguageModel(BaseModule):
                 kv_pos = torch.arange(total_len, device=input_ids.device).view(1, 1, -1)
                 attention_mask = (q_pos >= kv_pos).unsqueeze(1)
 
-        loss_mask = torch.ones(input_ids.size(), dtype=torch.float, device=input_ids.device)
+        loss_mask = (
+            (labels != -100).float()
+            if labels is not None
+            else torch.ones(input_ids.size(), dtype=torch.float, device=input_ids.device)
+        )
         return attention_mask, position_ids, loss_mask
 
     def initialize_cache(

@@ -99,6 +99,9 @@ class AlignmentConfig(BaseConfig):
     # Optimization flags
     concat_forward_passes: bool = True
 
+    # GRPO reference model offloading
+    offload_ref_model: bool = False  # Move reference model to CPU between forward passes
+
     # Metrics computation interval (0 = compute every step)
     metrics_interval: int = 0
 

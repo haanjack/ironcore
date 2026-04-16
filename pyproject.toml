@@ -2,7 +2,7 @@
 name = "ironcore"
 version = "0.1.0"
 description = "Distributed training framework"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.12"
 dependencies = [
     "torch",

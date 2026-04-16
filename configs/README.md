@@ -28,7 +28,6 @@ Training process settings including batch sizes, parallelism, and checkpointing.
 | `train_batch_size` | `None` | Global training batch size |
 | `gradient_accumulation_steps` | `None` | Gradient accumulation steps |
 | `tensor_model_parallel_size` | `1` | Tensor parallelism size |
-| `pipeline_model_parallel_size` | `1` | Pipeline parallelism size |
 | `save_checkpoint_steps` | `1000` | Checkpoint save interval |
 | `log_interval` | `20` | Progress print interval |
 | `grad_norm_log_interval` | `None` | Gradient norm logging cadence (`log`, `checkpoint`, or `None`) |

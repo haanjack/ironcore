@@ -76,9 +76,7 @@ def _config_validation(config: MainConfig):
     if config.operation.train_steps <= 0:
         raise ValueError("operation.train_steps should be larger than 0")
 
-    dp_group_size = (
-        config.trainer.tensor_model_parallel_size * config.trainer.pipeline_model_parallel_size
-    )
+    dp_group_size = config.trainer.tensor_model_parallel_size
     dp_world_size = config.parallel.world_size // dp_group_size
     if dp_world_size <= 0:
         raise ValueError(

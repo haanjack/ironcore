@@ -156,7 +156,6 @@ class ModelConfig(BaseConfig):
         metadata={"help": "number of key-value groups in grouped query attention"},
     )
     attention_dropout: float = field(default=0.1, metadata={"help": "dropout ratio in attention"})
-    activation_type: str = field(default="gelu", metadata={"help": "activation type"})
 
     # HuggingFace compatibility
     hf_model_type: str | None = field(

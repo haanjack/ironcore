@@ -118,3 +118,14 @@ L = −mean(min(ratio · A, clip(ratio, 1±ε) · A)) + β · KL
 | `alignment.generation.top_k` | `0` | Top-k cutoff (0 = disabled) |
 | `alignment.generation.do_sample` | `true` | Stochastic sampling (false = greedy) |
 | `alignment.reward_manager.*` | — | Reward function list and worker pool config |
+| `alignment.offload_ref_model` | `false` | Move reference model to CPU between forward passes |
+
+### Reference model CPU offloading
+
+Set `alignment.offload_ref_model: true` to keep the GRPO reference model on CPU between forward passes. The model is moved to GPU only during reference log-probability computation, then moved back to CPU. This frees GPU memory for the policy model, enabling GRPO training on GPUs that would otherwise run out of memory.
+
+**When to use:** Single-GPU GRPO training where the policy model + reference model together exceed available VRAM.
+
+**Limitations:** Not compatible with FSDP. FSDP-wrapped models cannot be moved between devices because sharding state is device-bound. If FSDP is active and offloading is requested, a warning is logged and the reference model stays on GPU.
+
+**Separate from `grpo_offload_ref_logps`:** The `offload_ref_model` flag controls where the model weights live. The `grpo_offload_ref_logps` flag (accessed via getattr) controls where computed log-probability tensors are accumulated. They are independent.

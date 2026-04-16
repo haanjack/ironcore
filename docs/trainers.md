@@ -75,6 +75,12 @@ Override these in subclasses — do **not** override `train()`:
 
 Each `train_step` runs gradient accumulation, computes grad/param norms, and steps the optimizer. Loss is next-token cross-entropy. An additional per-token accuracy metric is computed and logged.
 
+### SFT response-only loss masking
+
+When `task_type: sft`, the SFT collator produces `labels` with prompt tokens set to `-100`. `LanguageModel.get_masks_and_position_ids()` derives `loss_mask` from these labels: positions where `labels == -100` get `loss_mask = 0` (ignored in loss), all others get `loss_mask = 1`. This matches TRL/axolotl behavior where only response tokens contribute to the loss.
+
+For `task_type: pretrain`, labels are never masked and `loss_mask` is all ones.
+
 ## DPOTrainer
 
 `ironcore/trainers/dpo_trainer.py`
