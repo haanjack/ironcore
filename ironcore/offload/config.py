@@ -31,9 +31,11 @@ class OffloadConfig(BaseConfig):
         weight_offload, weight_prefetch_layers,
         pinned_memory_pool_gb, pinned_chunk_gb
 
-    M3+ fields (declared but not wired until those milestones):
-        activation_spill, activation_spill_granularity,
-        activation_prefetch
+    M3 fields (active, merged with former M4):
+        activation_spill, activation_spill_granularity
+
+    Activation spilling replaces activation checkpointing when enabled.
+    activation_spill=true automatically disables activation_recompute.
     """
 
     # Master switch. All offload features are gated on this.
@@ -48,12 +50,12 @@ class OffloadConfig(BaseConfig):
     weight_offload: bool = False
     weight_prefetch_layers: int = 2
 
-    # M3: Forward activation spilling (not yet wired)
+    # M3: Activation offloading (merged forward spill + backward prefetch)
+    # When enabled, replaces activation checkpointing. D2H spill during forward,
+    # H2D prefetch during backward, free-after-consume to limit host memory.
+    # Mutually exclusive with activation_recompute (auto-disabled with warning).
     activation_spill: bool = False
-    activation_spill_granularity: str = "sub_layer"
-
-    # M4: Backward activation prefetching (not yet wired)
-    activation_prefetch: bool = False
+    activation_spill_granularity: str = "sub_layer"  # "sub_layer" or "full_layer"
 
     # Shared pinned memory pool (built at M2)
     pinned_memory_pool_gb: float = 100.0

@@ -118,6 +118,11 @@ class TransformerLayer(BaseModule):
         batch_size = hidden_states.size(0)
         seq_len = hidden_states.size(1)
 
+        # M3: Spill layer input (sub_layer=0) for backward attention gradient
+        scheduler = getattr(self, "_offload_scheduler", None)
+        if scheduler is not None and scheduler.spill_manager is not None:
+            scheduler.on_sublayer_forward(self.layer_idx, 0, hidden_states)
+
         norm_output = self.input_layernorm(hidden_states)
 
         # QKV projection
@@ -176,6 +181,11 @@ class TransformerLayer(BaseModule):
 
         residual = hidden_states
         norm_input = residual + attention_output
+
+        # M3: Spill post-attention residual (sub_layer=1) for backward MLP gradient
+        if scheduler is not None and scheduler.spill_manager is not None:
+            scheduler.on_sublayer_forward(self.layer_idx, 1, norm_input)
+
         norm_output = self.post_attn_layernorm(norm_input)
         mlp_output = self.mlp(norm_output)
         output = norm_input + mlp_output
@@ -254,19 +264,27 @@ class TransformerModel(BaseModule):
         # For FSDP, skip here and use apply_activation_checkpointing() in parallel.py
         # to avoid "tensor data not allocated" errors with FSDP's parameter sharding.
         is_fsdp = self._is_fsdp_enabled()
+        scheduler = getattr(self, "_offload_scheduler", None)
+
+        # Activation spilling replaces checkpointing: when spill_manager is active,
+        # activations are saved to host memory during forward and prefetched during
+        # backward. Checkpointing is disabled to avoid recomputing twice.
+        activation_spill_active = (
+            scheduler is not None and scheduler.spill_manager is not None
+        )
         use_layer_checkpointing = (
             self.activation_recompute
             and self.training
             and not use_cache
             and kv_cache_manager is None
             and not is_fsdp  # Skip for FSDP - uses module-level checkpointing instead
+            and not activation_spill_active  # Skip when activation spilling is active
         )
 
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
 
             # Weight streaming: ensure layer weights are on GPU before execution
-            scheduler = getattr(self, "_offload_scheduler", None)
             if scheduler is not None:
                 scheduler.on_layer_start(i)
 

@@ -27,6 +27,7 @@ import logging
 import torch
 from torch import nn
 
+from ironcore.offload.hooks import ActivationSpillManager
 from ironcore.offload.memory_pool import PinnedMemoryPool
 from ironcore.offload.tile_manager import TileManager, WeightGroup
 from ironcore.offload.transfer_engine import MemoryTransferEngine
@@ -92,6 +93,7 @@ class ExecutionScheduler:
         tile_manager: TileManager,
         prefetch_layers: int = 2,
         device: torch.device | None = None,
+        spill_manager: ActivationSpillManager | None = None,
     ):
         self._model = model
         self._pool = pool
@@ -99,6 +101,7 @@ class ExecutionScheduler:
         self._tile_manager = tile_manager
         self._prefetch_layers = prefetch_layers
         self._device = device or torch.device("cuda")
+        self._spill_manager = spill_manager
 
         # Populated during init
         self._num_layers = 0
@@ -108,6 +111,7 @@ class ExecutionScheduler:
         # State tracking
         self._step_count = 0
         self._current_forward_layer = -1
+        self._current_microbatch = 0
 
     @classmethod
     def from_model(
@@ -131,25 +135,31 @@ class ExecutionScheduler:
 
         assert isinstance(config, OffloadConfig)
 
-        if not config.enabled or not config.weight_offload:
+        if not config.enabled:
+            return None
+
+        # Need at least one offload feature enabled
+        if not config.weight_offload and not config.activation_spill:
             return None
 
         if not torch.cuda.is_available():
             return None
 
-        # Skip if FSDP is enabled (FSDP manages its own parameter movement)
-        if _is_fsdp_enabled(model, config):
+        # Skip weight streaming if FSDP is enabled (FSDP manages its own parameter movement)
+        # Note: activation spilling can still work with FSDP (spills activations, not weights)
+        if config.weight_offload and _is_fsdp_enabled(model, config):
             _get_logger().info(
                 "Weight streaming skipped: FSDP is enabled. "
                 "FSDP manages its own parameter sharding/unsharding."
             )
             return None
 
-        # Skip if activation checkpointing is enabled.
+        # Skip weight streaming if activation checkpointing is enabled.
         # Checkpointing replays the forward pass during backward, and the
         # scheduler's per-layer hooks only fire in TransformerModel.forward(),
         # not during recomputation. Weights must stay resident for correctness.
-        if _is_checkpointing_enabled(model):
+        # Note: activation spilling itself disables checkpointing via config validation.
+        if config.weight_offload and _is_checkpointing_enabled(model):
             _get_logger().info(
                 "Weight streaming skipped: activation checkpointing is enabled. "
                 "Weights must stay on GPU for backward recomputation."
@@ -163,6 +173,20 @@ class ExecutionScheduler:
         engine = MemoryTransferEngine.from_config(config, device)
         tile_manager = TileManager.from_config(config, pool, device)
 
+        # M3: Create activation spill manager if enabled
+        spill_manager = None
+        if config.activation_spill:
+            from ironcore.models.transformer import TransformerModel
+
+            num_layers = len(model.layers) if isinstance(model, TransformerModel) else 0
+            spill_manager = ActivationSpillManager.from_config(
+                config=config,
+                pool=pool,
+                engine=engine,
+                num_layers=num_layers,
+                gradient_accumulation_steps=1,  # Updated by trainer after init
+            )
+
         scheduler = cls(
             model=model,
             pool=pool,
@@ -170,8 +194,10 @@ class ExecutionScheduler:
             tile_manager=tile_manager,
             prefetch_layers=config.weight_prefetch_layers,
             device=device,
+            spill_manager=spill_manager,
         )
         scheduler._register_all_layers()
+        scheduler._propagate_to_layers()
         return scheduler
 
     def _register_all_layers(self) -> None:
@@ -211,6 +237,14 @@ class ExecutionScheduler:
             f"pool={self._pool}"
         )
 
+    def _propagate_to_layers(self) -> None:
+        """Attach scheduler reference to each TransformerLayer for in-forward hooks."""
+        from ironcore.models.transformer import TransformerModel
+
+        if isinstance(self._model, TransformerModel):
+            for layer in self._model.layers:
+                layer._offload_scheduler = self
+
     # --- Training loop lifecycle hooks ---
 
     def on_training_step_start(self) -> None:
@@ -242,6 +276,10 @@ class ExecutionScheduler:
             self._tile_manager.snapshot_params_to_host(group)
 
         self._engine.synchronize()
+
+        # M3: Clean up any remaining spilled activations
+        if self._spill_manager is not None:
+            self._spill_manager.on_training_step_end()
 
     # --- Forward pass per-layer hooks ---
 
@@ -341,6 +379,64 @@ class ExecutionScheduler:
 
         self._layer_on_gpu.clear()
 
+    # --- M3: Activation spilling lifecycle ---
+
+    def set_gradient_accumulation_steps(self, steps: int) -> None:
+        """Update gradient accumulation steps (called by trainer after init)."""
+        self._current_microbatch = 0
+        if self._spill_manager is not None:
+            self._spill_manager._gradient_accumulation_steps = steps
+
+    def on_microbatch_forward_start(self, microbatch_idx: int) -> None:
+        """Called before a micro-batch forward pass."""
+        self._current_microbatch = microbatch_idx
+        if self._spill_manager is not None:
+            self._spill_manager.on_microbatch_forward_start(microbatch_idx)
+
+    def on_sublayer_forward(
+        self, layer_idx: int, sub_layer: int, tensor: torch.Tensor
+    ) -> None:
+        """
+        Spill an activation to host during forward.
+
+        Called from TransformerLayer.custom_forward at sub-layer boundaries:
+          - sub_layer=0: layer input (hidden_states)
+          - sub_layer=1: post-attention residual (norm_input)
+        """
+        if self._spill_manager is not None:
+            self._spill_manager.on_sublayer_forward(layer_idx, sub_layer, tensor)
+
+    def on_microbatch_forward_end(self) -> None:
+        """Called after a micro-batch forward pass completes."""
+        if self._spill_manager is not None:
+            self._spill_manager.on_microbatch_forward_end()
+
+    def on_microbatch_backward_start(self, microbatch_idx: int) -> None:
+        """Called before a micro-batch backward pass."""
+        if self._spill_manager is not None:
+            self._spill_manager.on_microbatch_backward_start(microbatch_idx)
+
+    def on_sublayer_backward(
+        self, layer_idx: int, sub_layer: int, gpu_dst: torch.Tensor
+    ) -> None:
+        """
+        Prefetch a spilled activation from host during backward.
+
+        Called from TransformerLayer backward hooks at sub-layer boundaries.
+        """
+        if self._spill_manager is not None:
+            self._spill_manager.on_sublayer_backward(layer_idx, sub_layer, gpu_dst)
+
+    def on_microbatch_backward_end(self) -> None:
+        """Called after a micro-batch backward pass completes."""
+        if self._spill_manager is not None:
+            self._spill_manager.on_microbatch_backward_end()
+
+    @property
+    def spill_manager(self) -> ActivationSpillManager | None:
+        """Access the activation spill manager (None if not enabled)."""
+        return self._spill_manager
+
     # --- Internal methods ---
 
     def _prefetch_layer(self, layer_idx: int) -> None:
@@ -386,6 +482,11 @@ class ExecutionScheduler:
 
         self._weight_groups.clear()
         self._layer_on_gpu.clear()
+
+        # M3: Release spill manager resources
+        if self._spill_manager is not None:
+            self._spill_manager.shutdown()
+            self._spill_manager = None
 
         # Release model reference
         self._model = None  # type: ignore[assignment]

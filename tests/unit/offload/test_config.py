@@ -8,8 +8,11 @@ Unit tests for OffloadConfig.
 Tests cover:
 1. Default values (all disabled)
 2. Validation rules (optimizer_offload requires enabled, etc.)
-3. Integration with MainConfig
+3. M3 activation spill validation (mutual exclusion with activation_recompute)
+4. Integration with MainConfig
 """
+
+import warnings
 
 import pytest
 
@@ -25,7 +28,6 @@ class TestOffloadConfigDefaults:
         assert config.optimizer_offload is False
         assert config.weight_offload is False
         assert config.activation_spill is False
-        assert config.activation_prefetch is False
 
     def test_default_precision(self):
         config = OffloadConfig()
@@ -38,6 +40,10 @@ class TestOffloadConfigDefaults:
     def test_default_pinned_pool_size(self):
         config = OffloadConfig()
         assert config.pinned_memory_pool_gb == 100.0
+
+    def test_default_spill_granularity(self):
+        config = OffloadConfig()
+        assert config.activation_spill_granularity == "sub_layer"
 
 
 class TestOffloadConfigValidation:
@@ -76,15 +82,43 @@ class TestOffloadConfigValidation:
             # Should not raise
             _config_validation(config)
 
-    def test_activation_prefetch_requires_spill(self):
-        """activation_prefetch=True without activation_spill should raise."""
+    def test_activation_spill_requires_enabled(self):
+        """activation_spill=True without enabled=True should raise."""
         from ironcore.config import _config_validation
 
         config = _make_minimal_main_config()
-        config.offload.activation_prefetch = True
-        # activation_spill defaults to False
-        with pytest.raises(ValueError, match="requires offload.activation_spill"):
+        config.offload.activation_spill = True
+        # enabled defaults to False
+        with pytest.raises(ValueError, match="requires offload.enabled"):
             _config_validation(config)
+
+    def test_invalid_spill_granularity_raises(self):
+        """Invalid activation_spill_granularity should raise."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.activation_spill = True
+        config.offload.activation_spill_granularity = "per_token"
+        with pytest.raises(ValueError, match="must be 'sub_layer' or 'full_layer'"):
+            _config_validation(config)
+
+    def test_activation_spill_disables_recompute(self):
+        """activation_spill=true auto-disables activation_recompute with warning."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.activation_spill = True
+        config.operation.activation_recompute = True
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            _config_validation(config)
+
+        assert config.operation.activation_recompute is False
+        assert len(w) == 1
+        assert "Disabling activation_recompute" in str(w[0].message)
 
     def test_all_enabled_valid(self):
         """Enabling everything validly should not raise."""
@@ -94,7 +128,6 @@ class TestOffloadConfigValidation:
         config.offload.enabled = True
         config.offload.optimizer_offload = True
         config.offload.activation_spill = True
-        config.offload.activation_prefetch = True
         # Should not raise
         _config_validation(config)
 

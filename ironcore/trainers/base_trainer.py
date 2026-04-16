@@ -170,7 +170,11 @@ class BaseTrainer(ABC):
 
         # Initialize weight streaming scheduler (M2) if enabled
         self._offload_scheduler = None
-        if self.config.offload.enabled and self.config.offload.weight_offload:
+        offload_needs_scheduler = (
+            self.config.offload.enabled
+            and (self.config.offload.weight_offload or self.config.offload.activation_spill)
+        )
+        if offload_needs_scheduler:
             from ironcore.offload.scheduler import ExecutionScheduler
 
             # Unwrap torch.compile to get the underlying TransformerModel
@@ -187,8 +191,24 @@ class BaseTrainer(ABC):
                 # Attach scheduler to model so forward pass can call per-layer hooks
                 inner_model._offload_scheduler = self._offload_scheduler
                 self.logger.info(f"Weight streaming scheduler attached: {self._offload_scheduler}")
+            elif (
+                self._offload_scheduler is not None
+                and self._offload_scheduler.spill_manager is not None
+            ):
+                # Scheduler created for activation spilling only (no weight streaming)
+                inner_model = self.model
+                if hasattr(inner_model, "_orig_mod"):
+                    inner_model = inner_model._orig_mod
+                inner_model._offload_scheduler = self._offload_scheduler
+                self.logger.info(f"Activation spill scheduler attached: {self._offload_scheduler}")
             else:
                 self._offload_scheduler = None
+
+            # Set gradient accumulation steps for activation spill manager
+            if self._offload_scheduler is not None:
+                self._offload_scheduler.set_gradient_accumulation_steps(
+                    self.config.trainer.gradient_accumulation_steps
+                )
 
         self._initialized = True
         self.logger.info("Resources acquired successfully.")
@@ -511,6 +531,10 @@ class BaseTrainer(ABC):
         for i in range(self.config.trainer.gradient_accumulation_steps):
             is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
 
+            # M3: Notify spill manager of micro-batch forward start
+            if self._offload_scheduler is not None:
+                self._offload_scheduler.on_microbatch_forward_start(i)
+
             # Disable gradient sync for intermediate accumulation steps (DDP/FSDP)
             backward_sync_ctx = (
                 self.model.no_sync
@@ -530,8 +554,20 @@ class BaseTrainer(ABC):
                         for k, v in metrics.items():
                             total_metrics[k] = total_metrics.get(k, 0.0) + v
 
+                # M3: Notify spill manager that forward is done for this micro-batch
+                if self._offload_scheduler is not None:
+                    self._offload_scheduler.on_microbatch_forward_end()
+
+                # M3: Notify spill manager of micro-batch backward start
+                if self._offload_scheduler is not None:
+                    self._offload_scheduler.on_microbatch_backward_start(i)
+
                 # Backward pass with gradient scaling
                 self.scaler.scale(scaled_loss).backward()
+
+                # M3: Notify spill manager that backward is done for this micro-batch
+                if self._offload_scheduler is not None:
+                    self._offload_scheduler.on_microbatch_backward_end()
 
         # Weight streaming: zero GPU staging buffers after all micro-batches' backward passes.
         # Actual param.data stays on GPU until next step's on_layer_start overwrites it.
