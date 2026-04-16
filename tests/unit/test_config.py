@@ -6,9 +6,9 @@
 import dataclasses
 from pathlib import Path
 
+from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_model import ModelConfig
 from ironcore.config.config_trainer import TrainerConfig
-from ironcore.config.config_alignment import AlignmentConfig
 
 
 class TestXPosRemoved:

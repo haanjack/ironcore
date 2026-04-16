@@ -9,8 +9,8 @@ loss_mask from labels: 0 where labels == -100 (prompt), 1 otherwise.
 """
 
 import torch
-
 from tests.fixtures.config_fixtures import create_small_test_config
+
 from ironcore import global_vars
 from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
