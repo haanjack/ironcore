@@ -273,7 +273,6 @@ class GRPOTrainer(BaseTrainer):
         # Move reference model back to CPU if offloading is enabled
         if ref_on_cpu:
             self.reference_model = self.reference_model.to("cpu")
-            torch.cuda.empty_cache()
 
         return res.to(device) if offload_to_cpu else res
 

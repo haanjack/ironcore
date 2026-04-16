@@ -299,7 +299,7 @@ def _estimate_params_from_config(model_config: dict) -> int:
     heads = model_config.get("num_attention_heads", 0)
     head_dim = model_config.get("head_dim", 64)
     groups = model_config.get("num_attention_groups", heads)
-    vocab_size = 50257  # GPT-2 default
+    vocab_size = model_config.get("vocab_size", 50257)
 
     embed = vocab_size * d_model
     attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model

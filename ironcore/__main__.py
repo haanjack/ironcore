@@ -268,7 +268,7 @@ def main():
     )
     analyze_scaling_parser.add_argument(
         "--fit-law",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Fit Chinchilla-style scaling law (requires scipy)",
     )

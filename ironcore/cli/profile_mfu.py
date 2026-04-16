@@ -146,7 +146,7 @@ def run_profile_mfu(args: Namespace) -> None:
     dp_world_size = max(1, num_gpus // tp_size) if tp_size > 0 else 1
     flops = 6 * num_params * tokens_per_step
     achieved_tflops = flops / (avg_step_time * 1e12)
-    achieved_tflops_per_gpu = achieved_tflops / max(1, dp_world_size)
+    achieved_tflops_per_gpu = achieved_tflops / max(1, num_gpus)
     mfu_percent = (achieved_tflops_per_gpu / args.hardware_peak) * 100
     throughput = tokens_per_step / avg_step_time
 

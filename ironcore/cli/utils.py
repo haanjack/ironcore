@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared CLI utilities for experiment tools."""
 
+import copy
 import re
 import subprocess
 import sys
@@ -113,7 +114,7 @@ def deep_merge(base: dict, override: dict) -> dict:
     Returns:
         New merged dictionary (does not mutate inputs).
     """
-    result = base.copy()
+    result = copy.deepcopy(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = deep_merge(result[key], value)
