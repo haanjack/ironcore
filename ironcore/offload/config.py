@@ -27,11 +27,13 @@ class OffloadConfig(BaseConfig):
         enabled, optimizer_offload, optimizer_state_precision,
         optimizer_min_param_elements
 
-    M2+ fields (declared but not wired until those milestones):
+    M2 fields (active):
         weight_offload, weight_prefetch_layers,
-        activation_spill, activation_spill_granularity,
-        activation_prefetch,
         pinned_memory_pool_gb, pinned_chunk_gb
+
+    M3+ fields (declared but not wired until those milestones):
+        activation_spill, activation_spill_granularity,
+        activation_prefetch
     """
 
     # Master switch. All offload features are gated on this.
@@ -42,7 +44,7 @@ class OffloadConfig(BaseConfig):
     optimizer_state_precision: str = "fp32"  # fp32 only for M1
     optimizer_min_param_elements: int = 65536  # skip offload for tiny params
 
-    # M2: Weight streaming (not yet wired)
+    # M2: Weight streaming
     weight_offload: bool = False
     weight_prefetch_layers: int = 2
 
@@ -53,6 +55,6 @@ class OffloadConfig(BaseConfig):
     # M4: Backward activation prefetching (not yet wired)
     activation_prefetch: bool = False
 
-    # Shared pinned memory pool (built at M2, not yet wired)
+    # Shared pinned memory pool (built at M2)
     pinned_memory_pool_gb: float = 100.0
     pinned_chunk_gb: float = 4.0

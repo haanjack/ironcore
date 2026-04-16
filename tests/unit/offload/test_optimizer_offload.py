@@ -191,8 +191,15 @@ class TestAdamWOffloadedStepHelper:
         state = {}
 
         _adamw_offloaded_step(
-            p, p.grad, state, lr=1e-3, beta1=0.9, beta2=0.999,
-            eps=1e-8, weight_decay=0.01, amsgrad=False,
+            p,
+            p.grad,
+            state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.01,
+            amsgrad=False,
             state_dtype=torch.float32,
         )
 
@@ -208,8 +215,15 @@ class TestAdamWOffloadedStepHelper:
         state = {}
 
         _adamw_offloaded_step(
-            p, p.grad, state, lr=1e-3, beta1=0.9, beta2=0.999,
-            eps=1e-8, weight_decay=0.01, amsgrad=True,
+            p,
+            p.grad,
+            state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.01,
+            amsgrad=True,
             state_dtype=torch.float32,
         )
 
@@ -223,8 +237,15 @@ class TestAdamWOffloadedStepHelper:
         original = p.data.clone()
 
         _adamw_offloaded_step(
-            p, p.grad, state, lr=1e-2, beta1=0.9, beta2=0.999,
-            eps=1e-8, weight_decay=0.0, amsgrad=False,
+            p,
+            p.grad,
+            state,
+            lr=1e-2,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.0,
+            amsgrad=False,
             state_dtype=torch.float32,
         )
 
@@ -238,8 +259,15 @@ class TestAdamWOffloadedStepHelper:
         state = {}
 
         _adamw_offloaded_step(
-            p, p.grad, state, lr=1e-2, beta1=0.9, beta2=0.999,
-            eps=1e-8, weight_decay=0.1, amsgrad=False,
+            p,
+            p.grad,
+            state,
+            lr=1e-2,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.1,
+            amsgrad=False,
             state_dtype=torch.float32,
         )
 
@@ -298,7 +326,9 @@ class TestMuonOffloaded:
 
     def test_muon_offload_disabled(self):
         """With offload disabled, all states stay on param device."""
-        optimizer, attn_weight, embedding, bias, device = self._make_muon_optimizer(offload_enabled=False)
+        optimizer, attn_weight, embedding, bias, device = self._make_muon_optimizer(
+            offload_enabled=False
+        )
         optimizer.step()
 
         for p in [attn_weight, embedding, bias]:
@@ -338,12 +368,16 @@ class TestMuonOffloaded:
             opt_ref = MuonOptimizer(
                 muon_params=[{"params": [attn_ref]}],
                 adamw_params=[{"params": [emb_ref, bias_ref]}],
-                lr=0.02, momentum=0.95, offload_enabled=False,
+                lr=0.02,
+                momentum=0.95,
+                offload_enabled=False,
             )
             opt_off = MuonOptimizer(
                 muon_params=[{"params": [attn_off]}],
                 adamw_params=[{"params": [emb_off, bias_off]}],
-                lr=0.02, momentum=0.95, offload_enabled=True,
+                lr=0.02,
+                momentum=0.95,
+                offload_enabled=True,
             )
 
             opt_ref.step()

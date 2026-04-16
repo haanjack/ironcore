@@ -168,6 +168,28 @@ class BaseTrainer(ABC):
 
         self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(self.config) == torch.float16))
 
+        # Initialize weight streaming scheduler (M2) if enabled
+        self._offload_scheduler = None
+        if self.config.offload.enabled and self.config.offload.weight_offload:
+            from ironcore.offload.scheduler import ExecutionScheduler
+
+            # Unwrap torch.compile to get the underlying TransformerModel
+            inner_model = self.model
+            if hasattr(inner_model, "_orig_mod"):
+                inner_model = inner_model._orig_mod
+
+            self._offload_scheduler = ExecutionScheduler.from_model(
+                model=inner_model,
+                config=self.config.offload,
+                device=torch.device(get_device()),
+            )
+            if self._offload_scheduler is not None and self._offload_scheduler.is_active:
+                # Attach scheduler to model so forward pass can call per-layer hooks
+                inner_model._offload_scheduler = self._offload_scheduler
+                self.logger.info(f"Weight streaming scheduler attached: {self._offload_scheduler}")
+            else:
+                self._offload_scheduler = None
+
         self._initialized = True
         self.logger.info("Resources acquired successfully.")
 
@@ -181,6 +203,11 @@ class BaseTrainer(ABC):
 
     def _finalize_process(self):
         """Cleanup resources."""
+        # Shutdown weight streaming scheduler (releases GPU staging buffers)
+        if hasattr(self, "_offload_scheduler") and self._offload_scheduler is not None:
+            self._offload_scheduler.shutdown()
+            self._offload_scheduler = None
+
         # Close loggers before exiting
         global_states_cleanup()
 
@@ -477,6 +504,10 @@ class BaseTrainer(ABC):
         total_loss = 0.0
         total_metrics: dict[str, float] = {}
 
+        # Weight streaming: prefetch first layers before forward pass
+        if self._offload_scheduler is not None:
+            self._offload_scheduler.on_training_step_start()
+
         for i in range(self.config.trainer.gradient_accumulation_steps):
             is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
 
@@ -501,6 +532,11 @@ class BaseTrainer(ABC):
 
                 # Backward pass with gradient scaling
                 self.scaler.scale(scaled_loss).backward()
+
+        # Weight streaming: zero GPU staging buffers after all micro-batches' backward passes.
+        # Actual param.data stays on GPU until next step's on_layer_start overwrites it.
+        if self._offload_scheduler is not None:
+            self._offload_scheduler.on_backward_pass_end()
 
         return total_loss, total_metrics
 
@@ -665,6 +701,10 @@ class BaseTrainer(ABC):
         self.scaler.update()
         self.optimizer.zero_grad()
         self.lr_scheduler.step()
+
+        # Weight streaming: synchronize all transfers, prepare for next step
+        if self._offload_scheduler is not None:
+            self._offload_scheduler.on_training_step_end()
 
     def _check_loss_for_nan(self, loss: float, step: int) -> None:
         """Check if loss is NaN or Inf and raise error if so.

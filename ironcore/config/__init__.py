@@ -172,9 +172,7 @@ def _config_validation(config: MainConfig):
 
     # Offload validation
     if config.offload.optimizer_offload and not config.offload.enabled:
-        raise ValueError(
-            "offload.optimizer_offload requires offload.enabled to be true"
-        )
+        raise ValueError("offload.optimizer_offload requires offload.enabled to be true")
     if config.offload.optimizer_state_precision not in ("fp32", "fp16", "bf16"):
         raise ValueError(
             f"offload.optimizer_state_precision must be fp32, fp16, or bf16, "
@@ -183,6 +181,17 @@ def _config_validation(config: MainConfig):
     if config.offload.activation_prefetch and not config.offload.activation_spill:
         raise ValueError(
             "offload.activation_prefetch requires offload.activation_spill to be enabled"
+        )
+    if config.offload.weight_offload and not config.offload.enabled:
+        raise ValueError("offload.weight_offload requires offload.enabled to be true")
+    if config.offload.weight_offload and config.parallel.use_fsdp:
+        raise ValueError(
+            "offload.weight_offload is incompatible with FSDP. "
+            "FSDP manages its own parameter sharding/unsharding."
+        )
+    if config.offload.weight_prefetch_layers < 1:
+        raise ValueError(
+            f"offload.weight_prefetch_layers must be >= 1, got {config.offload.weight_prefetch_layers}"
         )
 
 
