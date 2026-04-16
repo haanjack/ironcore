@@ -24,11 +24,11 @@ def _make_model():
     if global_vars.GLOBAL_STATES is None:
         global_vars.set_global_states(config)
 
-    # Single GPU mode
-    parallel_states._TENSOR_MODEL_PARALLEL_WORLD_SIZE = 1
-    parallel_states._DATA_PARALLEL_WORLD_SIZE = 1
-    parallel_states._TENSOR_MODEL_PARALLEL_GROUP = None
-    parallel_states._DATA_PARALLEL_GROUP = None
+    # Single GPU mode: ensure parallel state is initialized for TP=1
+    if parallel_states._TENSOR_MODEL_PARALLEL_GROUP is None:
+        parallel_states.initialize_model_parallel(
+            tensor_model_parallel_size=1, timeout_in_minutes=10.0
+        )
 
     model = LanguageModel(config)
     model.eval()
