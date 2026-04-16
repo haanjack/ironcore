@@ -9,7 +9,6 @@ from pathlib import Path
 
 from .utils import deep_merge, load_yaml_config, write_temp_config
 
-
 PROFILE_PRESETS = {
     "quick": {
         "layer_timing": True,

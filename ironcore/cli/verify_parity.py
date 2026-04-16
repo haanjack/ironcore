@@ -46,85 +46,101 @@ def run_verify_parity(args: Namespace) -> None:
     if args.mode == "tp":
         tp_sizes = [int(s.strip()) for s in args.tp_sizes.split(",")]
         for tp in tp_sizes:
-            variants.append({
-                "label": f"TP={tp}",
-                "overrides": {
-                    "trainer": {"tensor_model_parallel_size": tp, "log_interval": 1},
-                    "operation": {"train_steps": args.num_steps, "no_save": True},
-                    "init": {"seed": args.seed},
-                    "profiler": {
-                        "gpu_profiler": False, "torch_profiler": False,
-                        "comm_profiler": False, "layer_timing": False,
+            variants.append(
+                {
+                    "label": f"TP={tp}",
+                    "overrides": {
+                        "trainer": {"tensor_model_parallel_size": tp, "log_interval": 1},
+                        "operation": {"train_steps": args.num_steps, "no_save": True},
+                        "init": {"seed": args.seed},
+                        "profiler": {
+                            "gpu_profiler": False,
+                            "torch_profiler": False,
+                            "comm_profiler": False,
+                            "layer_timing": False,
+                        },
                     },
-                },
-                "num_gpus": max(1, tp),
-            })
+                    "num_gpus": max(1, tp),
+                }
+            )
     elif args.mode == "dp":
-        variants.extend([
-            {
-                "label": f"TP={base_tp}, DP=1",
-                "overrides": {
-                    "trainer": {"log_interval": 1},
-                    "operation": {"train_steps": args.num_steps, "no_save": True},
-                    "init": {"seed": args.seed},
-                    "profiler": {
-                        "gpu_profiler": False, "torch_profiler": False,
-                        "comm_profiler": False, "layer_timing": False,
+        variants.extend(
+            [
+                {
+                    "label": f"TP={base_tp}, DP=1",
+                    "overrides": {
+                        "trainer": {"log_interval": 1},
+                        "operation": {"train_steps": args.num_steps, "no_save": True},
+                        "init": {"seed": args.seed},
+                        "profiler": {
+                            "gpu_profiler": False,
+                            "torch_profiler": False,
+                            "comm_profiler": False,
+                            "layer_timing": False,
+                        },
                     },
+                    "num_gpus": base_tp,
                 },
-                "num_gpus": base_tp,
-            },
-            {
-                "label": f"TP={base_tp}, DP=2",
-                "overrides": {
-                    "trainer": {"log_interval": 1},
-                    "operation": {"train_steps": args.num_steps, "no_save": True},
-                    "init": {"seed": args.seed},
-                    "profiler": {
-                        "gpu_profiler": False, "torch_profiler": False,
-                        "comm_profiler": False, "layer_timing": False,
+                {
+                    "label": f"TP={base_tp}, DP=2",
+                    "overrides": {
+                        "trainer": {"log_interval": 1},
+                        "operation": {"train_steps": args.num_steps, "no_save": True},
+                        "init": {"seed": args.seed},
+                        "profiler": {
+                            "gpu_profiler": False,
+                            "torch_profiler": False,
+                            "comm_profiler": False,
+                            "layer_timing": False,
+                        },
                     },
+                    "num_gpus": base_tp * 2,
                 },
-                "num_gpus": base_tp * 2,
-            },
-        ])
+            ]
+        )
     elif args.mode == "fsdp":
-        variants.extend([
-            {
-                "label": "FSDP=off",
-                "overrides": {
-                    "trainer": {"log_interval": 1},
-                    "parallel": {"use_fsdp": False},
-                    "operation": {"train_steps": args.num_steps, "no_save": True},
-                    "init": {"seed": args.seed},
-                    "profiler": {
-                        "gpu_profiler": False, "torch_profiler": False,
-                        "comm_profiler": False, "layer_timing": False,
+        variants.extend(
+            [
+                {
+                    "label": "FSDP=off",
+                    "overrides": {
+                        "trainer": {"log_interval": 1},
+                        "parallel": {"use_fsdp": False},
+                        "operation": {"train_steps": args.num_steps, "no_save": True},
+                        "init": {"seed": args.seed},
+                        "profiler": {
+                            "gpu_profiler": False,
+                            "torch_profiler": False,
+                            "comm_profiler": False,
+                            "layer_timing": False,
+                        },
                     },
+                    "num_gpus": base_tp,
                 },
-                "num_gpus": base_tp,
-            },
-            {
-                "label": "FSDP=on",
-                "overrides": {
-                    "trainer": {"log_interval": 1},
-                    "parallel": {"use_fsdp": True},
-                    "operation": {"train_steps": args.num_steps, "no_save": True},
-                    "init": {"seed": args.seed},
-                    "profiler": {
-                        "gpu_profiler": False, "torch_profiler": False,
-                        "comm_profiler": False, "layer_timing": False,
+                {
+                    "label": "FSDP=on",
+                    "overrides": {
+                        "trainer": {"log_interval": 1},
+                        "parallel": {"use_fsdp": True},
+                        "operation": {"train_steps": args.num_steps, "no_save": True},
+                        "init": {"seed": args.seed},
+                        "profiler": {
+                            "gpu_profiler": False,
+                            "torch_profiler": False,
+                            "comm_profiler": False,
+                            "layer_timing": False,
+                        },
                     },
+                    "num_gpus": base_tp,
                 },
-                "num_gpus": base_tp,
-            },
-        ])
+            ]
+        )
 
     if len(variants) < 2:
         print("Error: Need at least 2 variants to compare.")
         sys.exit(1)
 
-    print(f"Parallelism Parity Verification")
+    print("Parallelism Parity Verification")
     print(f"  Mode: {args.mode}")
     print(f"  Config: {config_path}")
     print(f"  Steps: {args.num_steps}")
@@ -162,37 +178,43 @@ def run_verify_parity(args: Namespace) -> None:
                     if proc.stderr:
                         for line in proc.stderr.strip().split("\n")[-10:]:
                             print(f"    {line}")
-                    results.append({
-                        "label": label,
-                        "status": "FAILED",
-                        "losses": [],
-                        "num_gpus": num_gpus,
-                    })
+                    results.append(
+                        {
+                            "label": label,
+                            "status": "FAILED",
+                            "losses": [],
+                            "num_gpus": num_gpus,
+                        }
+                    )
                     continue
 
                 losses = parse_losses_from_stdout(proc.stderr or proc.stdout)
-                results.append({
-                    "label": label,
-                    "status": "OK",
-                    "losses": losses,
-                    "final_loss": losses[-1] if losses else None,
-                    "num_losses": len(losses),
-                    "num_gpus": num_gpus,
-                })
+                results.append(
+                    {
+                        "label": label,
+                        "status": "OK",
+                        "losses": losses,
+                        "final_loss": losses[-1] if losses else None,
+                        "num_losses": len(losses),
+                        "num_gpus": num_gpus,
+                    }
+                )
                 if losses:
                     print(f"  Final loss: {losses[-1]:.6f} ({len(losses)} steps)")
                 else:
-                    print(f"  WARNING: No losses found in output")
+                    print("  WARNING: No losses found in output")
 
             except Exception as e:
                 print(f"  ERROR: {e}")
-                results.append({
-                    "label": label,
-                    "status": "ERROR",
-                    "error": str(e),
-                    "losses": [],
-                    "num_gpus": num_gpus,
-                })
+                results.append(
+                    {
+                        "label": label,
+                        "status": "ERROR",
+                        "error": str(e),
+                        "losses": [],
+                        "num_gpus": num_gpus,
+                    }
+                )
 
         print()
 
@@ -200,7 +222,9 @@ def run_verify_parity(args: Namespace) -> None:
         successful = [r for r in results if r["status"] == "OK" and r["losses"]]
         if len(successful) < 2:
             print("Not enough successful runs to compare.")
-            print_results_table(results, ["label", "status", "num_losses", "num_gpus"], "Results Summary")
+            print_results_table(
+                results, ["label", "status", "num_losses", "num_gpus"], "Results Summary"
+            )
             sys.exit(1)
 
         # Pairwise comparison between first successful run and all others
@@ -222,18 +246,21 @@ def run_verify_parity(args: Namespace) -> None:
             if not passed:
                 all_pass = False
 
-            comparison_rows.append({
-                "variant_a": ref["label"],
-                "variant_b": run["label"],
-                "max_diff": f"{max_diff:.2e}",
-                "tolerance": f"{args.tolerance:.2e}",
-                "steps_compared": min_len,
-                "status": "PASS" if passed else "FAIL",
-            })
+            comparison_rows.append(
+                {
+                    "variant_a": ref["label"],
+                    "variant_b": run["label"],
+                    "max_diff": f"{max_diff:.2e}",
+                    "tolerance": f"{args.tolerance:.2e}",
+                    "steps_compared": min_len,
+                    "status": "PASS" if passed else "FAIL",
+                }
+            )
 
         # Print results
         print_results_table(
-            results, ["label", "status", "final_loss", "num_losses", "num_gpus"],
+            results,
+            ["label", "status", "final_loss", "num_losses", "num_gpus"],
             "Run Summary",
         )
         print()

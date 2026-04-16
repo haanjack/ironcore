@@ -97,7 +97,7 @@ def run_evaluate(args: Namespace) -> None:
         if result.returncode != 0:
             print("Evaluation failed!")
             if stderr:
-                print(f"STDERR (last 30 lines):")
+                print("STDERR (last 30 lines):")
                 for line in stderr.strip().split("\n")[-30:]:
                     print(f"  {line}")
             sys.exit(1)

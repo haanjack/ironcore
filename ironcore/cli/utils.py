@@ -14,7 +14,9 @@ from typing import Any
 import yaml
 
 
-def launch_training(config_path: str, num_gpus: int = 1, timeout: int = 3600) -> subprocess.CompletedProcess:
+def launch_training(
+    config_path: str, num_gpus: int = 1, timeout: int = 3600
+) -> subprocess.CompletedProcess:
     """Launch a training run as a subprocess.
 
     Args:
@@ -26,17 +28,22 @@ def launch_training(config_path: str, num_gpus: int = 1, timeout: int = 3600) ->
         CompletedProcess with stdout/stderr captured.
     """
     cmd = [
-        sys.executable, "-m", "torch.distributed.run",
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
         f"--nproc_per_node={num_gpus}",
-        "-m", "ironcore",
+        "-m",
+        "ironcore",
         "train",
-        "--config", str(config_path),
+        "--config",
+        str(config_path),
     ]
     return subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
+        check=False,
     )
 
 
@@ -206,9 +213,7 @@ def print_results_table(results: list[dict], columns: list[str], title: str = ""
     print(sep)
 
     for row in results:
-        line = " | ".join(
-            str(row.get(col, "")).ljust(col_widths[col]) for col in columns
-        )
+        line = " | ".join(str(row.get(col, "")).ljust(col_widths[col]) for col in columns)
         print(line)
 
 
@@ -242,6 +247,7 @@ def _get_git_hash() -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         return result.stdout.strip() if result.returncode == 0 else "unknown"
     except (FileNotFoundError, subprocess.TimeoutExpired):

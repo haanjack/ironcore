@@ -53,9 +53,7 @@ def run_analyze_scaling(args: Namespace) -> None:
                 print("  Example: --model-sizes gpt2-micro,gpt2-tiny,gpt2-small-test,gpt2-small")
                 sys.exit(1)
 
-            scale_points = _build_model_scale_points(
-                args.model_sizes, config, args.num_steps
-            )
+            scale_points = _build_model_scale_points(args.model_sizes, config, args.num_steps)
         elif args.scale_dimension == "batch":
             if not args.batch_sizes:
                 print("Error: --batch-sizes required for batch scaling")
@@ -71,7 +69,7 @@ def run_analyze_scaling(args: Namespace) -> None:
             print(f"Error: Unsupported scale dimension: {args.scale_dimension}")
             sys.exit(1)
 
-        print(f"Scaling Analysis")
+        print("Scaling Analysis")
         print(f"  Dimension: {args.scale_dimension}")
         print(f"  Config: {config_path}")
         print(f"  Steps per point: {args.num_steps}")
@@ -98,36 +96,42 @@ def run_analyze_scaling(args: Namespace) -> None:
 
                 if proc.returncode != 0:
                     print(f"  FAILED (exit code {proc.returncode})")
-                    results.append({
-                        "label": label,
-                        "scale_value": scale_value,
-                        "status": "FAILED",
-                        "final_loss": None,
-                    })
+                    results.append(
+                        {
+                            "label": label,
+                            "scale_value": scale_value,
+                            "status": "FAILED",
+                            "final_loss": None,
+                        }
+                    )
                     continue
 
                 losses = parse_losses_from_stdout(proc.stderr or proc.stdout)
                 final_loss = losses[-1] if losses else None
-                results.append({
-                    "label": label,
-                    "scale_value": scale_value,
-                    "status": "OK",
-                    "final_loss": final_loss,
-                    "num_steps": len(losses),
-                    "losses": losses,
-                })
+                results.append(
+                    {
+                        "label": label,
+                        "scale_value": scale_value,
+                        "status": "OK",
+                        "final_loss": final_loss,
+                        "num_steps": len(losses),
+                        "losses": losses,
+                    }
+                )
                 if final_loss is not None:
                     print(f"  Final loss: {final_loss:.6f}")
 
             except Exception as e:
                 print(f"  ERROR: {e}")
-                results.append({
-                    "label": label,
-                    "scale_value": scale_value,
-                    "status": "ERROR",
-                    "error": str(e),
-                    "final_loss": None,
-                })
+                results.append(
+                    {
+                        "label": label,
+                        "scale_value": scale_value,
+                        "status": "ERROR",
+                        "error": str(e),
+                        "final_loss": None,
+                    }
+                )
 
         print()
 
@@ -167,13 +171,17 @@ def run_analyze_scaling(args: Namespace) -> None:
 
         results_path = output_dir / "scaling_results.json"
         with open(results_path, "w") as f:
-            json.dump({
-                "dimension": args.scale_dimension,
-                "config": str(config_path),
-                "num_steps": args.num_steps,
-                "results": results,
-                "fit": fit_results,
-            }, f, indent=2)
+            json.dump(
+                {
+                    "dimension": args.scale_dimension,
+                    "config": str(config_path),
+                    "num_steps": args.num_steps,
+                    "results": results,
+                    "fit": fit_results,
+                },
+                f,
+                indent=2,
+            )
         print(f"Results saved to: {results_path}")
 
     finally:
@@ -183,9 +191,7 @@ def run_analyze_scaling(args: Namespace) -> None:
     print()
 
 
-def _build_model_scale_points(
-    model_names: str, config: dict, num_steps: int
-) -> list[dict]:
+def _build_model_scale_points(model_names: str, config: dict, num_steps: int) -> list[dict]:
     """Build scale points for model-size scaling.
 
     Args:
@@ -208,20 +214,24 @@ def _build_model_scale_points(
         model_config = load_yaml_config(model_config_path)
         params = _estimate_params_from_config(model_config)
 
-        points.append({
-            "label": name,
-            "scale_value": params,
-            "overrides": {
-                "model": name,
-                "trainer": {"log_interval": 1},
-                "operation": {"train_steps": num_steps, "no_save": True},
-                "profiler": {
-                    "gpu_profiler": False, "torch_profiler": False,
-                    "comm_profiler": False, "layer_timing": False,
+        points.append(
+            {
+                "label": name,
+                "scale_value": params,
+                "overrides": {
+                    "model": name,
+                    "trainer": {"log_interval": 1},
+                    "operation": {"train_steps": num_steps, "no_save": True},
+                    "profiler": {
+                        "gpu_profiler": False,
+                        "torch_profiler": False,
+                        "comm_profiler": False,
+                        "layer_timing": False,
+                    },
                 },
-            },
-            "num_gpus": 1,
-        })
+                "num_gpus": 1,
+            }
+        )
 
     return points
 
@@ -249,23 +259,27 @@ def _build_batch_scale_points(
         grad_accum = max(1, batch // (base_micro_batch * max(1, 1)))  # DP=1 assumed
         actual_batch = base_micro_batch * grad_accum
 
-        points.append({
-            "label": f"batch={actual_batch}",
-            "scale_value": actual_batch * seq_len,  # tokens per step
-            "overrides": {
-                "trainer": {
-                    "train_batch_size": actual_batch,
-                    "gradient_accumulation_steps": grad_accum,
-                    "log_interval": 1,
+        points.append(
+            {
+                "label": f"batch={actual_batch}",
+                "scale_value": actual_batch * seq_len,  # tokens per step
+                "overrides": {
+                    "trainer": {
+                        "train_batch_size": actual_batch,
+                        "gradient_accumulation_steps": grad_accum,
+                        "log_interval": 1,
+                    },
+                    "operation": {"train_steps": num_steps, "no_save": True},
+                    "profiler": {
+                        "gpu_profiler": False,
+                        "torch_profiler": False,
+                        "comm_profiler": False,
+                        "layer_timing": False,
+                    },
                 },
-                "operation": {"train_steps": num_steps, "no_save": True},
-                "profiler": {
-                    "gpu_profiler": False, "torch_profiler": False,
-                    "comm_profiler": False, "layer_timing": False,
-                },
-            },
-            "num_gpus": base_tp,
-        })
+                "num_gpus": base_tp,
+            }
+        )
 
     return points
 
@@ -341,9 +355,7 @@ def _fit_scaling_law(data: list[dict]) -> dict[str, Any]:
         return {}
 
 
-def _generate_scaling_plot(
-    data: list[dict], fit: dict, output_dir: str
-) -> None:
+def _generate_scaling_plot(data: list[dict], fit: dict, output_dir: str) -> None:
     """Generate a scaling law plot.
 
     Args:
@@ -353,6 +365,7 @@ def _generate_scaling_plot(
     """
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import numpy as np

@@ -219,9 +219,7 @@ def _fill_from_config(result: dict[str, Any], config: dict) -> None:
 
     data = config.get("data", {})
     if isinstance(data, dict):
-        result["dataset"] = data.get("train_datasets", [{}])[0].get(
-            "dataset_path", "unknown"
-        )
+        result["dataset"] = data.get("train_datasets", [{}])[0].get("dataset_path", "unknown")
 
 
 def _estimate_params(model_config: dict) -> str:
@@ -249,7 +247,9 @@ def _estimate_params(model_config: dict) -> str:
             vocab_size = 151936  # rough for Qwen
 
         embed = vocab_size * d_model
-        attn_per_layer = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
+        attn_per_layer = (
+            d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
+        )
         mlp_per_layer = 2 * d_model * d_ffn
         ln_per_layer = 4 * d_model
         total = embed + layers * (attn_per_layer + mlp_per_layer + ln_per_layer) + 2 * d_model
@@ -266,12 +266,14 @@ def _estimate_params(model_config: dict) -> str:
 
 def _get_python_version() -> str:
     import sys
+
     return f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
 
 def _get_torch_version() -> str:
     try:
         import torch
+
         return torch.__version__
     except ImportError:
         return "N/A"
@@ -280,6 +282,7 @@ def _get_torch_version() -> str:
 def _get_cuda_version() -> str:
     try:
         import torch
+
         return torch.version.cuda or "N/A"
     except (ImportError, AttributeError):
         return "N/A"

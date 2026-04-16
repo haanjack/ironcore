@@ -8,8 +8,8 @@ from pathlib import Path
 
 from .reports import (
     REPORT_TEMPLATE,
-    gather_experiment_metadata,
     format_report,
+    gather_experiment_metadata,
     write_report,
 )
 
@@ -56,12 +56,26 @@ def run_gen_report(args: Namespace) -> None:
         print(f"Category: {args.category}")
         print()
 
-        metadata["objective"] = input("Objective [press Enter to keep existing]: ").strip() or metadata["objective"]
-        metadata["analysis"] = input("Analysis [press Enter to keep existing]: ").strip() or metadata["analysis"]
-        metadata["conclusion"] = input("Conclusion [press Enter to keep existing]: ").strip() or metadata["conclusion"]
-        metadata["status"] = input("Status (PASS/FAIL/PARTIAL/PENDING) [press Enter to keep existing]: ").strip() or metadata["status"]
-        metadata["criteria"] = input("Pass/fail criteria [press Enter to keep existing]: ").strip() or metadata["criteria"]
-        metadata["next_steps"] = input("Next steps [press Enter to keep existing]: ").strip() or metadata["next_steps"]
+        metadata["objective"] = (
+            input("Objective [press Enter to keep existing]: ").strip() or metadata["objective"]
+        )
+        metadata["analysis"] = (
+            input("Analysis [press Enter to keep existing]: ").strip() or metadata["analysis"]
+        )
+        metadata["conclusion"] = (
+            input("Conclusion [press Enter to keep existing]: ").strip() or metadata["conclusion"]
+        )
+        metadata["status"] = (
+            input("Status (PASS/FAIL/PARTIAL/PENDING) [press Enter to keep existing]: ").strip()
+            or metadata["status"]
+        )
+        metadata["criteria"] = (
+            input("Pass/fail criteria [press Enter to keep existing]: ").strip()
+            or metadata["criteria"]
+        )
+        metadata["next_steps"] = (
+            input("Next steps [press Enter to keep existing]: ").strip() or metadata["next_steps"]
+        )
 
     # Fill report template
     report_content = format_report(REPORT_TEMPLATE, **metadata)

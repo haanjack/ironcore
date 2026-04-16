@@ -58,7 +58,7 @@ def run_verify_step(args: Namespace) -> None:
     tp_size = config.get("trainer", {}).get("tensor_model_parallel_size", 1)
     num_gpus = max(1, tp_size)
 
-    print(f"Running 1-step verification")
+    print("Running 1-step verification")
     print(f"  Config: {config_path}")
     print(f"  TP size: {tp_size}, GPUs: {num_gpus}")
     print()
@@ -76,7 +76,7 @@ def run_verify_step(args: Namespace) -> None:
         if result.returncode != 0:
             print("Training failed!")
             if stderr:
-                print(f"STDERR (last 50 lines):")
+                print("STDERR (last 50 lines):")
                 for line in stderr.strip().split("\n")[-50:]:
                     print(f"  {line}")
             sys.exit(1)

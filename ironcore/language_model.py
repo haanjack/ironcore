@@ -16,8 +16,8 @@ from ironcore.models import get_model_provider_func
 from ironcore.parallel import parallel_states
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
+    vocab_parallel_cross_entropy,
 )
-from ironcore.parallel.tensor_parallel import vocab_parallel_cross_entropy
 from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
 
 

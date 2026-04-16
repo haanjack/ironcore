@@ -97,7 +97,7 @@ def run_profile_mfu(args: Namespace) -> None:
     }
     patched = deep_merge(config, overrides)
 
-    print(f"MFU Profiling")
+    print("MFU Profiling")
     print(f"  Model: {model_name} (~{num_params:,} params)")
     print(f"  Batch: {global_batch}, Seq: {seq_len}")
     print(f"  Warmup: {args.warmup_steps} steps, Measure: {args.measure_steps} steps")
