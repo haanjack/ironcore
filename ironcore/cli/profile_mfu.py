@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .utils import (
     deep_merge,
+    estimate_params,
     launch_training,
     load_yaml_config,
     write_temp_config,
@@ -59,9 +60,10 @@ def run_profile_mfu(args: Namespace) -> None:
     heads = model_config.get("num_attention_heads", 0)
     head_dim = model_config.get("head_dim", 64)
     groups = model_config.get("num_attention_groups", heads)
+    vocab_size = model_config.get("vocab_size", 50257)
 
     # Estimate parameter count
-    num_params = _estimate_params(d_model, d_ffn, layers, heads, head_dim, groups)
+    num_params = estimate_params(d_model, d_ffn, layers, heads, head_dim, groups, vocab_size)
 
     # Extract batch/seq info
     trainer_config = config.get("trainer", {})
@@ -214,30 +216,3 @@ def run_profile_mfu(args: Namespace) -> None:
     print()
 
 
-def _estimate_params(
-    d_model: int,
-    d_ffn: int,
-    layers: int,
-    heads: int,
-    head_dim: int,
-    groups: int,
-) -> int:
-    """Rough parameter count from model dimensions.
-
-    Args:
-        d_model: Model dimension.
-        d_ffn: FFN dimension.
-        layers: Number of layers.
-        heads: Number of attention heads.
-        head_dim: Head dimension.
-        groups: Number of KV groups (GQA).
-
-    Returns:
-        Estimated parameter count.
-    """
-    vocab_size = 50257  # GPT-2 default
-    embed = vocab_size * d_model
-    attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
-    mlp = 2 * d_model * d_ffn
-    ln = 4 * d_model
-    return embed + layers * (attn + mlp + ln) + 2 * d_model

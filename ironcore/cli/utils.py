@@ -39,12 +39,23 @@ def launch_training(
         "--config",
         str(config_path),
     ]
-    return subprocess.run(
+    proc = subprocess.Popen(
         cmd,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
-        timeout=timeout,
-        check=False,
+    )
+    output_lines = []
+    assert proc.stdout is not None  # guaranteed by stdout=PIPE
+    for line in proc.stdout:
+        print(line, end="")
+        output_lines.append(line)
+    proc.wait(timeout=timeout)
+    return subprocess.CompletedProcess(
+        args=cmd,
+        returncode=proc.returncode,
+        stdout="".join(output_lines),
+        stderr="",
     )
 
 
@@ -60,7 +71,7 @@ def parse_losses_from_stdout(stdout: str) -> list[float]:
     Returns:
         List of loss values in order of occurrence.
     """
-    pattern = r"loss:\s*([\d.]+)"
+    pattern = r"\bloss:\s*([\d.]+)"
     matches = re.findall(pattern, stdout)
     return [float(m) for m in matches]
 
@@ -294,3 +305,33 @@ def _extract_config_metadata(config: dict) -> dict[str, Any]:
             "train_steps": operation.get("train_steps", "?"),
         },
     }
+
+
+def estimate_params(
+    d_model: int,
+    d_ffn: int,
+    layers: int,
+    heads: int,
+    head_dim: int,
+    groups: int,
+    vocab_size: int = 50257,
+) -> int:
+    """Estimate parameter count from model dimensions.
+
+    Args:
+        d_model: Model hidden dimension.
+        d_ffn: FFN intermediate dimension.
+        layers: Number of transformer layers.
+        heads: Number of attention heads.
+        head_dim: Dimension per attention head.
+        groups: Number of KV groups (GQA).
+        vocab_size: Vocabulary size.
+
+    Returns:
+        Estimated parameter count.
+    """
+    embed = vocab_size * d_model
+    attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
+    mlp = 2 * d_model * d_ffn
+    ln = 4 * d_model
+    return embed + layers * (attn + mlp + ln) + 2 * d_model

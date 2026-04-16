@@ -11,6 +11,7 @@ from typing import Any
 
 from .utils import (
     deep_merge,
+    estimate_params,
     launch_training,
     load_yaml_config,
     parse_losses_from_stdout,
@@ -256,7 +257,7 @@ def _build_batch_scale_points(
     points = []
     for batch in batch_sizes:
         # Ensure gradient accumulation is consistent
-        grad_accum = max(1, batch // (base_micro_batch * max(1, 1)))  # DP=1 assumed
+        grad_accum = max(1, batch // base_micro_batch)  # DP=1 assumed
         actual_batch = base_micro_batch * grad_accum
 
         points.append(
@@ -285,27 +286,16 @@ def _build_batch_scale_points(
 
 
 def _estimate_params_from_config(model_config: dict) -> int:
-    """Estimate parameter count from model config dict.
-
-    Args:
-        model_config: Model config as a dict.
-
-    Returns:
-        Estimated parameter count.
-    """
-    layers = model_config.get("num_layers", 0)
-    d_model = model_config.get("d_model", 0)
-    d_ffn = model_config.get("d_ffn", 0)
-    heads = model_config.get("num_attention_heads", 0)
-    head_dim = model_config.get("head_dim", 64)
-    groups = model_config.get("num_attention_groups", heads)
-    vocab_size = model_config.get("vocab_size", 50257)
-
-    embed = vocab_size * d_model
-    attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
-    mlp = 2 * d_model * d_ffn
-    ln = 4 * d_model
-    return embed + layers * (attn + mlp + ln) + 2 * d_model
+    """Estimate parameter count from model config dict."""
+    return estimate_params(
+        d_model=model_config.get("d_model", 0),
+        d_ffn=model_config.get("d_ffn", 0),
+        layers=model_config.get("num_layers", 0),
+        heads=model_config.get("num_attention_heads", 0),
+        head_dim=model_config.get("head_dim", 64),
+        groups=model_config.get("num_attention_groups", model_config.get("num_attention_heads", 0)),
+        vocab_size=model_config.get("vocab_size", 50257),
+    )
 
 
 def _fit_scaling_law(data: list[dict]) -> dict[str, Any]:

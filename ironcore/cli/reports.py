@@ -6,7 +6,7 @@
 from pathlib import Path
 from typing import Any
 
-from .utils import gather_metadata, load_yaml_config
+from .utils import estimate_params, gather_metadata, load_yaml_config
 
 REPORT_TEMPLATE = """\
 # Experiment: {name}
@@ -232,27 +232,16 @@ def _estimate_params(model_config: dict) -> str:
         Human-readable parameter count string.
     """
     try:
-        layers = model_config.get("num_layers", 0)
-        d_model = model_config.get("d_model", 0)
-        d_ffn = model_config.get("d_ffn", 0)
         heads = model_config.get("num_attention_heads", 0)
-        head_dim = model_config.get("head_dim", 64)
-        groups = model_config.get("num_attention_groups", heads)
-
-        # Rough estimate
-        vocab_size = model_config.get("vocab_name_or_path", "gpt2")
-        if vocab_size == "gpt2":
-            vocab_size = 50257
-        else:
-            vocab_size = 151936  # rough for Qwen
-
-        embed = vocab_size * d_model
-        attn_per_layer = (
-            d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
+        total = estimate_params(
+            d_model=model_config.get("d_model", 0),
+            d_ffn=model_config.get("d_ffn", 0),
+            layers=model_config.get("num_layers", 0),
+            heads=heads,
+            head_dim=model_config.get("head_dim", 64),
+            groups=model_config.get("num_attention_groups", heads),
+            vocab_size=model_config.get("vocab_size", 50257),
         )
-        mlp_per_layer = 2 * d_model * d_ffn
-        ln_per_layer = 4 * d_model
-        total = embed + layers * (attn_per_layer + mlp_per_layer + ln_per_layer) + 2 * d_model
 
         if total >= 1e9:
             return f"{total / 1e9:.1f}B"
