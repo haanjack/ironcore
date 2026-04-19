@@ -214,6 +214,18 @@ class TestTileManager:
         with pytest.raises(ValueError, match="Invalid precision"):
             TileManager(pool=pool, device=torch.device("cpu"), precision="fp8")
 
+    def test_from_config_uses_weight_storage_precision(self):
+        config = OffloadConfig(weight_storage_precision="bf16")
+        pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
+        tm = TileManager.from_config(config, pool, torch.device("cpu"))
+        assert tm._storage_dtype == torch.bfloat16
+
+    def test_from_config_defaults_to_fp32(self):
+        config = OffloadConfig()
+        pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
+        tm = TileManager.from_config(config, pool, torch.device("cpu"))
+        assert tm._storage_dtype == torch.float32
+
 
 # ---------------------------------------------------------------------------
 # ExecutionScheduler

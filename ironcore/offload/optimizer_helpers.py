@@ -75,30 +75,34 @@ def _adamw_offloaded_step(
     gpu_device = p.data.device
     exp_avg = state["exp_avg"].to(gpu_device, non_blocking=False)
     exp_avg_sq = state["exp_avg_sq"].to(gpu_device, non_blocking=False)
+    max_exp_avg_sq = None
     if amsgrad:
         max_exp_avg_sq = state["max_exp_avg_sq"].to(gpu_device, non_blocking=False)
 
-    # Standard AdamW math (same as in-VRAM path)
-    exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
-    exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+    try:
+        # Standard AdamW math (same as in-VRAM path)
+        exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+        exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
-    if amsgrad and max_exp_avg_sq is not None:
-        torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-        denom = max_exp_avg_sq.sqrt().add_(eps)
-    else:
-        denom = exp_avg_sq.sqrt().add_(eps)
+        if amsgrad and max_exp_avg_sq is not None:
+            torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
+            denom = max_exp_avg_sq.sqrt().add_(eps)
+        else:
+            denom = exp_avg_sq.sqrt().add_(eps)
 
-    bias_correction1 = 1.0 - beta1 ** state["step"]
-    bias_correction2 = 1.0 - beta2 ** state["step"]
-    step_size = lr * math.sqrt(bias_correction2) / bias_correction1
+        bias_correction1 = 1.0 - beta1 ** state["step"]
+        bias_correction2 = 1.0 - beta2 ** state["step"]
+        step_size = lr * math.sqrt(bias_correction2) / bias_correction1
 
-    if weight_decay != 0:
-        p.data.mul_(1 - lr * weight_decay)
+        if weight_decay != 0:
+            p.data.mul_(1 - lr * weight_decay)
 
-    p.data.addcdiv_(exp_avg, denom, value=-step_size)
+        p.data.addcdiv_(exp_avg, denom, value=-step_size)
 
-    # D2H: write updated states back to host
-    state["exp_avg"] = exp_avg.to("cpu", non_blocking=False)
-    state["exp_avg_sq"] = exp_avg_sq.to("cpu", non_blocking=False)
-    if amsgrad:
-        state["max_exp_avg_sq"] = max_exp_avg_sq.to("cpu", non_blocking=False)
+    finally:
+        # D2H: always write states back to host, even on error.
+        # Prevents GPU memory leaks when M2+ pinned pool is in use.
+        state["exp_avg"] = exp_avg.to("cpu", non_blocking=False)
+        state["exp_avg_sq"] = exp_avg_sq.to("cpu", non_blocking=False)
+        if amsgrad and max_exp_avg_sq is not None:
+            state["max_exp_avg_sq"] = max_exp_avg_sq.to("cpu", non_blocking=False)
