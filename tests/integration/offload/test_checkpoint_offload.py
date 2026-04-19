@@ -44,6 +44,8 @@ class TestCheckpointOffload:
             config.trainer.model_path = ckpt_path
             config.operation.train_steps = 2
             config.trainer.gradient_accumulation_steps = 1
+            config.model.hf_model_type = "gpt2"
+            config.model.hf_architecture = "GPT2LMHeadModel"
 
             reset_global_states()
             setup_distributed()
@@ -107,6 +109,8 @@ class TestCheckpointOffload:
     def test_save_succeeds_with_cpu_states(self):
         """Checkpoint save succeeds even when optimizer states are on CPU."""
         config = get_offload_config(optimizer_offload=True)
+        config.model.hf_model_type = "gpt2"
+        config.model.hf_architecture = "GPT2LMHeadModel"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ckpt_path = os.path.join(tmpdir, "cpu_state_ckpt")
