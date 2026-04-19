@@ -151,10 +151,22 @@ def _config_validation(config: MainConfig):
             f"offload.optimizer_state_precision must be fp32, fp16, or bf16, "
             f"got '{config.offload.optimizer_state_precision}'"
         )
-    if config.offload.activation_prefetch and not config.offload.activation_spill:
+    if config.offload.activation_spill and not config.offload.enabled:
+        raise ValueError("offload.activation_spill requires offload.enabled to be true")
+    if config.offload.activation_spill_granularity not in ("sub_layer", "full_layer"):
         raise ValueError(
-            "offload.activation_prefetch requires offload.activation_spill to be enabled"
+            f"offload.activation_spill_granularity must be 'sub_layer' or 'full_layer', "
+            f"got '{config.offload.activation_spill_granularity}'"
         )
+    if config.offload.activation_spill and config.operation.activation_recompute:
+        import warnings
+
+        warnings.warn(
+            "offload.activation_spill is enabled but activation_recompute is also enabled. "
+            "Activation spilling replaces checkpointing. Disabling activation_recompute.",
+            stacklevel=2,
+        )
+        config.operation.activation_recompute = False
     if config.offload.weight_offload and not config.offload.enabled:
         raise ValueError("offload.weight_offload requires offload.enabled to be true")
     if config.offload.weight_offload and config.parallel.use_fsdp:
