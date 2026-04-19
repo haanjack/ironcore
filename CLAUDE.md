@@ -59,7 +59,7 @@ ironcore/
 ├── dataloader/      # Pretrain/SFT/FIM/DPO/GRPO dataset and collator
 ├── eval/            # Perplexity and HellaSwag evaluators
 ├── utils/           # mfu.py, memory.py, timer.py, device.py, config.py, profiling.py
-└── cli/             # train and preprocess CLI entry points
+└── cli/             # 15 CLI subcommands (train, generate, export, config-check, etc.)
 ```
 
 ### Key patterns
@@ -96,6 +96,8 @@ ironcore/
 **Eval.** HellaSwag + perplexity, pluggable `Task` interface. See `docs/eval.md`.
 
 **Getting started.** Install, CLI, configs. See `docs/getting_started.md`.
+
+**CLI tools.** 15 subcommands for training, generation, export, inspection, profiling, and more. See `docs/cli_guide.md`. Adding a new subcommand: define parser in `ironcore/__main__.py`, add dispatch branch, create `ironcore/cli/<name>.py` with `run_<name>(args: Namespace)`. Shared helpers (`load_full_config`, `estimate_params`, `load_yaml_config`, etc.) in `ironcore/cli/utils.py`.
 
 ### Test structure
 
