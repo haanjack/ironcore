@@ -36,7 +36,7 @@ def run_tokenize(args: Namespace) -> None:
     input_path = Path(args.input) if args.input else None
     if input_path and input_path.exists():
         with open(input_path) as f:
-            lines = f.readlines()
+            lines = list(f)
     elif args.input:
         lines = [args.input]
     else:

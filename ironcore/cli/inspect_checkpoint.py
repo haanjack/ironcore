@@ -127,6 +127,12 @@ def run_inspect_checkpoint(args: Namespace) -> None:
                 )
 
         if args.compare and "diffs" in info:
+            only_a = info["diffs"].pop("_only_a", [])
+            only_b = info["diffs"].pop("_only_b", [])
+            if only_a:
+                print(f"\n  Only in first checkpoint: {only_a}")
+            if only_b:
+                print(f"\n  Only in second checkpoint: {only_b}")
             print(f"\nWeight differences ({len(info['diffs'])} tensors):")
             for name, d in sorted(info["diffs"].items()):
                 print(f"  {name}: max={d['max_abs_diff']:.6e}, mean={d['mean_abs_diff']:.6e}")
@@ -171,6 +177,9 @@ def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
     diffs = {}
     common_keys = set(state_dict_a.keys()) & set(state_dict_b.keys())
     for name in common_keys:
+        if state_dict_a[name].shape != state_dict_b[name].shape:
+            print(f"  Skipping {name}: shape mismatch {state_dict_a[name].shape} vs {state_dict_b[name].shape}")
+            continue
         diff = (state_dict_a[name].float() - state_dict_b[name].float()).abs()
         diffs[name] = {
             "max_abs_diff": diff.max().item(),
@@ -179,9 +188,7 @@ def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
 
     only_a = set(state_dict_a.keys()) - set(state_dict_b.keys())
     only_b = set(state_dict_b.keys()) - set(state_dict_a.keys())
-    if only_a:
-        print(f"\n  Only in first checkpoint: {sorted(only_a)}")
-    if only_b:
-        print(f"\n  Only in second checkpoint: {sorted(only_b)}")
+    diffs["_only_a"] = sorted(only_a)
+    diffs["_only_b"] = sorted(only_b)
 
     return diffs

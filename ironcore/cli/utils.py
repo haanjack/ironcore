@@ -4,10 +4,12 @@
 """Shared CLI utilities for experiment tools."""
 
 import copy
+import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -47,10 +49,14 @@ def launch_training(
     )
     output_lines = []
     assert proc.stdout is not None  # guaranteed by stdout=PIPE
+    deadline = time.monotonic() + timeout if timeout else None
     for line in proc.stdout:
+        if deadline and time.monotonic() > deadline:
+            proc.kill()
+            raise subprocess.TimeoutExpired(cmd, timeout)
         print(line, end="")
         output_lines.append(line)
-    proc.wait(timeout=timeout)
+    proc.wait()
     return subprocess.CompletedProcess(
         args=cmd,
         returncode=proc.returncode,
@@ -169,7 +175,7 @@ def write_temp_config(
     elif original_config_path:
         # Place temp file in same directory so relative refs resolve correctly
         config_dir = Path(original_config_path).resolve().parent
-        tmp_name = f".ironcore_tmp_{id(config) % 100000}.yaml"
+        tmp_name = f".ironcore_tmp_{os.getpid()}_{id(config) % 100000}.yaml"
         output_path = config_dir / tmp_name
     else:
         tmp_dir = tempfile.mkdtemp(prefix="ironcore_")
@@ -332,12 +338,13 @@ def estimate_params(
     """
     embed = vocab_size * d_model
     attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
+    # Standard MLP uses 2 projections; SwiGLU/GateMLP uses 3 (2/3 * d_ffn budget each)
     mlp = 2 * d_model * d_ffn
     ln = 4 * d_model
     return embed + layers * (attn + mlp + ln) + 2 * d_model
 
 
-def load_full_config(config_path: str | Path) -> "MainConfig":
+def load_full_config(config_path: str | Path) -> "MainConfig":  # noqa: F821
     """Load a fully resolved MainConfig from a YAML file.
 
     Constructs a MainConfig with all sub-config defaults, then loads
