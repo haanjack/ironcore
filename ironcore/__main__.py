@@ -306,6 +306,128 @@ def main():
         help="Path to previous MFU results JSON for comparison",
     )
 
+    # ========================================
+    # Subcommand: config-check
+    # ========================================
+    config_check_parser = subparsers.add_parser(
+        "config-check", help="Validate and inspect training configs"
+    )
+    config_check_parser.add_argument(
+        "--config", type=str, required=True, help="Path to training config YAML"
+    )
+    config_check_parser.add_argument(
+        "--diff", type=str, default=None, help="Second config to compare against"
+    )
+    config_check_parser.add_argument(
+        "--show", action="store_true", help="Print resolved config as YAML"
+    )
+    config_check_parser.add_argument(
+        "--validate-only", action="store_true", help="Only validate, no output"
+    )
+
+    # ========================================
+    # Subcommand: tokenize
+    # ========================================
+    tokenize_parser = subparsers.add_parser("tokenize", help="Tokenize input and show statistics")
+    tokenize_parser.add_argument(
+        "--config", type=str, required=True, help="Path to training config YAML"
+    )
+    tokenize_parser.add_argument(
+        "--input", type=str, required=True, help="Text file path or literal string"
+    )
+    tokenize_parser.add_argument(
+        "--show-tokens", action="store_true", help="Display per-token breakdown"
+    )
+    tokenize_parser.add_argument(
+        "--histogram", action="store_true", help="Show sequence length histogram"
+    )
+
+    # ========================================
+    # Subcommand: inspect-checkpoint
+    # ========================================
+    inspect_checkpoint_parser = subparsers.add_parser(
+        "inspect-checkpoint", help="Inspect checkpoint contents and metadata"
+    )
+    inspect_checkpoint_parser.add_argument(
+        "--path", type=str, required=True, help="Path to checkpoint directory"
+    )
+    inspect_checkpoint_parser.add_argument(
+        "--compare", type=str, default=None, help="Second checkpoint for weight diff comparison"
+    )
+    inspect_checkpoint_parser.add_argument(
+        "--verbose", action="store_true", help="Show per-layer weight stats"
+    )
+    inspect_checkpoint_parser.add_argument(
+        "--json", action="store_true", help="Machine-readable JSON output"
+    )
+
+    # ========================================
+    # Subcommand: export
+    # ========================================
+    export_parser = subparsers.add_parser("export", help="Export checkpoint to HuggingFace format")
+    export_parser.add_argument(
+        "--config", type=str, required=True, help="Path to training config YAML"
+    )
+    export_parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path (overrides trainer.model_path)",
+    )
+    export_parser.add_argument(
+        "--output-dir", type=str, required=True, help="Output directory for HF checkpoint"
+    )
+    export_parser.add_argument(
+        "--format",
+        type=str,
+        default="safetensors",
+        choices=["safetensors", "pytorch"],
+        help="Output format (default: safetensors)",
+    )
+    export_parser.add_argument(
+        "--shard-size", type=int, default=None, help="Shard size in MB (no sharding if omitted)"
+    )
+    export_parser.add_argument(
+        "--architecture",
+        type=str,
+        default=None,
+        help="Target architecture (auto-detect if omitted)",
+    )
+
+    # ========================================
+    # Subcommand: generate
+    # ========================================
+    generate_parser = subparsers.add_parser("generate", help="Generate text from a checkpoint")
+    generate_parser.add_argument(
+        "--config", type=str, required=True, help="Path to training config YAML"
+    )
+    generate_parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path (overrides trainer.model_path)",
+    )
+    generate_parser.add_argument(
+        "--prompt", type=str, default=None, help="Prompt text (omit for interactive REPL)"
+    )
+    generate_parser.add_argument(
+        "--max-new-tokens", type=int, default=128, help="Max tokens to generate"
+    )
+    generate_parser.add_argument(
+        "--temperature", type=float, default=1.0, help="Sampling temperature"
+    )
+    generate_parser.add_argument(
+        "--top-p", type=float, default=1.0, help="Top-p (nucleus) sampling"
+    )
+    generate_parser.add_argument(
+        "--top-k", type=int, default=0, help="Top-k sampling (0 = disabled)"
+    )
+    generate_parser.add_argument("--no-sample", action="store_true", help="Use greedy decoding")
+    generate_parser.add_argument(
+        "--system-prompt", type=str, default=None, help="System prompt for chat mode"
+    )
+    generate_parser.add_argument("--chat", action="store_true", help="Enable chat template mode")
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -354,6 +476,26 @@ def main():
         from ironcore.cli.profile_mfu import run_profile_mfu
 
         run_profile_mfu(args)
+    elif args.command == "config-check":
+        from ironcore.cli.config_check import run_config_check
+
+        run_config_check(args)
+    elif args.command == "tokenize":
+        from ironcore.cli.tokenize import run_tokenize
+
+        run_tokenize(args)
+    elif args.command == "inspect-checkpoint":
+        from ironcore.cli.inspect_checkpoint import run_inspect_checkpoint
+
+        run_inspect_checkpoint(args)
+    elif args.command == "export":
+        from ironcore.cli.export import run_export
+
+        run_export(args)
+    elif args.command == "generate":
+        from ironcore.cli.generate import run_generate
+
+        run_generate(args)
     else:
         parser.print_help()
         sys.exit(1)

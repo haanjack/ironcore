@@ -295,6 +295,7 @@ def _estimate_params_from_config(model_config: dict) -> int:
         head_dim=model_config.get("head_dim", 64),
         groups=model_config.get("num_attention_groups", model_config.get("num_attention_heads", 0)),
         vocab_size=model_config.get("vocab_size", 50257),
+        activation_type=model_config.get("activation_type", "gelu"),
     )
 
 

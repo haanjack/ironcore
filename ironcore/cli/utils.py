@@ -4,10 +4,12 @@
 """Shared CLI utilities for experiment tools."""
 
 import copy
+import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -47,10 +49,14 @@ def launch_training(
     )
     output_lines = []
     assert proc.stdout is not None  # guaranteed by stdout=PIPE
+    deadline = time.monotonic() + timeout if timeout else None
     for line in proc.stdout:
+        if deadline and time.monotonic() > deadline:
+            proc.kill()
+            raise subprocess.TimeoutExpired(cmd, timeout)
         print(line, end="")
         output_lines.append(line)
-    proc.wait(timeout=timeout)
+    proc.wait()
     return subprocess.CompletedProcess(
         args=cmd,
         returncode=proc.returncode,
@@ -169,7 +175,7 @@ def write_temp_config(
     elif original_config_path:
         # Place temp file in same directory so relative refs resolve correctly
         config_dir = Path(original_config_path).resolve().parent
-        tmp_name = f".ironcore_tmp_{id(config) % 100000}.yaml"
+        tmp_name = f".ironcore_tmp_{os.getpid()}_{id(config) % 100000}.yaml"
         output_path = config_dir / tmp_name
     else:
         tmp_dir = tempfile.mkdtemp(prefix="ironcore_")
@@ -315,6 +321,7 @@ def estimate_params(
     head_dim: int,
     groups: int,
     vocab_size: int = 50257,
+    activation_type: str = "gelu",
 ) -> int:
     """Estimate parameter count from model dimensions.
 
@@ -326,12 +333,63 @@ def estimate_params(
         head_dim: Dimension per attention head.
         groups: Number of KV groups (GQA).
         vocab_size: Vocabulary size.
+        activation_type: Activation function ("gelu", "silu", "swiglu", etc.).
 
     Returns:
         Estimated parameter count.
     """
     embed = vocab_size * d_model
     attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
-    mlp = 2 * d_model * d_ffn
+    # SwiGLU/GateMLP uses 3 projections (gate, up, down); standard MLP uses 2
+    mlp_multiplier = 3 if activation_type in ("swiglu", "geglu") else 2
+    mlp = mlp_multiplier * d_model * d_ffn
     ln = 4 * d_model
     return embed + layers * (attn + mlp + ln) + 2 * d_model
+
+
+def load_full_config(config_path: str | Path) -> "MainConfig":  # noqa: F821
+    """Load a fully resolved MainConfig from a YAML file.
+
+    Constructs a MainConfig with all sub-config defaults, then loads
+    overrides from the YAML file (including external config references).
+
+    Args:
+        config_path: Path to training config YAML.
+
+    Returns:
+        Fully resolved MainConfig.
+    """
+    from argparse import Namespace
+
+    from ironcore.config import (
+        AlignmentConfig,
+        DataConfig,
+        InitConfig,
+        MainConfig,
+        ModelConfig,
+        OperationConfig,
+        OptimConfig,
+        ParallelConfig,
+        PEFTConfig,
+        ProfilerConfig,
+        TrainerConfig,
+        UtilsConfig,
+        _load_config_from_yaml,
+    )
+
+    config = MainConfig(
+        model=ModelConfig(),
+        init=InitConfig(),
+        optim=OptimConfig(),
+        data=DataConfig(),
+        parallel=ParallelConfig(),
+        trainer=TrainerConfig(),
+        operation=OperationConfig(),
+        utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
+        peft=PEFTConfig(),
+        alignment=AlignmentConfig(),
+    )
+    args = Namespace(config_path=str(config_path))
+    _load_config_from_yaml(config, args)
+    return config

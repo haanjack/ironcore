@@ -55,6 +55,9 @@ def run_track(args: Namespace) -> None:
     if args.backends:
         backends = [b.strip().lower() for b in args.backends.split(",")]
     else:
+        if not sys.stdin.isatty():
+            print("Error: --backends required in non-interactive mode")
+            sys.exit(1)
         backends = _prompt_backends()
 
     if not backends:
