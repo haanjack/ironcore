@@ -33,6 +33,99 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 
+class _SpillCheckpointFn(torch.autograd.Function):
+    """
+    Custom autograd Function for M3 activation offloading.
+
+    Replaces activation checkpointing (recomputation) with host-based activation
+    storage. The input activation is spilled to host memory during forward, and
+    restored from host during backward.
+
+    Forward: spills the input activation to host via D2H, computes the sub-block
+    with torch.no_grad() (no intermediate activations retained on GPU).
+
+    Backward: restores the input from host via H2D, recomputes the sub-block
+    with torch.enable_grad() to rebuild the autograd graph, then computes gradients.
+
+    GPU memory savings: all intermediate activations within the sub-block (layernorm
+    output, QKV projections, attention scores, MLP intermediates) are freed. Only
+    the spilled input is retained (on host, not GPU).
+    """
+
+    @staticmethod
+    def forward(ctx, block_fn, scheduler, layer_idx, sub_layer, activation, *aux_args):
+        ctx.block_fn = block_fn
+        ctx.scheduler = scheduler
+        ctx.layer_idx = layer_idx
+        ctx.sub_layer = sub_layer
+
+        # Save activation metadata (not the tensor itself)
+        ctx.activation_shape = activation.shape
+        ctx.activation_dtype = activation.dtype
+        ctx.activation_device = activation.device
+
+        # Save auxiliary args - move tensors to CPU to free GPU memory
+        ctx.aux_args = tuple(
+            a.detach().cpu() if isinstance(a, torch.Tensor) else a
+            for a in aux_args
+        )
+
+        # Save RNG state for consistent dropout during recomputation
+        if activation.is_cuda:
+            ctx.had_cuda_rng = True
+            ctx.fwd_rng_state = torch.cuda.get_rng_state(activation.device)
+        else:
+            ctx.had_cuda_rng = False
+
+        # Spill primary activation to host (async D2H)
+        scheduler.on_sublayer_forward(layer_idx, sub_layer, activation)
+
+        # Compute forward without building autograd graph
+        with torch.no_grad():
+            output = block_fn(activation, *aux_args)
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Restore activation from host (H2D)
+        activation = torch.empty(
+            ctx.activation_shape,
+            dtype=ctx.activation_dtype,
+            device=ctx.activation_device,
+        )
+        ctx.scheduler.on_sublayer_backward(
+            ctx.layer_idx, ctx.sub_layer, activation
+        )
+        activation.requires_grad_(True)
+
+        # Restore auxiliary args to original device
+        aux_args = tuple(
+            a.to(ctx.activation_device) if isinstance(a, torch.Tensor) else a
+            for a in ctx.aux_args
+        )
+        del ctx.aux_args
+
+        # Recompute forward with grad enabled, using saved RNG state for
+        # consistent dropout masks
+        if ctx.had_cuda_rng:
+            with torch.random.fork_rng(devices=[ctx.activation_device.index]):
+                torch.cuda.set_rng_state(ctx.fwd_rng_state, device=ctx.activation_device)
+                with torch.enable_grad():
+                    output = ctx.block_fn(activation, *aux_args)
+        else:
+            with torch.enable_grad():
+                output = ctx.block_fn(activation, *aux_args)
+
+        # Compute gradients
+        torch.autograd.backward(output, grad_output)
+
+        # None for block_fn, scheduler, layer_idx, sub_layer
+        # activation.grad for the spilled input
+        # None for each aux arg
+        return (None, None, None, None, activation.grad) + (None,) * len(aux_args)
+
+
 def _get_logger():
     """Get the ironcore logger if initialized, else fall back to stdlib logging."""
     try:
@@ -210,9 +303,13 @@ class ActivationSpillManager:
             activation.transfer_handle = None
 
         # Submit H2D prefetch
+        # Use view(-1) instead of flatten() to avoid silent copies on
+        # non-contiguous tensors (e.g. from TP slicing)
+        if not gpu_dst.is_contiguous():
+            gpu_dst = gpu_dst.contiguous()
         h2d_handle = self._engine.submit_h2d(
             src=activation.host_tensor,
-            dst=gpu_dst.flatten(),
+            dst=gpu_dst.view(-1),
         )
         self._engine.wait(h2d_handle)
         self._engine.synchronize_with_default_stream()

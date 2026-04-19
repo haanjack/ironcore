@@ -103,6 +103,42 @@ class TransformerLayer(BaseModule):
 
         self.residual_dropout = nn.Dropout(config.model.dropout_attn)
 
+    def _attention_subblock(self, hidden_states, attention_mask, rotary_pos_emb, position_ids):
+        """Attention sub-block: layernorm + attention + output proj + residual."""
+        batch_size = hidden_states.size(0)
+        seq_len = hidden_states.size(1)
+
+        norm_output = self.input_layernorm(hidden_states)
+        query = self.linear_q(norm_output)
+        key_value = self.linear_kv(norm_output)
+        key, value = torch.chunk(key_value, 2, dim=-1)
+
+        query = query.view(batch_size, seq_len, self.num_local_attention_heads, self.head_dimension)
+        key = key.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
+        value = value.view(
+            batch_size, seq_len, self.num_local_attention_groups, self.head_dimension
+        )
+
+        if rotary_pos_emb:
+            query = rotary_pos_emb.forward(query, position_ids)
+            key = rotary_pos_emb.forward(key, position_ids)
+
+        attn_output = self.self_attention(
+            query, key, value, attention_mask, use_cache=False, past_kv=None
+        )
+        attention_output = self.attn_output(attn_output)
+
+        if self.config.model.dropout_attn > 0.0:
+            attention_output = self.residual_dropout(attention_output)
+
+        return hidden_states + attention_output
+
+    def _mlp_subblock(self, norm_input):
+        """MLP sub-block: layernorm + MLP + residual."""
+        norm_output = self.post_attn_layernorm(norm_input)
+        mlp_output = self.mlp(norm_output)
+        return norm_input + mlp_output
+
     def custom_forward(
         self,
         hidden_states,
@@ -114,14 +150,43 @@ class TransformerLayer(BaseModule):
         kv_cache_manager=None,
         cache_position=None,
     ):
-        # hidden_states: [b, s, h]
+        # M3: Activation spilling path uses custom autograd.Function that
+        # spills inputs to host during forward and restores during backward,
+        # freeing GPU memory for intermediate activations.
+        scheduler = getattr(self, "_offload_scheduler", None)
+        spill_active = (
+            scheduler is not None
+            and scheduler.spill_manager is not None
+            and self.training
+        )
+
+        if spill_active:
+            from ironcore.offload.hooks import _SpillCheckpointFn
+
+            # Sub-block 1: Attention (spills hidden_states as sub_layer=0)
+            norm_input = _SpillCheckpointFn.apply(
+                self._attention_subblock,
+                scheduler,
+                self.layer_idx,
+                0,
+                hidden_states,
+                attention_mask,
+                rotary_pos_emb,
+                position_ids,
+            )
+            # Sub-block 2: MLP (spills norm_input as sub_layer=1)
+            output = _SpillCheckpointFn.apply(
+                self._mlp_subblock,
+                scheduler,
+                self.layer_idx,
+                1,
+                norm_input,
+            )
+            return output
+
+        # Standard forward path (no spilling)
         batch_size = hidden_states.size(0)
         seq_len = hidden_states.size(1)
-
-        # M3: Spill layer input (sub_layer=0) for backward attention gradient
-        scheduler = getattr(self, "_offload_scheduler", None)
-        if scheduler is not None and scheduler.spill_manager is not None:
-            scheduler.on_sublayer_forward(self.layer_idx, 0, hidden_states)
 
         norm_output = self.input_layernorm(hidden_states)
 
@@ -181,11 +246,6 @@ class TransformerLayer(BaseModule):
 
         residual = hidden_states
         norm_input = residual + attention_output
-
-        # M3: Spill post-attention residual (sub_layer=1) for backward MLP gradient
-        if scheduler is not None and scheduler.spill_manager is not None:
-            scheduler.on_sublayer_forward(self.layer_idx, 1, norm_input)
-
         norm_output = self.post_attn_layernorm(norm_input)
         mlp_output = self.mlp(norm_output)
         output = norm_input + mlp_output
