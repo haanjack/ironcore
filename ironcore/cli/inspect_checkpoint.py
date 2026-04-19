@@ -55,14 +55,14 @@ def run_inspect_checkpoint(args: Namespace) -> None:
             with open(latest_file) as f:
                 step = f.read().strip()
             step_dir = checkpoint_path / f"step_{step}"
-            if not step_dir.exists():
-                # Check for tp rank dirs
-                step_dir = checkpoint_path / f"step_{step}" / "tp0"
             ckpt_file = step_dir / "pytorch_model.bin"
             if not ckpt_file.exists():
-                print(f"Error: checkpoint file not found: {ckpt_file}")
+                # Check for distributed TP format: step_X/tp0/pytorch_model.bin
+                ckpt_file = checkpoint_path / f"step_{step}" / "tp0" / "pytorch_model.bin"
+            if not ckpt_file.exists():
+                print(f"Error: checkpoint file not found at {checkpoint_path}")
                 sys.exit(1)
-            checkpoint = torch.load(ckpt_file, map_location="cpu", weights_only=False)
+            checkpoint = torch.load(ckpt_file, map_location="cpu", weights_only=True)
             state_dict = checkpoint.get("model_state_dict", {})
             info["training_step"] = checkpoint.get("step", "unknown")
             info["training_loss"] = checkpoint.get("loss", "unknown")
@@ -132,6 +132,33 @@ def run_inspect_checkpoint(args: Namespace) -> None:
                 print(f"  {name}: max={d['max_abs_diff']:.6e}, mean={d['mean_abs_diff']:.6e}")
 
 
+def _load_state_dict(checkpoint_path: Path) -> dict:
+    """Load state dict from HF or native checkpoint format."""
+    try:
+        from ironcore.checkpointing.hf_interop import load_hf_state_dict
+
+        return load_hf_state_dict(checkpoint_path, device="cpu")
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Try native format
+    latest_file = checkpoint_path / "latest_step.txt"
+    if latest_file.exists():
+        import torch
+
+        with open(latest_file) as f:
+            step = f.read().strip()
+        ckpt_file = checkpoint_path / f"step_{step}" / "pytorch_model.bin"
+        if not ckpt_file.exists():
+            ckpt_file = checkpoint_path / f"step_{step}" / "tp0" / "pytorch_model.bin"
+        if ckpt_file.exists():
+            checkpoint = torch.load(ckpt_file, map_location="cpu", weights_only=True)
+            return checkpoint.get("model_state_dict", {})
+
+    print(f"Error: no recognizable checkpoint at {checkpoint_path}")
+    sys.exit(1)
+
+
 def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
     """Compare two checkpoint state dicts, computing per-tensor diffs."""
     compare = Path(compare_path)
@@ -139,9 +166,7 @@ def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
         print(f"Error: compare path not found: {compare}")
         return {}
 
-    from ironcore.checkpointing.hf_interop import load_hf_state_dict
-
-    state_dict_b = load_hf_state_dict(compare, device="cpu")
+    state_dict_b = _load_state_dict(compare)
 
     diffs = {}
     common_keys = set(state_dict_a.keys()) & set(state_dict_b.keys())
