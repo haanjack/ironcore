@@ -335,3 +335,51 @@ def estimate_params(
     mlp = 2 * d_model * d_ffn
     ln = 4 * d_model
     return embed + layers * (attn + mlp + ln) + 2 * d_model
+
+
+def load_full_config(config_path: str | Path) -> "MainConfig":
+    """Load a fully resolved MainConfig from a YAML file.
+
+    Constructs a MainConfig with all sub-config defaults, then loads
+    overrides from the YAML file (including external config references).
+
+    Args:
+        config_path: Path to training config YAML.
+
+    Returns:
+        Fully resolved MainConfig.
+    """
+    from argparse import Namespace
+
+    from ironcore.config import (
+        AlignmentConfig,
+        DataConfig,
+        InitConfig,
+        MainConfig,
+        ModelConfig,
+        OperationConfig,
+        OptimConfig,
+        ParallelConfig,
+        PEFTConfig,
+        ProfilerConfig,
+        TrainerConfig,
+        UtilsConfig,
+        _load_config_from_yaml,
+    )
+
+    config = MainConfig(
+        model=ModelConfig(),
+        init=InitConfig(),
+        optim=OptimConfig(),
+        data=DataConfig(),
+        parallel=ParallelConfig(),
+        trainer=TrainerConfig(),
+        operation=OperationConfig(),
+        utils=UtilsConfig(),
+        profiler=ProfilerConfig(),
+        peft=PEFTConfig(),
+        alignment=AlignmentConfig(),
+    )
+    args = Namespace(config_path=str(config_path))
+    _load_config_from_yaml(config, args)
+    return config
