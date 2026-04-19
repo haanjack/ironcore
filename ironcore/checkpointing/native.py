@@ -423,7 +423,7 @@ def load_checkpoint(
                     module_name = ".".join(name.split(".")[:-1])
                     # universal checkpoint
                     optimizer_state = loaded_optim_state["state"][param]
-                    for state_key in ["exp_avg", "exp_avg_sq"]:
+                    for state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
                         if state_key not in optimizer_state:
                             continue
 
@@ -609,7 +609,9 @@ def save_checkpoint(
             optim_state = optimizer.state_dict()["state"][optim_state_id]
 
             output_optim_state = {}
-            for key in ["exp_avg", "exp_avg_sq"]:
+            for key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
+                if key not in optim_state:
+                    continue
                 should_gather = False
                 if module_name in model_attribs:
                     attribs = model_attribs[module_name]
