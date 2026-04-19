@@ -1,6 +1,6 @@
-# CLI Reference
+# CLI Guide
 
-IronCore provides 10 subcommands. Run `ironcore --help` for the full list.
+IronCore provides 15 subcommands. Run `ironcore --help` for the full list.
 
 ```
 ironcore <command> [options]
@@ -10,6 +10,11 @@ ironcore <command> [options]
 |---------|-------------|
 | [`train`](#train--run-training) | Run training (pretrain, SFT, FIM, DPO, GRPO) |
 | [`preprocess`](#preprocess--preprocess--inspect-datasets) | Tokenize and serialize datasets; inspect integrity |
+| [`config-check`](#config-check--validate-and-inspect-configs) | Validate configs, diff two configs, show resolved YAML |
+| [`tokenize`](#tokenize--tokenize-input-and-show-statistics) | Tokenize input text or files, show statistics |
+| [`inspect-checkpoint`](#inspect-checkpoint--checkpoint-introspection) | Inspect checkpoint contents, compare two checkpoints |
+| [`export`](#export--convert-to-huggingface-format) | Convert IronCore checkpoints to HuggingFace format |
+| [`generate`](#generate--text-generation) | Interactive REPL or one-shot text generation |
 | [`track`](#track--configure-logging-backends) | Patch YAML config with logging backend settings |
 | [`evaluate`](#evaluate--run-evaluation-benchmarks) | Run eval benchmarks against a checkpoint |
 | [`verify-step`](#verify-step--single-step-loss-verification) | Run 1 training step, report loss |
@@ -66,6 +71,166 @@ ironcore preprocess --config configs/data/pretrain_example.yaml --only-inspect -
 | `--inspect` | No | Run inspection after preprocessing |
 | `--only-inspect` | No | Skip preprocessing, inspect only |
 | `--preview` | No | Number of samples to preview (implies `--inspect`) |
+
+## Config & Data Tools
+
+### `config-check` — Validate and Inspect Configs
+
+Validates a training config, showing pass/fail for each check. Supports diffing two configs and printing the fully resolved YAML.
+
+```bash
+# Validate a config
+ironcore config-check --config configs/pretrain_micro.yaml
+
+# Show resolved config as YAML
+ironcore config-check --config configs/pretrain_micro.yaml --show
+
+# Diff two configs
+ironcore config-check --config configs/pretrain_micro.yaml \
+    --diff configs/pretrain_tiny.yaml
+```
+
+Validation checks: `train_steps > 0`, world size vs TP size, batch size consistency, TP head divisibility, positional embedding type, optimizer/FSDP compatibility.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--diff` | No | Second config path to compare against |
+| `--show` | No | Print full resolved config as YAML |
+| `--validate-only` | No | Only validate, suppress output |
+
+### `tokenize` — Tokenize Input and Show Statistics
+
+Tokenizes input text or a file and reports token statistics. Useful for data prep and debugging tokenizer config.
+
+```bash
+# Tokenize a string
+ironcore tokenize --config configs/pretrain_micro.yaml --input "Hello world"
+
+# Tokenize a file
+ironcore tokenize --config configs/pretrain_micro.yaml --input data/sample.txt
+
+# Show per-token breakdown
+ironcore tokenize --config configs/pretrain_micro.yaml \
+    --input "Hello world" --show-tokens
+
+# Show sequence length histogram
+ironcore tokenize --config configs/pretrain_micro.yaml \
+    --input data/sample.txt --histogram
+```
+
+Output includes: vocab size, padded vocab size, total tokens, unique tokens, tokens/line (avg/min/max/median), compression ratio (bytes/token).
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--input` | Yes | Text file path or literal string |
+| `--show-tokens` | No | Display per-token breakdown |
+| `--histogram` | No | Show sequence length histogram |
+
+## Checkpoint Tools
+
+### `inspect-checkpoint` — Checkpoint Introspection
+
+Inspects checkpoint contents: format, parameter count, dtypes, training step, architecture. Supports comparing two checkpoints with per-tensor weight diffs.
+
+```bash
+# Basic inspection
+ironcore inspect-checkpoint --path models/my_run
+
+# Verbose: show per-layer stats
+ironcore inspect-checkpoint --path models/my_run --verbose
+
+# Compare two checkpoints
+ironcore inspect-checkpoint --path models/run_a \
+    --compare models/run_b
+
+# Machine-readable output
+ironcore inspect-checkpoint --path models/my_run --json
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--path` | Yes | Path to checkpoint directory |
+| `--compare` | No | Second checkpoint for weight diff comparison |
+| `--verbose` | No | Show per-layer weight stats |
+| `--json` | No | Machine-readable JSON output |
+
+### `export` — Convert to HuggingFace Format
+
+Exports an IronCore checkpoint to HuggingFace format (safetensors or pytorch). Generates `config.json` and weight files compatible with `transformers`.
+
+```bash
+# Export to safetensors (default)
+ironcore export --config configs/example.yaml \
+    --checkpoint models/my_run --output-dir exported_model
+
+# Export as pytorch format
+ironcore export --config configs/example.yaml \
+    --checkpoint models/my_run --output-dir exported_model \
+    --format pytorch
+
+# With sharding (256 MB per shard)
+ironcore export --config configs/example.yaml \
+    --checkpoint models/my_run --output-dir exported_model \
+    --shard-size 256
+
+# Specify target architecture
+ironcore export --config configs/example.yaml \
+    --checkpoint models/my_run --output-dir exported_model \
+    --architecture qwen2
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--checkpoint` | No | Checkpoint path (overrides `trainer.model_path`) |
+| `--output-dir` | Yes | Output directory for HuggingFace checkpoint |
+| `--format` | No | `safetensors` (default) or `pytorch` |
+| `--shard-size` | No | Shard size in MB (no sharding if omitted) |
+| `--architecture` | No | Target architecture (auto-detect if omitted) |
+
+### `generate` — Text Generation
+
+Loads a checkpoint and generates text. Supports one-shot mode (`--prompt`) or interactive REPL. Chat template mode for instruction-tuned models.
+
+```bash
+# One-shot generation
+ironcore generate --config configs/example.yaml \
+    --checkpoint models/my_run \
+    --prompt "The meaning of life is"
+
+# Interactive REPL (no --prompt)
+ironcore generate --config configs/example.yaml \
+    --checkpoint models/my_run
+
+# Chat template mode
+ironcore generate --config configs/example.yaml \
+    --checkpoint models/my_run --chat \
+    --system-prompt "You are a helpful assistant."
+
+# Sampling controls
+ironcore generate --config configs/example.yaml \
+    --checkpoint models/my_run \
+    --prompt "Once upon a time" \
+    --temperature 0.8 --top-p 0.95 --top-k 50 \
+    --max-new-tokens 256
+```
+
+REPL controls: type `quit`, `exit`, or `q` to exit. Ctrl-C also exits.
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--checkpoint` | No | Checkpoint path (overrides `trainer.model_path`) |
+| `--prompt` | No | Prompt text (omit for interactive REPL) |
+| `--max-new-tokens` | No | Max tokens to generate (default: `128`) |
+| `--temperature` | No | Sampling temperature (default: `1.0`) |
+| `--top-p` | No | Top-p (nucleus) sampling (default: `1.0`) |
+| `--top-k` | No | Top-k sampling (default: `0`, disabled) |
+| `--no-sample` | No | Use greedy decoding |
+| `--system-prompt` | No | System prompt for chat mode |
+| `--chat` | No | Enable chat template mode |
 
 ## Experiment Tools
 
