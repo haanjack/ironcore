@@ -297,6 +297,11 @@ class TransformerModel(BaseModule):
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
 
+            # Weight streaming: ensure layer weights are on GPU before execution
+            scheduler = getattr(self, "_offload_scheduler", None)
+            if scheduler is not None:
+                scheduler.on_layer_start(i)
+
             if use_layer_checkpointing:
                 layer_out = checkpoint(
                     layer.custom_forward,
@@ -325,6 +330,10 @@ class TransformerModel(BaseModule):
                     block_kv_cache_manager=block_kv_cache_manager,
                     seq_id=seq_id,
                 )
+
+            # Weight streaming: mark layer as done (weights stay for backward)
+            if scheduler is not None:
+                scheduler.on_layer_end(i)
 
             if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
                 hidden_states, new_kv = layer_out

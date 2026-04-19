@@ -125,15 +125,25 @@ def _make_minimal_main_config():
         init=__import__("ironcore.config.config_trainer", fromlist=["InitConfig"]).InitConfig(),
         optim=__import__("ironcore.config.config_optim", fromlist=["OptimConfig"]).OptimConfig(),
         data=__import__("ironcore.config.config_data", fromlist=["DataConfig"]).DataConfig(),
-        parallel=__import__("ironcore.config.config_parallel", fromlist=["ParallelConfig"]).ParallelConfig(),
-        trainer=__import__("ironcore.config.config_trainer", fromlist=["TrainerConfig"]).TrainerConfig(),
-        operation=__import__("ironcore.config.config_trainer", fromlist=["OperationConfig"]).OperationConfig(
+        parallel=__import__(
+            "ironcore.config.config_parallel", fromlist=["ParallelConfig"]
+        ).ParallelConfig(),
+        trainer=__import__(
+            "ironcore.config.config_trainer", fromlist=["TrainerConfig"]
+        ).TrainerConfig(),
+        operation=__import__(
+            "ironcore.config.config_trainer", fromlist=["OperationConfig"]
+        ).OperationConfig(
             train_steps=100,
         ),
         utils=__import__("ironcore.config.config_utils", fromlist=["UtilsConfig"]).UtilsConfig(),
-        profiler=__import__("ironcore.config.config_utils", fromlist=["ProfilerConfig"]).ProfilerConfig(),
+        profiler=__import__(
+            "ironcore.config.config_utils", fromlist=["ProfilerConfig"]
+        ).ProfilerConfig(),
         peft=__import__("ironcore.config.config_peft", fromlist=["PEFTConfig"]).PEFTConfig(),
-        alignment=__import__("ironcore.config.config_alignment", fromlist=["AlignmentConfig"]).AlignmentConfig(),
+        alignment=__import__(
+            "ironcore.config.config_alignment", fromlist=["AlignmentConfig"]
+        ).AlignmentConfig(),
         offload=OffloadConfig(),
     )
     # Set required fields for validation
