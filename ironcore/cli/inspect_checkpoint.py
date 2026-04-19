@@ -180,10 +180,13 @@ def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
         if state_dict_a[name].shape != state_dict_b[name].shape:
             print(f"  Skipping {name}: shape mismatch {state_dict_a[name].shape} vs {state_dict_b[name].shape}")
             continue
-        diff = (state_dict_a[name].float() - state_dict_b[name].float()).abs()
+        # In-place ops on a single float32 copy to reduce peak memory
+        a = state_dict_a[name].float()
+        b = state_dict_b[name].float()
+        a.sub_(b).abs_()
         diffs[name] = {
-            "max_abs_diff": diff.max().item(),
-            "mean_abs_diff": diff.mean().item(),
+            "max_abs_diff": a.max().item(),
+            "mean_abs_diff": a.mean().item(),
         }
 
     only_a = set(state_dict_a.keys()) - set(state_dict_b.keys())

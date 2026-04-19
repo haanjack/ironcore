@@ -61,9 +61,10 @@ def run_profile_mfu(args: Namespace) -> None:
     head_dim = model_config.get("head_dim", 64)
     groups = model_config.get("num_attention_groups", heads)
     vocab_size = model_config.get("vocab_size", 50257)
+    activation_type = model_config.get("activation_type", "gelu")
 
     # Estimate parameter count
-    num_params = estimate_params(d_model, d_ffn, layers, heads, head_dim, groups, vocab_size)
+    num_params = estimate_params(d_model, d_ffn, layers, heads, head_dim, groups, vocab_size, activation_type)
 
     # Extract batch/seq info
     trainer_config = config.get("trainer", {})

@@ -241,6 +241,7 @@ def _estimate_params(model_config: dict) -> str:
             head_dim=model_config.get("head_dim", 64),
             groups=model_config.get("num_attention_groups", heads),
             vocab_size=model_config.get("vocab_size", 50257),
+            activation_type=model_config.get("activation_type", "gelu"),
         )
 
         if total >= 1e9:

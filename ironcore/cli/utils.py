@@ -321,6 +321,7 @@ def estimate_params(
     head_dim: int,
     groups: int,
     vocab_size: int = 50257,
+    activation_type: str = "gelu",
 ) -> int:
     """Estimate parameter count from model dimensions.
 
@@ -332,14 +333,16 @@ def estimate_params(
         head_dim: Dimension per attention head.
         groups: Number of KV groups (GQA).
         vocab_size: Vocabulary size.
+        activation_type: Activation function ("gelu", "silu", "swiglu", etc.).
 
     Returns:
         Estimated parameter count.
     """
     embed = vocab_size * d_model
     attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
-    # Standard MLP uses 2 projections; SwiGLU/GateMLP uses 3 (2/3 * d_ffn budget each)
-    mlp = 2 * d_model * d_ffn
+    # SwiGLU/GateMLP uses 3 projections (gate, up, down); standard MLP uses 2
+    mlp_multiplier = 3 if activation_type in ("swiglu", "geglu") else 2
+    mlp = mlp_multiplier * d_model * d_ffn
     ln = 4 * d_model
     return embed + layers * (attn + mlp + ln) + 2 * d_model
 
