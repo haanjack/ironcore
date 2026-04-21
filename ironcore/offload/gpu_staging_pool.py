@@ -246,6 +246,40 @@ class GPUStagingPool:
         finally:
             self.free(tensor)
 
+    def auto_size(
+        self, layer_byte_sizes: list[int], prefetch_layers: int
+    ) -> None:
+        """
+        Auto-size the pool budget based on registered layer sizes.
+
+        Computes the budget as the sum of the largest ``prefetch_layers + 1``
+        consecutive layers, then sets the pool's max budget and chunk size.
+        Only runs if ``max_total_bytes`` was not explicitly set.
+
+        Args:
+            layer_byte_sizes: Total bytes for each registered layer group,
+                in layer order.
+            prefetch_layers: Number of layers to prefetch ahead.
+        """
+        if self._max_total_bytes is not None:
+            return  # explicitly configured, don't override
+
+        count = prefetch_layers + 1
+        if len(layer_byte_sizes) <= count:
+            # Fewer layers than the window — sum everything
+            budget = sum(layer_byte_sizes)
+        else:
+            # Sliding window: find the largest sum of `count` consecutive layers
+            window_sum = sum(layer_byte_sizes[:count])
+            budget = window_sum
+            for i in range(count, len(layer_byte_sizes)):
+                window_sum += layer_byte_sizes[i] - layer_byte_sizes[i - count]
+                if window_sum > budget:
+                    budget = window_sum
+
+        self._max_total_bytes = budget
+        self._chunk_bytes = max(self._chunk_bytes, max(layer_byte_sizes))
+
     @property
     def total_allocated_bytes(self) -> int:
         """Total GPU memory allocated from CUDA."""

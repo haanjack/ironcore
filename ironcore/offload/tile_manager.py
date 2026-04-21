@@ -26,6 +26,17 @@ if TYPE_CHECKING:
     from ironcore.offload.memory_pool import PinnedMemoryPool
 
 
+# Element sizes for common dtypes, avoids torch.tensor([], dtype=...) allocation
+_DTYPE_ELEMENT_SIZE: dict[torch.dtype, int] = {
+    torch.float32: 4,
+    torch.float16: 2,
+    torch.bfloat16: 2,
+    torch.int64: 8,
+    torch.int32: 4,
+    torch.uint8: 1,
+}
+
+
 @dataclass
 class WeightTile:
     """A single tile of a weight tensor on host (pinned) memory."""
@@ -54,6 +65,10 @@ class WeightTile:
     def nbytes_gpu(self) -> int:
         if self.gpu_tensor is not None:
             return self.gpu_tensor.numel() * self.gpu_tensor.element_size()
+        # Estimate based on original dtype when no GPU buffer is borrowed
+        element_size = _DTYPE_ELEMENT_SIZE.get(self.original_dtype)
+        if element_size is not None:
+            return self.numel * element_size
         return self.numel * torch.tensor([], dtype=self.original_dtype).element_size()
 
 

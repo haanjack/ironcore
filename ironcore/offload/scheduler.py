@@ -216,13 +216,15 @@ class ExecutionScheduler:
         scheduler._propagate_to_layers()
 
         # Auto-size GPU pool based on registered layer sizes
-        if gpu_pool is not None and gpu_pool._max_total_bytes is None:
-            max_layer_bytes = max(
-                sum(t.numel * torch.tensor([], dtype=t.original_dtype).element_size() for t in g.tiles)
+        if gpu_pool is not None:
+            layer_byte_sizes = [
+                sum(
+                    t.numel * torch.tensor([], dtype=t.original_dtype).element_size()
+                    for t in g.tiles
+                )
                 for g in scheduler._weight_groups.values()
-            )
-            gpu_pool._max_total_bytes = max_layer_bytes * (config.weight_prefetch_layers + 1)
-            gpu_pool._chunk_bytes = max(gpu_pool._chunk_bytes, max_layer_bytes)
+            ]
+            gpu_pool.auto_size(layer_byte_sizes, config.weight_prefetch_layers)
 
         return scheduler
 

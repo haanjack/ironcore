@@ -16,6 +16,7 @@ CUDA tests are gated on torch.cuda.is_available().
 """
 
 import pytest
+import threading
 import torch
 from torch import nn
 
@@ -148,6 +149,54 @@ class TestGPUStagingPool:
         pool = GPUStagingPool.from_config(config, torch.device("cuda:0"))
         assert pool._chunk_bytes == 128 * 1024 * 1024
         assert pool._max_total_bytes == 512 * 1024 * 1024
+
+    def test_concurrent_allocate_free(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
+        errors = []
+        allocated = []
+        lock = threading.Lock()
+
+        def worker():
+            try:
+                for _ in range(20):
+                    t = pool.allocate(64, torch.float32)
+                    with lock:
+                        allocated.append(t.data_ptr())
+                    pool.free(t)
+            except Exception as e:
+                with lock:
+                    errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join()
+
+        assert not errors, f"Thread errors: {errors}"
+        assert pool.total_used_bytes == 0
+
+    def test_auto_size_uniform_layers(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=1024 * 1024)
+        # 4 uniform layers of 1MB each, prefetch 2
+        layer_sizes = [1024 * 1024] * 4
+        pool.auto_size(layer_sizes, prefetch_layers=2)
+        assert pool._max_total_bytes == 3 * 1024 * 1024  # 3 consecutive
+        assert pool._chunk_bytes >= 1024 * 1024
+
+    def test_auto_size_non_uniform_layers(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=1024 * 1024)
+        # Layers: 1MB, 3MB, 2MB, 1MB, prefetch 1 (need 2 consecutive)
+        layer_sizes = [s * 1024 * 1024 for s in [1, 3, 2, 1]]
+        pool.auto_size(layer_sizes, prefetch_layers=1)
+        # Best 2-consecutive: 3MB + 2MB = 5MB
+        assert pool._max_total_bytes == 5 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
