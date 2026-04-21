@@ -24,6 +24,7 @@ from ironcore.alignment.rewards import (
     StrictFormatRewardFunction,
     TemplateRuleReward,
 )
+from ironcore.alignment.rewards.builtin import _numerical_eq
 from ironcore.config.config_alignment import (
     AlignmentConfig,
     RewardFunctionEntry,
@@ -659,6 +660,43 @@ class TestBuiltinRewardFunctions:
         # "result: 42" doesn't match any pattern (not "Answer:", not "####", etc.)
         # In strict mode, no extraction = 0.0
         assert fn.compute("prompt", "result: 42", {"answer": "#### 42"}) == 0.0
+
+    def test_numerical_eq_fraction_decimal(self):
+        """_numerical_eq matches equivalent fraction and decimal."""
+        assert _numerical_eq("3/4", "0.75") is True
+        assert _numerical_eq("1/2", "0.5") is True
+        assert _numerical_eq("2/3", "0.666667") is True
+
+    def test_numerical_eq_integer_forms(self):
+        """_numerical_eq matches integers in different formats."""
+        assert _numerical_eq("100", "100.0") is True
+        assert _numerical_eq("1e3", "1000") is True
+
+    def test_numerical_eq_inequality(self):
+        """_numerical_eq rejects clearly different values."""
+        assert _numerical_eq("3", "4") is False
+        assert _numerical_eq("1/3", "0.5") is False
+
+    def test_numerical_eq_malicious_input(self):
+        """_numerical_eq strips non-arithmetic characters."""
+        assert _numerical_eq("__import__('os')", "1") is False
+        assert _numerical_eq("open('/etc/passwd')", "1") is False
+        assert _numerical_eq("1+1", "2") is True
+
+    def test_numerical_eq_empty_invalid(self):
+        """_numerical_eq returns False for empty or non-numeric strings."""
+        assert _numerical_eq("", "1") is False
+        assert _numerical_eq("abc", "1") is False
+        assert _numerical_eq("", "") is False
+
+    def test_math_reward_numerical_fallback(self):
+        """MathRewardFunction uses numerical comparison when string match fails."""
+        fn = MathRewardFunction(strict=False)
+        # "3/4" and "0.75" are numerically equal but textually different
+        assert fn.compute("prompt", "#### 3/4", {"answer": "0.75"}) == 1.0
+        assert fn.compute("prompt", "#### 1/2", {"answer": "0.5"}) == 1.0
+        # Still partial credit for genuinely wrong answers
+        assert fn.compute("prompt", "#### 1/3", {"answer": "0.75"}) == 0.1
 
     def test_keyword_reward_function(self):
         """Test KeywordRewardFunction computes correct scores."""

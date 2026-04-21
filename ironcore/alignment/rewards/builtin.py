@@ -25,6 +25,26 @@ import torch
 
 from .base import RewardFunction
 
+# Characters allowed in numerical comparison (no function calls or imports)
+_NUMERICAL_ALLOWED = set("0123456789.+-*/()eE ")
+
+
+def _numerical_eq(a: str, b: str, eps: float = 1e-6) -> bool:
+    """Compare two answer strings numerically.
+
+    Sanitizes input to digits and arithmetic operators only, then evaluates
+    both sides and checks equality within epsilon. Returns False if either
+    expression fails to parse.
+    """
+    try:
+        a_clean = "".join(c for c in a if c in _NUMERICAL_ALLOWED)
+        b_clean = "".join(c for c in b if c in _NUMERICAL_ALLOWED)
+        if not a_clean or not b_clean:
+            return False
+        return abs(eval(a_clean) - eval(b_clean)) < eps  # noqa: S307
+    except Exception:
+        return False
+
 
 class MathRewardFunction(RewardFunction):
     """Reward for math problems with verifiable answers."""
@@ -45,6 +65,10 @@ class MathRewardFunction(RewardFunction):
             return 0.0
 
         if self._normalize_answer(extracted) == self._normalize_answer(gold):
+            return 1.0
+
+        # Numerical fallback: "3/4" should match "0.75"
+        if _numerical_eq(extracted, gold):
             return 1.0
 
         # Partial credit: extracted a number but it's wrong
