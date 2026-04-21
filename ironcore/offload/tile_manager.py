@@ -22,6 +22,7 @@ import torch
 
 if TYPE_CHECKING:
     from ironcore.offload.config import OffloadConfig
+    from ironcore.offload.gpu_staging_pool import GPUStagingPool
     from ironcore.offload.memory_pool import PinnedMemoryPool
 
 
@@ -31,8 +32,8 @@ class WeightTile:
 
     # Host-side pinned buffer (owned by PinnedMemoryPool)
     host_tensor: torch.Tensor
-    # GPU-side staging buffer (allocated once, reused)
-    gpu_tensor: torch.Tensor
+    # GPU-side staging buffer (borrowed from GPUStagingPool, None when not borrowed)
+    gpu_tensor: torch.Tensor | None
     # Original dtype for dequantization
     original_dtype: torch.dtype
     # Storage dtype (may be lower precision)
@@ -51,7 +52,9 @@ class WeightTile:
 
     @property
     def nbytes_gpu(self) -> int:
-        return self.gpu_tensor.numel() * self.gpu_tensor.element_size()
+        if self.gpu_tensor is not None:
+            return self.gpu_tensor.numel() * self.gpu_tensor.element_size()
+        return self.numel * torch.tensor([], dtype=self.original_dtype).element_size()
 
 
 @dataclass
@@ -95,21 +98,24 @@ class TileManager:
         pool: PinnedMemoryPool,
         device: torch.device,
         precision: str = "fp32",
+        gpu_pool: GPUStagingPool | None = None,
     ):
         self._pool = pool
         self._device = device
         self._storage_dtype = self._precision_to_dtype(precision)
+        self._gpu_pool = gpu_pool
         self._groups: dict[int, WeightGroup] = {}
 
     @classmethod
     def from_config(
-        cls, config: OffloadConfig, pool: PinnedMemoryPool, device: torch.device
+        cls, config: OffloadConfig, pool: PinnedMemoryPool, device: torch.device,
+        gpu_pool: GPUStagingPool | None = None,
     ) -> TileManager:
         """Create a TileManager from OffloadConfig."""
         return cls(
-            pool=pool,
-            device=device,
-            precision=config.optimizer_state_precision,
+            pool=pool, device=device,
+            precision=config.weight_storage_precision,
+            gpu_pool=gpu_pool,
         )
 
     @staticmethod
@@ -160,8 +166,10 @@ class TileManager:
             else:
                 host_tensor.copy_(param.data.flatten().to(self._storage_dtype))
 
-            # Allocate GPU staging buffer in original dtype (for the in-place copy)
-            gpu_tensor = torch.empty(numel, dtype=original_dtype, device=self._device)
+            # GPU staging: borrow from pool at prefetch time, or allocate permanently
+            gpu_tensor = None
+            if self._gpu_pool is None:
+                gpu_tensor = torch.empty(numel, dtype=original_dtype, device=self._device)
 
             tile = WeightTile(
                 host_tensor=host_tensor,
@@ -186,6 +194,22 @@ class TileManager:
     def get_group(self, layer_idx: int) -> WeightGroup | None:
         """Get the WeightGroup for a layer, or None if not registered."""
         return self._groups.get(layer_idx)
+
+    def borrow_gpu_buffers(self, group: WeightGroup) -> None:
+        """Allocate GPU staging buffers from the pool for a layer's tiles."""
+        if self._gpu_pool is None:
+            return
+        for tile in group.tiles:
+            tile.gpu_tensor = self._gpu_pool.allocate(tile.numel, tile.original_dtype)
+
+    def return_gpu_buffers(self, group: WeightGroup) -> None:
+        """Return GPU staging buffers to the pool for a layer's tiles."""
+        if self._gpu_pool is None:
+            return
+        for tile in group.tiles:
+            if tile.gpu_tensor is not None:
+                self._gpu_pool.free(tile.gpu_tensor)
+                tile.gpu_tensor = None
 
     def apply_tiles_to_params(self, group: WeightGroup) -> None:
         """
@@ -222,6 +246,8 @@ class TileManager:
 
     @property
     def total_gpu_staging_bytes(self) -> int:
+        if self._gpu_pool is not None:
+            return self._gpu_pool.total_used_bytes
         return sum(g.total_gpu_bytes for g in self._groups.values())
 
     def __repr__(self) -> str:

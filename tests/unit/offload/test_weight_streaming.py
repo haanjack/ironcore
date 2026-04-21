@@ -76,13 +76,83 @@ class TestPinnedMemoryPool:
         assert "PinnedMemoryPool" in repr(pool)
 
 
+cuda_available = torch.cuda.is_available()
+skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
+
+
+# ---------------------------------------------------------------------------
+# GPUStagingPool (CUDA required)
+# ---------------------------------------------------------------------------
+
+
+@skip_no_cuda
+class TestGPUStagingPool:
+    """Test GPU staging buffer pool allocation and free mechanics."""
+
+    def test_allocate_returns_gpu_tensor(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=1024 * 1024)
+        t = pool.allocate(256, torch.float32)
+        assert t.shape == (256,)
+        assert t.dtype == torch.float32
+        assert t.device.type == "cuda"
+
+    def test_allocate_and_free_reuse(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=1024 * 1024)
+        t1 = pool.allocate(256, torch.float32)
+        ptr1 = t1.data_ptr()
+        pool.free(t1)
+        t2 = pool.allocate(256, torch.float32)
+        # Should reuse same region (same data_ptr)
+        assert t2.data_ptr() == ptr1
+        assert pool.total_used_bytes == 256 * 4
+
+    def test_multiple_dtypes(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=1024 * 1024)
+        t32 = pool.allocate(64, torch.float32)
+        t16 = pool.allocate(64, torch.float16)
+        assert t32.dtype == torch.float32
+        assert t16.dtype == torch.float16
+        assert pool.total_used_bytes == 64 * 4 + 64 * 2
+
+    def test_oversized_allocation(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        # 1KB chunks, but request 4KB
+        pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=1024)
+        t = pool.allocate(1024, torch.float32)  # 4KB
+        assert t.shape == (1024,)
+        # Should have created a dedicated chunk
+        assert pool.total_allocated_bytes >= 4096
+
+    def test_budget_exceeded(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = GPUStagingPool(
+            device=torch.device("cuda:0"),
+            chunk_bytes=1024 * 1024,
+            max_total_bytes=512,
+        )
+        with pytest.raises(RuntimeError, match="budget exceeded"):
+            pool.allocate(256, torch.float32)  # 1024 bytes > 512 budget
+
+    def test_from_config(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        config = OffloadConfig(gpu_staging_chunk_mb=128.0, gpu_staging_pool_mb=512.0)
+        pool = GPUStagingPool.from_config(config, torch.device("cuda:0"))
+        assert pool._chunk_bytes == 128 * 1024 * 1024
+        assert pool._max_total_bytes == 512 * 1024 * 1024
+
+
 # ---------------------------------------------------------------------------
 # MemoryTransferEngine (CUDA required)
 # ---------------------------------------------------------------------------
-
-
-cuda_available = torch.cuda.is_available()
-skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
 
 @skip_no_cuda
@@ -226,6 +296,66 @@ class TestTileManager:
         tm = TileManager.from_config(config, pool, torch.device("cpu"))
         assert tm._storage_dtype == torch.float32
 
+=======
+    def test_register_layer_no_gpu_alloc_with_pool(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
+        gpu_pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
+        tm = TileManager(pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool)
+
+        param = nn.Parameter(torch.randn(32, 32, device="cuda:0"))
+        group = tm.register_layer(layer_idx=0, params=[param])
+
+        # gpu_tensor should be None — not pre-allocated
+        for tile in group.tiles:
+            assert tile.gpu_tensor is None
+        assert gpu_pool.total_used_bytes == 0
+
+    def test_borrow_return_lifecycle(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
+        gpu_pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
+        tm = TileManager(pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool)
+
+        param = nn.Parameter(torch.randn(32, 32, device="cuda:0"))
+        group = tm.register_layer(layer_idx=0, params=[param])
+
+        # Borrow: gpu_tensor allocated from pool
+        tm.borrow_gpu_buffers(group)
+        for tile in group.tiles:
+            assert tile.gpu_tensor is not None
+        assert gpu_pool.total_used_bytes > 0
+
+        # Return: gpu_tensor freed back to pool
+        tm.return_gpu_buffers(group)
+        for tile in group.tiles:
+            assert tile.gpu_tensor is None
+        assert gpu_pool.total_used_bytes == 0
+
+    def test_apply_tiles_with_pool(self):
+        from ironcore.offload.gpu_staging_pool import GPUStagingPool
+
+        pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
+        gpu_pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
+        tm = TileManager(pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool)
+
+        original = torch.randn(32, 32, device="cuda:0")
+        param = nn.Parameter(original.clone())
+        group = tm.register_layer(layer_idx=0, params=[param])
+
+        # Borrow staging buffer
+        tm.borrow_gpu_buffers(group)
+        # Simulate H2D: write zeros to staging buffer
+        group.tiles[0].gpu_tensor.fill_(0.0)
+        # Apply staging to param
+        tm.apply_tiles_to_params(group)
+        assert torch.all(param.data == 0)
+        # Return buffer
+        tm.return_gpu_buffers(group)
+        assert gpu_pool.total_used_bytes == 0
+
 
 # ---------------------------------------------------------------------------
 # ExecutionScheduler
@@ -367,6 +497,44 @@ class TestExecutionScheduler:
             group = scheduler.get_group(i)
             assert group is not None
             assert group.layer_idx == i
+
+    def test_pool_vram_bounded(self):
+        """Verify GPU staging pool usage stays bounded through a full step cycle."""
+        from ironcore.offload.scheduler import ExecutionScheduler
+
+        model, config = self._make_simple_model(num_layers=4)
+        scheduler = ExecutionScheduler.from_model(
+            model=model, config=config.offload, device=torch.device("cuda:0")
+        )
+        assert scheduler is not None
+        assert scheduler._gpu_pool is not None
+
+        max_layer_bytes = max(
+            sum(
+                t.numel
+                * torch.tensor([], dtype=t.original_dtype).element_size()
+                for t in g.tiles
+            )
+            for g in scheduler._weight_groups.values()
+        )
+        # Budget = (prefetch_layers + 1) * max_layer_bytes
+        budget = max_layer_bytes * (config.offload.weight_prefetch_layers + 1)
+
+        # Run a full step cycle, tracking peak usage
+        peak_used = 0
+        scheduler.on_training_step_start()
+        peak_used = max(peak_used, scheduler._gpu_pool.total_used_bytes)
+        for i in range(len(model.layers)):
+            scheduler.on_layer_start(i)
+            peak_used = max(peak_used, scheduler._gpu_pool.total_used_bytes)
+            scheduler.on_layer_end(i)
+        scheduler.on_backward_pass_end()
+        scheduler.on_training_step_end()
+
+        # Peak usage should never exceed the budget
+        assert peak_used <= budget, (
+            f"Peak pool usage {peak_used} exceeded budget {budget}"
+        )
 
 
 # ---------------------------------------------------------------------------

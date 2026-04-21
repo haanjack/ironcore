@@ -89,6 +89,8 @@ ironcore/
 
 **Trainers.** `BaseTrainer` lifecycle, gradient accumulation, mixed-precision hooks. See `docs/trainers.md`.
 
+**Offload.** Optimizer state offload, weight streaming with GPU staging pool, activation spilling. See `docs/offload.md`.
+
 **Alignment (DPO/GRPO).** Offline preference + online rollout training. See `docs/alignment.md`.
 
 **Dataloader.** Streaming datasets, bin-packing SFT collator, FIM preprocessing. See `docs/dataloader.md`.

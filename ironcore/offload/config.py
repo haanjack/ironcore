@@ -28,7 +28,8 @@ class OffloadConfig(BaseConfig):
         optimizer_min_param_elements
 
     M2 fields (active):
-        weight_offload, weight_prefetch_layers,
+        weight_offload, weight_storage_precision, weight_prefetch_layers,
+        gpu_staging_pool_mb, gpu_staging_chunk_mb,
         pinned_memory_pool_gb, pinned_chunk_gb
 
     M3 fields (active, merged with former M4):
@@ -50,6 +51,8 @@ class OffloadConfig(BaseConfig):
     weight_offload: bool = False
     weight_prefetch_layers: int = 2
     weight_storage_precision: str = "fp32"  # precision for streamed weights on host
+    gpu_staging_pool_mb: float = 0.0  # 0 = auto-size based on prefetch_layers * max_layer_bytes
+    gpu_staging_chunk_mb: float = 256.0  # chunk size for GPU staging pool
 
     # M3: Activation offloading (merged forward spill + backward prefetch)
     # When enabled, replaces activation checkpointing. D2H spill during forward,

@@ -181,10 +181,15 @@ class BaseTrainer(ABC):
         if offload_needs_scheduler:
             from ironcore.offload.scheduler import ExecutionScheduler
 
-            # Unwrap torch.compile to get the underlying TransformerModel
+            # Unwrap torch.compile + DDP + LanguageModel to get TransformerModel
             inner_model = self.model
             if hasattr(inner_model, "_orig_mod"):
                 inner_model = inner_model._orig_mod
+            if isinstance(inner_model, torch.nn.parallel.DistributedDataParallel):
+                inner_model = inner_model.module
+            # LanguageModel wraps TransformerModel in LanguageModel.model
+            if hasattr(inner_model, "model") and hasattr(inner_model.model, "layers"):
+                inner_model = inner_model.model
 
             self._offload_scheduler = ExecutionScheduler.from_model(
                 model=inner_model,
@@ -200,9 +205,6 @@ class BaseTrainer(ABC):
                 and self._offload_scheduler.spill_manager is not None
             ):
                 # Scheduler created for activation spilling only (no weight streaming)
-                inner_model = self.model
-                if hasattr(inner_model, "_orig_mod"):
-                    inner_model = inner_model._orig_mod
                 inner_model._offload_scheduler = self._offload_scheduler
                 self.logger.info(f"Activation spill scheduler attached: {self._offload_scheduler}")
             else:
@@ -876,6 +878,28 @@ class BaseTrainer(ABC):
                     )
                     metrics["tflops_per_gpu"] = tflops
 
+        # Offload metrics: log when scheduler is active
+        if self._offload_scheduler is not None:
+            offload_metrics = self._offload_scheduler.get_metrics()
+            metrics["offload_overhead_ms"] = offload_metrics["offload_overhead_ms"]
+            metrics["h2d_ms"] = offload_metrics["h2d_ms"]
+            metrics["d2h_snapshot_ms"] = offload_metrics["d2h_snapshot_ms"]
+            metrics["host_pool_used_mb"] = offload_metrics["host_pool_used_mb"]
+
+            # Host RAM (current RSS)
+            try:
+                from ironcore.utils.memory import get_host_memory_usage
+                host_mem = get_host_memory_usage()
+                metrics["host_rss_mb"] = host_mem["rss_mb"]
+            except Exception:
+                pass
+
+            # VRAM
+            if torch.cuda.is_available():
+                device = torch.cuda.current_device()
+                metrics["vram_allocated_mb"] = torch.cuda.memory_allocated(device) / (1024 * 1024)
+                metrics["vram_reserved_mb"] = torch.cuda.memory_reserved(device) / (1024 * 1024)
+
         # Memory report: on first log step, then at every checkpoint interval
         if (
             is_first_rank()
@@ -920,6 +944,13 @@ class BaseTrainer(ABC):
                 log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:
                     log_msg += f" ({metrics['data_load_ratio'] * 100:.1f}%)"
+            if "offload_overhead_ms" in metrics:
+                log_msg += f", offload: {metrics['offload_overhead_ms']:.1f}ms"
+                log_msg += f" (h2d={metrics['h2d_ms']:.1f}, d2h={metrics['d2h_snapshot_ms']:.1f})"
+                if "host_rss_mb" in metrics:
+                    log_msg += f", host_rss: {metrics['host_rss_mb']:.0f}MB"
+                if "vram_allocated_mb" in metrics:
+                    log_msg += f", vram: {metrics['vram_allocated_mb']:.0f}MB"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system

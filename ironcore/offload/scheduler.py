@@ -23,10 +23,12 @@ Thread safety: not thread-safe. All calls from the training loop's main thread.
 from __future__ import annotations
 
 import logging
+import time
 
 import torch
 from torch import nn
 
+from ironcore.offload.gpu_staging_pool import GPUStagingPool
 from ironcore.offload.hooks import ActivationSpillManager
 from ironcore.offload.memory_pool import PinnedMemoryPool
 from ironcore.offload.tile_manager import TileManager, WeightGroup
@@ -94,6 +96,7 @@ class ExecutionScheduler:
         prefetch_layers: int = 2,
         device: torch.device | None = None,
         spill_manager: ActivationSpillManager | None = None,
+        gpu_pool: GPUStagingPool | None = None,
     ):
         self._model = model
         self._pool = pool
@@ -102,6 +105,7 @@ class ExecutionScheduler:
         self._prefetch_layers = prefetch_layers
         self._device = device or torch.device("cuda")
         self._spill_manager = spill_manager
+        self._gpu_pool = gpu_pool
 
         # Populated during init
         self._num_layers = 0
@@ -112,6 +116,12 @@ class ExecutionScheduler:
         self._step_count = 0
         self._current_forward_layer = -1
         self._current_microbatch = 0
+
+        # Per-step timing accumulators (reset each step)
+        self._step_start: float = 0.0
+        self._h2d_time: float = 0.0  # total H2D transfer wait time
+        self._snapshot_time: float = 0.0  # D2H snapshot time
+        self._prefetch_wait_time: float = 0.0  # time waiting for prefetch completes
 
     @classmethod
     def from_model(
@@ -171,7 +181,12 @@ class ExecutionScheduler:
 
         pool = PinnedMemoryPool.from_config(config)
         engine = MemoryTransferEngine.from_config(config, device)
-        tile_manager = TileManager.from_config(config, pool, device)
+
+        gpu_pool = None
+        if config.weight_offload:
+            gpu_pool = GPUStagingPool.from_config(config, device)
+
+        tile_manager = TileManager.from_config(config, pool, device, gpu_pool=gpu_pool)
 
         # M3: Create activation spill manager if enabled
         spill_manager = None
@@ -195,9 +210,20 @@ class ExecutionScheduler:
             prefetch_layers=config.weight_prefetch_layers,
             device=device,
             spill_manager=spill_manager,
+            gpu_pool=gpu_pool,
         )
         scheduler._register_all_layers()
         scheduler._propagate_to_layers()
+
+        # Auto-size GPU pool based on registered layer sizes
+        if gpu_pool is not None and gpu_pool._max_total_bytes is None:
+            max_layer_bytes = max(
+                sum(t.numel * torch.tensor([], dtype=t.original_dtype).element_size() for t in g.tiles)
+                for g in scheduler._weight_groups.values()
+            )
+            gpu_pool._max_total_bytes = max_layer_bytes * (config.weight_prefetch_layers + 1)
+            gpu_pool._chunk_bytes = max(gpu_pool._chunk_bytes, max_layer_bytes)
+
         return scheduler
 
     def _register_all_layers(self) -> None:
@@ -258,9 +284,17 @@ class ExecutionScheduler:
         self._current_forward_layer = -1
         self._layer_on_gpu.clear()
 
+        # Reset per-step timing
+        self._step_start = time.monotonic()
+        self._h2d_time = 0.0
+        self._snapshot_time = 0.0
+        self._prefetch_wait_time = 0.0
+
         # Prefetch first N layers
+        t0 = time.monotonic()
         for i in range(min(self._prefetch_layers, self._num_layers)):
             self._prefetch_layer(i)
+        self._h2d_time += time.monotonic() - t0
 
     def on_training_step_end(self) -> None:
         """
@@ -272,10 +306,12 @@ class ExecutionScheduler:
         prefetches from host.
         """
         # Snapshot updated params (after optimizer step) back to host
+        t0 = time.monotonic()
         for group in self._weight_groups.values():
             self._tile_manager.snapshot_params_to_host(group)
 
         self._engine.synchronize()
+        self._snapshot_time = time.monotonic() - t0
 
         # M3: Clean up any remaining spilled activations
         if self._spill_manager is not None:
@@ -295,11 +331,17 @@ class ExecutionScheduler:
         if group is None:
             return
 
+        # Skip if already loaded from a prior micro-batch
+        if layer_idx in self._layer_on_gpu:
+            return
+
         # Wait for this layer's transfer
+        t0 = time.monotonic()
         for tile in group.tiles:
             if tile.transfer_handle is not None:
                 self._engine.wait(tile.transfer_handle)
                 tile.transfer_handle = None
+        self._prefetch_wait_time += time.monotonic() - t0
 
         # Ensure default stream sees the transferred data
         self._engine.synchronize_with_default_stream()
@@ -307,6 +349,10 @@ class ExecutionScheduler:
         # Apply weights to parameters
         self._tile_manager.apply_tiles_to_params(group)
         self._layer_on_gpu.add(layer_idx)
+
+        # Return staging buffers to pool -- content is now in param.data
+        if self._gpu_pool is not None:
+            self._tile_manager.return_gpu_buffers(group)
 
         # Prefetch next layers
         for ahead in range(1, self._prefetch_layers + 1):
@@ -365,18 +411,9 @@ class ExecutionScheduler:
     def on_backward_pass_end(self) -> None:
         """
         Called after the entire backward pass completes (all layers).
-
-        All weights can be evicted now. GPU staging buffers are zeroed
-        to free VRAM for the optimizer step.
+        Staging buffers already returned to pool in on_layer_start.
         """
-        # Ensure any pending transfers are done
         self._engine.synchronize()
-
-        # Clear GPU staging buffers to free VRAM
-        for group in self._weight_groups.values():
-            for tile in group.tiles:
-                tile.gpu_tensor.zero_()
-
         self._layer_on_gpu.clear()
 
     # --- M3: Activation spilling lifecycle ---
@@ -445,6 +482,16 @@ class ExecutionScheduler:
         if group is None:
             return
 
+        # Skip if already on GPU or already in-flight (pending transfer)
+        if layer_idx in self._layer_on_gpu:
+            return
+        if any(tile.transfer_handle is not None for tile in group.tiles):
+            return
+
+        # Borrow GPU staging buffers from the pool
+        if self._gpu_pool is not None:
+            self._tile_manager.borrow_gpu_buffers(group)
+
         for tile in group.tiles:
             handle = self._engine.submit_h2d(
                 src=tile.host_tensor,
@@ -464,6 +511,29 @@ class ExecutionScheduler:
         """Get the WeightGroup for a layer, or None if not registered."""
         return self._weight_groups.get(layer_idx)
 
+    def get_metrics(self) -> dict[str, float]:
+        """Return per-step offload timing and memory metrics.
+
+        Returns dict with:
+          - offload_overhead_ms: total wall time spent in offload operations
+          - h2d_ms: time issuing H2D transfers (prefetch)
+          - d2h_snapshot_ms: time snapshotting updated params back to host
+          - prefetch_wait_ms: time waiting for prefetch transfers to complete
+          - host_pool_used_mb: pinned pool memory in use
+          - host_pool_total_mb: pinned pool total capacity
+        """
+        step_elapsed = time.monotonic() - self._step_start if self._step_start > 0 else 0.0
+        return {
+            "offload_overhead_ms": step_elapsed * 1000,
+            "h2d_ms": self._h2d_time * 1000,
+            "d2h_snapshot_ms": self._snapshot_time * 1000,
+            "prefetch_wait_ms": self._prefetch_wait_time * 1000,
+            "host_pool_used_mb": self._pool.total_used_bytes / (1024 * 1024),
+            "host_pool_total_mb": self._pool.total_allocated_bytes / (1024 * 1024),
+            "gpu_staging_used_mb": self._gpu_pool.total_used_bytes / (1024 * 1024) if self._gpu_pool else 0,
+            "gpu_staging_total_mb": self._gpu_pool.total_allocated_bytes / (1024 * 1024) if self._gpu_pool else 0,
+        }
+
     def shutdown(self) -> None:
         """
         Release all resources held by the scheduler.
@@ -476,14 +546,15 @@ class ExecutionScheduler:
         # Free GPU staging buffers
         for group in self._weight_groups.values():
             for tile in group.tiles:
+                if tile.gpu_tensor is not None and self._gpu_pool is not None:
+                    self._gpu_pool.free(tile.gpu_tensor)
                 tile.gpu_tensor = None  # type: ignore[assignment]
                 tile.host_tensor = None  # type: ignore[assignment]
                 tile.transfer_handle = None
 
         self._weight_groups.clear()
         self._layer_on_gpu.clear()
-
-        # M3: Release spill manager resources
+        self._gpu_pool = None
         if self._spill_manager is not None:
             self._spill_manager.shutdown()
             self._spill_manager = None

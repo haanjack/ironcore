@@ -21,6 +21,7 @@ from .memory import (
     bytes_to_mib,
     format_memory_report,
     get_detailed_memory_breakdown,
+    get_host_memory_usage,
     get_memory_usage,
 )
 from .mfu import MFUCalculator, MFUResult, compute_tflops, estimate_params
@@ -56,6 +57,7 @@ __all__ = [
     "bytes_to_mib",
     "format_memory_report",
     "get_detailed_memory_breakdown",
+    "get_host_memory_usage",
     "get_memory_usage",
     # profiling
     "profile_context",
