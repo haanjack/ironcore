@@ -452,7 +452,11 @@ def load_checkpoint(
                             and getattr(param, "offloadable", True)
                             and param.numel() >= offload_min_elements
                         )
-                        if is_offloaded and state_key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                        if is_offloaded and state_key in (
+                            "exp_avg",
+                            "exp_avg_sq",
+                            "max_exp_avg_sq",
+                        ):
                             tensor = tensor.to("cpu")
                         loaded_optim_state["state"][param][state_key] = tensor
 

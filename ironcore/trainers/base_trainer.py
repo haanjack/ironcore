@@ -174,9 +174,8 @@ class BaseTrainer(ABC):
 
         # Initialize weight streaming scheduler (M2) if enabled
         self._offload_scheduler = None
-        offload_needs_scheduler = (
-            self.config.offload.enabled
-            and (self.config.offload.weight_offload or self.config.offload.activation_spill)
+        offload_needs_scheduler = self.config.offload.enabled and (
+            self.config.offload.weight_offload or self.config.offload.activation_spill
         )
         if offload_needs_scheduler:
             from ironcore.offload.scheduler import ExecutionScheduler
@@ -889,6 +888,7 @@ class BaseTrainer(ABC):
             # Host RAM (current RSS)
             try:
                 from ironcore.utils.memory import get_host_memory_usage
+
                 host_mem = get_host_memory_usage()
                 metrics["host_rss_mb"] = host_mem["rss_mb"]
             except Exception:

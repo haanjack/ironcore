@@ -9,9 +9,6 @@ from unittest.mock import patch
 import pytest
 import torch
 import torch.nn.functional as F
-
-from ironcore.global_vars import reset_global_states
-from ironcore.trainers import LanguageModelTrainer
 from tests.integration.offload.conftest import (
     create_mock_data_iterator,
     create_mock_evaluators,
@@ -20,9 +17,10 @@ from tests.integration.offload.conftest import (
     setup_distributed,
 )
 
-skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+from ironcore.global_vars import reset_global_states
+from ironcore.trainers import LanguageModelTrainer
+
+skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
 
 def _run_steps(config):

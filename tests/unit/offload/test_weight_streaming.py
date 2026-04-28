@@ -83,7 +83,6 @@ class TestPinnedMemoryPool:
         assert "PinnedMemoryPool" in repr(pool)
 
 
-
 # ---------------------------------------------------------------------------
 # GPUStagingPool (CUDA required)
 # ---------------------------------------------------------------------------
@@ -354,7 +353,9 @@ class TestTileManager:
 
         pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
         gpu_pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
-        tm = TileManager(pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool)
+        tm = TileManager(
+            pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool
+        )
 
         param = nn.Parameter(torch.randn(32, 32, device="cuda:0"))
         group = tm.register_layer(layer_idx=0, params=[param])
@@ -369,7 +370,9 @@ class TestTileManager:
 
         pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
         gpu_pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
-        tm = TileManager(pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool)
+        tm = TileManager(
+            pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool
+        )
 
         param = nn.Parameter(torch.randn(32, 32, device="cuda:0"))
         group = tm.register_layer(layer_idx=0, params=[param])
@@ -391,7 +394,9 @@ class TestTileManager:
 
         pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
         gpu_pool = GPUStagingPool(device=torch.device("cuda:0"), chunk_bytes=4 * 1024 * 1024)
-        tm = TileManager(pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool)
+        tm = TileManager(
+            pool=pool, device=torch.device("cuda:0"), precision="fp32", gpu_pool=gpu_pool
+        )
 
         original = torch.randn(32, 32, device="cuda:0")
         param = nn.Parameter(original.clone())
@@ -562,11 +567,7 @@ class TestExecutionScheduler:
         assert scheduler._gpu_pool is not None
 
         max_layer_bytes = max(
-            sum(
-                t.numel
-                * torch.tensor([], dtype=t.original_dtype).element_size()
-                for t in g.tiles
-            )
+            sum(t.numel * torch.tensor([], dtype=t.original_dtype).element_size() for t in g.tiles)
             for g in scheduler._weight_groups.values()
         )
         # Budget = (prefetch_layers + 1) * max_layer_bytes
@@ -584,9 +585,7 @@ class TestExecutionScheduler:
         scheduler.on_training_step_end()
 
         # Peak usage should never exceed the budget
-        assert peak_used <= budget, (
-            f"Peak pool usage {peak_used} exceeded budget {budget}"
-        )
+        assert peak_used <= budget, f"Peak pool usage {peak_used} exceeded budget {budget}"
 
 
 # ---------------------------------------------------------------------------

@@ -23,9 +23,7 @@ from tests.integration.offload.conftest import (
 from ironcore.global_vars import reset_global_states
 from ironcore.trainers import LanguageModelTrainer
 
-skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
 
 @skip_no_cuda
@@ -71,7 +69,10 @@ class TestCheckpointOffload:
 
                 # Save checkpoint
                 from ironcore.checkpointing import save_checkpoint
-                save_checkpoint(config, trainer1.model, trainer1.optimizer, trainer1.lr_scheduler, 1)
+
+                save_checkpoint(
+                    config, trainer1.model, trainer1.optimizer, trainer1.lr_scheduler, 1
+                )
 
             # Step 2: Load checkpoint and continue training
             reset_global_states()
@@ -96,7 +97,10 @@ class TestCheckpointOffload:
 
                 # Load checkpoint
                 from ironcore.checkpointing import load_checkpoint
-                loaded_step = load_checkpoint(config, trainer2.model, trainer2.optimizer, trainer2.lr_scheduler)
+
+                loaded_step = load_checkpoint(
+                    config, trainer2.model, trainer2.optimizer, trainer2.lr_scheduler
+                )
                 assert loaded_step == 1, f"Expected step 1, got {loaded_step}"
 
                 # Continue training
@@ -118,9 +122,11 @@ class TestCheckpointOffload:
             _loss, trainer = run_training_step(config)
 
             from ironcore.checkpointing import save_checkpoint
+
             # Should not raise
             save_checkpoint(config, trainer.model, trainer.optimizer, trainer.lr_scheduler, 1)
 
             # Verify checkpoint files exist
-            assert os.path.exists(ckpt_path) or os.path.exists(ckpt_path + ".pt"), \
+            assert os.path.exists(ckpt_path) or os.path.exists(ckpt_path + ".pt"), (
                 f"Checkpoint not found at {ckpt_path}"
+            )

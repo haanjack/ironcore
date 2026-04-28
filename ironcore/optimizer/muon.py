@@ -307,9 +307,7 @@ class MuonOptimizer(Optimizer):
             state = self.state[p]
 
             # Offload path: optimizer states live on CPU
-            if self.offload_enabled and _should_offload_param(
-                p, self.offload_min_param_elements
-            ):
+            if self.offload_enabled and _should_offload_param(p, self.offload_min_param_elements):
                 _adamw_offloaded_step(
                     p=p,
                     grad=grad,

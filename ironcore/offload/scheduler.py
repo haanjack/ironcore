@@ -432,9 +432,7 @@ class ExecutionScheduler:
         if self._spill_manager is not None:
             self._spill_manager.on_microbatch_forward_start(microbatch_idx)
 
-    def on_sublayer_forward(
-        self, layer_idx: int, sub_layer: int, tensor: torch.Tensor
-    ) -> None:
+    def on_sublayer_forward(self, layer_idx: int, sub_layer: int, tensor: torch.Tensor) -> None:
         """
         Spill an activation to host during forward.
 
@@ -455,9 +453,7 @@ class ExecutionScheduler:
         if self._spill_manager is not None:
             self._spill_manager.on_microbatch_backward_start(microbatch_idx)
 
-    def on_sublayer_backward(
-        self, layer_idx: int, sub_layer: int, gpu_dst: torch.Tensor
-    ) -> None:
+    def on_sublayer_backward(self, layer_idx: int, sub_layer: int, gpu_dst: torch.Tensor) -> None:
         """
         Prefetch a spilled activation from host during backward.
 
@@ -532,8 +528,12 @@ class ExecutionScheduler:
             "prefetch_wait_ms": self._prefetch_wait_time * 1000,
             "host_pool_used_mb": self._pool.total_used_bytes / (1024 * 1024),
             "host_pool_total_mb": self._pool.total_allocated_bytes / (1024 * 1024),
-            "gpu_staging_used_mb": self._gpu_pool.total_used_bytes / (1024 * 1024) if self._gpu_pool else 0,
-            "gpu_staging_total_mb": self._gpu_pool.total_allocated_bytes / (1024 * 1024) if self._gpu_pool else 0,
+            "gpu_staging_used_mb": self._gpu_pool.total_used_bytes / (1024 * 1024)
+            if self._gpu_pool
+            else 0,
+            "gpu_staging_total_mb": self._gpu_pool.total_allocated_bytes / (1024 * 1024)
+            if self._gpu_pool
+            else 0,
         }
 
     def shutdown(self) -> None:

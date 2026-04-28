@@ -157,9 +157,7 @@ class TransformerLayer(BaseModule):
         # freeing GPU memory for intermediate activations.
         scheduler = getattr(self, "_offload_scheduler", None)
         spill_active = (
-            scheduler is not None
-            and scheduler.spill_manager is not None
-            and self.training
+            scheduler is not None and scheduler.spill_manager is not None and self.training
         )
 
         if spill_active:
@@ -360,9 +358,7 @@ class TransformerModel(BaseModule):
         # Activation spilling replaces checkpointing: when spill_manager is active,
         # activations are saved to host memory during forward and prefetched during
         # backward. Checkpointing is disabled to avoid recomputing twice.
-        activation_spill_active = (
-            scheduler is not None and scheduler.spill_manager is not None
-        )
+        activation_spill_active = scheduler is not None and scheduler.spill_manager is not None
         use_layer_checkpointing = (
             self.activation_recompute
             and self.training

@@ -40,9 +40,7 @@ def mock_forward_step(model, data_iterator):
     logits = model(input_ids, labels=None)
     shift_logits = logits[:, :-1, :].contiguous()
     shift_labels = labels[:, 1:].contiguous()
-    return F.cross_entropy(
-        shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-    )
+    return F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
 
 def mock_data_iter():
@@ -56,9 +54,7 @@ def run_benchmark(label, config):
             "ironcore.trainers.base_trainer.get_data_iterator",
             return_value=mock_data_iter(),
         ),
-        patch(
-            "ironcore.trainers.base_trainer.get_evaluators", return_value=[]
-        ),
+        patch("ironcore.trainers.base_trainer.get_evaluators", return_value=[]),
     ):
         trainer = LanguageModelTrainer(config, mock_forward_step, F.cross_entropy)
         trainer._initialize()
@@ -78,7 +74,7 @@ def run_benchmark(label, config):
         gpu_mem = get_memory_usage(in_mib=True)
 
         print(f"\n=== {label} ===")
-        print(f"  Iteration speed:  {avg_iter*1000:.1f} ms/step  ({1/avg_iter:.1f} steps/sec)")
+        print(f"  Iteration speed:  {avg_iter * 1000:.1f} ms/step  ({1 / avg_iter:.1f} steps/sec)")
         print(f"  Loss (last step): {loss:.4f}")
         print(f"  Host RAM RSS:     {host_mem['rss_mb']:.0f} MB")
         print(f"  Host RAM Peak:    {host_mem['peak_rss_mb']:.0f} MB")

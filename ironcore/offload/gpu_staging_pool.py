@@ -246,9 +246,7 @@ class GPUStagingPool:
         finally:
             self.free(tensor)
 
-    def auto_size(
-        self, layer_byte_sizes: list[int], prefetch_layers: int
-    ) -> None:
+    def auto_size(self, layer_byte_sizes: list[int], prefetch_layers: int) -> None:
         """
         Auto-size the pool budget based on registered layer sizes.
 

@@ -68,8 +68,14 @@ print(json.dumps({
 
 
 def run_single(hidden, layers, offload):
-    script = BENCH_SCRIPT.replace("HIDDEN", str(hidden)).replace("LAYERS", str(layers)).replace("OFFLOAD", str(offload))
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    script = (
+        BENCH_SCRIPT.replace("HIDDEN", str(hidden))
+        .replace("LAYERS", str(layers))
+        .replace("OFFLOAD", str(offload))
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
     # Find the JSON line in output
     for line in result.stdout.strip().split("\n"):
         line = line.strip()
@@ -92,8 +98,12 @@ def main():
         (1024, 24, "GPT-2 Medium (~350M)"),
     ]
 
-    print(f"{'Model':<24} {'Params':>8} {'In-VRAM':>12} {'Offloaded':>12} {'Saved':>10} {'Expected':>10} {'% Saved':>8}")
-    print(f"{'':.<24} {'(M)':>8} {'state(MB)':>12} {'state(MB)':>12} {'(MB)':>10} {'(MB)':>10} {'':>8}")
+    print(
+        f"{'Model':<24} {'Params':>8} {'In-VRAM':>12} {'Offloaded':>12} {'Saved':>10} {'Expected':>10} {'% Saved':>8}"
+    )
+    print(
+        f"{'':.<24} {'(M)':>8} {'state(MB)':>12} {'state(MB)':>12} {'(MB)':>10} {'(MB)':>10} {'':>8}"
+    )
     print("-" * 90)
 
     for hidden, layers, label in configs:
@@ -122,7 +132,9 @@ def main():
 def _cuda_available():
     result = subprocess.run(
         [sys.executable, "-c", "import torch; print(torch.cuda.is_available())"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return "True" in result.stdout
 
@@ -130,7 +142,9 @@ def _cuda_available():
 def _get_device_name():
     result = subprocess.run(
         [sys.executable, "-c", "import torch; print(torch.cuda.get_device_name(0))"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return result.stdout.strip()
 

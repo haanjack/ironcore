@@ -7,15 +7,12 @@ import math
 
 import pytest
 import torch
-
 from tests.integration.offload.conftest import (
     get_offload_config,
     run_training_step,
 )
 
-skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
 
 @skip_no_cuda
@@ -26,7 +23,7 @@ class TestWeightStreamingE2E:
         """Training step with weight_offload=True produces valid loss."""
         config = get_offload_config(weight_offload=True)
         loss, trainer = run_training_step(config)
-        assert not math.isnan(loss), f"Loss is NaN"
+        assert not math.isnan(loss), "Loss is NaN"
         assert loss > 0, f"Loss should be positive, got {loss}"
 
     def test_scheduler_attached(self):

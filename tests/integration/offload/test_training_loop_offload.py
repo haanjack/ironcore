@@ -7,15 +7,12 @@ import math
 
 import pytest
 import torch
-
 from tests.integration.offload.conftest import (
     get_offload_config,
     run_training_step,
 )
 
-skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA required"
-)
+skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
 
 @skip_no_cuda
@@ -26,8 +23,8 @@ class TestTrainingLoopOffload:
         """Training step with optimizer_offload=True produces non-NaN loss."""
         config = get_offload_config(optimizer_offload=True)
         loss, trainer = run_training_step(config)
-        assert not math.isnan(loss), f"Loss is NaN"
-        assert not math.isinf(loss), f"Loss is Inf"
+        assert not math.isnan(loss), "Loss is NaN"
+        assert not math.isinf(loss), "Loss is Inf"
         assert loss > 0, f"Loss should be positive, got {loss}"
 
     def test_optimizer_states_on_cpu_after_step(self):
@@ -72,14 +69,15 @@ class TestTrainingLoopOffload:
         from unittest.mock import patch
 
         import torch.nn.functional as F
-        from ironcore.global_vars import reset_global_states
-        from ironcore.trainers import LanguageModelTrainer
         from tests.integration.offload.conftest import (
             create_mock_data_iterator,
             create_mock_evaluators,
             create_mock_forward_step_func,
             setup_distributed,
         )
+
+        from ironcore.global_vars import reset_global_states
+        from ironcore.trainers import LanguageModelTrainer
 
         config = get_offload_config(optimizer_offload=True)
         config.init.seed = 42

@@ -123,12 +123,16 @@ class TileManager:
 
     @classmethod
     def from_config(
-        cls, config: OffloadConfig, pool: PinnedMemoryPool, device: torch.device,
+        cls,
+        config: OffloadConfig,
+        pool: PinnedMemoryPool,
+        device: torch.device,
         gpu_pool: GPUStagingPool | None = None,
     ) -> TileManager:
         """Create a TileManager from OffloadConfig."""
         return cls(
-            pool=pool, device=device,
+            pool=pool,
+            device=device,
             precision=config.weight_storage_precision,
             gpu_pool=gpu_pool,
         )

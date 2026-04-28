@@ -71,3 +71,64 @@ def run_inspect_checkpoint(args: Namespace) -> None:
         print(f"\nWeight differences ({len(diffs)} tensors):")
         for name, d in sorted(diffs.items()):
             print(f"  {name}: max={d['max_abs_diff']:.6e}, mean={d['mean_abs_diff']:.6e}")
+
+
+def _load_state_dict(checkpoint_path: Path) -> dict:
+    """Load state dict from HF or native checkpoint format."""
+    try:
+        from ironcore.checkpointing.hf_interop import load_hf_state_dict
+
+        return load_hf_state_dict(checkpoint_path, device="cpu")
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Try native format
+    latest_file = checkpoint_path / "latest_step.txt"
+    if latest_file.exists():
+        import torch
+
+        with open(latest_file) as f:
+            step = f.read().strip()
+        ckpt_file = checkpoint_path / f"step_{step}" / "pytorch_model.bin"
+        if not ckpt_file.exists():
+            ckpt_file = checkpoint_path / f"step_{step}" / "tp0" / "pytorch_model.bin"
+        if ckpt_file.exists():
+            checkpoint = torch.load(ckpt_file, map_location="cpu", weights_only=True)
+            return checkpoint.get("model_state_dict", {})
+
+    print(f"Error: no recognizable checkpoint at {checkpoint_path}")
+    sys.exit(1)
+
+
+def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
+    """Compare two checkpoint state dicts, computing per-tensor diffs."""
+    compare = Path(compare_path)
+    if not compare.exists():
+        print(f"Error: compare path not found: {compare}")
+        return {}
+
+    state_dict_b = _load_state_dict(compare)
+
+    diffs = {}
+    common_keys = set(state_dict_a.keys()) & set(state_dict_b.keys())
+    for name in common_keys:
+        if state_dict_a[name].shape != state_dict_b[name].shape:
+            print(
+                f"  Skipping {name}: shape mismatch {state_dict_a[name].shape} vs {state_dict_b[name].shape}"
+            )
+            continue
+        # In-place ops on a single float32 copy to reduce peak memory
+        a = state_dict_a[name].float()
+        b = state_dict_b[name].float()
+        a.sub_(b).abs_()
+        diffs[name] = {
+            "max_abs_diff": a.max().item(),
+            "mean_abs_diff": a.mean().item(),
+        }
+
+    only_a = set(state_dict_a.keys()) - set(state_dict_b.keys())
+    only_b = set(state_dict_b.keys()) - set(state_dict_a.keys())
+    diffs["_only_a"] = sorted(only_a)
+    diffs["_only_b"] = sorted(only_b)
+
+    return diffs

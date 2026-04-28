@@ -66,8 +66,7 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
         # Save auxiliary args - move tensors to CPU to free GPU memory
         ctx.aux_args = tuple(
-            a.detach().cpu() if isinstance(a, torch.Tensor) else a
-            for a in aux_args
+            a.detach().cpu() if isinstance(a, torch.Tensor) else a for a in aux_args
         )
 
         # Save RNG state for consistent dropout during recomputation
@@ -94,15 +93,12 @@ class _SpillCheckpointFn(torch.autograd.Function):
             dtype=ctx.activation_dtype,
             device=ctx.activation_device,
         )
-        ctx.scheduler.on_sublayer_backward(
-            ctx.layer_idx, ctx.sub_layer, activation
-        )
+        ctx.scheduler.on_sublayer_backward(ctx.layer_idx, ctx.sub_layer, activation)
         activation.requires_grad_(True)
 
         # Restore auxiliary args to original device
         aux_args = tuple(
-            a.to(ctx.activation_device) if isinstance(a, torch.Tensor) else a
-            for a in ctx.aux_args
+            a.to(ctx.activation_device) if isinstance(a, torch.Tensor) else a for a in ctx.aux_args
         )
         del ctx.aux_args
 
@@ -314,7 +310,9 @@ class ActivationSpillManager:
         self._engine.wait(h2d_handle)
         self._engine.synchronize_with_default_stream()
 
-        self._total_prefetched_bytes += activation.host_tensor.numel() * activation.host_tensor.element_size()
+        self._total_prefetched_bytes += (
+            activation.host_tensor.numel() * activation.host_tensor.element_size()
+        )
 
         # Free-after-consume: return pinned memory to pool
         self._pool.free(activation.host_tensor)
