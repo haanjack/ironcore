@@ -274,11 +274,10 @@ class GPUStagingPool:
             budget = window_sum
             for i in range(count, len(layer_byte_sizes)):
                 window_sum += layer_byte_sizes[i] - layer_byte_sizes[i - count]
-                if window_sum > budget:
-                    budget = window_sum
+                budget = max(budget, window_sum)
 
         self._max_total_bytes = budget
-        self._chunk_bytes = max(self._chunk_bytes, max(layer_byte_sizes))
+        self._chunk_bytes = max(self._chunk_bytes, *layer_byte_sizes)
 
     @property
     def total_allocated_bytes(self) -> int:

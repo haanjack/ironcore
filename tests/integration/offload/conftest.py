@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared fixtures for offload integration tests."""
 
-import math
 import os
 from unittest.mock import patch
 
@@ -11,9 +10,9 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from tests.fixtures.config_fixtures import create_small_test_config
 
 from ironcore.global_vars import reset_global_states
-from tests.fixtures.config_fixtures import create_small_test_config
 
 
 def setup_distributed():
