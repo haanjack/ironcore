@@ -4,6 +4,7 @@
 """Benchmark: iteration speed + memory (VRAM + host RAM) for offload modes."""
 
 import os
+import sys
 import time
 from unittest.mock import patch
 
@@ -11,14 +12,13 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
-import sys
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from tests.fixtures.config_fixtures import create_test_config
 
 from ironcore.global_vars import reset_global_states
 from ironcore.trainers import LanguageModelTrainer
 from ironcore.utils.memory import get_host_memory_usage, get_memory_usage
-from tests.fixtures.config_fixtures import create_test_config
 
 os.environ.setdefault("MASTER_ADDR", "localhost")
 os.environ.setdefault("MASTER_PORT", "29501")

@@ -15,8 +15,9 @@ Tests cover:
 CUDA tests are gated on torch.cuda.is_available().
 """
 
-import pytest
 import threading
+
+import pytest
 import torch
 from torch import nn
 
@@ -24,11 +25,16 @@ from ironcore.offload.config import OffloadConfig
 from ironcore.offload.memory_pool import PinnedMemoryPool
 from ironcore.offload.tile_manager import TileManager
 
+cuda_available = torch.cuda.is_available()
+skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
+
+
 # ---------------------------------------------------------------------------
 # PinnedMemoryPool
 # ---------------------------------------------------------------------------
 
 
+@skip_no_cuda
 class TestPinnedMemoryPool:
     """Test PinnedMemoryPool allocation and free mechanics."""
 
@@ -76,9 +82,6 @@ class TestPinnedMemoryPool:
         pool = PinnedMemoryPool(chunk_bytes=1024)
         assert "PinnedMemoryPool" in repr(pool)
 
-
-cuda_available = torch.cuda.is_available()
-skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
 
 # ---------------------------------------------------------------------------
