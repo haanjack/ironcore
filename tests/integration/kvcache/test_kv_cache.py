@@ -186,6 +186,8 @@ class TestKVCacheTP1:
 class TestKVCacheTP2:
     @pytest.fixture(scope="class")
     def config(self):
+        if int(os.environ.get("WORLD_SIZE", "1")) < 2:
+            pytest.skip("TP=2 requires world_size >= 2")
         cfg = _tp_config(tp_size=2, d_model=512, num_layers=2)
         yield cfg
         _destroy_parallel()
