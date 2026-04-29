@@ -178,7 +178,9 @@ def _compare_checkpoints(state_dict_a: dict, compare_path: str) -> dict:
     common_keys = set(state_dict_a.keys()) & set(state_dict_b.keys())
     for name in common_keys:
         if state_dict_a[name].shape != state_dict_b[name].shape:
-            print(f"  Skipping {name}: shape mismatch {state_dict_a[name].shape} vs {state_dict_b[name].shape}")
+            print(
+                f"  Skipping {name}: shape mismatch {state_dict_a[name].shape} vs {state_dict_b[name].shape}"
+            )
             continue
         # In-place ops on a single float32 copy to reduce peak memory
         a = state_dict_a[name].float()

@@ -64,7 +64,9 @@ def run_profile_mfu(args: Namespace) -> None:
     activation_type = model_config.get("activation_type", "gelu")
 
     # Estimate parameter count
-    num_params = estimate_params(d_model, d_ffn, layers, heads, head_dim, groups, vocab_size, activation_type)
+    num_params = estimate_params(
+        d_model, d_ffn, layers, heads, head_dim, groups, vocab_size, activation_type
+    )
 
     # Extract batch/seq info
     trainer_config = config.get("trainer", {})
