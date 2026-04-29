@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import resource
+import sys
 
 import torch
 
@@ -18,9 +19,8 @@ def get_host_memory_usage() -> dict:
         Dict with 'rss_mb' (current RSS) and 'peak_rss_mb' (peak RSS).
     """
     usage = resource.getrusage(resource.RUSAGE_SELF)
-    # Linux: ru_maxrss is KB. macOS: bytes. Detect via ru_ixrss (0 on Linux).
-    if hasattr(usage, "ru_ixrss") and usage.ru_ixrss == 0:
-        # Likely Linux — ru_maxrss is in KB
+    # Linux: ru_maxrss is KB. macOS: bytes.
+    if sys.platform == "linux":
         peak_kb = usage.ru_maxrss
     else:
         peak_kb = usage.ru_maxrss // 1024

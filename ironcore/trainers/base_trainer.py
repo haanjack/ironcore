@@ -880,7 +880,7 @@ class BaseTrainer(ABC):
         # Offload metrics: log when scheduler is active
         if self._offload_scheduler is not None:
             offload_metrics = self._offload_scheduler.get_metrics()
-            metrics["offload_overhead_ms"] = offload_metrics["offload_overhead_ms"]
+            metrics["step_elapsed_ms"] = offload_metrics["step_elapsed_ms"]
             metrics["h2d_ms"] = offload_metrics["h2d_ms"]
             metrics["d2h_snapshot_ms"] = offload_metrics["d2h_snapshot_ms"]
             metrics["host_pool_used_mb"] = offload_metrics["host_pool_used_mb"]
@@ -944,8 +944,8 @@ class BaseTrainer(ABC):
                 log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:
                     log_msg += f" ({metrics['data_load_ratio'] * 100:.1f}%)"
-            if "offload_overhead_ms" in metrics:
-                log_msg += f", offload: {metrics['offload_overhead_ms']:.1f}ms"
+            if "step_elapsed_ms" in metrics:
+                log_msg += f", step_elapsed: {metrics['step_elapsed_ms']:.1f}ms"
                 log_msg += f" (h2d={metrics['h2d_ms']:.1f}, d2h={metrics['d2h_snapshot_ms']:.1f})"
                 if "host_rss_mb" in metrics:
                     log_msg += f", host_rss: {metrics['host_rss_mb']:.0f}MB"

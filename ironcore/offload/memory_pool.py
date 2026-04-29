@@ -260,23 +260,32 @@ class _PinnedChunk:
 
         offset, num_bytes = self._live_allocations.pop(ptr)
 
-        # Coalesce with adjacent free regions
+        # Coalesce with adjacent free regions. The freed region may bridge
+        # multiple existing free entries, so we iterate until no more merges
+        # are possible (fixed-point) rather than single-pass, which can miss
+        # regions that become adjacent only after the merged span grows.
         merged_start = offset
         merged_end = offset + num_bytes
 
         new_free_list = []
-        for region_start, region_numel in self._free_list:
-            region_end = region_start + region_numel
+        changed = True
+        while changed:
+            changed = False
+            remaining = []
+            for region_start, region_numel in self._free_list:
+                region_end = region_start + region_numel
+                if region_end == merged_start:
+                    merged_start = region_start
+                    changed = True
+                elif region_start == merged_end:
+                    merged_end = region_end
+                    changed = True
+                else:
+                    remaining.append((region_start, region_numel))
+            self._free_list = remaining
+            # Re-run only if we extended and may now touch new neighbors
 
-            if region_end == merged_start:
-                # Adjacent before: extend
-                merged_start = region_start
-            elif region_start == merged_end:
-                # Adjacent after: extend
-                merged_end = region_end
-            else:
-                new_free_list.append((region_start, region_numel))
-
+        new_free_list = self._free_list
         new_free_list.append((merged_start, merged_end - merged_start))
         self._free_list = new_free_list
         return True

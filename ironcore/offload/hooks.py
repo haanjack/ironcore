@@ -238,8 +238,12 @@ class ActivationSpillManager:
         host_tensor = self._pool.allocate(numel, tensor.dtype)
 
         # Submit async D2H transfer
+        # Use reshape(-1) instead of flatten() to avoid silent contiguous copies
+        # on non-contiguous tensors (e.g. from TP slicing)
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
         handle = self._engine.submit_d2h(
-            src=tensor.flatten(),
+            src=tensor.reshape(-1),
             dst=host_tensor,
         )
 
@@ -299,13 +303,15 @@ class ActivationSpillManager:
             activation.transfer_handle = None
 
         # Submit H2D prefetch
-        # Use view(-1) instead of flatten() to avoid silent copies on
-        # non-contiguous tensors (e.g. from TP slicing)
+        # Caller must provide a contiguous GPU buffer; non-contiguous tensors
+        # would require a separate allocation, breaking the caller's contract.
         if not gpu_dst.is_contiguous():
-            gpu_dst = gpu_dst.contiguous()
+            raise ValueError(
+                f"on_sublayer_backward expects a contiguous gpu_dst, got strides={gpu_dst.stride()}"
+            )
         h2d_handle = self._engine.submit_h2d(
             src=activation.host_tensor,
-            dst=gpu_dst.view(-1),
+            dst=gpu_dst.reshape(-1),
         )
         self._engine.wait(h2d_handle)
         self._engine.synchronize_with_default_stream()

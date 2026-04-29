@@ -36,7 +36,7 @@ offload:
 
 After the optimizer step, momentum and variance states are moved to CPU RAM. Before the next step, they are moved back to GPU. Parameters with fewer than `optimizer_min_param_elements` (default 65536) elements stay on GPU (not worth the transfer overhead).
 
-Only fp32 precision is supported for M1 states.
+M1 supports fp32, fp16, and bf16 precision for optimizer states via `optimizer_state_precision` (default: fp32). Lower precision reduces RAM usage and PCIe bandwidth but may affect training stability for AdamW.
 
 ## M2: Weight streaming
 
@@ -63,10 +63,10 @@ This means only `(weight_prefetch_layers + 1)` layers' worth of GPU staging memo
 The pool capacity is auto-sized by default. After all layers register their weights, the scheduler computes:
 
 ```
-budget = max_layer_bytes * (weight_prefetch_layers + 1)
+budget = max(sum of consecutive layer_bytes[i:i+prefetch_layers+1])
 ```
 
-where `max_layer_bytes` is the largest single layer's total parameter bytes. Chunk size is also auto-sized to at least one layer's worth of bytes, so each layer fits in a single chunk.
+This sliding-window approach finds the largest sum of `weight_prefetch_layers + 1` consecutive layers, which accounts for varying layer sizes (e.g., MoE layers with larger expert parameters). Chunk size is also auto-sized to at least the largest single layer's bytes, so each layer fits in a single chunk.
 
 **Manual override** via config:
 
@@ -105,9 +105,7 @@ When enabled, intermediate activations are spilled to CPU at sub-layer boundarie
 
 Replaces activation checkpointing. Enabling `activation_spill: true` automatically disables `activation_recompute` with a warning.
 
-Granularity options:
-- `sub_layer` (default): Spill at attention/MLP boundaries. Lower host memory, more transfers.
-- `full_layer`: Spill full layer activations. Higher host memory, fewer transfers.
+Granularity: `sub_layer` (default and only option). Spills at attention/MLP boundaries for lower host memory usage.
 
 ## Memory pools
 

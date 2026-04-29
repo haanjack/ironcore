@@ -105,6 +105,7 @@ class ExecutionScheduler:
         self._prefetch_layers = prefetch_layers
         self._device = device or torch.device("cuda")
         self._spill_manager = spill_manager
+        self._activation_spill_granularity: str = "sub_layer"
         self._gpu_pool = gpu_pool
 
         # Populated during init
@@ -183,10 +184,10 @@ class ExecutionScheduler:
         engine = MemoryTransferEngine.from_config(config, device)
 
         gpu_pool = None
+        tile_manager = None
         if config.weight_offload:
             gpu_pool = GPUStagingPool.from_config(config, device)
-
-        tile_manager = TileManager.from_config(config, pool, device, gpu_pool=gpu_pool)
+            tile_manager = TileManager.from_config(config, pool, device, gpu_pool=gpu_pool)
 
         # M3: Create activation spill manager if enabled
         spill_manager = None
@@ -212,8 +213,13 @@ class ExecutionScheduler:
             spill_manager=spill_manager,
             gpu_pool=gpu_pool,
         )
-        scheduler._register_all_layers()
+        if config.weight_offload:
+            scheduler._register_all_layers()
+        else:
+            # Spill-only mode: still need layer count for lifecycle hooks
+            scheduler._set_num_layers(model)
         scheduler._propagate_to_layers()
+        scheduler._activation_spill_granularity = config.activation_spill_granularity
 
         # Auto-size GPU pool based on registered layer sizes
         if gpu_pool is not None:
@@ -233,8 +239,8 @@ class ExecutionScheduler:
             )
             return
 
+        self._set_num_layers(self._model)
         layers = self._model.layers
-        self._num_layers = len(layers)
 
         logger = _get_logger()
         total_params = 0
@@ -258,6 +264,13 @@ class ExecutionScheduler:
             f"prefetch_ahead={self._prefetch_layers}, "
             f"pool={self._pool}"
         )
+
+    def _set_num_layers(self, model: nn.Module) -> None:
+        """Set _num_layers from the model (used for spill-only mode too)."""
+        from ironcore.models.transformer import TransformerModel
+
+        if isinstance(model, TransformerModel):
+            self._num_layers = len(model.layers)
 
     def _propagate_to_layers(self) -> None:
         """Attach scheduler reference to each TransformerLayer for in-forward hooks."""
@@ -507,7 +520,7 @@ class ExecutionScheduler:
         """Return per-step offload timing and memory metrics.
 
         Returns dict with:
-          - offload_overhead_ms: total wall time spent in offload operations
+          - step_elapsed_ms: total wall time since on_training_step_start
           - h2d_ms: time issuing H2D transfers (prefetch)
           - d2h_snapshot_ms: time snapshotting updated params back to host
           - prefetch_wait_ms: time waiting for prefetch transfers to complete
@@ -516,7 +529,7 @@ class ExecutionScheduler:
         """
         step_elapsed = time.monotonic() - self._step_start if self._step_start > 0 else 0.0
         return {
-            "offload_overhead_ms": step_elapsed * 1000,
+            "step_elapsed_ms": step_elapsed * 1000,
             "h2d_ms": self._h2d_time * 1000,
             "d2h_snapshot_ms": self._snapshot_time * 1000,
             "prefetch_wait_ms": self._prefetch_wait_time * 1000,
@@ -539,11 +552,13 @@ class ExecutionScheduler:
         """
         self._engine.synchronize()
 
-        # Free GPU staging buffers
+        # Free GPU staging buffers and return host allocations to pool
         for group in self._weight_groups.values():
             for tile in group.tiles:
                 if tile.gpu_tensor is not None and self._gpu_pool is not None:
                     self._gpu_pool.free(tile.gpu_tensor)
+                if tile.host_tensor is not None:
+                    self._pool.free(tile.host_tensor)
                 tile.gpu_tensor = None  # type: ignore[assignment]
                 tile.host_tensor = None  # type: ignore[assignment]
                 tile.transfer_handle = None

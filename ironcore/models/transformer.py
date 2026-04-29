@@ -139,6 +139,19 @@ class TransformerLayer(BaseModule):
         mlp_output = self.mlp(norm_output)
         return norm_input + mlp_output
 
+    def _full_layer_subblock(
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        position_ids=None,
+    ):
+        """Full layer block: attention + MLP, for full_layer spill granularity."""
+        norm_input = self._attention_subblock(
+            hidden_states, attention_mask, rotary_pos_emb, position_ids
+        )
+        return self._mlp_subblock(norm_input)
+
     def custom_forward(
         self,
         hidden_states,
@@ -163,26 +176,40 @@ class TransformerLayer(BaseModule):
         if spill_active:
             from ironcore.offload.hooks import _SpillCheckpointFn
 
-            # Sub-block 1: Attention (spills hidden_states as sub_layer=0)
-            norm_input = _SpillCheckpointFn.apply(
-                self._attention_subblock,
-                scheduler,
-                self.layer_idx,
-                0,
-                hidden_states,
-                attention_mask,
-                rotary_pos_emb,
-                position_ids,
-            )
-            # Sub-block 2: MLP (spills norm_input as sub_layer=1)
-            output = _SpillCheckpointFn.apply(
-                self._mlp_subblock,
-                scheduler,
-                self.layer_idx,
-                1,
-                norm_input,
-            )
-            return output
+            if getattr(scheduler, "_activation_spill_granularity", "sub_layer") == "full_layer":
+                # Full layer: single spill wrapping attention + MLP
+                return _SpillCheckpointFn.apply(
+                    self._full_layer_subblock,
+                    scheduler,
+                    self.layer_idx,
+                    0,
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    position_ids,
+                )
+            else:
+                # Sub-layer: two spills at attention/MLP boundaries
+                # Sub-block 1: Attention (spills hidden_states as sub_layer=0)
+                norm_input = _SpillCheckpointFn.apply(
+                    self._attention_subblock,
+                    scheduler,
+                    self.layer_idx,
+                    0,
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    position_ids,
+                )
+                # Sub-block 2: MLP (spills norm_input as sub_layer=1)
+                output = _SpillCheckpointFn.apply(
+                    self._mlp_subblock,
+                    scheduler,
+                    self.layer_idx,
+                    1,
+                    norm_input,
+                )
+                return output
 
         # Standard forward path (no spilling)
         batch_size = hidden_states.size(0)

@@ -340,6 +340,38 @@ class TestSchedulerActivationSpill:
         # Should still work (no crash from checkpoint + spill conflict)
         assert output.shape[0] == 1
 
+    def test_full_layer_granularity_spills(self):
+        """full_layer granularity should spill 1 activation per layer."""
+        from ironcore.offload.scheduler import ExecutionScheduler
+
+        model, config = self._make_simple_model()
+        config.offload.activation_spill_granularity = "full_layer"
+
+        scheduler = ExecutionScheduler.from_model(
+            model=model,
+            config=config.offload,
+            device=torch.device("cuda:0"),
+        )
+        assert scheduler is not None
+        assert scheduler._activation_spill_granularity == "full_layer"
+
+        # Attach scheduler to model (normally done by trainer)
+        model._offload_scheduler = scheduler
+
+        scheduler.on_microbatch_forward_start(0)
+
+        device = torch.device("cuda:0")
+        hidden = torch.randn(1, 4, 512, device=device, dtype=torch.bfloat16)
+        mask = torch.ones(1, 1, 4, 4, device=device)
+
+        with torch.no_grad():
+            model(hidden, mask, None)
+
+        scheduler.on_microbatch_forward_end()
+
+        # 2 layers * 1 sub-layer = 2 spilled activations (vs 4 for sub_layer)
+        assert scheduler.spill_manager.pending_count == 2
+
 
 # ---------------------------------------------------------------------------
 # Config validation
@@ -367,6 +399,16 @@ class TestActivationSpillConfigValidation:
         config.offload.activation_spill_granularity = "per_token"
         with pytest.raises(ValueError, match="must be 'sub_layer' or 'full_layer'"):
             _config_validation(config)
+
+    def test_full_layer_granularity_accepted(self):
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.activation_spill = True
+        config.offload.activation_spill_granularity = "full_layer"
+        _config_validation(config)  # should not raise
+        assert config.offload.activation_spill_granularity == "full_layer"
 
     def test_spill_auto_disables_recompute(self):
         """activation_spill=true auto-disables activation_recompute."""

@@ -85,7 +85,7 @@ def run_benchmark(label, config):
 
         if trainer._offload_scheduler is not None:
             m = trainer._offload_scheduler.get_metrics()
-            print(f"  Offload overhead: {m['offload_overhead_ms']:.1f} ms")
+            print(f"  Step elapsed:     {m['step_elapsed_ms']:.1f} ms")
             print(f"  H2D prefetch:     {m['h2d_ms']:.1f} ms")
             print(f"  D2H snapshot:     {m['d2h_snapshot_ms']:.1f} ms")
             print(f"  Host pool used:   {m['host_pool_used_mb']:.1f} MB")

@@ -73,16 +73,22 @@ def _adamw_offloaded_step(
 
     # H2D: bring states to GPU for the update
     gpu_device = p.data.device
-    exp_avg = state["exp_avg"].to(gpu_device, non_blocking=False)
-    exp_avg_sq = state["exp_avg_sq"].to(gpu_device, non_blocking=False)
+    # Cast to float32 for accumulation stability (Issue #2 fix)
+    exp_avg = state["exp_avg"].to(device=gpu_device, dtype=torch.float32, non_blocking=False)
+    exp_avg_sq = state["exp_avg_sq"].to(device=gpu_device, dtype=torch.float32, non_blocking=False)
     max_exp_avg_sq = None
     if amsgrad:
-        max_exp_avg_sq = state["max_exp_avg_sq"].to(gpu_device, non_blocking=False)
+        max_exp_avg_sq = state["max_exp_avg_sq"].to(
+            device=gpu_device, dtype=torch.float32, non_blocking=False
+        )
 
     try:
-        # Standard AdamW math (same as in-VRAM path)
-        exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
-        exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+        # Standard AdamW math (same as in-VRAM path) in float32
+        # Use a float32 copy of gradient for accumulation if needed
+        grad_f32 = grad.to(torch.float32)
+
+        exp_avg.mul_(beta1).add_(grad_f32, alpha=1 - beta1)
+        exp_avg_sq.mul_(beta2).addcmul_(grad_f32, grad_f32, value=1 - beta2)
 
         if amsgrad and max_exp_avg_sq is not None:
             torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
@@ -97,12 +103,14 @@ def _adamw_offloaded_step(
         if weight_decay != 0:
             p.data.mul_(1 - lr * weight_decay)
 
-        p.data.addcdiv_(exp_avg, denom, value=-step_size)
+        # Cast exp_avg/denom back to p.dtype for final update if p is not float32
+        p.data.addcdiv_(exp_avg.to(p.dtype), denom.to(p.dtype), value=-step_size)
 
     finally:
-        # D2H: always write states back to host, even on error.
-        # Prevents GPU memory leaks when M2+ pinned pool is in use.
-        state["exp_avg"] = exp_avg.to("cpu", non_blocking=False)
-        state["exp_avg_sq"] = exp_avg_sq.to("cpu", non_blocking=False)
+        # D2H: write states back to host in storage dtype
+        state["exp_avg"] = exp_avg.to(device="cpu", dtype=state_dtype, non_blocking=False)
+        state["exp_avg_sq"] = exp_avg_sq.to(device="cpu", dtype=state_dtype, non_blocking=False)
         if amsgrad and max_exp_avg_sq is not None:
-            state["max_exp_avg_sq"] = max_exp_avg_sq.to("cpu", non_blocking=False)
+            state["max_exp_avg_sq"] = max_exp_avg_sq.to(
+                device="cpu", dtype=state_dtype, non_blocking=False
+            )
