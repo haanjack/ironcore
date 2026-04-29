@@ -58,6 +58,8 @@ ironcore/
 ├── checkpointing/   # Native and HuggingFace-interop save/load
 ├── dataloader/      # Pretrain/SFT/FIM/DPO/GRPO dataset and collator
 ├── eval/            # Perplexity and HellaSwag evaluators
+├── preprocessing/   # Data serialization (bin packing, tokenization pipelines)
+├── tokenizer/       # BBPE and tiktoken tokenizer implementations
 ├── utils/           # mfu.py, memory.py, timer.py, device.py, config.py, profiling.py
 └── cli/             # 15 CLI subcommands (train, generate, export, config-check, etc.)
 ```
