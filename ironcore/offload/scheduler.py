@@ -60,12 +60,11 @@ def _collect_layer_params(layer: nn.Module) -> list[nn.Parameter]:
     streamed. Excludes:
       - Parameters with offloadable=False (LoRA adapters)
       - Buffers (not parameters)
-      - Parameters already on CPU (shouldn't happen, but defensive)
     """
     params = []
     for module in layer.modules():
         for param in module.parameters(recurse=False):
-            if _is_offloadable_param(param) and param.device.type == "cuda":
+            if _is_offloadable_param(param):
                 params.append(param)
     return params
 
@@ -333,8 +332,7 @@ class ExecutionScheduler:
         Called before layer `layer_idx` executes in the forward pass.
 
         Waits for this layer's weight transfer to complete, applies weights
-        to parameters via in-place .data copy, then prefetches the next
-        layers.
+        to parameters, then prefetches the next layers.
         """
         group = self._weight_groups.get(layer_idx)
         if group is None:
@@ -355,12 +353,16 @@ class ExecutionScheduler:
         # Ensure default stream sees the transferred data
         self._engine.synchronize_with_default_stream()
 
-        # Apply weights to parameters
+        # Apply weights to parameters (swaps CPU param.data for GPU staging
+        # buffer when params are on CPU, or copies in-place when on GPU)
         self._tile_manager.apply_tiles_to_params(group)
         self._layer_on_gpu.add(layer_idx)
 
-        # Return staging buffers to pool -- content is now in param.data
-        if self._gpu_pool is not None:
+        # Note: GPU staging buffers are NOT returned here when params are on
+        # CPU, because param.data IS the staging buffer. They are returned
+        # during eviction (on_layer_end / on_backward_layer_end).
+        # For GPU-resident params, return staging buffers immediately.
+        if self._spill_manager is None and self._gpu_pool is not None:
             self._tile_manager.return_gpu_buffers(group)
 
         # Prefetch next layers
@@ -375,18 +377,28 @@ class ExecutionScheduler:
         """
         Called after layer `layer_idx` completes in the forward pass.
 
-        For training: weights stay on GPU for the backward pass.
-        Eviction happens after the backward pass completes.
+        With M2+M3: weights can be evicted because _SpillCheckpointFn.forward()
+        uses torch.no_grad(), so no weight references are saved in the autograd
+        graph. Weights will be re-loaded during backward recomputation.
+
+        Without M3: weights must stay on GPU for backward.
         """
-        pass
+        if self._spill_manager is None:
+            return
+
+        group = self._weight_groups.get(layer_idx)
+        if group is None:
+            return
+
+        self._evict_layer_weights(group)
+        self._layer_on_gpu.discard(layer_idx)
 
     def on_backward_layer_start(self, layer_idx: int) -> None:
         """
         Called before layer `layer_idx` during backward pass.
 
-        For activation checkpointing: weights may have been evicted and need
-        to be reloaded for recomputation. For standard backward: weights
-        should already be on GPU.
+        For M2+M3: weights may have been evicted and need to be reloaded for
+        recomputation. For standard backward: weights should already be on GPU.
         """
         group = self._weight_groups.get(layer_idx)
         if group is None:
@@ -407,14 +419,16 @@ class ExecutionScheduler:
         """
         Called after layer `layer_idx` during backward pass.
 
-        Weights are no longer needed for this step. Evict from GPU by
-        clearing the GPU staging buffers (they'll be refilled next step).
+        With M2+M3: evicts weights from GPU (moved to CPU), freeing VRAM.
+        Without M3: marks as evicted but doesn't free GPU memory.
         """
         group = self._weight_groups.get(layer_idx)
         if group is None:
             return
 
-        # Mark as evicted
+        if self._spill_manager is not None:
+            self._evict_layer_weights(group)
+
         self._layer_on_gpu.discard(layer_idx)
 
     def on_backward_pass_end(self) -> None:
@@ -479,7 +493,43 @@ class ExecutionScheduler:
         """Access the activation spill manager (None if not enabled)."""
         return self._spill_manager
 
+    @property
+    def weight_streaming_enabled(self) -> bool:
+        """Whether per-layer weight streaming is active (has registered weight groups)."""
+        return bool(self._weight_groups)
+
     # --- Internal methods ---
+
+    def _evict_layer_weights(self, group: WeightGroup, *, snapshot: bool = False) -> None:
+        """Evict a layer's weights from GPU back to host pinned memory.
+
+        Replaces param.data with host tile values and returns GPU staging buffers
+        to the pool. When *snapshot* is True, also copies the current GPU param
+        values back to host tiles (only needed after optimizer step).
+        """
+        for tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
+            if param.device.type == "cuda":
+                flat_param = param.data.flatten()
+                if not flat_param.is_contiguous():
+                    flat_param = flat_param.contiguous()
+                if snapshot:
+                    if tile.storage_dtype == param.dtype:
+                        tile.host_tensor[: flat_param.numel()].copy_(flat_param)
+                    else:
+                        tile.host_tensor[: flat_param.numel()].copy_(
+                            flat_param.to(tile.storage_dtype)
+                        )
+                # Replace param.data with host tile values (optimizer reads these)
+                param.data = (
+                    tile.host_tensor[: flat_param.numel()].to(param.dtype).view(param.shape).clone()
+                )
+                # Move gradient to CPU for optimizer step
+                if param.grad is not None and param.grad.device.type == "cuda":
+                    param.grad = param.grad.cpu()
+            # Return GPU staging buffer to pool
+            if tile.gpu_tensor is not None and self._gpu_pool is not None:
+                self._gpu_pool.free(tile.gpu_tensor)
+                tile.gpu_tensor = None
 
     def _prefetch_layer(self, layer_idx: int) -> None:
         """Issue async H2D transfer for a layer's weights."""

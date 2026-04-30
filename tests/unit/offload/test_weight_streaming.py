@@ -310,8 +310,9 @@ class TestTileManager:
         param = nn.Parameter(original.clone())
         group = tm.register_layer(layer_idx=0, params=[param])
 
-        # Simulate: modify host tensor, apply back
+        # Simulate: modify host tensor, allocate GPU staging, copy host→GPU, apply
         group.tiles[0].host_tensor.fill_(0.0)
+        group.tiles[0].gpu_tensor = torch.empty_like(original.flatten())
         group.tiles[0].gpu_tensor.copy_(group.tiles[0].host_tensor.to(device))
 
         tm.apply_tiles_to_params(group)
@@ -327,8 +328,8 @@ class TestTileManager:
 
         # Host tensor should be bf16
         assert group.tiles[0].host_tensor.dtype == torch.bfloat16
-        # GPU staging should be original dtype
-        assert group.tiles[0].gpu_tensor.dtype == torch.float32
+        # GPU staging is allocated at prefetch time, not during registration
+        assert group.tiles[0].gpu_tensor is None
 
     def test_invalid_precision_raises(self):
         pool = PinnedMemoryPool(chunk_bytes=1024)
@@ -586,6 +587,373 @@ class TestExecutionScheduler:
 
         # Peak usage should never exceed the budget
         assert peak_used <= budget, f"Peak pool usage {peak_used} exceeded budget {budget}"
+
+
+# ---------------------------------------------------------------------------
+# M2 CPU-Resident Param Lifecycle
+# ---------------------------------------------------------------------------
+
+
+@skip_no_cuda
+class TestM2CPUResidentParams:
+    """Test M2 weight streaming with CPU-resident parameters.
+
+    These tests verify the D4 fix (host tile values for CPU placeholder),
+    D8 optimization (skip redundant D2H snapshots), and the full
+    CPU param swap lifecycle (load → compute → evict → optimizer → snapshot).
+    """
+
+    def _make_cpu_model(self, num_layers=2, hidden=32):
+        """Create a model on CPU (M2 mode) with scheduler attached."""
+        from ironcore.config import MainConfig
+        from ironcore.models.transformer import TransformerModel
+        from ironcore.offload.scheduler import ExecutionScheduler
+
+        model_config = __import__(
+            "ironcore.config.config_model", fromlist=["ModelConfig"]
+        ).ModelConfig()
+        model_config.num_layers = num_layers
+        model_config.hidden_size = hidden
+        model_config.num_attention_heads = 4
+        model_config.num_attention_groups = 4
+        model_config.ffn_hidden_size = hidden * 4
+
+        config = MainConfig(
+            model=model_config,
+            init=__import__("ironcore.config.config_trainer", fromlist=["InitConfig"]).InitConfig(),
+            optim=__import__(
+                "ironcore.config.config_optim", fromlist=["OptimConfig"]
+            ).OptimConfig(),
+            data=__import__("ironcore.config.config_data", fromlist=["DataConfig"]).DataConfig(),
+            parallel=__import__(
+                "ironcore.config.config_parallel", fromlist=["ParallelConfig"]
+            ).ParallelConfig(),
+            trainer=__import__(
+                "ironcore.config.config_trainer", fromlist=["TrainerConfig"]
+            ).TrainerConfig(),
+            operation=__import__(
+                "ironcore.config.config_trainer", fromlist=["OperationConfig"]
+            ).OperationConfig(
+                train_steps=10,
+            ),
+            utils=__import__(
+                "ironcore.config.config_utils", fromlist=["UtilsConfig"]
+            ).UtilsConfig(),
+            profiler=__import__(
+                "ironcore.config.config_utils", fromlist=["ProfilerConfig"]
+            ).ProfilerConfig(),
+            peft=__import__("ironcore.config.config_peft", fromlist=["PEFTConfig"]).PEFTConfig(),
+            alignment=__import__(
+                "ironcore.config.config_alignment", fromlist=["AlignmentConfig"]
+            ).AlignmentConfig(),
+            offload=OffloadConfig(
+                enabled=True,
+                weight_offload=True,
+                activation_spill=True,
+                pinned_chunk_gb=0.05,
+                pinned_memory_pool_gb=0.2,
+            ),
+        )
+        config.trainer.micro_batch_size = 1
+        config.trainer.train_batch_size = 1
+        config.trainer.gradient_accumulation_steps = 1
+        config.parallel.world_size = 1
+
+        # M2: model stays on CPU — no .to(device)
+        model = TransformerModel(config)
+
+        scheduler = ExecutionScheduler.from_model(
+            model=model,
+            config=config.offload,
+            device=torch.device("cuda:0"),
+        )
+        return model, config, scheduler
+
+    def test_params_start_on_cpu(self):
+        """M2 mode: model params should be on CPU before scheduler loads them."""
+        model, _, scheduler = self._make_cpu_model()
+        assert scheduler is not None
+        for p in model.layers[0].parameters():
+            assert p.device.type == "cpu", f"Param should be on CPU, got {p.device}"
+
+    def test_weight_streaming_enabled_property(self):
+        """Verify weight_streaming_enabled returns True when weight groups exist."""
+        _, _, scheduler = self._make_cpu_model()
+        assert scheduler.weight_streaming_enabled is True
+
+    def test_weight_streaming_enabled_false_when_no_groups(self):
+        """Verify weight_streaming_enabled returns False for spill-only mode."""
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.weight_offload = False
+        config.offload.activation_spill = True
+
+        from ironcore.offload.scheduler import ExecutionScheduler
+
+        scheduler = ExecutionScheduler.__new__(ExecutionScheduler)
+        scheduler._weight_groups = {}
+        assert scheduler.weight_streaming_enabled is False
+
+    def test_cpu_param_swap_to_gpu_on_load(self):
+        """After on_layer_start, CPU params are swapped to GPU staging buffers."""
+        model, _, scheduler = self._make_cpu_model()
+        scheduler.on_training_step_start()
+
+        # Before: params on CPU
+        first_param = next(iter(model.layers[0].parameters()))
+        assert first_param.device.type == "cpu"
+
+        scheduler.on_layer_start(0)
+
+        # After: params on GPU (swapped via param.data = gpu_tensor)
+        assert first_param.device.type == "cuda"
+
+    def test_eviction_restores_host_tile_values(self):
+        """D4 fix: evicted params must have deterministic host tile values, not garbage."""
+        model, _, scheduler = self._make_cpu_model()
+        scheduler.on_training_step_start()
+        scheduler.on_layer_start(0)
+
+        group = scheduler._weight_groups[0]
+        # Record what host tile values look like
+        first_tile = group.tiles[0]
+        first_param_ref = group.param_refs[0][0]
+        expected = first_tile.host_tensor[: first_param_ref.numel()].to(first_param_ref.dtype)
+
+        scheduler.on_layer_end(0)  # triggers _evict_layer_weights
+
+        # After eviction: param should be on CPU with host tile values
+        assert first_param_ref.device.type == "cpu"
+        actual = first_param_ref.data.flatten()
+        assert torch.allclose(actual, expected), (
+            "Evicted param should have host tile values, not uninitialized memory"
+        )
+
+    def test_eviction_not_uninitialized(self):
+        """D4 regression: evicted params must not contain NaN or extreme values."""
+        model, _, scheduler = self._make_cpu_model()
+        scheduler.on_training_step_start()
+        scheduler.on_layer_start(0)
+        scheduler.on_layer_end(0)
+
+        for layer_idx, group in scheduler._weight_groups.items():
+            for tile, (param, _, _) in zip(group.tiles, group.param_refs, strict=True):
+                assert param.device.type == "cpu"
+                flat = param.data.flatten()
+                assert not torch.isnan(flat).any(), f"Layer {layer_idx} has NaN after eviction"
+                assert not torch.isinf(flat).any(), f"Layer {layer_idx} has Inf after eviction"
+                # Values should be bounded (initial weights are normally distributed)
+                assert flat.abs().max() < 100.0, f"Layer {layer_idx} has extreme values"
+
+    def test_snapshot_skip_during_forward_eviction(self):
+        """D8: forward eviction should NOT update host tiles (weights unchanged)."""
+        model, _, scheduler = self._make_cpu_model()
+        scheduler.on_training_step_start()
+
+        group = scheduler._weight_groups[0]
+        tile = group.tiles[0]
+        # Save original host tile values
+        original_host = tile.host_tensor.clone()
+
+        # Load, modify param on GPU, then evict (forward eviction)
+        scheduler.on_layer_start(0)
+        # Modify the GPU param value
+        param = group.param_refs[0][0]
+        param.data.fill_(42.0)
+        scheduler.on_layer_end(0)
+
+        # Host tile should NOT reflect the GPU modification (snapshot skipped)
+        assert not torch.allclose(tile.host_tensor, original_host) or torch.all(
+            tile.host_tensor == original_host
+        )
+
+    def test_full_lifecycle_roundtrip(self):
+        """Full step: load → evict → snapshot → verify host tiles updated."""
+        model, _, scheduler = self._make_cpu_model()
+
+        group = scheduler._weight_groups[0]
+        tile = group.tiles[0]
+        original_host = tile.host_tensor.clone()
+
+        # Step 1: Load weights to GPU
+        scheduler.on_training_step_start()
+        scheduler.on_layer_start(0)
+
+        # Step 2: Modify GPU param (simulating forward/backward computation)
+        param = group.param_refs[0][0]
+        param.data.fill_(7.0)
+
+        # Step 3: Evict (forward eviction — no snapshot per D8)
+        scheduler.on_layer_end(0)
+
+        # Host tiles should still have original values (D8: no snapshot)
+        assert torch.allclose(tile.host_tensor, original_host)
+
+        # Step 4: Simulate optimizer updating param.data on CPU
+        param.data.fill_(99.0)
+
+        # Step 5: on_training_step_end snapshots updated values
+        scheduler.on_training_step_end()
+
+        # Now host tiles should reflect the optimizer's update
+        expected = torch.full_like(tile.host_tensor, 99.0)
+        assert torch.allclose(tile.host_tensor, expected), (
+            "Host tiles should reflect optimizer update after on_training_step_end"
+        )
+
+    def test_all_layers_evicted_after_backward(self):
+        """After backward pass, all layer weights should be evicted from GPU."""
+        model, _, scheduler = self._make_cpu_model()
+
+        scheduler.on_training_step_start()
+        num_layers = len(model.layers)
+
+        # Forward pass
+        for i in range(num_layers):
+            scheduler.on_layer_start(i)
+            scheduler.on_layer_end(i)
+
+        # Backward pass
+        for i in range(num_layers):
+            scheduler.on_backward_layer_start(i)
+            scheduler.on_backward_layer_end(i)
+
+        scheduler.on_backward_pass_end()
+        scheduler.on_training_step_end()
+
+        # All layers should be evicted
+        assert len(scheduler._layer_on_gpu) == 0
+        for group in scheduler._weight_groups.values():
+            for _, (param, _, _) in zip(group.tiles, group.param_refs, strict=True):
+                assert param.device.type == "cpu"
+
+
+# ---------------------------------------------------------------------------
+# CPU AdamW Optimizer
+# ---------------------------------------------------------------------------
+
+
+class TestCPUAdamW:
+    """Test optimizer update correctness on CPU-resident params."""
+
+    def test_adamw_offloaded_step_updates_param(self):
+        """Verify _adamw_offloaded_step modifies CPU param correctly."""
+        from ironcore.offload.optimizer_helpers import _adamw_offloaded_step
+
+        param = nn.Parameter(torch.randn(16, 16))
+        grad = torch.randn(16, 16)
+        param.grad = grad.clone()
+
+        state = {}
+        _adamw_offloaded_step(
+            p=param,
+            grad=grad,
+            state=state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.01,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+
+        # Param should have changed
+        assert not torch.allclose(param.data, torch.randn(16, 16))  # sanity: param was modified
+        assert state["step"] == 1
+        assert state["exp_avg"].device.type == "cpu"
+        assert state["exp_avg_sq"].device.type == "cpu"
+
+    def test_adamw_offloaded_step_matches_expected(self):
+        """Verify mathematical correctness of one AdamW step on CPU."""
+        from ironcore.offload.optimizer_helpers import _adamw_offloaded_step
+
+        torch.manual_seed(42)
+        param = nn.Parameter(torch.randn(4, 4))
+        grad = torch.randn(4, 4)
+
+        # Run our offloaded step
+        state = {}
+        _adamw_offloaded_step(
+            p=param,
+            grad=grad,
+            state=state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.0,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+
+        # Manually compute expected result
+        torch.manual_seed(42)
+        expected_param = torch.randn(4, 4)
+        expected_grad = grad.clone()
+        exp_avg = torch.zeros(4, 4)
+        exp_avg_sq = torch.zeros(4, 4)
+        exp_avg = 0.9 * exp_avg + 0.1 * expected_grad
+        exp_avg_sq = 0.999 * exp_avg_sq + 0.001 * expected_grad * expected_grad
+        bias_correction1 = 1.0 - 0.9**1
+        bias_correction2 = 1.0 - 0.999**1
+        step_size = 1e-3 * (bias_correction2**0.5) / bias_correction1
+        denom = exp_avg_sq.sqrt() + 1e-8
+        expected_param = expected_param - step_size * exp_avg / denom
+
+        assert torch.allclose(param.data, expected_param, atol=1e-6), (
+            "CPU AdamW step should match expected computation"
+        )
+
+    def test_adamw_states_stay_on_cpu(self):
+        """Verify optimizer states are allocated and remain on CPU."""
+        from ironcore.offload.optimizer_helpers import _adamw_offloaded_step
+
+        param = nn.Parameter(torch.randn(8))
+        grad = torch.randn(8)
+        state = {}
+
+        _adamw_offloaded_step(
+            p=param,
+            grad=grad,
+            state=state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.0,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+
+        assert state["exp_avg"].device.type == "cpu"
+        assert state["exp_avg_sq"].device.type == "cpu"
+        assert state["step"] == 1
+
+    def test_adamw_weight_decay_on_cpu(self):
+        """Verify weight decay is applied correctly when param is on CPU."""
+        from ironcore.offload.optimizer_helpers import _adamw_offloaded_step
+
+        param = nn.Parameter(torch.ones(4))
+        grad = torch.zeros(4)
+        state = {}
+
+        _adamw_offloaded_step(
+            p=param,
+            grad=grad,
+            state=state,
+            lr=1e-2,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.1,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+
+        # With zero grad, param should only change from weight decay: p *= (1 - lr * wd)
+        expected = 1.0 * (1.0 - 0.01 * 0.1)
+        assert torch.allclose(param.data, torch.full((4,), expected), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------

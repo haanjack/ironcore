@@ -71,15 +71,19 @@ def _adamw_offloaded_step(
 
     state["step"] += 1
 
-    # H2D: bring states to GPU for the update
-    gpu_device = p.data.device
+    # Bring states to the param's device for the update (CPU when M2 weight
+    # streaming is active, GPU otherwise). The .to() is a no-op when already
+    # on the target device.
+    compute_device = p.data.device
     # Cast to float32 for accumulation stability (Issue #2 fix)
-    exp_avg = state["exp_avg"].to(device=gpu_device, dtype=torch.float32, non_blocking=False)
-    exp_avg_sq = state["exp_avg_sq"].to(device=gpu_device, dtype=torch.float32, non_blocking=False)
+    exp_avg = state["exp_avg"].to(device=compute_device, dtype=torch.float32, non_blocking=False)
+    exp_avg_sq = state["exp_avg_sq"].to(
+        device=compute_device, dtype=torch.float32, non_blocking=False
+    )
     max_exp_avg_sq = None
     if amsgrad:
         max_exp_avg_sq = state["max_exp_avg_sq"].to(
-            device=gpu_device, dtype=torch.float32, non_blocking=False
+            device=compute_device, dtype=torch.float32, non_blocking=False
         )
 
     try:

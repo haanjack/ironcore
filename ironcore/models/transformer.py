@@ -396,6 +396,19 @@ class TransformerModel(BaseModule):
             and not activation_spill_active
         )
 
+        # Weight streaming: model stays on CPU but scheduler loads weights to GPU
+        # per-layer. Move hidden_states (and related tensors) to GPU for computation.
+        original_device = hidden_states.device
+        weight_streaming = scheduler is not None and scheduler.weight_streaming_enabled
+        if weight_streaming:
+            hidden_states = hidden_states.to("cuda")
+            if attention_mask is not None:
+                attention_mask = attention_mask.to("cuda")
+            if rotary_pos_emb is not None and isinstance(rotary_pos_emb, torch.Tensor):
+                rotary_pos_emb = rotary_pos_emb.to("cuda")
+            if position_ids is not None and isinstance(position_ids, torch.Tensor):
+                position_ids = position_ids.to("cuda")
+
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
 
@@ -442,6 +455,11 @@ class TransformerModel(BaseModule):
                     new_key_values.append(new_kv)
             else:
                 hidden_states = layer_out
+
+        # Weight streaming: restore hidden_states to original device for downstream
+        # layers (output_layernorm, output head) which stay on CPU.
+        if weight_streaming and hidden_states.device != original_device:
+            hidden_states = hidden_states.to(original_device)
 
         if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
             return hidden_states, new_key_values

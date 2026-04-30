@@ -283,9 +283,16 @@ class BaseTrainer(ABC):
         self.logger.info(f"Set random seed to {seed} for model initialization")
 
         device = get_device()
+        weight_streaming = self.config.offload.enabled and self.config.offload.weight_offload
 
-        model = LanguageModel(self.config, self.loss_fn).to(device=device)
-        self.logger.info("Created Language Model")
+        if weight_streaming:
+            # M2: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
+            # This avoids OOM for models whose weights exceed GPU memory (e.g. 13B on 24GB).
+            model = LanguageModel(self.config, self.loss_fn)
+            self.logger.info("Created Language Model on CPU (weight streaming mode)")
+        else:
+            model = LanguageModel(self.config, self.loss_fn).to(device=device)
+            self.logger.info("Created Language Model")
 
         model = model.to(dtype=get_model_dtype(self.config))
 
@@ -359,7 +366,7 @@ class BaseTrainer(ABC):
             except Exception as e:
                 self.logger.warning(f"torch.compile failed: {e}. Running without compilation.")
 
-        if device not in ["cpu", "mps"]:
+        if device not in ["cpu", "mps"] and not weight_streaming:
             model = initialize_parallelism(self.config, model)
         self.rank = dist.get_rank()
 
@@ -667,28 +674,31 @@ class BaseTrainer(ABC):
             expert_sharded_norm_sq = (
                 sum(p.data.norm() ** 2 for p in expert_sharded)
                 if expert_sharded
-                else torch.tensor(0.0, device=get_device())
+                else torch.tensor(0.0)
             )
             expert_repl_norm_sq = (
-                sum(p.data.norm() ** 2 for p in expert_repl)
-                if expert_repl
-                else torch.tensor(0.0, device=get_device())
+                sum(p.data.norm() ** 2 for p in expert_repl) if expert_repl else torch.tensor(0.0)
             )
             non_expert_sharded_norm_sq = (
                 sum(p.data.norm() ** 2 for p in non_expert_sharded)
                 if non_expert_sharded
-                else torch.tensor(0.0, device=get_device())
+                else torch.tensor(0.0)
             )
             non_expert_repl_norm_sq = (
                 sum(p.data.norm() ** 2 for p in non_expert_repl)
                 if non_expert_repl
-                else torch.tensor(0.0, device=get_device())
+                else torch.tensor(0.0)
             )
 
             # Step 1: FSDP Reduction (parameters are sharded across DP group)
             if isinstance(self.model, FSDP):
                 # Assume all FSDP parameters are sharded across DP
-                combined = torch.stack([expert_sharded_norm_sq, non_expert_sharded_norm_sq])
+                combined = torch.stack(
+                    [
+                        expert_sharded_norm_sq.to(get_device()),
+                        non_expert_sharded_norm_sq.to(get_device()),
+                    ]
+                )
                 dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
                 expert_sharded_norm_sq, non_expert_sharded_norm_sq = combined
 
@@ -698,10 +708,10 @@ class BaseTrainer(ABC):
                 tp_group = parallel_states.get_tensor_model_parallel_group()
                 combined = torch.stack(
                     [
-                        expert_sharded_norm_sq,
-                        expert_repl_norm_sq,
-                        non_expert_sharded_norm_sq,
-                        non_expert_repl_norm_sq,
+                        expert_sharded_norm_sq.to(get_device()),
+                        expert_repl_norm_sq.to(get_device()),
+                        non_expert_sharded_norm_sq.to(get_device()),
+                        non_expert_repl_norm_sq.to(get_device()),
                     ]
                 )
                 dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=tp_group)

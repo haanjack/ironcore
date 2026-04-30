@@ -87,6 +87,10 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
+        # M2: Ensure weights are on GPU for recomputation
+        if ctx.scheduler is not None:
+            ctx.scheduler.on_backward_layer_start(ctx.layer_idx)
+
         # Restore activation from host (H2D)
         activation = torch.empty(
             ctx.activation_shape,
@@ -115,6 +119,10 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
         # Compute gradients
         torch.autograd.backward(output, grad_output)
+
+        # M2: Evict weights after backward recomputation
+        if ctx.scheduler is not None:
+            ctx.scheduler.on_backward_layer_end(ctx.layer_idx)
 
         # None for block_fn, scheduler, layer_idx, sub_layer
         # activation.grad for the spilled input

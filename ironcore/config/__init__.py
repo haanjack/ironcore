@@ -174,6 +174,15 @@ def _config_validation(config: MainConfig):
             "offload.weight_offload is incompatible with FSDP. "
             "FSDP manages its own parameter sharding/unsharding."
         )
+    if config.offload.weight_offload and not config.offload.activation_spill:
+        import warnings
+
+        warnings.warn(
+            "offload.weight_offload requires activation spilling for weight "
+            "eviction (no_autograd_graph). Enabling offload.activation_spill automatically.",
+            stacklevel=2,
+        )
+        config.offload.activation_spill = True
     if config.offload.weight_prefetch_layers < 1:
         raise ValueError(
             f"offload.weight_prefetch_layers must be >= 1, got {config.offload.weight_prefetch_layers}"

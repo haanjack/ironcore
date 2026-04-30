@@ -185,10 +185,8 @@ class TileManager:
             else:
                 host_tensor.copy_(param.data.flatten().to(self._storage_dtype))
 
-            # GPU staging: borrow from pool at prefetch time, or allocate permanently
+            # GPU staging: borrow from pool at prefetch time
             gpu_tensor = None
-            if self._gpu_pool is None:
-                gpu_tensor = torch.empty(numel, dtype=original_dtype, device=self._device)
 
             tile = WeightTile(
                 host_tensor=host_tensor,
@@ -232,15 +230,21 @@ class TileManager:
 
     def apply_tiles_to_params(self, group: WeightGroup) -> None:
         """
-        Copy GPU staging buffers into the actual nn.Parameters (in-place .data copy).
+        Apply GPU staging buffers to nn.Parameters.
 
-        Call this after all tiles for a group have been transferred to GPU and
-        the transfers have been synchronized.
+        For CPU-resident params (M2 mode): replaces param.data with the GPU
+        staging tensor, preserving nn.Parameter identity.
+        For GPU-resident params: copies in-place into param.data.
         """
         for tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
-            # Reshape staging buffer to parameter shape and copy in-place
+            if tile.gpu_tensor is None:
+                continue
             reshaped = tile.gpu_tensor.view(param.shape)
-            param.data.copy_(reshaped)
+            if param.device.type == "cpu":
+                # M2: swap CPU param.data for GPU staging buffer
+                param.data = reshaped
+            else:
+                param.data.copy_(reshaped)
 
     def snapshot_params_to_host(self, group: WeightGroup) -> None:
         """

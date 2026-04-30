@@ -47,10 +47,11 @@ Layer weights live in pinned host memory. During the forward pass, weights are p
 Lifecycle per training step:
 
 1. **`on_training_step_start()`**: Prefetch first N layers
-2. **`on_layer_start(i)`**: Wait for layer i's transfer, copy weights into `param.data`, return staging buffer, prefetch next layers
-3. **`on_layer_end(i)`**: No-op (weights stay for backward)
-4. **`on_backward_pass_end()`**: Clean up, clear tracking
-5. **`on_training_step_end()`**: Snapshot updated params back to host
+2. **`on_layer_start(i)`**: Wait for layer i's transfer, apply weights to params (swap CPU param.data for GPU staging buffer), prefetch next layers
+3. **`on_layer_end(i)`**: With M3 active (auto-enabled): evict weights from GPU — replace param.data with host tile values, return GPU staging buffer to pool. Without M3: no-op (weights stay for backward).
+4. **`on_backward_layer_start(i)`**: Reload evicted weights if needed for backward recomputation
+5. **`on_backward_layer_end(i)`**: Evict weights again after backward computation
+6. **`on_training_step_end()`**: Snapshot updated params (after optimizer step) back to host tiles
 
 ### GPU staging buffer pool
 
@@ -98,6 +99,26 @@ Weight streaming is **incompatible** with:
 - **Activation checkpointing** (`model.activation_recompute: true`): Checkpointing replays the forward pass during backward, but scheduler hooks only fire in the main forward pass. Weights must stay resident for correctness.
 
 Activation spilling (M3) is a replacement for checkpointing that is compatible with weight streaming.
+
+### CPU-resident parameters and optimizer
+
+When `weight_offload: true`, the model is kept on CPU. Layer weights are temporarily swapped to GPU staging buffers during forward/backward via `param.data` replacement (preserving `nn.Parameter` identity for optimizer references). After each layer executes, `param.data` is restored to a CPU tensor backed by host tile values.
+
+Because parameters and optimizer states (exp_avg, exp_avg_sq) are CPU-resident, the AdamW optimizer step runs entirely on CPU. This is **20-40x slower** than GPU AdamW but is inherent to the design — the GPU does not have enough VRAM to hold both weights and optimizer states. The tradeoff is acceptable because:
+
+1. The optimizer step is a small fraction of total step time (forward + backward dominate).
+2. The alternative (no offload) is OOM — there is no GPU-only path for models exceeding VRAM.
+3. CPU AdamW correctness is numerically identical to GPU AdamW (same float32 accumulation).
+
+### Eviction and snapshot optimization
+
+During forward and backward, each layer's weights are evicted from GPU after execution. The eviction:
+
+1. Replaces `param.data` with the host tile values (not uninitialized memory).
+2. Returns the GPU staging buffer to the pool for reuse by other layers.
+3. **Does not** D2H-snapshot the GPU values back to host tiles — weights are read-only during forward/backward, so the host tiles already contain the correct values.
+
+The D2H snapshot to host tiles happens only once per step, in `on_training_step_end()`, after the optimizer updates `param.data` on CPU. This saves ~2 redundant D2H copies per layer per step (~5% step time improvement at 13B scale).
 
 ## M3: Activation spilling
 
