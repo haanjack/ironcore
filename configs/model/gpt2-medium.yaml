@@ -13,3 +13,7 @@ precision: bf16
 
 vocab_name_or_path: gpt2
 tokenizer_type: bbpe
+
+# HuggingFace compatibility
+hf_model_type: gpt2
+hf_architecture: GPT2LMHeadModel

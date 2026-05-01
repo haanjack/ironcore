@@ -176,6 +176,14 @@ class TransformerLayer(BaseModule):
         if spill_active:
             from ironcore.offload.hooks import _SpillCheckpointFn
 
+            # _SpillCheckpointFn.forward() runs the sub-block under torch.no_grad(),
+            # so parameters don't contribute to the autograd graph. For apply() to
+            # create a grad_fn, at least one tensor input must require_grad.
+            # Detach + require_grad ensures the autograd chain stays connected
+            # without leaking the original tensor into the saved context.
+            if not hidden_states.requires_grad:
+                hidden_states = hidden_states.detach().requires_grad_(True)
+
             if getattr(scheduler, "_activation_spill_granularity", "sub_layer") == "full_layer":
                 # Full layer: single spill wrapping attention + MLP
                 return _SpillCheckpointFn.apply(

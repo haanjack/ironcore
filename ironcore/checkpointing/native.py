@@ -639,8 +639,12 @@ def save_checkpoint(
 
         final_optimizer_state = merged_optimizer_state
 
-    # HuggingFace compatible config
-    hf_config = HFConfigManager.get_hf_config(config)
+    # HuggingFace compatible config (optional — only if hf_model_type/hf_architecture set)
+    hf_config = None
+    if config.model.hf_model_type is not None and config.model.hf_architecture is not None:
+        hf_config = HFConfigManager.get_hf_config(config)
+    else:
+        logger.info("Skipping HF config: hf_model_type/hf_architecture not set")
 
     # Convert dataclass configs to dicts for safe serialization (weights_only=True compatible)
     model_config_dict = None
@@ -683,8 +687,9 @@ def save_checkpoint(
         ) as f:
             f.write(f"{step}\n")
 
-        # Save HuggingFace compatible config
-        HFConfigManager.save_hf_config(config, config.trainer.model_path)
+        # Save HuggingFace compatible config (only if HF fields are set)
+        if config.model.hf_model_type is not None and config.model.hf_architecture is not None:
+            HFConfigManager.save_hf_config(config, config.trainer.model_path)
 
     timer.stop("ckpt-save")
     if parallel_states.get_tensor_model_parallel_world_size() > 1:

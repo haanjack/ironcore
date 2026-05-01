@@ -120,8 +120,13 @@ class _SpillCheckpointFn(torch.autograd.Function):
         # Compute gradients
         torch.autograd.backward(output, grad_output)
 
-        # M2: Evict weights after backward recomputation
-        if ctx.scheduler is not None:
+        # M2: Evict weights after backward recomputation.
+        # Backward runs in reverse: MLP(sub=1) first, then attention(sub=0).
+        # Only evict after sub_layer=0 (the last sub-block in backward order)
+        # to avoid moving param.grad to CPU between sub-blocks, which causes
+        # device mismatch when the next sub-block's backward accumulates.
+        # For full_layer granularity (single sub_layer=0), this always evicts.
+        if ctx.scheduler is not None and ctx.sub_layer == 0:
             ctx.scheduler.on_backward_layer_end(ctx.layer_idx)
 
         # None for block_fn, scheduler, layer_idx, sub_layer

@@ -342,6 +342,12 @@ class ExecutionScheduler:
         if layer_idx in self._layer_on_gpu:
             return
 
+        # Issue prefetch if none is in flight. This happens at the start
+        # of each micro-batch after the first — backward consumes all
+        # prefetches (waits, applies, evicts, returns GPU buffers).
+        if not any(tile.transfer_handle is not None for tile in group.tiles):
+            self._prefetch_layer(layer_idx)
+
         # Wait for this layer's transfer
         t0 = time.monotonic()
         for tile in group.tiles:
@@ -434,9 +440,17 @@ class ExecutionScheduler:
     def on_backward_pass_end(self) -> None:
         """
         Called after the entire backward pass completes (all layers).
-        Staging buffers already returned to pool in on_layer_start.
+        Moves param.grad to CPU for optimizer step and clears GPU tracking.
         """
         self._engine.synchronize()
+        # Move gradients to CPU so the optimizer (which runs on CPU params
+        # in M2 mode) can access them. This must happen after ALL micro-batches'
+        # backwards complete, not between micro-batches, because subsequent
+        # micro-batches accumulate GPU gradients into the existing grad tensor.
+        for group in self._weight_groups.values():
+            for _tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
+                if param.grad is not None and param.grad.device.type == "cuda":
+                    param.grad = param.grad.cpu()
         self._layer_on_gpu.clear()
 
     # --- M3: Activation spilling lifecycle ---
@@ -523,9 +537,12 @@ class ExecutionScheduler:
                 param.data = (
                     tile.host_tensor[: flat_param.numel()].to(param.dtype).view(param.shape).clone()
                 )
-                # Move gradient to CPU for optimizer step
-                if param.grad is not None and param.grad.device.type == "cuda":
-                    param.grad = param.grad.cpu()
+                # Note: param.grad is NOT moved to CPU here. During gradient
+                # accumulation, subsequent micro-batches accumulate into the
+                # existing grad tensor. Moving grad to CPU between micro-batches
+                # causes device mismatch when the next backward tries to
+                # accumulate GPU gradients into a CPU grad. Grads are moved to
+                # CPU in on_backward_pass_end() after all micro-batches complete.
             # Return GPU staging buffer to pool
             if tile.gpu_tensor is not None and self._gpu_pool is not None:
                 self._gpu_pool.free(tile.gpu_tensor)

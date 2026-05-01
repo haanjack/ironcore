@@ -1038,3 +1038,50 @@ def _make_minimal_main_config():
     config.trainer.gradient_accumulation_steps = 1
     config.parallel.world_size = 1
     return config
+
+
+@skip_no_cuda
+class TestSingleLayerWeightStreaming:
+    """Regression test for BUG-004: single layer + M2 crash."""
+
+    def test_single_layer_forward_backward(self):
+        """num_layers=1 with weight streaming should not crash."""
+        from ironcore.models.transformer import TransformerModel
+        from ironcore.offload.scheduler import ExecutionScheduler
+
+        config = _make_minimal_main_config()
+        config.model.num_layers = 1
+        config.model.num_attention_heads = 4
+        config.model.num_attention_groups = 4
+        config.offload = OffloadConfig(
+            enabled=True,
+            weight_offload=True,
+            activation_spill=True,
+            pinned_chunk_gb=0.05,
+            pinned_memory_pool_gb=0.2,
+        )
+
+        device = torch.device("cuda:0")
+        model = TransformerModel(config).to(dtype=torch.bfloat16)
+        model.train()
+
+        scheduler = ExecutionScheduler.from_model(model, config.offload, device=device)
+        assert scheduler is not None
+        model._offload_scheduler = scheduler
+        scheduler.set_gradient_accumulation_steps(1)
+
+        hidden = torch.randn(1, 4, 512, device=device, dtype=torch.bfloat16)
+        mask = torch.ones(1, 1, 4, 4, device=device)
+
+        scheduler.on_training_step_start()
+        scheduler.on_microbatch_forward_start(0)
+        out = model(hidden, mask, None)
+        scheduler.on_microbatch_forward_end()
+
+        loss = out.sum()
+        scheduler.on_microbatch_backward_start(0)
+        loss.backward()
+        scheduler.on_microbatch_backward_end()
+        scheduler.on_training_step_end()
+
+        assert loss.item() > 0
