@@ -1,0 +1,43 @@
+# Training accuracy validation base config (130M model)
+trainer:
+  micro_batch_size: 4
+  train_batch_size: 4
+  gradient_accumulation_steps: 1
+  tensor_model_parallel_size: 1
+  save_checkpoint_steps: 9999
+  log_interval: 100
+  model_path: outputs/training_accuracy
+  use_flash_attn: true
+
+operation:
+  train_steps: 1000
+  eval_interval: 9999
+  eval_samples: 0
+  activation_recompute: false
+  no_save: true
+
+model: gpt2-130m
+
+data:
+  config_path: configs/data/openwebtext_test.yaml
+  task_type: pretrain
+
+offload:
+  enabled: false
+
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+  max_lr: 3.0e-4
+  min_lr: 3.0e-05
+  warmup_steps: 100
+  annealing_steps: 1000
+  weight_decay: 0.1
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+  clip_grad: 1.0
+
+init:
+  seed: 42
+  init_std: 0.02

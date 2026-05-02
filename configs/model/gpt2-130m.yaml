@@ -1,0 +1,26 @@
+num_attention_heads: 10
+num_attention_groups: 10
+head_dim: 64
+max_seq_len: 1024
+num_layers: 12
+d_model: 640
+d_ffn: 1920
+precision: bfloat16
+ln_type: layernorm
+ln_eps: 1.0e-5
+layernorm_bias: true
+activation_type: gelu
+positional_embedding:
+  type: absolute
+bias:
+  q: true
+  k: true
+  v: true
+  o: true
+  gate: true
+  up: true
+  down: true
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+hf_model_type: gpt2
+hf_architecture: GPT2LMHeadModel

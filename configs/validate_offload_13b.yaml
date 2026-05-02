@@ -1,0 +1,51 @@
+# 13B LLaMA with M1+M2+M3 offload -- for 24GB GPU testing
+
+trainer:
+  micro_batch_size: 1
+  train_batch_size: 1
+  gradient_accumulation_steps: 1
+  tensor_model_parallel_size: 1
+  save_checkpoint_steps: 1000
+  log_interval: 1
+  model_path: outputs/offload_13b
+  use_flash_attn: true
+  vocab_padding_unit: 128
+
+operation:
+  train_steps: 3
+  eval_interval: 100
+  eval_samples: 0
+  activation_recompute: false
+  no_save: true
+
+model: llama-13b
+
+data:
+  config_path: configs/data/openwebtext_test.yaml
+  task_type: pretrain
+
+offload:
+  enabled: true
+  optimizer_offload: true
+  optimizer_state_precision: bf16
+  weight_offload: true
+  weight_storage_precision: bf16
+  activation_spill: true
+  activation_spill_granularity: sub_layer
+
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+  max_lr: 6.0e-4
+  min_lr: 6.0e-05
+  warmup_steps: 1
+  annealing_steps: 3
+  weight_decay: 0.1
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+  clip_grad: 1.0
+
+init:
+  seed: 42
+  init_std: 0.02
