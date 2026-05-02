@@ -9,7 +9,7 @@ Large weights are split into tiles that fit in the pinned memory pool. Each tile
 can be stored at a different precision (fp32, fp16, bf16) to reduce host memory
 and PCIe bandwidth.
 
-M2 scope: weight streaming. Each TransformerLayer's parameters are registered
+Weight streaming. Each TransformerLayer's parameters are registered
 as a "weight group" that is loaded/evicted atomically during the forward pass.
 """
 
@@ -99,7 +99,7 @@ class TileManager:
     """
     Manages tiling and precision conversion for weight streaming.
 
-    For M2, each parameter is a single tile (no splitting). The tile manager
+    Each parameter is a single tile (no splitting). The tile manager
     provides the allocation, transfer, and reassembly logic.
 
     Args:
@@ -232,7 +232,7 @@ class TileManager:
         """
         Apply GPU staging buffers to nn.Parameters.
 
-        For CPU-resident params (M2 mode): replaces param.data with the GPU
+        For CPU-resident params (weight streaming): replaces param.data with the GPU
         staging tensor, preserving nn.Parameter identity.
         For GPU-resident params: copies in-place into param.data.
         """
@@ -241,7 +241,7 @@ class TileManager:
                 continue
             reshaped = tile.gpu_tensor.view(param.shape)
             if param.device.type == "cpu":
-                # M2: swap CPU param.data for GPU staging buffer
+                # Swap CPU param.data for GPU staging buffer
                 param.data = reshaped
             else:
                 param.data.copy_(reshaped)

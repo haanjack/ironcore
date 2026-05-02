@@ -6,10 +6,10 @@ RAM-First Staircase Scaling: offload optimizer states and weights to host RAM.
 
 Opt-in via YAML config. No changes to existing training behavior unless enabled.
 
-M1: Optimizer state offloading (pageable host memory, sync transfers)
-M2: Weight streaming (pinned host memory, async DMA, scheduler)
+Optimizer state offloading (pageable host memory, sync transfers)
+Weight streaming (pinned host memory, async DMA, scheduler)
 
-Note: M2 classes (PinnedMemoryPool, ExecutionScheduler, TileManager,
+Note: weight streaming classes (PinnedMemoryPool, ExecutionScheduler, TileManager,
 MemoryTransferEngine) are not imported here to avoid circular imports.
 Import them directly from their modules where needed.
 """

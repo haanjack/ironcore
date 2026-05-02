@@ -165,7 +165,7 @@ class TransformerLayer(BaseModule):
         block_kv_cache_manager=None,
         seq_id=None,
     ):
-        # M3: Activation spilling path uses custom autograd.Function that
+        # Activation spilling path uses custom autograd.Function that
         # spills inputs to host during forward and restores during backward,
         # freeing GPU memory for intermediate activations.
         scheduler = getattr(self, "_offload_scheduler", None)

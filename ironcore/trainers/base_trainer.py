@@ -172,7 +172,7 @@ class BaseTrainer(ABC):
 
         self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(self.config) == torch.float16))
 
-        # Initialize weight streaming scheduler (M2) if enabled
+        # Initialize weight streaming scheduler if enabled
         self._offload_scheduler = None
         offload_needs_scheduler = self.config.offload.enabled and (
             self.config.offload.weight_offload or self.config.offload.activation_spill
@@ -286,7 +286,7 @@ class BaseTrainer(ABC):
         weight_streaming = self.config.offload.enabled and self.config.offload.weight_offload
 
         if weight_streaming:
-            # M2: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
+            # Weight streaming: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
             # This avoids OOM for models whose weights exceed GPU memory (e.g. 13B on 24GB).
             model = LanguageModel(self.config, self.loss_fn)
             self.logger.info("Created Language Model on CPU (weight streaming mode)")
@@ -551,7 +551,7 @@ class BaseTrainer(ABC):
         for i in range(self.config.trainer.gradient_accumulation_steps):
             is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
 
-            # M3: Notify spill manager of micro-batch forward start
+            # Notify spill manager of micro-batch forward start
             if self._offload_scheduler is not None:
                 self._offload_scheduler.on_microbatch_forward_start(i)
 
@@ -574,18 +574,18 @@ class BaseTrainer(ABC):
                         for k, v in metrics.items():
                             total_metrics[k] = total_metrics.get(k, 0.0) + v
 
-                # M3: Notify spill manager that forward is done for this micro-batch
+                # Notify spill manager that forward is done for this micro-batch
                 if self._offload_scheduler is not None:
                     self._offload_scheduler.on_microbatch_forward_end()
 
-                # M3: Notify spill manager of micro-batch backward start
+                # Notify spill manager of micro-batch backward start
                 if self._offload_scheduler is not None:
                     self._offload_scheduler.on_microbatch_backward_start(i)
 
                 # Backward pass with gradient scaling
                 self.scaler.scale(scaled_loss).backward()
 
-                # M3: Notify spill manager that backward is done for this micro-batch
+                # Notify spill manager that backward is done for this micro-batch
                 if self._offload_scheduler is not None:
                     self._offload_scheduler.on_microbatch_backward_end()
 

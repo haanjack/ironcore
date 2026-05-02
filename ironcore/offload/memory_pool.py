@@ -8,8 +8,8 @@ Allocates host memory in fixed-size chunks via cudaMallocHost (torch.cuda.pin_me
 Page-locked memory enables async DMA transfers on CUDA streams without staging
 through pageable buffers.
 
-M2 scope: weight streaming for training. The pool is shared across all offload
-subsystems (weight streaming, activation spilling in M3, backward prefetch in M4).
+Weight streaming for training. The pool is shared across all offload
+subsystems (weight streaming, activation spilling).
 
 Allocation failure is a hard error at startup. No fallback to pageable memory.
 """

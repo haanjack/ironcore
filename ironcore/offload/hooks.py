@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Activation spilling manager for M3: forward D2H spill + backward H2D prefetch.
+Activation spilling manager: forward D2H spill + backward H2D prefetch.
 
 During the forward pass, intermediate activations (hidden_states, post-attention
 residual) are asynchronously copied to pinned host memory via D2H transfers.
@@ -35,7 +35,7 @@ _log = logging.getLogger(__name__)
 
 class _SpillCheckpointFn(torch.autograd.Function):
     """
-    Custom autograd Function for M3 activation offloading.
+    Custom autograd Function for activation offloading.
 
     Replaces activation checkpointing (recomputation) with host-based activation
     storage. The input activation is spilled to host memory during forward, and
@@ -87,7 +87,7 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        # M2: Ensure weights are on GPU for recomputation
+        # Ensure weights are on GPU for recomputation
         if ctx.scheduler is not None:
             ctx.scheduler.on_backward_layer_start(ctx.layer_idx)
 
@@ -120,7 +120,7 @@ class _SpillCheckpointFn(torch.autograd.Function):
         # Compute gradients
         torch.autograd.backward(output, grad_output)
 
-        # M2: Evict weights after backward recomputation.
+        # Evict weights after backward recomputation.
         # Backward runs in reverse: MLP(sub=1) first, then attention(sub=0).
         # Only evict after sub_layer=0 (the last sub-block in backward order)
         # to avoid moving param.grad to CPU between sub-blocks, which causes

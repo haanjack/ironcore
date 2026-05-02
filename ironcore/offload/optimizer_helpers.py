@@ -7,7 +7,7 @@ Shared AdamW update logic for tiled/host-offloaded optimizer states.
 Used by both AdamWOptimizer.step() and MuonOptimizer._step_adamw().
 This avoids DRY violations between the two codepaths.
 
-M1 approach: optimizer states (exp_avg, exp_avg_sq) live in pageable host
+Optimizer state offloading: optimizer states (exp_avg, exp_avg_sq) live in pageable host
 memory. Before each update, they transfer to GPU synchronously. After the
 update, they transfer back to CPU. No pinned memory, no tiling, no async DMA.
 """
@@ -71,7 +71,7 @@ def _adamw_offloaded_step(
 
     state["step"] += 1
 
-    # Bring states to the param's device for the update (CPU when M2 weight
+    # Bring states to the param's device for the update (CPU when weight
     # streaming is active, GPU otherwise). The .to() is a no-op when already
     # on the target device.
     compute_device = p.data.device

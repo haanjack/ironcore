@@ -7,7 +7,7 @@ Execution scheduler for weight streaming during training.
 Orchestrates the lifecycle of weight transfers around the forward/backward pass.
 Prefetches weights N layers ahead of compute, evicts weights after use.
 
-M2 scope: weight streaming. The scheduler is called from:
+Weight streaming and activation spill lifecycle. The scheduler is called from:
   - BaseTrainer: on_step_start / on_step_end lifecycle
   - TransformerModel.forward(): per-layer on_layer_start / on_layer_end hooks
 
@@ -188,7 +188,7 @@ class ExecutionScheduler:
             gpu_pool = GPUStagingPool.from_config(config, device)
             tile_manager = TileManager.from_config(config, pool, device, gpu_pool=gpu_pool)
 
-        # M3: Create activation spill manager if enabled
+        # Create activation spill manager if enabled
         spill_manager = None
         if config.activation_spill:
             from ironcore.models.transformer import TransformerModel
@@ -224,8 +224,9 @@ class ExecutionScheduler:
         if gpu_pool is not None:
             layer_byte_sizes = [g.total_gpu_bytes for g in scheduler._weight_groups.values()]
             if spill_manager is None:
-                # M2-only: all layers must be on GPU simultaneously (no eviction
-                # during forward/backward). Budget must hold the entire model.
+                # Weight streaming only (no activation spill): all layers must be
+                # on GPU simultaneously (no eviction during forward/backward).
+                # Budget must hold the entire model.
                 total = sum(layer_byte_sizes) if layer_byte_sizes else 0
                 gpu_pool._max_total_bytes = total
                 if layer_byte_sizes:
@@ -334,7 +335,7 @@ class ExecutionScheduler:
         self._engine.synchronize()
         self._snapshot_time = time.monotonic() - t0
 
-        # M3: Clean up any remaining spilled activations
+        # Clean up any remaining spilled activations
         if self._spill_manager is not None:
             self._spill_manager.on_training_step_end()
 
@@ -372,7 +373,8 @@ class ExecutionScheduler:
         # Ensure default stream sees the transferred data
         self._engine.synchronize_with_default_stream()
 
-        # Check if params were on CPU before apply swaps them (M2 mode).
+        # Check if params were on CPU before apply swaps them (weight streaming
+        # with CPU-resident params).
         # After apply, param.data is on GPU so we can't check afterwards.
         params_were_on_cpu = bool(group.param_refs) and group.param_refs[0][0].device.type == "cpu"
 
@@ -382,8 +384,8 @@ class ExecutionScheduler:
         self._layer_on_gpu.add(layer_idx)
 
         # Return staging buffers only for GPU-resident params.
-        # For M2 (CPU params), param.data IS the staging buffer view —
-        # returning it allows pool reuse which corrupts the weights.
+        # For CPU-resident params (weight streaming), param.data IS the staging
+        # buffer view — returning it allows pool reuse which corrupts the weights.
         if self._gpu_pool is not None and not params_were_on_cpu:
             self._tile_manager.return_gpu_buffers(group)
 
@@ -399,11 +401,11 @@ class ExecutionScheduler:
         """
         Called after layer `layer_idx` completes in the forward pass.
 
-        With M2+M3: weights can be evicted because _SpillCheckpointFn.forward()
+        With activation spill: weights can be evicted because _SpillCheckpointFn.forward()
         uses torch.no_grad(), so no weight references are saved in the autograd
         graph. Weights will be re-loaded during backward recomputation.
 
-        Without M3: weights must stay on GPU for backward.
+        Without activation spill: weights must stay on GPU for backward.
         """
         if self._spill_manager is None:
             return
@@ -419,7 +421,7 @@ class ExecutionScheduler:
         """
         Called before layer `layer_idx` during backward pass.
 
-        For M2+M3: weights may have been evicted and need to be reloaded for
+        With activation spill: weights may have been evicted and need to be reloaded for
         recomputation. For standard backward: weights should already be on GPU.
         """
         group = self._weight_groups.get(layer_idx)
@@ -441,10 +443,10 @@ class ExecutionScheduler:
         """
         Called after layer `layer_idx` during backward pass.
 
-        With M2+M3: evicts weights from GPU, freeing VRAM, and prefetches
+        With activation spill: evicts weights from GPU, freeing VRAM, and prefetches
         the previous layer's weights so the H2D transfer overlaps with
         autograd traversal to the next layer.
-        M2-only: keeps weights on GPU for subsequent micro-batches;
+        Weight streaming only (no activation spill): keeps weights on GPU for subsequent micro-batches;
         eviction happens in on_backward_pass_end after all micro-batches.
         """
         group = self._weight_groups.get(layer_idx)
@@ -459,20 +461,20 @@ class ExecutionScheduler:
             # runs while autograd traverses to the next backward call.
             if layer_idx > 0:
                 self._prefetch_layer(layer_idx - 1)
-        # M2-only: don't evict or discard — weights stay on GPU for the
-        # next micro-batch. Eviction happens in on_backward_pass_end().
+        # Weight streaming only: don't evict or discard — weights stay on GPU
+        # for the next micro-batch. Eviction happens in on_backward_pass_end().
 
     def on_backward_pass_end(self) -> None:
         """
         Called after the entire backward pass completes (all layers).
         Moves param.grad to CPU for optimizer step and clears GPU tracking.
 
-        For M2-only (no M3): also evicts all layers' weights from GPU back
+        Weight streaming only (no activation spill): also evicts all layers' weights from GPU back
         to CPU so the optimizer can update them.
         """
         self._engine.synchronize()
-        # Move gradients to CPU so the optimizer (which runs on CPU params
-        # in M2 mode) can access them. This must happen after ALL micro-batches'
+        # Move gradients to CPU so the optimizer (which runs on CPU params in
+        # weight streaming mode) can access them. This must happen after ALL micro-batches'
         # backwards complete, not between micro-batches, because subsequent
         # micro-batches accumulate GPU gradients into the existing grad tensor.
         _grad_transfers: list[tuple[nn.Parameter, torch.Tensor, int, torch.Size]] = []
@@ -495,8 +497,8 @@ class ExecutionScheduler:
                 host_buf for _, host_buf, _, _ in _grad_transfers
             ]
 
-        # M2-only (no M3): evict all layers' weights from GPU back to CPU.
-        # With M3, eviction already happened in on_backward_layer_end.
+        # Weight streaming only: evict all layers' weights from GPU back to CPU.
+        # With activation spill, eviction already happened in on_backward_layer_end.
         # This must happen before the optimizer step so it updates CPU params.
         if self._spill_manager is None:
             for group in self._weight_groups.values():
@@ -504,7 +506,7 @@ class ExecutionScheduler:
 
         self._layer_on_gpu.clear()
 
-    # --- M3: Activation spilling lifecycle ---
+    # --- Activation spill lifecycle ---
 
     def set_gradient_accumulation_steps(self, steps: int) -> None:
         """Update gradient accumulation steps (called by trainer after init)."""

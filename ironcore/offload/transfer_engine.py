@@ -8,7 +8,7 @@ Manages H2D (host-to-device) and D2H (device-to-host) transfers on a dedicated
 CUDA stream. This keeps DMA transfers off the default stream, allowing compute
 and transfer to overlap.
 
-M2 scope: weight streaming during training. The engine handles async memcpy
+Weight streaming during training. The engine handles async memcpy
 with CUDA event synchronization to ensure correctness with torch.compile and
 gradient checkpointing.
 
