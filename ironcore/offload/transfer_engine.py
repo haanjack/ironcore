@@ -99,6 +99,13 @@ class MemoryTransferEngine:
         stream = self._get_stream(stream_idx)
         event = torch.cuda.Event(interprocess=False, enable_timing=False)
 
+        # Transfer stream must wait for the default stream to finish
+        # before writing to the GPU destination buffer. The buffer may have
+        # been freed from the pool and recycled — without this barrier the
+        # H2D write races with the default stream's backward computation
+        # still reading from the same memory.
+        stream.wait_stream(torch.cuda.current_stream(self._device))
+
         with torch.cuda.stream(stream):
             dst.copy_(src, non_blocking=True)
             event.record(stream)
@@ -139,6 +146,10 @@ class MemoryTransferEngine:
 
         stream = self._get_stream(stream_idx)
         event = torch.cuda.Event(interprocess=False, enable_timing=False)
+
+        # Transfer stream must wait for the default stream to finish
+        # producing the GPU data before we copy it to host.
+        stream.wait_stream(torch.cuda.current_stream(self._device))
 
         with torch.cuda.stream(stream):
             dst.copy_(src, non_blocking=True)
