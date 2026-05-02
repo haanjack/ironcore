@@ -50,7 +50,7 @@ class OffloadConfig(BaseConfig):
     # M2: Weight streaming
     weight_offload: bool = False
     weight_prefetch_layers: int = 2
-    weight_storage_precision: str = "fp32"  # precision for streamed weights on host
+    weight_storage_precision: str = "bf16"  # precision for streamed weights on host
     gpu_staging_pool_mb: float = 0.0  # 0 = auto-size based on prefetch_layers * max_layer_bytes
     gpu_staging_chunk_mb: float = 256.0  # chunk size for GPU staging pool
 

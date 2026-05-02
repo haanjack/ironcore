@@ -223,7 +223,15 @@ class ExecutionScheduler:
         # Auto-size GPU pool based on registered layer sizes
         if gpu_pool is not None:
             layer_byte_sizes = [g.total_gpu_bytes for g in scheduler._weight_groups.values()]
-            gpu_pool.auto_size(layer_byte_sizes, config.weight_prefetch_layers)
+            if spill_manager is None:
+                # M2-only: all layers must be on GPU simultaneously (no eviction
+                # during forward/backward). Budget must hold the entire model.
+                total = sum(layer_byte_sizes) if layer_byte_sizes else 0
+                gpu_pool._max_total_bytes = total
+                if layer_byte_sizes:
+                    gpu_pool._chunk_bytes = max(gpu_pool._chunk_bytes, *layer_byte_sizes)
+            else:
+                gpu_pool.auto_size(layer_byte_sizes, config.weight_prefetch_layers)
 
         return scheduler
 
@@ -313,6 +321,11 @@ class ExecutionScheduler:
         copies reflect the optimizer's updates before the next step
         prefetches from host.
         """
+        # Free pinned grad buffers from on_backward_pass_end()
+        for host_buf in getattr(self, '_pinned_grad_buffers', []):
+            self._pool.free(host_buf)
+        self._pinned_grad_buffers = []
+
         # Snapshot updated params (after optimizer step) back to host
         t0 = time.monotonic()
         for group in self._weight_groups.values():
@@ -359,16 +372,19 @@ class ExecutionScheduler:
         # Ensure default stream sees the transferred data
         self._engine.synchronize_with_default_stream()
 
+        # Check if params were on CPU before apply swaps them (M2 mode).
+        # After apply, param.data is on GPU so we can't check afterwards.
+        params_were_on_cpu = bool(group.param_refs) and group.param_refs[0][0].device.type == "cpu"
+
         # Apply weights to parameters (swaps CPU param.data for GPU staging
         # buffer when params are on CPU, or copies in-place when on GPU)
         self._tile_manager.apply_tiles_to_params(group)
         self._layer_on_gpu.add(layer_idx)
 
-        # Note: GPU staging buffers are NOT returned here when params are on
-        # CPU, because param.data IS the staging buffer. They are returned
-        # during eviction (on_layer_end / on_backward_layer_end).
-        # For GPU-resident params, return staging buffers immediately.
-        if self._spill_manager is None and self._gpu_pool is not None:
+        # Return staging buffers only for GPU-resident params.
+        # For M2 (CPU params), param.data IS the staging buffer view —
+        # returning it allows pool reuse which corrupts the weights.
+        if self._gpu_pool is not None and not params_were_on_cpu:
             self._tile_manager.return_gpu_buffers(group)
 
         # Prefetch next layers
@@ -425,8 +441,11 @@ class ExecutionScheduler:
         """
         Called after layer `layer_idx` during backward pass.
 
-        With M2+M3: evicts weights from GPU (moved to CPU), freeing VRAM.
-        Without M3: marks as evicted but doesn't free GPU memory.
+        With M2+M3: evicts weights from GPU, freeing VRAM, and prefetches
+        the previous layer's weights so the H2D transfer overlaps with
+        autograd traversal to the next layer.
+        M2-only: keeps weights on GPU for subsequent micro-batches;
+        eviction happens in on_backward_pass_end after all micro-batches.
         """
         group = self._weight_groups.get(layer_idx)
         if group is None:
@@ -434,23 +453,55 @@ class ExecutionScheduler:
 
         if self._spill_manager is not None:
             self._evict_layer_weights(group)
+            self._layer_on_gpu.discard(layer_idx)
 
-        self._layer_on_gpu.discard(layer_idx)
+            # Prefetch previous layer's weights async so the H2D transfer
+            # runs while autograd traverses to the next backward call.
+            if layer_idx > 0:
+                self._prefetch_layer(layer_idx - 1)
+        # M2-only: don't evict or discard — weights stay on GPU for the
+        # next micro-batch. Eviction happens in on_backward_pass_end().
 
     def on_backward_pass_end(self) -> None:
         """
         Called after the entire backward pass completes (all layers).
         Moves param.grad to CPU for optimizer step and clears GPU tracking.
+
+        For M2-only (no M3): also evicts all layers' weights from GPU back
+        to CPU so the optimizer can update them.
         """
         self._engine.synchronize()
         # Move gradients to CPU so the optimizer (which runs on CPU params
         # in M2 mode) can access them. This must happen after ALL micro-batches'
         # backwards complete, not between micro-batches, because subsequent
         # micro-batches accumulate GPU gradients into the existing grad tensor.
+        _grad_transfers: list[tuple[nn.Parameter, torch.Tensor, int, torch.Size]] = []
         for group in self._weight_groups.values():
             for _tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
                 if param.grad is not None and param.grad.device.type == "cuda":
-                    param.grad = param.grad.cpu()
+                    grad = param.grad
+                    numel = grad.numel()
+                    host_buf = self._pool.allocate(numel, grad.dtype)
+                    flat_grad = grad.reshape(-1)
+                    if not flat_grad.is_contiguous():
+                        flat_grad = flat_grad.contiguous()
+                    self._engine.submit_d2h(src=flat_grad, dst=host_buf)
+                    _grad_transfers.append((param, host_buf, numel, grad.shape))
+        if _grad_transfers:
+            self._engine.synchronize()
+            for param, host_buf, numel, shape in _grad_transfers:
+                param.grad = host_buf[:numel].view(shape)
+            self._pinned_grad_buffers = [
+                host_buf for _, host_buf, _, _ in _grad_transfers
+            ]
+
+        # M2-only (no M3): evict all layers' weights from GPU back to CPU.
+        # With M3, eviction already happened in on_backward_layer_end.
+        # This must happen before the optimizer step so it updates CPU params.
+        if self._spill_manager is None:
+            for group in self._weight_groups.values():
+                self._evict_layer_weights(group)
+
         self._layer_on_gpu.clear()
 
     # --- M3: Activation spilling lifecycle ---

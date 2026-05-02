@@ -342,11 +342,11 @@ class TestTileManager:
         tm = TileManager.from_config(config, pool, torch.device("cpu"))
         assert tm._storage_dtype == torch.bfloat16
 
-    def test_from_config_defaults_to_fp32(self):
+    def test_from_config_defaults_to_bf16(self):
         config = OffloadConfig()
         pool = PinnedMemoryPool(chunk_bytes=4 * 1024 * 1024)
         tm = TileManager.from_config(config, pool, torch.device("cpu"))
-        assert tm._storage_dtype == torch.float32
+        assert tm._storage_dtype == torch.bfloat16
 
 =======
     def test_register_layer_no_gpu_alloc_with_pool(self):
