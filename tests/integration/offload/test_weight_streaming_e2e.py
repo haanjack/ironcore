@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Integration test: weight streaming end-to-end (M2)."""
+"""Integration test: weight streaming end-to-end ."""
 
 import math
 

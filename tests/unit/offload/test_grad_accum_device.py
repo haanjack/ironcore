@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Regression test for grad_accum>1 + M2+M3 device mismatch.
+"""Regression test for grad_accum>1 + weight streaming + activation spill device mismatch.
 
 Reproduces the bug where on_layer_start skips loading weights when no
 prefetch is in flight — which happens at the start of every micro-batch
@@ -30,10 +30,10 @@ def _make_config(grad_accum=2):
 
 @skip_no_cuda
 class TestGradAccumDeviceMismatch:
-    """Regression: grad_accum>1 + M2+M3 should not produce device mismatch."""
+    """Regression: grad_accum>1 + weight streaming + activation spill should not produce device mismatch."""
 
     def test_two_microbatches_forward_backward(self):
-        """Two micro-batches of forward/backward with M2+M3."""
+        """Two micro-batches of forward/backward with weight streaming + activation spill."""
         from ironcore.models.transformer import TransformerModel
         from ironcore.offload.scheduler import ExecutionScheduler
 

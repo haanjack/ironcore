@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for M2 weight streaming components.
+Unit tests for weight streaming components.
 
 Tests cover:
 1. PinnedMemoryPool: allocation, free, reuse, budget enforcement
 2. MemoryTransferEngine: H2D/D2H transfers, event synchronization
 3. TileManager: register params, apply tiles, precision conversion
 4. ExecutionScheduler: from_model, lifecycle hooks, layer prefetch
-5. Config validation for M2 fields
+5. Config validation for weight streaming fields
 
 CUDA tests are gated on torch.cuda.is_available().
 """
@@ -590,13 +590,13 @@ class TestExecutionScheduler:
 
 
 # ---------------------------------------------------------------------------
-# M2 CPU-Resident Param Lifecycle
+# weight streaming CPU-Resident Param Lifecycle
 # ---------------------------------------------------------------------------
 
 
 @skip_no_cuda
 class TestM2CPUResidentParams:
-    """Test M2 weight streaming with CPU-resident parameters.
+    """Test weight streaming with CPU-resident parameters.
 
     These tests verify the D4 fix (host tile values for CPU placeholder),
     D8 optimization (skip redundant D2H snapshots), and the full
@@ -604,7 +604,7 @@ class TestM2CPUResidentParams:
     """
 
     def _make_cpu_model(self, num_layers=2, hidden=32):
-        """Create a model on CPU (M2 mode) with scheduler attached."""
+        """Create a model on CPU (weight streaming mode) with scheduler attached."""
         from ironcore.config import MainConfig
         from ironcore.models.transformer import TransformerModel
         from ironcore.offload.scheduler import ExecutionScheduler
@@ -659,7 +659,7 @@ class TestM2CPUResidentParams:
         config.trainer.gradient_accumulation_steps = 1
         config.parallel.world_size = 1
 
-        # M2: model stays on CPU — no .to(device)
+        # weight streaming: model stays on CPU — no .to(device)
         model = TransformerModel(config)
 
         scheduler = ExecutionScheduler.from_model(
@@ -670,7 +670,7 @@ class TestM2CPUResidentParams:
         return model, config, scheduler
 
     def test_params_start_on_cpu(self):
-        """M2 mode: model params should be on CPU before scheduler loads them."""
+        """weight streaming mode: model params should be on CPU before scheduler loads them."""
         model, _, scheduler = self._make_cpu_model()
         assert scheduler is not None
         for p in model.layers[0].parameters():
@@ -957,12 +957,12 @@ class TestCPUAdamW:
 
 
 # ---------------------------------------------------------------------------
-# M2 Config Validation
+# weight streaming Config Validation
 # ---------------------------------------------------------------------------
 
 
 class TestM2ConfigValidation:
-    """Test M2-specific config validation rules."""
+    """Test weight streaming-specific config validation rules."""
 
     def test_weight_offload_requires_enabled(self):
         from ironcore.config import _config_validation
@@ -1042,7 +1042,7 @@ def _make_minimal_main_config():
 
 @skip_no_cuda
 class TestSingleLayerWeightStreaming:
-    """Regression test for BUG-004: single layer + M2 crash."""
+    """Regression test for BUG-004: single layer + weight streaming crash."""
 
     def test_single_layer_forward_backward(self):
         """num_layers=1 with weight streaming should not crash."""

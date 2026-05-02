@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Integration test: gradient accumulation with optimizer offload (M1)."""
+"""Integration test: gradient accumulation with optimizer offload ."""
 
 import math
 from unittest.mock import patch

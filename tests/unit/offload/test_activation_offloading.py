@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for M3 activation offloading (merged forward spill + backward prefetch).
+Unit tests for activation spill activation offloading (merged forward spill + backward prefetch).
 
 Tests cover:
 1. ActivationSpillManager: spill, prefetch, free-after-consume
 2. Pool budget enforcement for activations
 3. Gradient accumulation: correct ordering across micro-batches
 4. Config validation: activation_spill vs activation_recompute mutual exclusion
-5. Coexistence with weight streaming (M2)
+5. Coexistence with weight streaming 
 6. Scheduler integration: lifecycle hooks
 
 CUDA tests are gated on torch.cuda.is_available().
@@ -379,7 +379,7 @@ class TestSchedulerActivationSpill:
 
 
 class TestActivationSpillConfigValidation:
-    """Test M3 config validation rules."""
+    """Test activation spill config validation rules."""
 
     def test_activation_spill_requires_enabled(self):
         from ironcore.config import _config_validation

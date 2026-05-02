@@ -8,7 +8,7 @@ Unit tests for OffloadConfig.
 Tests cover:
 1. Default values (all disabled)
 2. Validation rules (optimizer_offload requires enabled, etc.)
-3. M3 activation spill validation (mutual exclusion with activation_recompute)
+3. activation spill validation (mutual exclusion with activation_recompute)
 4. Integration with MainConfig
 """
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for optimizer offloading (M1: simple host optimizer states).
+Unit tests for optimizer offloading (simple host optimizer states).
 
 Tests cover:
 1. Offloaded optimizer produces same results as in-VRAM optimizer

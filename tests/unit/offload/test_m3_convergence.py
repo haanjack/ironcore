@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Diagnostic tests for BUG-001: M3 activation spill breaks training convergence.
+Diagnostic tests for BUG-001: activation spill breaks training convergence.
 
 Tests compare forward output and backward gradients with and without activation spill
 to isolate exactly where the divergence occurs.
@@ -86,7 +86,7 @@ def _make_inputs(device, dtype):
 
 @skip_no_cuda
 class TestM3GradientParity:
-    """Compare forward output and backward gradients with/without M3 spill."""
+    """Compare forward output and backward gradients with/without activation spill."""
 
     def test_forward_output_parity_no_dropout(self):
         """Forward output should be identical with and without spill (no dropout)."""
@@ -245,7 +245,7 @@ class TestM3GradientParity:
         )
 
     def test_convergence_5_step(self):
-        """Training should converge over 5 steps with M3 (loss should decrease)."""
+        """Training should converge over 5 steps with activation spill (loss should decrease)."""
         from ironcore.models.transformer import TransformerModel
 
         config = _make_model_config()

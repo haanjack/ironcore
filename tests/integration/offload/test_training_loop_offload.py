@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Integration test: end-to-end training with optimizer offload (M1)."""
+"""Integration test: end-to-end training with optimizer offload ."""
 
 import math
 
@@ -17,7 +17,7 @@ skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA re
 
 @skip_no_cuda
 class TestTrainingLoopOffload:
-    """End-to-end training with M1 optimizer state offloading."""
+    """End-to-end training with optimizer state offloading."""
 
     def test_optimizer_offload_produces_valid_loss(self):
         """Training step with optimizer_offload=True produces non-NaN loss."""

@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Reproduction test for BUG-006: bf16 + M2+M3 dtype crash."""
+"""Reproduction test for BUG-006: bf16 + weight streaming + activation spill dtype crash."""
 
 import pytest
 import torch
@@ -25,7 +25,7 @@ def _make_config(precision="bfloat16", weight_offload=True):
 
 @skip_no_cuda
 class TestBf16Offload:
-    """Reproduce BUG-006: bf16 model + M2+M3 crash."""
+    """Reproduce BUG-006: bf16 model + weight streaming + activation spill crash."""
 
     def test_bf16_weight_streaming_forward_backward(self):
         """bf16 model + weight streaming should not crash during forward/backward."""
@@ -66,7 +66,7 @@ class TestBf16Offload:
         assert out.dtype == dtype, f"Output dtype {out.dtype} != expected {dtype}"
 
     def test_bf16_weight_streaming_multi_step(self):
-        """bf16 + M2+M3 should survive multiple forward/backward steps."""
+        """bf16 + weight streaming + activation spill should survive multiple forward/backward steps."""
         from ironcore.models.transformer import TransformerModel
         from ironcore.offload.scheduler import ExecutionScheduler
 
