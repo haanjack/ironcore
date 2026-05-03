@@ -9,9 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from torch import nn
-
 from tests.fixtures.config_fixtures import create_small_test_config
+from torch import nn
 
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")

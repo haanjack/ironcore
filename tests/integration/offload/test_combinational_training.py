@@ -146,9 +146,7 @@ class TestCombinationalTraining:
     def test_m1_only(self):
         """M1 (optimizer offload): final loss must match baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
-        _, loss_off = _run_training(
-            _make_config(optimizer_offload=True), NUM_STEPS
-        )
+        _, loss_off = _run_training(_make_config(optimizer_offload=True), NUM_STEPS)
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)

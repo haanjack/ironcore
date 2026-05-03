@@ -10,7 +10,7 @@ Tests cover:
 2. Pool budget enforcement for activations
 3. Gradient accumulation: correct ordering across micro-batches
 4. Config validation: activation_spill vs activation_recompute mutual exclusion
-5. Coexistence with weight streaming 
+5. Coexistence with weight streaming
 6. Scheduler integration: lifecycle hooks
 
 CUDA tests are gated on torch.cuda.is_available().

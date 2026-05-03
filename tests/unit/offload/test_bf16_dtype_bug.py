@@ -5,7 +5,6 @@
 
 import pytest
 import torch
-
 from tests.fixtures.config_fixtures import create_small_test_config
 
 cuda_available = torch.cuda.is_available()
@@ -39,9 +38,7 @@ class TestBf16Offload:
         model = TransformerModel(config).to(device=DEVICE, dtype=dtype)
         model.train()
 
-        scheduler = ExecutionScheduler.from_model(
-            model=model, config=config.offload, device=DEVICE
-        )
+        scheduler = ExecutionScheduler.from_model(model=model, config=config.offload, device=DEVICE)
         model._offload_scheduler = scheduler
         scheduler.set_gradient_accumulation_steps(1)
 
@@ -77,9 +74,7 @@ class TestBf16Offload:
         model = TransformerModel(config).to(device=DEVICE, dtype=dtype)
         model.train()
 
-        scheduler = ExecutionScheduler.from_model(
-            model=model, config=config.offload, device=DEVICE
-        )
+        scheduler = ExecutionScheduler.from_model(model=model, config=config.offload, device=DEVICE)
         model._offload_scheduler = scheduler
         scheduler.set_gradient_accumulation_steps(1)
 

@@ -22,14 +22,14 @@ DEVICE = torch.device("cuda:0")
 def _make_model_config():
     """Create minimal model config for testing."""
     from ironcore.config import MainConfig
-    from ironcore.config.config_model import ModelConfig
-    from ironcore.config.config_trainer import InitConfig, TrainerConfig, OperationConfig
-    from ironcore.config.config_optim import OptimConfig
-    from ironcore.config.config_data import DataConfig
-    from ironcore.config.config_parallel import ParallelConfig
-    from ironcore.config.config_utils import UtilsConfig, ProfilerConfig
-    from ironcore.config.config_peft import PEFTConfig
     from ironcore.config.config_alignment import AlignmentConfig
+    from ironcore.config.config_data import DataConfig
+    from ironcore.config.config_model import ModelConfig
+    from ironcore.config.config_optim import OptimConfig
+    from ironcore.config.config_parallel import ParallelConfig
+    from ironcore.config.config_peft import PEFTConfig
+    from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
+    from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
     from ironcore.offload.config import OffloadConfig
 
     model_config = ModelConfig()
@@ -60,8 +60,8 @@ def _make_model_config():
 
 def _make_scheduler(model, config, granularity="sub_layer"):
     """Create an ExecutionScheduler with activation spill enabled."""
-    from ironcore.offload.scheduler import ExecutionScheduler
     from ironcore.offload.config import OffloadConfig
+    from ironcore.offload.scheduler import ExecutionScheduler
 
     offload = OffloadConfig(
         enabled=True,
@@ -102,7 +102,7 @@ class TestM3GradientParity:
 
         # Verify identical weights
         for (n1, p1), (n2, p2) in zip(
-            model_ref.named_parameters(), model_spill.named_parameters()
+            model_ref.named_parameters(), model_spill.named_parameters(), strict=False
         ):
             assert torch.equal(p1, p2), f"Weight mismatch: {n1}"
 
@@ -175,7 +175,7 @@ class TestM3GradientParity:
         # Compare gradients for ALL parameters
         grad_diffs = {}
         for (n1, p1), (n2, p2) in zip(
-            model_ref.named_parameters(), model_spill.named_parameters()
+            model_ref.named_parameters(), model_spill.named_parameters(), strict=False
         ):
             assert p1.grad is not None, f"ref grad is None for {n1}"
             assert p2.grad is not None, f"spill grad is None for {n2}"
@@ -231,7 +231,7 @@ class TestM3GradientParity:
 
         grad_diffs = {}
         for (n1, p1), (n2, p2) in zip(
-            model_ref.named_parameters(), model_spill.named_parameters()
+            model_ref.named_parameters(), model_spill.named_parameters(), strict=False
         ):
             diff = (p1.grad - p2.grad).abs().max().item()
             grad_diffs[n1] = diff
@@ -283,9 +283,7 @@ class TestM3GradientParity:
             optimizer.step()
             optimizer.zero_grad()
 
-        assert losses[-1] < losses[0], (
-            f"Loss did not decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
-        )
+        assert losses[-1] < losses[0], f"Loss did not decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
 
     def test_full_layer_granularity_gradient_parity(self):
         """full_layer granularity should also produce identical gradients."""
@@ -326,7 +324,7 @@ class TestM3GradientParity:
 
         grad_diffs = {}
         for (n1, p1), (n2, p2) in zip(
-            model_ref.named_parameters(), model_spill.named_parameters()
+            model_ref.named_parameters(), model_spill.named_parameters(), strict=False
         ):
             diff = (p1.grad - p2.grad).abs().max().item()
             grad_diffs[n1] = diff
