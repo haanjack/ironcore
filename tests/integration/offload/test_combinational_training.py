@@ -261,3 +261,117 @@ class TestCombinationalTraining:
             f"full_layer final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
+
+    def test_m3_only(self):
+        """M3 only (activation spill without weight offload): loss must track baseline."""
+        _, loss_ref = _run_training(_make_config(), NUM_STEPS)
+        _, loss_off = _run_training(
+            _make_config(
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                pinned_chunk_gb=0.1,
+                pinned_memory_pool_gb=1.0,
+            ),
+            NUM_STEPS,
+        )
+
+        assert not math.isnan(loss_off) and not math.isinf(loss_off)
+        rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
+        assert rel_err < 0.05, (
+            f"M3-only final loss diverged after {NUM_STEPS} steps: "
+            f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
+        )
+
+    def test_fp16_weight_storage(self):
+        """Weight streaming with fp16 storage: loss must track baseline."""
+        _, loss_ref = _run_training(_make_config(), NUM_STEPS)
+        _, loss_off = _run_training(
+            _make_config(
+                weight_offload=True,
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                weight_storage_precision="fp16",
+                pinned_chunk_gb=0.1,
+                pinned_memory_pool_gb=1.0,
+                gpu_staging_chunk_mb=64.0,
+                gpu_staging_pool_mb=0,
+            ),
+            NUM_STEPS,
+        )
+
+        assert not math.isnan(loss_off) and not math.isinf(loss_off)
+        rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
+        assert rel_err < 0.10, (
+            f"fp16 weight storage loss diverged: "
+            f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
+        )
+
+    def test_m3_only_convergence(self):
+        """M3-only training must converge over 50 steps."""
+        init_loss, final_loss = _run_training(
+            _make_config(
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                pinned_chunk_gb=0.1,
+                pinned_memory_pool_gb=1.0,
+            ),
+            NUM_STEPS,
+        )
+
+        assert not math.isnan(final_loss) and not math.isinf(final_loss)
+        assert final_loss < init_loss, (
+            f"M3-only did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        )
+
+    def test_m2_m3_grad_accum_4(self):
+        """M2 + M3 with grad_accum=4: loss must track baseline."""
+        config_ref = _make_config()
+        config_ref.trainer.gradient_accumulation_steps = 4
+        config_ref.trainer.train_batch_size = BATCH_SIZE * 4
+
+        config_off = _make_config(
+            weight_offload=True,
+            activation_spill=True,
+            activation_spill_granularity="sub_layer",
+            pinned_chunk_gb=0.1,
+            pinned_memory_pool_gb=1.0,
+            gpu_staging_chunk_mb=64.0,
+            gpu_staging_pool_mb=0,
+        )
+        config_off.trainer.gradient_accumulation_steps = 4
+        config_off.trainer.train_batch_size = BATCH_SIZE * 4
+
+        _, final_ref = _run_training(config_ref, NUM_STEPS)
+        _, final_off = _run_training(config_off, NUM_STEPS)
+
+        assert not math.isnan(final_off) and not math.isinf(final_off)
+        rel_err = abs(final_ref - final_off) / (abs(final_ref) + 1e-8)
+        assert rel_err < 0.05, (
+            f"M2+M3+grad_accum=4 diverged: "
+            f"ref={final_ref:.4f} off={final_off:.4f} rel_err={rel_err:.4f}"
+        )
+
+    def test_larger_model_m2_m3(self):
+        """8-layer model with M2+M3: stress test for offloading system."""
+        config_ref = _make_config()
+        config_ref.model.num_layers = 8
+
+        config_off = _make_config(
+            weight_offload=True,
+            activation_spill=True,
+            activation_spill_granularity="sub_layer",
+            pinned_chunk_gb=0.1,
+            pinned_memory_pool_gb=1.0,
+            gpu_staging_chunk_mb=64.0,
+            gpu_staging_pool_mb=0,
+        )
+        config_off.model.num_layers = 8
+
+        _, loss_ref = _run_training(config_ref, NUM_STEPS)
+        _, loss_off = _run_training(config_off, NUM_STEPS)
+
+        assert not math.isnan(loss_off) and not math.isinf(loss_off)
+        rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
+        assert rel_err < 0.05, (
+            f"8L M2+M3 loss diverged: ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
+        )
