@@ -42,6 +42,13 @@ NUM_STEPS = 50
 BATCH_SIZE = 2
 SEQ_LEN = 256
 
+# Deterministic seeding for reproducibility
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 
 def _make_config(**offload_overrides):
     """GPT-small architecture config with optional offload settings."""
@@ -173,7 +180,7 @@ class TestCombinationalTraining:
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
-        assert rel_err < 0.05, (
+        assert rel_err < 0.01, (
             f"M2+M3 final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
@@ -199,7 +206,7 @@ class TestCombinationalTraining:
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
-        assert rel_err < 0.05, (
+        assert rel_err < 0.01, (
             f"M1+M2+M3 final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
@@ -257,7 +264,7 @@ class TestCombinationalTraining:
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
-        assert rel_err < 0.05, (
+        assert rel_err < 0.01, (
             f"full_layer final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
@@ -277,7 +284,7 @@ class TestCombinationalTraining:
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
-        assert rel_err < 0.05, (
+        assert rel_err < 0.01, (
             f"M3-only final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
@@ -372,6 +379,6 @@ class TestCombinationalTraining:
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
-        assert rel_err < 0.05, (
+        assert rel_err < 0.01, (
             f"8L M2+M3 loss diverged: ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
