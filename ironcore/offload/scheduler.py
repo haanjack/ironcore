@@ -93,6 +93,7 @@ class ExecutionScheduler:
         engine: MemoryTransferEngine,
         tile_manager: TileManager,
         prefetch_layers: int = 2,
+        backward_prefetch_layers: int = 1,
         device: torch.device | None = None,
         spill_manager: ActivationSpillManager | None = None,
         gpu_pool: GPUStagingPool | None = None,
@@ -102,6 +103,7 @@ class ExecutionScheduler:
         self._engine = engine
         self._tile_manager = tile_manager
         self._prefetch_layers = prefetch_layers
+        self._backward_prefetch_layers = backward_prefetch_layers
         self._device = device or torch.device("cuda")
         self._spill_manager = spill_manager
         self._activation_spill_granularity: str = "sub_layer"
@@ -208,6 +210,7 @@ class ExecutionScheduler:
             engine=engine,
             tile_manager=tile_manager,
             prefetch_layers=config.weight_prefetch_layers,
+            backward_prefetch_layers=config.backward_weight_prefetch_layers,
             device=device,
             spill_manager=spill_manager,
             gpu_pool=gpu_pool,
@@ -458,10 +461,12 @@ class ExecutionScheduler:
             self._evict_layer_weights(group)
             self._layer_on_gpu.discard(layer_idx)
 
-            # Prefetch previous layer's weights async so the H2D transfer
+            # Prefetch previous layers' weights async so the H2D transfer
             # runs while autograd traverses to the next backward call.
-            if layer_idx > 0:
-                self._prefetch_layer(layer_idx - 1)
+            # Configurable depth via backward_weight_prefetch_layers.
+            for dl in range(1, self._backward_prefetch_layers + 1):
+                if layer_idx - dl >= 0:
+                    self._prefetch_layer(layer_idx - dl)
         # Weight streaming only: don't evict or discard — weights stay on GPU
         # for the next micro-batch. Eviction happens in on_backward_pass_end().
 

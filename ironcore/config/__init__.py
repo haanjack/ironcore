@@ -197,6 +197,40 @@ def _config_validation(config: MainConfig):
             f"offload.weight_prefetch_layers must be >= 1, got {config.offload.weight_prefetch_layers}"
         )
 
+    # M1 + FSDP FULL_SHARD → ValueError (host OOM from duplicated optimizer states)
+    if config.offload.optimizer_offload and config.parallel.use_fsdp:
+        if config.parallel.fsdp_sharding_strategy == "full":
+            raise ValueError(
+                "offload.optimizer_offload + FSDP full_shard duplicates optimizer states on host. "
+                "Use fsdp_sharding_strategy: shard_grad_op or disable optimizer_offload."
+            )
+
+    # M1 + FSDP CPUOffload → ValueError (redundant)
+    if config.offload.optimizer_offload and config.parallel.use_fsdp:
+        if config.parallel.fsdp_offload_params:
+            raise ValueError(
+                "optimizer_offload is redundant with FSDP CPUOffload. Use only one."
+            )
+
+    # M1 + FSDP without use_orig_params → ValueError (FlatParameter breaks optimizer refs)
+    if config.offload.optimizer_offload and config.parallel.use_fsdp:
+        if not config.parallel.fsdp_use_orig_params:
+            raise ValueError(
+                "FSDP + optimizer_offload requires fsdp_use_orig_params=True. "
+                "Without it, FSDP replaces parameters with FlatParameter, breaking optimizer references."
+            )
+
+    # TP offload warning
+    if config.offload.enabled and config.trainer.tensor_model_parallel_size > 1:
+        import warnings
+
+        warnings.warn(
+            f"Offload with tensor_model_parallel_size={config.trainer.tensor_model_parallel_size} "
+            "is experimental. Each rank streams its own TP shard independently. "
+            "Report any issues.",
+            stacklevel=2,
+        )
+
     # Auto-detect pinned memory pool size if requested (-1.0)
     if config.offload.enabled and config.offload.pinned_memory_pool_gb == -1.0:
         import logging

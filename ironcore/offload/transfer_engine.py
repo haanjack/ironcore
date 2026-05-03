@@ -74,7 +74,7 @@ class MemoryTransferEngine:
     @classmethod
     def from_config(cls, config: OffloadConfig, device: torch.device) -> MemoryTransferEngine:
         """Create an engine from OffloadConfig."""
-        return cls(device=device, prefetch_streams=1)
+        return cls(device=device, prefetch_streams=config.prefetch_streams)
 
     def submit_h2d(
         self,

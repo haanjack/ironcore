@@ -339,6 +339,16 @@ class BaseTrainer(ABC):
                 f"Wrapped optimizer with DistributedOptimizer (bucket_cap={self.config.parallel.dist_opt_bucket_cap_mb}MB)"
             )
 
+        # Defensive: verify optimizer holds references to original model params for FSDP+offload
+        if self.config.offload.optimizer_offload and self.config.parallel.use_fsdp:
+            optim_params = {p for group in optimizer.param_groups for p in group["params"]}
+            model_params = set(model.parameters())
+            if not optim_params.issubset(model_params):
+                raise RuntimeError(
+                    "Optimizer parameters don't match model parameters. "
+                    "This will break with FSDP + optimizer_offload."
+                )
+
         # Enable profiling if requested
         if (
             self.config.profiler.gpu_profiler
