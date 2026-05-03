@@ -117,7 +117,11 @@ class _SpillCheckpointFn(torch.autograd.Function):
             with torch.enable_grad():
                 output = ctx.block_fn(activation, *aux_args)
 
-        # Compute gradients
+        # Compute gradients. Synchronize the default stream to ensure all
+        # upstream backward kernels that produced grad_output have completed.
+        # Without this, the nested backward can read grad_output while the
+        # outer autograd engine is still writing it, causing gradient explosion.
+        torch.cuda.default_stream(activation.device).synchronize()
         torch.autograd.backward(output, grad_output)
 
         # Evict weights after backward recomputation.

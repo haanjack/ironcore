@@ -334,3 +334,62 @@ class TestM3GradientParity:
             f"Full-layer granularity gradient mismatch: max diff={max_overall:.2e}\n"
             f"All diffs: {grad_diffs}"
         )
+
+    def test_gradient_norm_stability_multi_layer(self):
+        """Gradient norms must stay bounded across steps with 4-layer activation spill.
+
+        Regression test: nested backward race caused gradient norms to explode
+        to 28M-54T instead of ~14. The synchronize() fix in _SpillCheckpointFn
+        ensures upstream backward kernels complete before the inner backward starts.
+        """
+        from ironcore.models.transformer import TransformerModel
+
+        config = _make_model_config()
+        config.model.num_layers = 4
+        config.model.dropout_attn = 0.0
+
+        torch.manual_seed(42)
+        model = TransformerModel(config).to(device=DEVICE, dtype=DTYPE)
+        model.train()
+
+        scheduler, _ = _make_scheduler(model, config)
+        assert scheduler is not None
+        model._offload_scheduler = scheduler
+        scheduler.set_gradient_accumulation_steps(1)
+
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+        max_grad_norm = 0.0
+        losses = []
+        for step in range(10):
+            torch.manual_seed(step)
+            hidden = torch.randn(2, 8, 512, device=DEVICE, dtype=DTYPE)
+            mask = torch.ones(2, 1, 8, 8, device=DEVICE)
+
+            scheduler.on_microbatch_forward_start(0)
+            out = model(hidden, mask, None)
+            scheduler.on_microbatch_forward_end()
+
+            loss = out.sum()
+            losses.append(loss.item())
+
+            scheduler.on_microbatch_backward_start(0)
+            loss.backward()
+            scheduler.on_microbatch_backward_end()
+
+            total_norm = 0.0
+            for p in model.parameters():
+                if p.grad is not None:
+                    total_norm += p.grad.data.norm().item() ** 2
+            total_norm = total_norm**0.5
+            max_grad_norm = max(max_grad_norm, total_norm)
+
+            scheduler.on_training_step_end()
+            optimizer.step()
+            optimizer.zero_grad()
+
+        assert max_grad_norm < 5000, (
+            f"Gradient explosion: max norm={max_grad_norm:.1f} (expected < 5000). "
+            f"Likely cause: _SpillCheckpointFn backward race condition."
+        )
+        assert losses[-1] < losses[0], f"Loss did not decrease: {losses[0]:.4f} -> {losses[-1]:.4f}"
