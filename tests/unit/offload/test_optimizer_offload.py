@@ -15,6 +15,7 @@ Tests cover:
 7. Shared helper correctness
 """
 
+import pytest
 import torch
 from torch import nn
 
@@ -24,6 +25,9 @@ from ironcore.offload.optimizer_helpers import (
 )
 from ironcore.optimizer.adamw import AdamWOptimizer
 from ironcore.optimizer.muon import MuonOptimizer
+
+cuda_available = torch.cuda.is_available()
+skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
 
 class TestShouldOffloadParam:
@@ -387,3 +391,163 @@ class TestMuonOffloaded:
         assert torch.allclose(attn_ref, attn_off, atol=1e-4)
         assert torch.allclose(emb_ref, emb_off, atol=1e-6)
         assert torch.allclose(bias_ref, bias_off, atol=1e-6)
+
+
+@skip_no_cuda
+class TestAdamWOffloadedCPUCompute:
+    """Tests for the CPU-compute path activated when params are on CUDA (M1-only)."""
+
+    def test_cpu_compute_path_cuda_param(self):
+        """CPU-compute path: states stay on CPU, param on CUDA updates correctly."""
+        p = nn.Parameter(torch.randn(128, 128, device="cuda"))
+        p.grad = torch.randn_like(p)
+        state = {}
+        original = p.data.clone()
+
+        _adamw_offloaded_step(
+            p,
+            p.grad,
+            state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.01,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+
+        assert state["exp_avg"].device == torch.device("cpu")
+        assert state["exp_avg_sq"].device == torch.device("cpu")
+        assert not torch.allclose(p.data, original)
+        assert p.data.device.type == "cuda"
+
+    def test_cpu_compute_matches_gpu_compute(self):
+        """CPU-compute path should produce nearly identical results to in-VRAM path."""
+        torch.manual_seed(42)
+
+        # Reference: in-VRAM AdamW (no offload)
+        p_ref = nn.Parameter(torch.randn(64, 64, device="cuda"))
+        opt_ref = AdamWOptimizer([{"params": [p_ref]}], lr=1e-3, offload_enabled=False)
+
+        # Offloaded: CPU-compute path
+        p_off = nn.Parameter(p_ref.data.clone())
+        opt_off = AdamWOptimizer([{"params": [p_off]}], lr=1e-3, offload_enabled=True)
+
+        for step in range(5):
+            torch.manual_seed(step)
+            grad = torch.randn_like(p_ref)
+            p_ref.grad = grad.clone()
+            p_off.grad = grad.clone()
+
+            opt_ref.step()
+            opt_off.step()
+
+        # CPU fp32 vs GPU fp32 can differ slightly due to SIMD rounding order
+        assert torch.allclose(p_ref.data, p_off.data, atol=1e-5), (
+            f"Max diff: {(p_ref.data - p_off.data).abs().max().item():.2e}"
+        )
+
+    def test_cpu_compute_bf16_state_dtype(self):
+        """CPU-compute path with bf16 state storage: states stored in bf16 on CPU."""
+        p = nn.Parameter(torch.randn(64, 64, device="cuda"))
+        p.grad = torch.randn_like(p)
+        state = {}
+
+        _adamw_offloaded_step(
+            p,
+            p.grad,
+            state,
+            lr=1e-2,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.0,
+            amsgrad=False,
+            state_dtype=torch.bfloat16,
+        )
+
+        assert state["exp_avg"].dtype == torch.bfloat16
+        assert state["exp_avg_sq"].dtype == torch.bfloat16
+        assert state["exp_avg"].device == torch.device("cpu")
+
+    def test_cpu_compute_weight_decay(self):
+        """Weight decay should shrink the parameter (applied on GPU)."""
+        p = nn.Parameter(torch.ones(64, 64, device="cuda"))
+        p.grad = torch.zeros_like(p)
+        state = {}
+
+        _adamw_offloaded_step(
+            p,
+            p.grad,
+            state,
+            lr=1e-2,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.1,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+
+        expected_scale = 1 - 0.01 * 0.1
+        assert torch.allclose(
+            p.data.cpu(), torch.ones(64, 64) * expected_scale, atol=1e-5
+        )
+
+    def test_cpu_compute_amsgrad(self):
+        """amsgrad variant: max_exp_avg_sq stays on CPU."""
+        p = nn.Parameter(torch.randn(64, 64, device="cuda"))
+        p.grad = torch.randn_like(p)
+        state = {}
+
+        _adamw_offloaded_step(
+            p,
+            p.grad,
+            state,
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.0,
+            amsgrad=True,
+            state_dtype=torch.float32,
+        )
+
+        assert "max_exp_avg_sq" in state
+        assert state["max_exp_avg_sq"].device == torch.device("cpu")
+        assert state["max_exp_avg_sq"].dtype == torch.float32
+
+    def test_cpu_compute_vram_reduction(self):
+        """Peak VRAM during offloaded step should be less than 2x param size in fp32."""
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.empty_cache()
+
+        # 1024x1024 fp32 = 4MB param. Old path would stage exp_avg + exp_avg_sq
+        # = 8MB on GPU. New path only needs delta (4MB in fp32).
+        p = nn.Parameter(torch.randn(1024, 1024, device="cuda"))
+        p.grad = torch.randn_like(p)
+
+        before = torch.cuda.memory_allocated()
+        _adamw_offloaded_step(
+            p,
+            p.grad,
+            {},
+            lr=1e-3,
+            beta1=0.9,
+            beta2=0.999,
+            eps=1e-8,
+            weight_decay=0.0,
+            amsgrad=False,
+            state_dtype=torch.float32,
+        )
+        peak = torch.cuda.max_memory_allocated()
+
+        param_bytes = p.numel() * p.element_size()  # 4MB
+
+        # Peak should be at most 2x param bytes (delta + grad).
+        # Old path would be ~3x param bytes (param + exp_avg + exp_avg_sq on GPU).
+        assert peak - before < 2.5 * param_bytes, (
+            f"Peak VRAM too high: {(peak - before) / 1024**2:.1f}MB "
+            f"(expected < {2.5 * param_bytes / 1024**2:.1f}MB)"
+        )
