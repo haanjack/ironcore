@@ -39,7 +39,7 @@ class TestOffloadConfigDefaults:
 
     def test_default_pinned_pool_size(self):
         config = OffloadConfig()
-        assert config.pinned_memory_pool_gb == 100.0
+        assert config.pinned_memory_pool_gb == -1.0  # -1.0 = auto-detect
 
     def test_default_spill_granularity(self):
         config = OffloadConfig()
@@ -130,6 +130,50 @@ class TestOffloadConfigValidation:
         config.offload.activation_spill = True
         # Should not raise
         _config_validation(config)
+
+
+class TestOffloadConfigAutoDetect:
+    """Test pinned memory pool auto-detect feature."""
+
+    def test_auto_pinned_pool_resolved_when_offload_enabled(self):
+        """When offload enabled and pinned_memory_pool_gb=-1.0, should resolve to positive value."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.pinned_memory_pool_gb = -1.0  # Auto-detect
+
+        _config_validation(config)
+
+        # After validation, should be resolved to a positive value
+        assert config.offload.pinned_memory_pool_gb > 0, "Auto-detect should resolve to positive value"
+        # Should be within reasonable bounds (8GB to 32GB typically)
+        assert 8.0 <= config.offload.pinned_memory_pool_gb <= 32.0
+
+    def test_auto_pinned_pool_unchanged_when_offload_disabled(self):
+        """When offload disabled, -1.0 should remain unchanged (no resolution needed)."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = False
+        config.offload.pinned_memory_pool_gb = -1.0  # Auto-detect
+
+        _config_validation(config)
+
+        # Should remain -1.0 since offload is disabled
+        assert config.offload.pinned_memory_pool_gb == -1.0
+
+    def test_large_pinned_pool_warns(self):
+        """Pool size > 80% of total RAM should trigger warning."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        # Set an absurdly large value that should exceed 80% of any reasonable system
+        config.offload.pinned_memory_pool_gb = 1000.0
+
+        with pytest.warns(UserWarning, match="exceeds 80% of total system RAM"):
+            _config_validation(config)
 
 
 class TestOffloadConfigUpdate:

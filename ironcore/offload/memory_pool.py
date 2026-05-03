@@ -26,6 +26,26 @@ import torch
 if TYPE_CHECKING:
     from ironcore.offload.config import OffloadConfig
 
+# Lazy import for system_info to avoid hard dependency when pool is not used
+_AVAILABLE_HOST_MEMORY_GB = None
+_TOTAL_HOST_MEMORY_GB = None
+
+
+def _available_host_memory_gb() -> float:
+    global _AVAILABLE_HOST_MEMORY_GB
+    if _AVAILABLE_HOST_MEMORY_GB is None:
+        from ironcore.utils import available_host_memory_gb as _fn
+        _AVAILABLE_HOST_MEMORY_GB = _fn()
+    return _AVAILABLE_HOST_MEMORY_GB
+
+
+def _total_host_memory_gb() -> float:
+    global _TOTAL_HOST_MEMORY_GB
+    if _TOTAL_HOST_MEMORY_GB is None:
+        from ironcore.utils import total_host_memory_gb as _fn
+        _TOTAL_HOST_MEMORY_GB = _fn()
+    return _TOTAL_HOST_MEMORY_GB
+
 
 _ELEMENT_SIZES: dict[torch.dtype, int] = {
     torch.float32: 4,
@@ -105,8 +125,11 @@ class PinnedMemoryPool:
                         f"PinnedMemoryPool budget exceeded: "
                         f"{self._total_used / 1024**3:.1f}GB used + "
                         f"{requested_bytes / 1024**3:.1f}GB requested > "
-                        f"{self._max_total_bytes / 1024**3:.1f}GB limit. "
-                        f"Increase offload.pinned_memory_pool_gb in your config."
+                        f"{self._max_total_bytes / 1024**3:.1f}GB limit.\n"
+                        f"System RAM: {_available_host_memory_gb():.1f}GB available / "
+                        f"{_total_host_memory_gb():.1f}GB total.\n"
+                        f"Increase offload.pinned_memory_pool_gb in your config, "
+                        f"or set to -1.0 for auto-sizing."
                     )
 
             # Try to fit in existing chunks
@@ -212,6 +235,8 @@ class _PinnedChunk:
         except torch.cuda.OutOfMemoryError as e:
             raise RuntimeError(
                 f"Failed to pin {num_bytes / 1024**3:.1f}GB of host memory. "
+                f"System RAM: {_available_host_memory_gb():.1f}GB available / "
+                f"{_total_host_memory_gb():.1f}GB total.\n"
                 f"Reduce offload.pinned_chunk_gb or free host RAM."
             ) from e
         return cls(storage)

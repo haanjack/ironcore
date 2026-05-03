@@ -197,6 +197,39 @@ def _config_validation(config: MainConfig):
             f"offload.weight_prefetch_layers must be >= 1, got {config.offload.weight_prefetch_layers}"
         )
 
+    # Auto-detect pinned memory pool size if requested (-1.0)
+    if config.offload.enabled and config.offload.pinned_memory_pool_gb == -1.0:
+        import logging
+        import warnings
+
+        from ironcore.utils import available_host_memory_gb, total_host_memory_gb
+
+        # Simple auto-detection: 40% of available RAM, capped at 32GB, min 8GB
+        avail = available_host_memory_gb()
+        auto_size = min(avail * 0.40, 32.0)
+        auto_size = max(8.0, auto_size)
+        config.offload.pinned_memory_pool_gb = auto_size
+
+        logging.info(
+            f"Auto-detected pinned memory pool: {auto_size:.1f}GB "
+            f"(from {avail:.1f}GB available / {total_host_memory_gb():.1f}GB total)"
+        )
+
+    # Warn if pinned pool size exceeds 80% of total RAM
+    if config.offload.enabled and config.offload.pinned_memory_pool_gb > 0:
+        import warnings
+
+        from ironcore.utils import total_host_memory_gb
+
+        total_ram = total_host_memory_gb()
+        if config.offload.pinned_memory_pool_gb > 0.8 * total_ram:
+            warnings.warn(
+                f"offload.pinned_memory_pool_gb ({config.offload.pinned_memory_pool_gb:.1f}GB) "
+                f"exceeds 80% of total system RAM ({total_ram:.1f}GB). "
+                f"Risk of host OOM. Consider using pinned_memory_pool_gb: -1.0 for auto-sizing.",
+                stacklevel=2,
+            )
+
 
 def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
     """build data config."""

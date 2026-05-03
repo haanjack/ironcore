@@ -61,5 +61,5 @@ class OffloadConfig(BaseConfig):
     activation_spill_granularity: str = "sub_layer"  # "sub_layer" or "full_layer"
 
     # Shared pinned memory pool (used by weight streaming and activation spill)
-    pinned_memory_pool_gb: float = 100.0
+    pinned_memory_pool_gb: float = -1.0  # -1.0 = auto-detect from available host RAM
     pinned_chunk_gb: float = 4.0
