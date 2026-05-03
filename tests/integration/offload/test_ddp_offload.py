@@ -45,7 +45,7 @@ def _make_config(**overrides):
     config = create_test_config(
         d_model=768,
         d_ffn=3072,
-        num_layers=2,
+        num_layers=4,  # Same as single-GPU tests
         num_attention_heads=12,
         num_attention_groups=12,
         head_dim=64,
@@ -57,8 +57,8 @@ def _make_config(**overrides):
         seed=42,
     )
     config.operation.train_steps = NUM_STEPS + 10
-    config.trainer.micro_batch_size = BATCH_SIZE
-    config.trainer.train_batch_size = BATCH_SIZE * 2  # 2 ranks
+    config.trainer.micro_batch_size = 1  # Per-rank batch
+    config.trainer.train_batch_size = 2  # Global batch = 2 (same as single-GPU)
     config.trainer.gradient_accumulation_steps = 1
     config.parallel.world_size = 2
 
@@ -145,6 +145,10 @@ class TestDDPOffload:
         )
 
         init_loss, final_loss = _run_training(config, NUM_STEPS)
+
+        rank = int(os.getenv("RANK", "0"))
+        if rank == 0:
+            print(f"\n[DDP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)

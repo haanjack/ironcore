@@ -695,6 +695,117 @@ offload:
   activation_spill: true
 ```
 
+---
+
+## 7.3 Complete Configuration Reference
+
+### OffloadConfig Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | false | Master switch for all offload features |
+| `optimizer_offload` | bool | false | Enable M1 (optimizer state offload to CPU) |
+| `optimizer_state_precision` | str | "fp32" | Precision for optimizer states: "fp32", "bf16", "fp16" |
+| `optimizer_min_param_elements` | int | 65536 | Skip offload for params smaller than this |
+| `weight_offload` | bool | false | Enable M2 (weight streaming) |
+| `weight_prefetch_layers` | int | 2 | Forward prefetch depth for weight streaming |
+| `backward_weight_prefetch_layers` | int | 1 | Backward prefetch depth for weight streaming |
+| `weight_storage_precision` | str | "bf16" | Precision for streamed weights on host |
+| `gpu_staging_pool_mb` | float | 0.0 | GPU staging pool size (0 = auto) |
+| `gpu_staging_chunk_mb` | float | 256.0 | Chunk size for GPU staging pool |
+| `activation_spill` | bool | false | Enable M3 (activation spilling) |
+| `activation_spill_granularity` | str | "sub_layer" | "sub_layer" or "full_layer" |
+| `pinned_memory_pool_gb` | float | -1.0 | Pinned memory pool size (-1 = auto-detect) |
+| `pinned_chunk_gb` | float | 4.0 | Chunk size for pinned pool allocation |
+| `prefetch_streams` | int | 1 | Number of CUDA streams for async transfers |
+
+### Usage Examples by Scenario
+
+#### Example 1: Single GPU, model doesn't fit (M1+M2+M3)
+```yaml
+offload:
+  enabled: true
+  optimizer_offload: true
+  optimizer_state_precision: "bf16"
+  weight_offload: true
+  weight_prefetch_layers: 2
+  activation_spill: true
+  activation_spill_granularity: "sub_layer"
+  pinned_memory_pool_gb: -1.0  # Auto-detect from available RAM
+```
+
+#### Example 2: Single GPU, only optimizer states are large (M1 only)
+```yaml
+offload:
+  enabled: true
+  optimizer_offload: true
+  optimizer_state_precision: "bf16"
+  pinned_memory_pool_gb: 8.0  # 8GB pinned pool sufficient for bf16 states
+```
+
+#### Example 3: DDP + ZeRO-1 with M1+M3 (multi-GPU optimizer savings)
+```yaml
+parallel:
+  use_distributed_optimizer: true
+  dist_opt_bucket_cap_mb: 25.0
+offload:
+  enabled: true
+  optimizer_offload: true
+  optimizer_state_precision: "bf16"
+  activation_spill: true
+  pinned_memory_pool_gb: -1.0
+```
+
+#### Example 4: FSDP SHARD_GRAD_OP + M1 + M3 (best for most multi-GPU)
+```yaml
+parallel:
+  use_fsdp: true
+  fsdp_sharding_strategy: "shard_grad_op"
+  fsdp_use_orig_params: true  # REQUIRED for M1+FSDP compatibility
+offload:
+  enabled: true
+  optimizer_offload: true
+  optimizer_state_precision: "bf16"
+  activation_spill: true
+```
+
+#### Example 5: FSDP FULL_SHARD + M3 (M1 is blocked to avoid duplication)
+```yaml
+parallel:
+  use_fsdp: true
+  fsdp_sharding_strategy: "full"
+offload:
+  enabled: true
+  activation_spill: true  # M3 works, M1 must be disabled
+```
+
+### Validation Rules (Automatically Enforced)
+
+The following configurations are automatically blocked with `ValueError`:
+
+1. **M1 + FSDP FULL_SHARD**: Duplicates optimizer states in host memory
+   - Use `fsdp_sharding_strategy: "shard_grad_op"` or disable M1
+
+2. **M1 + FSDP CPUOffload**: Redundant optimizer offloading
+   - Use only one: either M1 or FSDP CPUOffload
+
+3. **M1 + FSDP without use_orig_params**: Breaks optimizer parameter references
+   - Set `fsdp_use_orig_params: true` when using M1 with FSDP
+
+4. **M2 + FSDP**: Weight streaming conflicts with FSDP parameter sharding
+   - Already blocked; weight streaming is DDP/single-GPU only
+
+### Config Validation Warnings
+
+The following produce warnings (not errors):
+
+1. **M1 + FSDP SHARD_GRAD_OP without use_orig_params**: Required for correctness
+2. **M2 enabled without activation_spill**: Auto-enables activation_spill (M3)
+3. **pinned_memory_pool_gb exceeds 80% of total RAM**: Host OOM risk
+4. **TP > 1 with offload enabled**: Experimental, each rank streams independently
+
+---
+
 ### 7.3 Precision guidance
 
 | Setting | Host memory | Training stability | When to use |
