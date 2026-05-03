@@ -94,7 +94,7 @@ def initialize_parallelism(config: MainConfig, model: LanguageModel) -> torch.nn
 
     logger = get_logger()
 
-    if not config.parallel.use_fsdp and config.parallel.world_size >= 1:
+    if not config.parallel.use_fsdp and config.parallel.world_size > 1:
         model = DDP(
             model,
             process_group=parallel_states.get_data_parallel_group(),
