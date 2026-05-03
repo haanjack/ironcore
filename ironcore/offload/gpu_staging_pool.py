@@ -26,6 +26,20 @@ if TYPE_CHECKING:
     from ironcore.offload.config import OffloadConfig
 
 
+_ELEMENT_SIZES: dict[torch.dtype, int] = {
+    torch.float32: 4,
+    torch.float16: 2,
+    torch.bfloat16: 2,
+    torch.int64: 8,
+    torch.int32: 4,
+    torch.uint8: 1,
+}
+
+
+def _element_size(dtype: torch.dtype) -> int:
+    return _ELEMENT_SIZES.get(dtype) or torch.tensor([], dtype=dtype).element_size()
+
+
 class _GPUChunk:
     """
     A single contiguous block of GPU memory.
@@ -63,7 +77,7 @@ class _GPUChunk:
 
         Returns None if no contiguous free region is large enough.
         """
-        element_bytes = torch.tensor([], dtype=dtype).element_size()
+        element_bytes = _element_size(dtype)
         required_bytes = numel * element_bytes
 
         for i, (offset, free_numel) in enumerate(self._free_list):
@@ -184,7 +198,7 @@ class GPUStagingPool:
         Raises:
             RuntimeError: If allocation fails (out of VRAM or budget exceeded)
         """
-        element_bytes = torch.tensor([], dtype=dtype).element_size()
+        element_bytes = _element_size(dtype)
         requested_bytes = numel * element_bytes
 
         with self._lock:

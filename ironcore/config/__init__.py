@@ -169,6 +169,15 @@ def _config_validation(config: MainConfig):
         config.operation.activation_recompute = False
     if config.offload.weight_offload and not config.offload.enabled:
         raise ValueError("offload.weight_offload requires offload.enabled to be true")
+    if config.offload.weight_offload and config.offload.weight_storage_precision not in (
+        "fp32",
+        "fp16",
+        "bf16",
+    ):
+        raise ValueError(
+            f"offload.weight_storage_precision must be fp32, fp16, or bf16, "
+            f"got '{config.offload.weight_storage_precision}'"
+        )
     if config.offload.weight_offload and config.parallel.use_fsdp:
         raise ValueError(
             "offload.weight_offload is incompatible with FSDP. "

@@ -756,14 +756,17 @@ class BaseTrainer(ABC):
 
     def _optimizer_step(self):
         """Perform optimizer step after gradient accumulation."""
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad()
-        self.lr_scheduler.step()
-
-        # Weight streaming: synchronize all transfers, prepare for next step
-        if self._offload_scheduler is not None:
-            self._offload_scheduler.on_training_step_end()
+        try:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.optimizer.zero_grad()
+            self.lr_scheduler.step()
+        finally:
+            # Weight streaming: synchronize all transfers, prepare for next step.
+            # Must run even on exception to free pinned grad buffers and
+            # prevent pool budget exhaustion.
+            if self._offload_scheduler is not None:
+                self._offload_scheduler.on_training_step_end()
 
     def _check_loss_for_nan(self, loss: float, step: int) -> None:
         """Check if loss is NaN or Inf and raise error if so.

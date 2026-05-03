@@ -264,7 +264,8 @@ class ExecutionScheduler:
             _get_logger().warning("Weight streaming: no offloadable parameters found.")
             return
 
-        param_bytes = total_params * 4  # assume fp32 for estimate
+        _FP32_BYTES = 4
+        param_bytes = total_params * _FP32_BYTES  # estimate for logging
         logger.info(
             f"Weight streaming initialized: "
             f"{len(self._weight_groups)}/{self._num_layers} layers registered, "
@@ -586,10 +587,15 @@ class ExecutionScheduler:
                         tile.host_tensor[: flat_param.numel()].copy_(
                             flat_param.to(tile.storage_dtype)
                         )
-                # Replace param.data with host tile values (optimizer reads these)
-                param.data = (
-                    tile.host_tensor[: flat_param.numel()].to(param.dtype).view(param.shape).clone()
-                )
+                # Replace param.data with a view into the host tile. The optimizer
+                # updates param.data in-place, then snapshot_params_to_host reads
+                # the updated values. No clone needed: host_tensor is never freed
+                # during normal operation (only on scheduler shutdown).
+                host_view = tile.host_tensor[: flat_param.numel()]
+                if tile.storage_dtype == param.dtype:
+                    param.data = host_view.view(param.shape)
+                else:
+                    param.data = host_view.to(param.dtype).view(param.shape)
                 # Note: param.grad is NOT moved to CPU here. During gradient
                 # accumulation, subsequent micro-batches accumulate into the
                 # existing grad tensor. Moving grad to CPU between micro-batches

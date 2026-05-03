@@ -27,6 +27,20 @@ if TYPE_CHECKING:
     from ironcore.offload.config import OffloadConfig
 
 
+_ELEMENT_SIZES: dict[torch.dtype, int] = {
+    torch.float32: 4,
+    torch.float16: 2,
+    torch.bfloat16: 2,
+    torch.int64: 8,
+    torch.int32: 4,
+    torch.uint8: 1,
+}
+
+
+def _element_size(dtype: torch.dtype) -> int:
+    return _ELEMENT_SIZES.get(dtype) or torch.tensor([], dtype=dtype).element_size()
+
+
 class PinnedMemoryPool:
     """
     Pool of page-locked host memory for DMA transfers.
@@ -80,7 +94,7 @@ class PinnedMemoryPool:
         Raises:
             RuntimeError: If allocation fails (out of host memory or budget exceeded)
         """
-        element_bytes = torch.tensor([], dtype=dtype).element_size()
+        element_bytes = _element_size(dtype)
         requested_bytes = numel * element_bytes
 
         with self._lock:
@@ -212,7 +226,7 @@ class _PinnedChunk:
 
         Returns None if no contiguous free region is large enough.
         """
-        element_bytes = torch.tensor([], dtype=dtype).element_size()
+        element_bytes = _element_size(dtype)
         required_bytes = numel * element_bytes
 
         # Search free list for a region that fits
@@ -267,7 +281,6 @@ class _PinnedChunk:
         merged_start = offset
         merged_end = offset + num_bytes
 
-        new_free_list = []
         changed = True
         while changed:
             changed = False
@@ -283,9 +296,6 @@ class _PinnedChunk:
                 else:
                     remaining.append((region_start, region_numel))
             self._free_list = remaining
-            # Re-run only if we extended and may now touch new neighbors
 
-        new_free_list = self._free_list
-        new_free_list.append((merged_start, merged_end - merged_start))
-        self._free_list = new_free_list
+        self._free_list.append((merged_start, merged_end - merged_start))
         return True
