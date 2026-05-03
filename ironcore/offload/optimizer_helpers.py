@@ -33,7 +33,12 @@ def _should_offload_param(p: torch.nn.Parameter, min_param_elements: int) -> boo
     """Check if a parameter should have its optimizer states offloaded to host."""
     if not getattr(p, "offloadable", True):
         return False
-    return p.numel() >= min_param_elements
+    numel = p.numel()
+    # Scale threshold for TP-sharded params (shard is 1/tp_size of original)
+    if getattr(p, "is_tp_sharded", False):
+        from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
+        numel = numel * get_tensor_model_parallel_world_size()
+    return numel >= min_param_elements
 
 
 def _create_offloaded_state(

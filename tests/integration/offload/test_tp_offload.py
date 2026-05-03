@@ -150,6 +150,10 @@ class TestTPOffload:
 
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
+        rank = int(os.getenv("RANK", "0"))
+        if rank == 0:
+            print(f"\n[TP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
+
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, f"TP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
