@@ -490,18 +490,17 @@ class ExecutionScheduler:
                         flat_grad = flat_grad.contiguous()
                     self._engine.submit_d2h(src=flat_grad, dst=host_buf)
                     _grad_transfers.append((param, host_buf, numel, grad.shape))
+        # Weight streaming only: evict weights to CPU before assigning CPU grads.
+        # With activation spill, eviction already happened in on_backward_layer_end.
+        if self._spill_manager is None:
+            for group in self._weight_groups.values():
+                self._evict_layer_weights(group)
+
         if _grad_transfers:
             self._engine.synchronize()
             for param, host_buf, numel, shape in _grad_transfers:
                 param.grad = host_buf[:numel].view(shape)
             self._pinned_grad_buffers = [host_buf for _, host_buf, _, _ in _grad_transfers]
-
-        # Weight streaming only: evict all layers' weights from GPU back to CPU.
-        # With activation spill, eviction already happened in on_backward_layer_end.
-        # This must happen before the optimizer step so it updates CPU params.
-        if self._spill_manager is None:
-            for group in self._weight_groups.values():
-                self._evict_layer_weights(group)
 
         self._layer_on_gpu.clear()
 
