@@ -42,7 +42,7 @@ if torch.cuda.is_available():
 
 def _make_config(**offload_overrides):
     """GPT-small architecture config with M1+M2 offload."""
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **offload_overrides)
     config = create_test_config(

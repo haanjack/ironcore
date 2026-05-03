@@ -71,7 +71,7 @@ def _make_moe_config(**overrides):
     config.parallel.use_fsdp = False
 
     # Apply overrides (offload settings)
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
     offload_overrides = overrides.get("offload", {})
     if not offload_overrides:

@@ -66,7 +66,7 @@ def _make_config(**overrides):
     config.parallel.fsdp_use_orig_params = True  # Required for optimizer offload
 
     # Apply overrides (offload settings)
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **overrides.get("offload", {}))
     config.offload = offload

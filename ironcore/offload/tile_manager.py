@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import torch
 
 if TYPE_CHECKING:
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
     from ironcore.offload.gpu_staging_pool import GPUStagingPool
     from ironcore.offload.memory_pool import PinnedMemoryPool
 

@@ -14,6 +14,6 @@ MemoryTransferEngine) are not imported here to avoid circular imports.
 Import them directly from their modules where needed.
 """
 
-from ironcore.offload.config import OffloadConfig
+from ironcore.config import OffloadConfig
 
 __all__ = ["OffloadConfig"]

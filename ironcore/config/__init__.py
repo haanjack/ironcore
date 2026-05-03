@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from ironcore.offload.config import OffloadConfig
 from ironcore.utils import load_yaml_config
 from ironcore.utils.config import sanitize_path_component as _sanitize_path_component
 from ironcore.utils.config import validate_path_within_dir as _validate_path_within_dir
@@ -16,6 +15,7 @@ from ironcore.utils.config import validate_path_within_dir as _validate_path_wit
 from .config import BaseConfig
 from .config_alignment import AlignmentConfig
 from .config_data import DataConfig
+from .config_offload import OffloadConfig
 from .config_model import KVCacheConfig as KVCacheConfig
 from .config_model import ModelConfig
 from .config_model import PositionalEmbeddingConfig as PositionalEmbeddingConfig

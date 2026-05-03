@@ -21,7 +21,7 @@ import pytest
 import torch
 from torch import nn
 
-from ironcore.offload.config import OffloadConfig
+from ironcore.config import OffloadConfig
 from ironcore.offload.memory_pool import PinnedMemoryPool
 from ironcore.offload.tile_manager import TileManager
 

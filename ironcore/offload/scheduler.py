@@ -143,7 +143,7 @@ class ExecutionScheduler:
             config: OffloadConfig
             device: Target CUDA device
         """
-        from ironcore.offload.config import OffloadConfig
+        from ironcore.config import OffloadConfig
 
         assert isinstance(config, OffloadConfig)
 

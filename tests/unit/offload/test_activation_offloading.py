@@ -19,7 +19,7 @@ CUDA tests are gated on torch.cuda.is_available().
 import pytest
 import torch
 
-from ironcore.offload.config import OffloadConfig
+from ironcore.config import OffloadConfig
 from ironcore.offload.hooks import ActivationSpillManager
 from ironcore.offload.memory_pool import PinnedMemoryPool
 

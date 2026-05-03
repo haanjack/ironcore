@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 import torch
 
 if TYPE_CHECKING:
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
 # Lazy import for system_info to avoid hard dependency when pool is not used
 _AVAILABLE_HOST_MEMORY_GB = None

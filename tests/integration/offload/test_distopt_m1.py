@@ -64,7 +64,7 @@ def _make_config(**overrides):
     config.parallel.use_distributed_optimizer = True
 
     # Apply overrides (offload settings)
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **overrides.get("offload", {}))
     config.offload = offload

@@ -16,7 +16,7 @@ import warnings
 
 import pytest
 
-from ironcore.offload.config import OffloadConfig
+from ironcore.config import OffloadConfig
 
 
 class TestOffloadConfigDefaults:

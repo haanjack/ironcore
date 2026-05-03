@@ -30,7 +30,7 @@ def _make_model_config():
     from ironcore.config.config_peft import PEFTConfig
     from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
     from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
     model_config = ModelConfig()
     model_config.num_layers = 2
@@ -60,7 +60,7 @@ def _make_model_config():
 
 def _make_scheduler(model, config, granularity="sub_layer"):
     """Create an ExecutionScheduler with activation spill enabled."""
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
     from ironcore.offload.scheduler import ExecutionScheduler
 
     offload = OffloadConfig(

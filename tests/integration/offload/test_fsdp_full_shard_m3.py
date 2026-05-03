@@ -66,7 +66,7 @@ def _make_config(**overrides):
     config.parallel.fsdp_use_orig_params = True
 
     # Apply overrides (offload settings - M3 only, M1 is blocked)
-    from ironcore.offload.config import OffloadConfig
+    from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **overrides.get("offload", {}))
     config.offload = offload
