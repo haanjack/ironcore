@@ -97,11 +97,14 @@ def _create_forward_step_func():
 def _run_training(config, num_steps):
     """Run N training steps. Returns (initial_loss, final_loss)."""
     reset_global_states()
+    # torchrun sets these; only set defaults for single-process testing
     os.environ.setdefault("MASTER_ADDR", "localhost")
     os.environ.setdefault("MASTER_PORT", "29500")
-    os.environ.setdefault("LOCAL_RANK", "0")
-    os.environ.setdefault("RANK", "0")
     os.environ.setdefault("WORLD_SIZE", "2")
+
+    # Ensure config picks up the actual rank from environment
+    config.parallel.rank = int(os.getenv("RANK", "0"))
+    config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
 
     initial_loss: float | None = None
     final_loss = 0.0

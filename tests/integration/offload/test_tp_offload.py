@@ -81,8 +81,11 @@ def _create_forward_step_func():
         device = next(model.parameters()).device
         torch.manual_seed(42 + step_counter[0])
         step_counter[0] += 1
-        input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN), device=device)
+        # Generate inputs on CPU first so all TP ranks get the same data
+        input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN))
         labels = input_ids.clone()
+        input_ids = input_ids.to(device)
+        labels = labels.to(device)
         logits = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
@@ -98,11 +101,14 @@ def _create_forward_step_func():
 def _run_training(config, num_steps):
     """Run N training steps. Returns (initial_loss, final_loss)."""
     reset_global_states()
+    # torchrun sets these; only set defaults for single-process testing
     os.environ.setdefault("MASTER_ADDR", "localhost")
     os.environ.setdefault("MASTER_PORT", "29500")
-    os.environ.setdefault("LOCAL_RANK", "0")
-    os.environ.setdefault("RANK", "0")
     os.environ.setdefault("WORLD_SIZE", "2")
+
+    # Ensure config picks up the actual rank from environment
+    config.parallel.rank = int(os.getenv("RANK", "0"))
+    config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
 
     initial_loss: float | None = None
     final_loss = 0.0
