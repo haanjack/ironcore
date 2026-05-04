@@ -1,0 +1,95 @@
+# GRPO baseline smoke test (non-paged, standard KV cache)
+# Identical to grpo_paged_smoke.yaml except paged rollout is disabled.
+# Use for A/B comparison.
+
+model:
+  num_attention_heads: 14
+  num_attention_groups: 2
+  attention_head_size: 64
+  head_dim: 64
+  max_seq_len: 1024
+  num_layers: 24
+  d_model: 896
+  d_ffn: 4864
+  untie_embed: false
+  reset_position_ids: false
+  reset_attention_mask: false
+  eod_mask_loss: false
+  precision: bf16
+  ln_type: rmsnorm
+  ln_eps: 1.0e-6
+  bias:
+    q: true
+    k: true
+    v: true
+    o: false
+    gate: false
+    up: false
+    down: false
+  layernorm_bias: false
+  post_ln: false
+  activation_type: swiglu
+  vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+  tokenizer_type: sentencepiece
+  positional_embedding:
+    type: rope
+    base: 1000000.0
+  hf_model_type: qwen2
+  hf_architecture: Qwen2ForCausalLM
+
+trainer:
+  micro_batch_size: 1
+  train_batch_size: 2
+  gradient_accumulation_steps: 1
+  tensor_model_parallel_size: 1
+  log_interval: 1
+  use_flash_attn: true
+  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
+
+data:
+  config_path: configs/data/grpo_qwen_keyword_toy.yaml
+  task_type: grpo
+
+optim:
+  optimizer: adamw
+  lr_scheduler: cosine
+  max_lr: 1.0e-5
+  min_lr: 1.0e-6
+  warmup_steps: 2
+  annealing_steps: 5
+  weight_decay: 0.01
+  clip_grad: 1.0
+
+operation:
+  train_steps: 5
+
+init:
+  seed: 42
+
+parallel:
+  world_size: 2
+
+alignment:
+  method: grpo
+  grpo_group_size: 2
+  grpo_rollout_micro_group_size: 2
+  grpo_beta: 0.04
+  grpo_eps: 1.0e-8
+  grpo_num_epochs: 1
+  grpo_clip_eps: 0.0
+  generation:
+    max_new_tokens: 64
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 50
+    do_sample: true
+    use_chat_template: false
+  reward_manager:
+    num_workers: 2
+    timeout: 30
+    functions:
+      - name: keyword
+        type: keyword
+        keyword: ironcore
+        weight: 1.0
+  metrics_interval: 1

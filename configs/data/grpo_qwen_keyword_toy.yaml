@@ -1,0 +1,19 @@
+# GRPO Qwen Keyword Toy Dataset Configuration
+# Trains model to include "ironcore" keyword in responses
+# Note: tokenizer_type=bbpe uses AutoTokenizer.from_pretrained which correctly loads Qwen tokenizer
+
+vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+tokenizer_type: bbpe
+seq_length: 256
+splits: [1.0, 0.0, 0.0]
+
+train_datasets:
+  - name: grpo_qwen_keyword_toy
+    source: data/grpo_qwen_keyword_toy.jsonl
+    task_type: grpo
+    ratio: 1.0
+    split: train
+
+preprocessed_dir: ./data/preprocessed
+cache_dir: ./data/cache
+num_workers: 0
