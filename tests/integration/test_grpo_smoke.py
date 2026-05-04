@@ -43,8 +43,6 @@ def _resolve_config_paths(config_path: str) -> str:
             for key, value in obj.items():
                 if isinstance(value, str) and value.startswith("configs/"):
                     abs_path = str((REPO_ROOT / value).resolve())
-                    if abs_path.endswith(".yaml"):
-                        abs_path = abs_path[:-5]
                     obj[key] = abs_path
                     modified = True
                 elif isinstance(value, (dict, list)):
@@ -54,8 +52,6 @@ def _resolve_config_paths(config_path: str) -> str:
             for i, item in enumerate(obj):
                 if isinstance(item, str) and item.startswith("configs/"):
                     abs_path = str((REPO_ROOT / item).resolve())
-                    if abs_path.endswith(".yaml"):
-                        abs_path = abs_path[:-5]
                     obj[i] = abs_path
                     modified = True
                 elif isinstance(item, (dict, list)):
