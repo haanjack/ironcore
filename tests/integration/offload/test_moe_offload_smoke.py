@@ -125,8 +125,13 @@ def _run_training(config, num_steps):
     final_loss = 0.0
 
     with (
-        patch("ironcore.trainers.base_trainer.get_data_iterator", return_value=create_mock_data_iterator()),
-        patch("ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()),
+        patch(
+            "ironcore.trainers.base_trainer.get_data_iterator",
+            return_value=create_mock_data_iterator(),
+        ),
+        patch(
+            "ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()
+        ),
     ):
         trainer = LanguageModelTrainer(config, _create_forward_step_func(), F.cross_entropy)
         trainer._initialize()
@@ -155,7 +160,9 @@ class TestMoEOffload:
 
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
-        print(f"\n[MoE+Baseline] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
+        print(
+            f"\n[MoE+Baseline] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+        )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
@@ -172,7 +179,9 @@ class TestMoEOffload:
 
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
-        print(f"\n[MoE+M1] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
+        print(
+            f"\n[MoE+M1] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+        )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
@@ -189,7 +198,9 @@ class TestMoEOffload:
 
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
-        print(f"\n[MoE+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
+        print(
+            f"\n[MoE+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+        )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
@@ -209,7 +220,9 @@ class TestMoEOffload:
 
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
-        print(f"\n[MoE+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
+        print(
+            f"\n[MoE+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+        )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)

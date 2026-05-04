@@ -110,8 +110,13 @@ def _run_training(config, num_steps):
     final_loss = 0.0
 
     with (
-        patch("ironcore.trainers.base_trainer.get_data_iterator", return_value=create_mock_data_iterator()),
-        patch("ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()),
+        patch(
+            "ironcore.trainers.base_trainer.get_data_iterator",
+            return_value=create_mock_data_iterator(),
+        ),
+        patch(
+            "ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()
+        ),
     ):
         trainer = LanguageModelTrainer(config, _create_forward_step_func(), F.cross_entropy)
         trainer._initialize()
@@ -148,9 +153,13 @@ class TestDDPOffload:
 
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
-            print(f"\n[DDP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%")
+            print(
+                f"\n[DDP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+            )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
-        assert final_loss < init_loss, f"DDP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        assert final_loss < init_loss, (
+            f"DDP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"

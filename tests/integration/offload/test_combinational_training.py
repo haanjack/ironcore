@@ -12,11 +12,11 @@ losses against a no-offload baseline.
 Model: GPT-small architecture (4L, 768d, 3072 FFN, 12 heads).
 
 Combinations tested:
-  - M1 only (optimizer offload)
-  - M2 + M3 (weight streaming + activation spill)
-  - M1 + M2 + M3 (all three)
-  - M2 + M3 with grad_accum=2
-  - M1 + M2 + M3 with full_layer granularity
+  - Optimizer offload only (optimizer offload)
+  - Weight streaming + activation spill (weight streaming + activation spill)
+  - M1 + Weight streaming + activation spill (all three)
+  - Weight streaming + activation spill with grad_accum=2
+  - M1 + Weight streaming + activation spill with full_layer granularity
 """
 
 import math
@@ -163,7 +163,7 @@ class TestCombinationalTraining:
         )
 
     def test_m2_m3(self):
-        """M2 + M3: final loss must be within tolerance of baseline."""
+        """Weight streaming + activation spill: final loss must be within tolerance of baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -186,7 +186,7 @@ class TestCombinationalTraining:
         )
 
     def test_m1_m2_m3(self):
-        """M1 + M2 + M3 (all offload): final loss must stay close to baseline."""
+        """M1 + Weight streaming + activation spill (all offload): final loss must stay close to baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -212,7 +212,7 @@ class TestCombinationalTraining:
         )
 
     def test_m2_m3_grad_accum(self):
-        """M2 + M3 with grad_accum=2: loss must track baseline."""
+        """Weight streaming + activation spill with grad_accum=2: loss must track baseline."""
         config_ref = _make_config()
         config_ref.trainer.gradient_accumulation_steps = 2
         config_ref.trainer.train_batch_size = BATCH_SIZE * 2
@@ -244,7 +244,7 @@ class TestCombinationalTraining:
         )
 
     def test_m1_m2_m3_full_layer(self):
-        """M1 + M2 + M3 with full_layer granularity: final loss must track baseline."""
+        """M1 + Weight streaming + activation spill with full_layer granularity: final loss must track baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -331,7 +331,7 @@ class TestCombinationalTraining:
         )
 
     def test_m2_m3_grad_accum_4(self):
-        """M2 + M3 with grad_accum=4: loss must track baseline."""
+        """Weight streaming + activation spill with grad_accum=4: loss must track baseline."""
         config_ref = _make_config()
         config_ref.trainer.gradient_accumulation_steps = 4
         config_ref.trainer.train_batch_size = BATCH_SIZE * 4

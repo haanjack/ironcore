@@ -395,7 +395,7 @@ class TestMuonOffloaded:
 
 @skip_no_cuda
 class TestAdamWOffloadedCPUCompute:
-    """Tests for the CPU-compute path activated when params are on CUDA (M1-only)."""
+    """Tests for the CPU-compute path activated when params are on CUDA (optimizer offload only)."""
 
     def test_cpu_compute_path_cuda_param(self):
         """CPU-compute path: states stay on CPU, param on CUDA updates correctly."""
@@ -491,9 +491,7 @@ class TestAdamWOffloadedCPUCompute:
         )
 
         expected_scale = 1 - 0.01 * 0.1
-        assert torch.allclose(
-            p.data.cpu(), torch.ones(64, 64) * expected_scale, atol=1e-5
-        )
+        assert torch.allclose(p.data.cpu(), torch.ones(64, 64) * expected_scale, atol=1e-5)
 
     def test_cpu_compute_amsgrad(self):
         """amsgrad variant: max_exp_avg_sq stays on CPU."""

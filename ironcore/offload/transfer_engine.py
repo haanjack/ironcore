@@ -21,6 +21,7 @@ Usage pattern for weight streaming:
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,6 +41,8 @@ class TransferHandle:
     dst_shape: tuple[int, ...]
     nbytes: int
     completed: bool = False
+    start_ns: int = 0  # Transfer start time (nanoseconds)
+    end_ns: int = 0  # Transfer end time (nanoseconds)
 
 
 class MemoryTransferEngine:
@@ -59,7 +62,9 @@ class MemoryTransferEngine:
             help when transferring from multiple source buffers simultaneously.
     """
 
-    def __init__(self, device: torch.device, prefetch_streams: int = 1):
+    def __init__(
+        self, device: torch.device, prefetch_streams: int = 1, enable_telemetry: bool = False
+    ):
         if not torch.cuda.is_available():
             raise RuntimeError("MemoryTransferEngine requires CUDA")
 
@@ -70,11 +75,19 @@ class MemoryTransferEngine:
         self._pending: list[TransferHandle] = []
         self._total_h2d_bytes = 0
         self._total_d2h_bytes = 0
+        self._enable_telemetry = enable_telemetry
 
     @classmethod
     def from_config(cls, config: OffloadConfig, device: torch.device) -> MemoryTransferEngine:
         """Create an engine from OffloadConfig."""
-        return cls(device=device, prefetch_streams=config.prefetch_streams)
+        import os
+
+        enable_telemetry = os.getenv("IRONCORE_OFFLOAD_TELEMETRY") is not None
+        return cls(
+            device=device,
+            prefetch_streams=config.prefetch_streams,
+            enable_telemetry=enable_telemetry,
+        )
 
     def submit_h2d(
         self,
@@ -116,6 +129,7 @@ class MemoryTransferEngine:
             src_shape=tuple(src.shape),
             dst_shape=tuple(dst.shape),
             nbytes=src.numel() * src.element_size(),
+            start_ns=time.time_ns() if self._enable_telemetry else 0,
         )
 
         with self._lock:
@@ -161,6 +175,7 @@ class MemoryTransferEngine:
             src_shape=tuple(src.shape),
             dst_shape=tuple(dst.shape),
             nbytes=src.numel() * src.element_size(),
+            start_ns=time.time_ns() if self._enable_telemetry else 0,
         )
 
         with self._lock:
@@ -175,6 +190,17 @@ class MemoryTransferEngine:
             return
         handle.event.synchronize()
         handle.completed = True
+
+        if self._enable_telemetry and handle.start_ns > 0:
+            handle.end_ns = time.time_ns()
+            from ironcore.utils.offload_metrics import get_offload_metrics
+
+            metrics = get_offload_metrics()
+            elapsed = handle.end_ns - handle.start_ns
+            if handle.direction == "h2d":
+                metrics.record_h2d(handle.nbytes, elapsed)
+            else:
+                metrics.record_d2h(handle.nbytes, elapsed)
 
     def synchronize(self) -> None:
         """Block until all pending transfers complete."""

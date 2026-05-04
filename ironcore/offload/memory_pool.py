@@ -35,6 +35,7 @@ def _available_host_memory_gb() -> float:
     global _AVAILABLE_HOST_MEMORY_GB
     if _AVAILABLE_HOST_MEMORY_GB is None:
         from ironcore.utils import available_host_memory_gb as _fn
+
         _AVAILABLE_HOST_MEMORY_GB = _fn()
     return _AVAILABLE_HOST_MEMORY_GB
 
@@ -43,6 +44,7 @@ def _total_host_memory_gb() -> float:
     global _TOTAL_HOST_MEMORY_GB
     if _TOTAL_HOST_MEMORY_GB is None:
         from ironcore.utils import total_host_memory_gb as _fn
+
         _TOTAL_HOST_MEMORY_GB = _fn()
     return _TOTAL_HOST_MEMORY_GB
 

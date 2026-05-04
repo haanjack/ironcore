@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Pairwise offload test: M1 + M3 (M2 disabled).
+Pairwise offload test: Optimizer state offload + Activation spilling (weight streaming disabled).
 
-Verifies M1+M3 combination works correctly without weight streaming.
+Verifies optimizer offload + activation spill combination works correctly without weight streaming.
 """
 
 import math
@@ -40,7 +40,7 @@ if torch.cuda.is_available():
 
 
 def _make_config(**offload_overrides):
-    """GPT-small architecture config with M1+M3 offload."""
+    """GPT-small architecture config with Optimizer offload + activation spill offload."""
     from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **offload_overrides)
@@ -105,8 +105,13 @@ def _run_training(config, num_steps):
     final_loss = 0.0
 
     with (
-        patch("ironcore.trainers.base_trainer.get_data_iterator", return_value=create_mock_data_iterator()),
-        patch("ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()),
+        patch(
+            "ironcore.trainers.base_trainer.get_data_iterator",
+            return_value=create_mock_data_iterator(),
+        ),
+        patch(
+            "ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()
+        ),
     ):
         trainer = LanguageModelTrainer(config, _create_forward_step_func(), F.cross_entropy)
         trainer._initialize()
@@ -123,11 +128,11 @@ def _run_training(config, num_steps):
 
 
 @skip_no_cuda
-class TestPairwiseM1M3:
-    """M1 + M3 combination test (M2 disabled)."""
+class TestOptimizerActivationSpill:
+    """Optimizer state offload + Activation spilling combination test (M2 disabled)."""
 
-    def test_m1_m3_converges(self):
-        """M1+M3 should converge and produce valid gradients."""
+    def test_optimizer_activation_spill_converges(self):
+        """Optimizer offload + activation spill should converge and produce valid gradients."""
         config = _make_config(
             optimizer_offload=True,
             activation_spill=True,
@@ -140,11 +145,13 @@ class TestPairwiseM1M3:
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
-        assert final_loss < init_loss, f"M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        assert final_loss < init_loss, (
+            f"Optimizer offload + activation spill did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
 
-    def test_m1_m3_vs_baseline_parity(self):
-        """M1+M3 final loss should match baseline within tolerance."""
+    def test_optimizer_activation_spill_vs_baseline_parity(self):
+        """Optimizer offload + activation spill final loss should match baseline within tolerance."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -159,5 +166,5 @@ class TestPairwiseM1M3:
 
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
         assert rel_err < 0.01, (
-            f"M1+M3 loss diverged: ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
+            f"Optimizer offload + activation spill loss diverged: ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )

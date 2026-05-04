@@ -1,8 +1,9 @@
 # Offload + Distributed Training Architecture Design
 
-> **Status**: Design review (not yet implemented)
-> **Scope**: M1/M2/M3 offload interaction with DDP, FSDP, and DistributedOptimizer
+> **Scope**: Optimizer state offload, weight streaming, and activation spilling interactions with DDP, FSDP, and DistributedOptimizer
 > **Audience**: Engineers evaluating configuration options for multi-GPU training
+
+> **Quick Start**: See [§7.2 Configuration Selection Criteria](#72-configuration-selection-criteria) for common scenarios, or [§7.3 Complete Configuration Reference](#73-complete-configuration-reference) for all options.
 
 ## Table of Contents
 
@@ -23,9 +24,9 @@
 
 Ironcore's offload system provides three independent modes for reducing GPU VRAM usage:
 
-- **M1** (Optimizer state offload): Keeps AdamW/Muon optimizer states on CPU with configurable precision
-- **M2** (Weight streaming): Streams layer weights from CPU to GPU with async prefetch and a GPU staging pool
-- **M3** (Activation spilling): Spills intermediate activations to CPU during forward, restores during backward
+- **Optimizer state offload** (`optimizer_offload`): Keeps AdamW/Muon optimizer states on CPU with configurable precision
+- **Weight streaming** (`weight_offload`): Streams layer weights from CPU to GPU with async prefetch and a GPU staging pool
+- **Activation spilling** (`activation_spill`): Spills intermediate activations to CPU during forward, restores during backward
 
 For multi-GPU training, PyTorch provides FSDP (FullyShardedDataParallel), which shards parameters, gradients, and optimizer states across ranks. FSDP and the offload system have overlapping capabilities (both can manage optimizer state placement) and complementary capabilities (FSDP does not handle activation spilling).
 
@@ -33,13 +34,13 @@ This document analyzes every combination, identifies where they conflict vs. com
 
 ### Key findings
 
-1. **M3 is universally compatible** — activation spilling works with all parallelism strategies (DDP, FSDP, single-GPU) because it operates on intermediate tensors, not parameters. No other system (FSDP, DeepSpeed, Megatron) provides CPU-based activation spilling.
+1. **Activation spilling is universally compatible** — works with all parallelism strategies (DDP, FSDP, single-GPU) because it operates on intermediate tensors, not parameters. No other system (FSDP, DeepSpeed, Megatron) provides CPU-based activation spilling.
 
-2. **M2 is DDP/single-GPU only** — weight streaming conflicts with FSDP's parameter sharding/unsharding. Already blocked.
+2. **Weight streaming is DDP/single-GPU only** — conflicts with FSDP's parameter sharding/unsharding. Already blocked by config validation.
 
-3. **M1 complements FSDP SHARD_GRAD_OP** — FSDP SHARD_GRAD_OP shards params+grads but not optimizer states. M1 fills this gap with CPU offload + configurable precision. But M1 must NOT be used with FSDP FULL_SHARD (duplicates optimizer states in host memory).
+3. **Optimizer state offload complements FSDP SHARD_GRAD_OP** — FSDP SHARD_GRAD_OP shards params+grads but not optimizer states. Optimizer offload fills this gap with CPU offload + configurable precision. But optimizer offload must NOT be used with FSDP FULL_SHARD (duplicates optimizer states in host memory).
 
-4. **M1 + DistributedOptimizer stack multiplicatively** — DistributedOptimizer gives ZeRO-1 (shard optimizer states across DP ranks), M1 offloads the per-shard states to CPU with bf16 precision. Each rank's host memory = `1/N * 2 * params * 2B` (bf16).
+4. **Optimizer offload + DistributedOptimizer stack multiplicatively** — DistributedOptimizer gives ZeRO-1 (shard optimizer states across DP ranks), optimizer offload moves the per-shard states to CPU with bf16 precision. Each rank's host memory = `1/N * 2 * params * 2B` (bf16).
 
 5. **Backward prefetch is a gap** — FSDP has BACKWARD_PRE (overlaps all-gather with backward compute). Our offload system has forward weight prefetch but lacks backward activation prefetch. Adding it could improve throughput 5-10% for large models.
 
@@ -49,7 +50,7 @@ This document analyzes every combination, identifies where they conflict vs. com
 
 ### 2.1 Offload Modes
 
-#### M1: Optimizer State Offload
+#### Optimizer State Offload (`optimizer_offload`)
 
 **What it does**: Stores AdamW exp_avg and exp_avg_sq (and optionally max_exp_avg_sq for AMSGrad) on CPU instead of GPU.
 
@@ -57,8 +58,8 @@ This document analyzes every combination, identifies where they conflict vs. com
 
 | Path | When | How | PCIe traffic |
 |------|------|-----|-------------|
-| CPU-compute | Params on GPU (M1-only, no M2) | AdamW math runs on CPU (SIMD/AVX-512 via MKL). Transfers grad (D2H) and delta (H2D). States never leave CPU. | `2N * dtype_size` per param per step |
-| GPU-compute | Params on CPU (M2 active) | States already on CPU. `.to()` is a no-op. Math runs on CPU natively. | 0 (everything on CPU) |
+| CPU-compute | Params on GPU (Optimizer state offload-only, no Weight streaming) | AdamW math runs on CPU (SIMD/AVX-512 via MKL). Transfers grad (D2H) and delta (H2D). States never leave CPU. | `2N * dtype_size` per param per step |
+| GPU-compute | Params on CPU (Weight streaming active) | States already on CPU. `.to()` is a no-op. Math runs on CPU natively. | 0 (everything on CPU) |
 
 **Key features beyond FSDP's optimizer management**:
 
@@ -76,7 +77,7 @@ offload:
   optimizer_min_param_elements: 65536   # skip params smaller than this
 ```
 
-#### M2: Weight Streaming
+#### Weight Streaming (`weight_offload`)
 
 **What it does**: Stores layer weights in pinned host memory. Streams weights to GPU via async H2D transfers with a pooled staging buffer. After forward/backward, evicts weights from GPU and snapshots updated values back to host.
 
@@ -84,7 +85,7 @@ offload:
 
 **Forward prefetch**: N layers ahead (configurable via `weight_prefetch_layers`, default 2). H2D transfers overlap with current layer's compute on a dedicated CUDA stream.
 
-**Backward prefetch**: Single-layer lookahead when combined with M3. After layer N's backward completes, submits async H2D for layer N-1's weights while autograd traverses between layers.
+**Backward prefetch**: Single-layer lookahead when combined with Activation spilling. After layer N's backward completes, submits async H2D for layer N-1's weights while autograd traverses between layers.
 
 **Configuration**:
 ```yaml
@@ -99,7 +100,7 @@ offload:
 
 > **Auto-activation note**: Setting `weight_offload=true` automatically enables `activation_spill` via [config/__init__.py:211-219](../ironcore/config/__init__.py#L211-L219) (weight eviction requires `no_autograd_graph` boundaries which activation_spill's sub-layer hooks provide). If you see `activation_spill` enabled without explicitly configuring it, this auto-guard is the cause.
 
-#### M3: Activation Spilling
+#### Activation Spilling (`activation_spill`)
 
 **What it does**: Replaces activation checkpointing. During forward, spills intermediate activations (layer input, post-attention residual) to pinned host memory via async D2H. During backward, restores activations via H2D and recomputes the sub-block under `torch.enable_grad()` to rebuild the autograd graph.
 
@@ -142,13 +143,13 @@ Shards parameters, gradients, and optimizer states across ranks. Unshards (all-g
 
 **FSDP BACKWARD_PRE**: Prefetches the next layer's all-gather while the current layer's backward computes. Overlaps NCCL communication with CUDA compute.
 
-**FSDP use_orig_params**: Preserves original parameter objects (required for `torch.compile`). Optimizer references remain valid after FSDP wrapping. Required for M1+FSDP compatibility.
+**FSDP use_orig_params**: Preserves original parameter objects (required for `torch.compile`). Optimizer references remain valid after FSDP wrapping. Required for Optimizer state offload+FSDP compatibility.
 
 #### DistributedOptimizer (ZeRO-1)
 
 Wraps an existing optimizer (AdamWOptimizer or MuonOptimizer) and partitions optimizer states across DP ranks via round-robin. Each rank only updates and stores optimizer states for its local partition (1/N of total). After `optimizer.step()`, updated parameters are broadcast from owner rank to all others.
 
-**Orthogonal to**: M1 (placement), M3 (activations), M2 (weight streaming). DistributedOptimizer decides *which* params each rank owns; M1 decides *where* those states live (CPU vs GPU).
+**Orthogonal to**: Optimizer state offload (placement), Activation spilling (activations), Weight streaming (weight streaming). DistributedOptimizer decides *which* params each rank owns; Optimizer state offload decides *where* those states live (CPU vs GPU).
 
 **Incompatible with**: FSDP (FSDP has its own optimizer state sharding).
 
@@ -158,7 +159,7 @@ Wraps an existing optimizer (AdamWOptimizer or MuonOptimizer) and partitions opt
 
 ### 3.1 Feature matrix: FSDP vs Offload
 
-| Capability | FSDP FULL_SHARD | FSDP CPUOffload | FSDP SHARD_GRAD_OP | M1 (Optimizer Offload) | M2 (Weight Streaming) | M3 (Activation Spill) |
+| Capability | FSDP FULL_SHARD | FSDP CPUOffload | FSDP SHARD_GRAD_OP | Optimizer state offload (Optimizer Offload) | Weight streaming (Weight Streaming) | Activation spilling (Activation Spill) |
 |---|---|---|---|---|---|---|
 | Parameter sharding | Yes (ZeRO-3) | No | Yes (ZeRO-2) | No | No | No |
 | Gradient sharding | Yes (ZeRO-3) | No | Yes (ZeRO-2) | No | No | No |
@@ -179,13 +180,50 @@ Wraps an existing optimizer (AdamWOptimizer or MuonOptimizer) and partitions opt
 
 | Pair | Overlap? | Risk | Current status |
 |------|----------|------|----------------|
-| M2 vs FSDP param sharding | **Full** | Both manage parameter placement | **Blocked** (config validation + runtime) |
-| M1 vs FSDP FULL_SHARD optim states | **Full** | Both manage optimizer state placement — M1 creates second copy on CPU | **NOT blocked** (host OOM risk) |
-| M1 vs FSDP CPUOffload | **Partial** | Both run optimizer step on CPU | **NOT blocked** (redundant, wastes PCIe bandwidth) |
-| M1 vs FSDP SHARD_GRAD_OP optim states | **None** | SHARD_GRAD_OP doesn't touch optimizer states | **Compatible** |
-| M3 vs FSDP | **None** | Orthogonal concerns (activations vs params) | **Compatible** |
-| M1 vs DistributedOptimizer | **None** | Orthogonal (placement vs partitioning) | **Compatible** |
-| M3 vs DistributedOptimizer | **None** | Orthogonal | **Compatible** |
+| Weight streaming vs FSDP param sharding | **Full** | Both manage parameter placement | **Blocked** (config validation + runtime) |
+| Optimizer state offload vs FSDP FULL_SHARD optim states | **Full** | Both manage optimizer state placement — Optimizer state offload creates second copy on CPU | **NOT blocked** (host OOM risk) |
+| Optimizer state offload vs FSDP CPUOffload | **Partial** | Both run optimizer step on CPU | **NOT blocked** (redundant, wastes PCIe bandwidth) |
+| Optimizer state offload vs FSDP SHARD_GRAD_OP optim states | **None** | SHARD_GRAD_OP doesn't touch optimizer states | **Compatible** |
+| Activation spilling vs FSDP | **None** | Orthogonal concerns (activations vs params) | **Compatible** |
+| Optimizer state offload vs DistributedOptimizer | **None** | Orthogonal (placement vs partitioning) | **Compatible** |
+| Activation spilling vs DistributedOptimizer | **None** | Orthogonal | **Compatible** |
+
+### 3.3 Support Matrix: Ironcore Offload vs FSDP vs DeepSpeed
+
+| Feature | Ironcore Offload | FSDP | DeepSpeed (ZeRO) |
+|---------|-----------------|------|------------------|
+| **Parameter Sharding** | ❌ No | ✅ Yes (ZeRO-3) | ✅ Yes (ZeRO-3) |
+| **Gradient Sharding** | ❌ No | ✅ Yes (ZeRO-2/3) | ✅ Yes (ZeRO-2/3) |
+| **Optimizer State Sharding** | ❌ No (use DistributedOptimizer) | ✅ Yes (ZeRO-3) | ✅ Yes (ZeRO-3) |
+| **Optimizer State CPU Offload** | ✅ Yes (Optimizer state offload, configurable precision) | ⚠️ Yes (CPUOffload, fp32 only) | ✅ Yes (ZeRO-Infinity, fp32 only) |
+| **Optimizer State Precision** | ✅ fp32/bf16/fp16 configurable | ❌ fp32 only | ⚠️ fp32 only (some variants fp16) |
+| **Weight Streaming** | ✅ Yes (Weight streaming, async H2D with staging) | ❌ No | ⚠️ Yes (ZeRO-Infinity only) |
+| **Activation CPU Spill** | ✅ Yes (Activation spilling, unique feature) | ❌ No | ❌ No |
+| **Checkpoint Offload** | ❌ No | ❌ No | ✅ Yes (ZeRO-Infinity) |
+| **Per-Parameter Offload Control** | ✅ Yes (offloadable attr, threshold) | ❌ No | ⚠️ Partial (parameter groups) |
+| **LoRA Adapter Support** | ✅ Yes (offloadable=False) | ⚠️ Partial (requires care) | ⚠️ Partial |
+| **Mixed Precision (bf16) Training** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Gradient Accumulation** | ✅ Yes | ✅ Yes | ✅ Yes (except CPUOffload) |
+| **Tensor Parallelism** | ✅ Yes (compatible) | ✅ Yes | ✅ Yes |
+| **Pipeline Parallelism** | ❌ No (out of scope) | ❌ No | ✅ Yes |
+| **MoE / Expert Parallelism** | ✅ Yes (compatible) | ✅ Yes | ✅ Yes |
+| **Single-Node Optimization** | ✅ Primary target | ✅ Supported | ✅ Supported |
+| **Multi-Node Scaling** | ⚠️ Not optimized | ✅ Yes | ✅ Yes |
+| **NVLink Optimization** | ✅ Yes (PCIe overlap) | ✅ Yes | ✅ Yes |
+| **Telemetry / Monitoring** | ✅ Built-in (H2D/D2H tracking) | ❌ Limited | ⚠️ Through profiling tools |
+| **Live Metrics Visualizer** | ✅ Yes (terminal-based) | ❌ No | ❌ No |
+
+**Key Differentiators:**
+
+1. **Activation CPU Spill (Activation spilling)**: Unique to Ironcore. Neither FSDP nor DeepSpeed provides CPU-based activation spilling. FSDP has activation checkpointing (recomputation) but not CPU spill.
+
+2. **Configurable Optimizer Precision**: Ironcore supports fp32/bf16/fp16 for optimizer states. FSDP and DeepSpeed are primarily fp32-only for states.
+
+3. **Weight Streaming with GPU Staging**: Ironcore's weight streaming provides true async weight streaming with a GPU staging pool. DeepSpeed ZeRO-Infinity has similar functionality but is more complex to configure.
+
+4. **Per-Parameter Control**: Ironcore allows fine-grained control via `offloadable` attribute and `optimizer_min_param_elements` threshold.
+
+5. **Built-in Telemetry**: Ironcore includes H2D/D2H transfer tracking, bandwidth measurement, and live visualization.
 
 ---
 
@@ -198,18 +236,18 @@ Each configuration below shows a memory layout diagram and explains what lives w
 ```
 GPU Memory                              Host Memory
 +----------------------------------+    +----------------------------------+
-| Model parameters (full)          |    | Optimizer states (M1, bf16)      |
-| Gradients (full)                 |    | Spilled activations (M3)         |
-| Activations (if no M3)           |    | Weight tiles (M2, bf16)          |
-| GPU staging pool (M2 only)       |    +----------------------------------+
+| Model parameters (full)          |    | Optimizer states (Optimizer state offload, bf16)      |
+| Gradients (full)                 |    | Spilled activations (Activation spilling)         |
+| Activations (if no Activation spilling)           |    | Weight tiles (Weight streaming, bf16)          |
+| GPU staging pool (Weight streaming only)       |    +----------------------------------+
 +----------------------------------+
 ```
 
-**Available modes**: M1 + M2 + M3 (all)
+**Available modes**: Optimizer state offload + Weight streaming + Activation spilling (all)
 
 **VRAM breakdown** (13B model, bf16 params, bf16 optimizer states):
 
-| Component | Without offload | With M1+M2+M3 |
+| Component | Without offload | With Optimizer state offload+Weight streaming+Activation spilling |
 |-----------|----------------|----------------|
 | Parameters | 26 GB | ~0.5 GB (staging pool for 3 layers) |
 | Optimizer states | 52 GB (fp32) | 0 GB (on CPU, bf16 = 26 GB host) |
@@ -225,16 +263,16 @@ GPU Memory                              Host Memory
 ```
 Each rank's GPU Memory                   Each rank's Host Memory
 +----------------------------------+    +----------------------------------+
-| Model parameters (full replica)  |    | Optimizer states (M1, bf16)      |
-| Gradients (full, pre-sync)      |    | Spilled activations (M3)         |
-| Activations (if no M3)          |    | Weight tiles (M2, bf16)          |
-| GPU staging pool (M2 only)      |    +----------------------------------+
+| Model parameters (full replica)  |    | Optimizer states (Optimizer state offload, bf16)      |
+| Gradients (full, pre-sync)      |    | Spilled activations (Activation spilling)         |
+| Activations (if no Activation spilling)          |    | Weight tiles (Weight streaming, bf16)          |
+| GPU staging pool (Weight streaming only)      |    +----------------------------------+
 +----------------------------------+
          |                                      |
          +------ all-reduce gradients ----------+
 ```
 
-**Available modes**: M1 + M2 + M3 (all)
+**Available modes**: Optimizer state offload + Weight streaming + Activation spilling (all)
 
 **Key difference from single-GPU**: Each rank holds a full model replica. Gradient all-reduce after backward. No parameter sharding.
 
@@ -247,10 +285,10 @@ Each rank's GPU Memory                   Each rank's Host Memory
 ```
 Each rank's GPU Memory                   Each rank's Host Memory
 +----------------------------------+    +----------------------------------+
-| Model parameters (full replica)  |    | Optimizer states (M1, bf16)      |
+| Model parameters (full replica)  |    | Optimizer states (Optimizer state offload, bf16)      |
 | Gradients (full, pre-sync)      |    | for local partition only (1/N)   |
-| Activations (if no M3)          |    | Spilled activations (M3)         |
-| GPU staging pool (M2 only)      |    | Weight tiles (M2, bf16)          |
+| Activations (if no Activation spilling)          |    | Spilled activations (Activation spilling)         |
+| GPU staging pool (Weight streaming only)      |    | Weight tiles (Weight streaming, bf16)          |
 +----------------------------------+    +----------------------------------+
          |                                      |
          +------ all-reduce gradients ----------+
@@ -258,9 +296,9 @@ Each rank's GPU Memory                   Each rank's Host Memory
                  (from owner rank)
 ```
 
-**Available modes**: M1 + M2 + M3 (all)
+**Available modes**: Optimizer state offload + Weight streaming + Activation spilling (all)
 
-**How DistributedOptimizer + M1 compose**:
+**How DistributedOptimizer + Optimizer state offload compose**:
 
 ```
 DistributedOptimizer.step()
@@ -273,18 +311,18 @@ DistributedOptimizer.step()
   3. Broadcast updated param.data from owner rank to others
 ```
 
-DistributedOptimizer decides *which* params (1/N round-robin). M1 decides *where* states live (CPU with bf16). No overlap in responsibility.
+DistributedOptimizer decides *which* params (1/N round-robin). Optimizer state offload decides *where* states live (CPU with bf16). No overlap in responsibility.
 
 **Host memory per rank** (13B model, 4 GPUs, bf16 optimizer states):
 
-| Component | DDP + M1 only | DDP + DistributedOptimizer + M1 |
+| Component | DDP + Optimizer state offload only | DDP + DistributedOptimizer + Optimizer state offload |
 |-----------|---------------|---------------------------------|
 | Optimizer states on CPU | 26 GB (full, bf16) | **6.5 GB** (1/4, bf16) |
-| Weight tiles (M2) | 26 GB (full, bf16) | 26 GB (full, bf16) |
-| Spilled activations (M3) | 4-10 GB | 4-10 GB |
+| Weight tiles (Weight streaming) | 26 GB (full, bf16) | 26 GB (full, bf16) |
+| Spilled activations (Activation spilling) | 4-10 GB | 4-10 GB |
 | **Total host** | **56-62 GB** | **37-43 GB** |
 
-**When to use**: Multi-GPU training where optimizer states dominate VRAM. DistributedOptimizer shards states across ranks, M1 moves the per-shard states to CPU. Best DDP configuration for optimizer-heavy workloads.
+**When to use**: Multi-GPU training where optimizer states dominate VRAM. DistributedOptimizer shards states across ranks, Optimizer state offload moves the per-shard states to CPU. Best DDP configuration for optimizer-heavy workloads.
 
 ### 4.4 FSDP FULL_SHARD (ZeRO-3)
 
@@ -295,24 +333,24 @@ Each rank's GPU Memory                   Each rank's Host Memory
 | Gradient shard (1/N)            |    |                                  |
 | Optimizer state shard (1/N)     |    | (FSDP optim states on GPU)       |
 | Unsharded params (transient)    |    |                                  |
-| Activations (if no M3)          |    +----------------------------------+
+| Activations (if no Activation spilling)          |    +----------------------------------+
 +----------------------------------+
          |                                      |
          +------ all-gather params (fwd/bwd) --+
          +------ reduce-scatter grads ----------+
 ```
 
-**Available offload modes**: M3 only
+**Available offload modes**: Activation spilling only
 
-**Why M1 is forbidden**: FSDP FULL_SHARD already shards optimizer states across ranks. M1 would create a second copy of optimizer states on CPU — duplicating host memory. For a 13B model with 4 GPUs: FSDP holds 13 GB optimizer state shard per rank on GPU; M1 would add 52 GB (fp32) or 26 GB (bf16) per rank on CPU. The host OOM risk is real.
+**Why Optimizer state offload is forbidden**: FSDP FULL_SHARD already shards optimizer states across ranks. Optimizer state offload would create a second copy of optimizer states on CPU — duplicating host memory. For a 13B model with 4 GPUs: FSDP holds 13 GB optimizer state shard per rank on GPU; Optimizer state offload would add 52 GB (fp32) or 26 GB (bf16) per rank on CPU. The host OOM risk is real.
 
-**Why M2 is forbidden**: FSDP manages parameter sharding/unsharding. Weight streaming would conflict with FSDP's all-gather mechanism.
+**Why Weight streaming is forbidden**: FSDP manages parameter sharding/unsharding. Weight streaming would conflict with FSDP's all-gather mechanism.
 
-**Why M3 is compatible**: M3 operates on intermediate activations (tensors between layers), not parameters. FSDP manages when parameters are on GPU; M3 manages when activations are on CPU. Completely orthogonal.
+**Why Activation spilling is compatible**: Activation spilling operates on intermediate activations (tensors between layers), not parameters. FSDP manages when parameters are on GPU; Activation spilling manages when activations are on CPU. Completely orthogonal.
 
 **VRAM per rank** (13B model, 4 GPUs):
 
-| Component | FSDP alone | FSDP + M3 |
+| Component | FSDP alone | FSDP + Activation spilling |
 |-----------|------------|-----------|
 | Parameter shard | 6.5 GB | 6.5 GB |
 | Optimizer state shard | 13 GB (fp32) | 13 GB (fp32) |
@@ -323,33 +361,33 @@ Each rank's GPU Memory                   Each rank's Host Memory
 
 **Host memory per rank**: Spilled activations only = 4-10 GB (bounded by free-after-consume).
 
-**When to use**: Multi-GPU training where FSDP provides sufficient parameter/optimizer sharding. M3 adds activation spilling for further VRAM reduction. This is the recommended multi-GPU configuration for most cases.
+**When to use**: Multi-GPU training where FSDP provides sufficient parameter/optimizer sharding. Activation spilling adds activation spilling for further VRAM reduction. This is the recommended multi-GPU configuration for most cases.
 
 ### 4.5 FSDP SHARD_GRAD_OP (ZeRO-2)
 
 ```
 Each rank's GPU Memory                   Each rank's Host Memory
 +----------------------------------+    +----------------------------------+
-| Parameter shard (1/N)            |    | Optimizer states (M1, bf16)      |
+| Parameter shard (1/N)            |    | Optimizer states (Optimizer state offload, bf16)      |
 | Gradient shard (1/N)            |    | for FULL model (not sharded)     |
-| Optimizer states (if no M1)     |    | Spilled activations (M3)         |
+| Optimizer states (if no Optimizer state offload)     |    | Spilled activations (Activation spilling)         |
 | Unsharded params (transient)    |    +----------------------------------+
-| Activations (if no M3)          |
+| Activations (if no Activation spilling)          |
 +----------------------------------+
          |                                      |
          +------ all-gather params (fwd/bwd) --+
          +------ reduce-scatter grads ----------+
 ```
 
-**Available offload modes**: M1 + M3
+**Available offload modes**: Optimizer state offload + Activation spilling
 
-**Why M1 adds value here**: SHARD_GRAD_OP shards params and grads but **does not shard optimizer states**. Each rank holds full optimizer states (52 GB fp32 for 13B). M1 offloads those states to CPU with configurable precision (26 GB bf16). This is the gap M1 fills.
+**Why Optimizer state offload adds value here**: SHARD_GRAD_OP shards params and grads but **does not shard optimizer states**. Each rank holds full optimizer states (52 GB fp32 for 13B). Optimizer state offload offloads those states to CPU with configurable precision (26 GB bf16). This is the gap Optimizer state offload fills.
 
-**Why `use_orig_params=True` is required**: M1's AdamWOptimizer holds references to original parameter objects. FSDP with `use_orig_params=True` preserves these references as views into sharded FlatParameters. Without it, FSDP replaces parameters with FlatParameters, breaking optimizer references.
+**Why `use_orig_params=True` is required**: Optimizer state offload's AdamWOptimizer holds references to original parameter objects. FSDP with `use_orig_params=True` preserves these references as views into sharded FlatParameters. Without it, FSDP replaces parameters with FlatParameters, breaking optimizer references.
 
 **VRAM per rank** (13B model, 4 GPUs):
 
-| Component | FSDP SHARD_GRAD_OP | FSDP SHARD_GRAD_OP + M1 + M3 |
+| Component | FSDP SHARD_GRAD_OP | FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling |
 |-----------|--------------------|-------------------------------|
 | Parameter shard | 6.5 GB | 6.5 GB |
 | Optimizer states | 52 GB (fp32, full!) | 0 GB (on CPU, bf16) |
@@ -360,7 +398,7 @@ Each rank's GPU Memory                   Each rank's Host Memory
 
 **Host memory per rank**: Optimizer states (26 GB bf16) + spilled activations (4-10 GB) = 30-36 GB.
 
-**When to use**: Multi-GPU training where optimizer states are the dominant VRAM consumer. FSDP handles param/grad sharding, M1 offloads the unsharded optimizer states. Particularly useful for models where the optimizer state ratio is high (e.g., AdamW with fp32 states = 2x model size).
+**When to use**: Multi-GPU training where optimizer states are the dominant VRAM consumer. FSDP handles param/grad sharding, Optimizer state offload offloads the unsharded optimizer states. Particularly useful for models where the optimizer state ratio is high (e.g., AdamW with fp32 states = 2x model size).
 
 ### 4.6 FSDP FULL_SHARD + CPUOffload
 
@@ -369,22 +407,22 @@ Each rank's GPU Memory                   Each rank's Host Memory
 +----------------------------------+    +----------------------------------+
 | (transient during compute)       |    | Parameters (offloaded)           |
 | Unsharded params (transient)    |    | Gradients (offloaded)            |
-| Activations (if no M3)          |    | Optimizer states (fp32, full)    |
+| Activations (if no Activation spilling)          |    | Optimizer states (fp32, full)    |
 +----------------------------------+    +----------------------------------+
          |                                      |
          +------ all-gather params (fwd/bwd) --+
          +------ reduce-scatter grads ----------+
 ```
 
-**Available offload modes**: M3 only
+**Available offload modes**: Activation spilling only
 
-**Why M1 is redundant here**: FSDP CPUOffload already runs the optimizer step on CPU with fp32 states. M1 would duplicate optimizer states in host memory (same data, different management). No benefit.
+**Why Optimizer state offload is redundant here**: FSDP CPUOffload already runs the optimizer step on CPU with fp32 states. Optimizer state offload would duplicate optimizer states in host memory (same data, different management). No benefit.
 
-**Why M3 still adds value**: FSDP CPUOffload does not handle activation spilling. M3 reduces activation VRAM to near-zero.
+**Why Activation spilling still adds value**: FSDP CPUOffload does not handle activation spilling. Activation spilling reduces activation VRAM to near-zero.
 
-**Limitation**: FSDP CPUOffload **does not support gradient accumulation** outside `no_sync()`. If you need gradient accumulation with micro-batching, use FSDP FULL_SHARD + M3 instead (without CPUOffload).
+**Limitation**: FSDP CPUOffload **does not support gradient accumulation** outside `no_sync()`. If you need gradient accumulation with micro-batching, use FSDP FULL_SHARD + Activation spilling instead (without CPUOffload).
 
-**When to use**: Extreme memory-constrained scenarios where even parameter shards must be offloaded. M3 adds activation spilling. Avoid if using gradient accumulation.
+**When to use**: Extreme memory-constrained scenarios where even parameter shards must be offloaded. Activation spilling adds activation spilling. Avoid if using gradient accumulation.
 
 ### 4.7 Checkpoint Compatibility (All Configurations)
 
@@ -413,12 +451,12 @@ For a model with P parameters, N GPUs, and D dtype bytes (2 for bf16, 4 for fp32
 | Gradients (full) | `P * D` | Same size as params |
 | Gradients (sharded) | `P * D / N` | Per-rank with FSDP |
 | Optimizer states (fp32, AdamW) | `2 * P * 4` | exp_avg + exp_avg_sq |
-| Optimizer states (bf16, AdamW) | `2 * P * 2` | M1 with bf16 precision |
+| Optimizer states (bf16, AdamW) | `2 * P * 2` | Optimizer state offload with bf16 precision |
 | Optimizer states (AMSGrad fp32) | `3 * P * 4` | + max_exp_avg_sq tracked persistently |
-| Optimizer states (AMSGrad bf16) | `3 * P * 2` | M1 + AMSGrad with bf16 |
+| Optimizer states (AMSGrad bf16) | `3 * P * 2` | Optimizer state offload + AMSGrad with bf16 |
 | Optimizer states (sharded fp32) | `2 * P * 4 / N` | Per-rank with FSDP FULL_SHARD |
-| Optimizer states (ZeRO-1 + M1 bf16) | `2 * P * 2 / N` | Per-rank with DistributedOptimizer + M1 |
-| GPU staging pool (M2) | `(prefetch_layers + 1) * layer_bytes` | Sliding window of consecutive layers |
+| Optimizer states (ZeRO-1 + Optimizer state offload bf16) | `2 * P * 2 / N` | Per-rank with DistributedOptimizer + Optimizer state offload |
+| GPU staging pool (Weight streaming) | `(prefetch_layers + 1) * layer_bytes` | Sliding window of consecutive layers |
 | Activations (varies) | `batch * seq_len * hidden * layers * k` | k = 1-5 depending on checkpointing |
 | Spilled activations on host | Similar to GPU activations | Bounded by free-after-consume |
 
@@ -427,13 +465,13 @@ For a model with P parameters, N GPUs, and D dtype bytes (2 for bf16, 4 for fp32
 | Configuration | GPU per rank | Host per rank | Notes |
 |---|---|---|---|
 | No offload, DDP | 112-132 GB | ~0 GB | Requires A100-80GB or H100 |
-| M1+M2+M3, DDP | ~27 GB | 30-50 GB | Fits in consumer GPU (RTX 4090) |
-| M1+M2+M3+DistOpt, DDP | ~27 GB | 37-43 GB | ZeRO-1 reduces host optim states |
+| Optimizer state offload+Weight streaming+Activation spilling, DDP | ~27 GB | 30-50 GB | Fits in consumer GPU (RTX 4090) |
+| Optimizer state offload+Weight streaming+Activation spilling+DistOpt, DDP | ~27 GB | 37-43 GB | ZeRO-1 reduces host optim states |
 | FSDP FULL_SHARD | 60-72 GB | ~0 GB | Requires A100-80GB |
-| FSDP FULL_SHARD + M3 | ~52 GB | 4-10 GB | Fits in A100-80GB comfortably |
+| FSDP FULL_SHARD + Activation spilling | ~52 GB | 4-10 GB | Fits in A100-80GB comfortably |
 | FSDP SHARD_GRAD_OP | 99-111 GB | ~0 GB | Doesn't fit in any single GPU |
-| FSDP SHARD_GRAD_OP + M1 + M3 | ~39 GB | 30-36 GB | Fits in consumer GPU |
-| FSDP FULL_SHARD + CPUOffload + M3 | ~30 GB | 36-46 GB | Maximum host offload, but no grad accum |
+| FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling | ~39 GB | 30-36 GB | Fits in consumer GPU |
+| FSDP FULL_SHARD + CPUOffload + Activation spilling | ~30 GB | 36-46 GB | Maximum host offload, but no grad accum |
 
 ### 5.3 Host memory avoidance rules
 
@@ -443,10 +481,10 @@ For a model with P parameters, N GPUs, and D dtype bytes (2 for bf16, 4 for fp32
 |---|---|---|
 | FSDP FULL_SHARD (GPU optimizer) | 0 GB | No duplication |
 | FSDP FULL_SHARD + CPUOffload | `2 * P * 4 / N` | FSDP-managed, no duplication |
-| FSDP FULL_SHARD + M1 (WRONG) | `2 * P * 4 / N + 2 * P * 2` | **Duplicated!** FSDP shard + M1 full copy |
-| FSDP SHARD_GRAD_OP + M1 (bf16) | `2 * P * 2` | No duplication (SHARD_GRAD_OP doesn't shard optimizer) |
-| DDP + M1 (bf16) | `2 * P * 2` | No duplication |
-| DDP + DistOpt + M1 (bf16) | `2 * P * 2 / N` | No duplication (DistOpt shards, M1 offloads per-shard) |
+| FSDP FULL_SHARD + Optimizer state offload (WRONG) | `2 * P * 4 / N + 2 * P * 2` | **Duplicated!** FSDP shard + Optimizer state offload full copy |
+| FSDP SHARD_GRAD_OP + Optimizer state offload (bf16) | `2 * P * 2` | No duplication (SHARD_GRAD_OP doesn't shard optimizer) |
+| DDP + Optimizer state offload (bf16) | `2 * P * 2` | No duplication |
+| DDP + DistOpt + Optimizer state offload (bf16) | `2 * P * 2 / N` | No duplication (DistOpt shards, Optimizer state offload offloads per-shard) |
 
 ---
 
@@ -472,10 +510,10 @@ Layer 2 backward:                  |--all-gather L2 (prefetched)--|--compute gra
 
 | Component | Forward prefetch | Backward prefetch | Mechanism |
 |-----------|-----------------|-------------------|-----------|
-| M2: Weight streaming | **Yes** (N layers ahead, async H2D on dedicated CUDA stream) | **Partial** (1 layer lookahead with M3 active) | `weight_prefetch_layers` config, `MemoryTransferEngine` async streams |
-| M3: Activation spill forward D2H | **Yes** (async D2H on dedicated stream, fire-and-forget) | N/A | `submit_d2h()` returns handle, waited on only during backward |
-| M3: Activation spill backward H2D | N/A | **No** (synchronous blocking wait) | `on_sublayer_backward()` submits H2D then immediately waits |
-| M1: Optimizer offload | N/A | **No** (all transfers synchronous, `non_blocking=False`) | `_adamw_offloaded_step_cpu_compute()` uses blocking copies |
+| Weight streaming: Weight streaming | **Yes** (N layers ahead, async H2D on dedicated CUDA stream) | **Partial** (1 layer lookahead with Activation spilling active) | `weight_prefetch_layers` config, `MemoryTransferEngine` async streams |
+| Activation spilling: Activation spill forward D2H | **Yes** (async D2H on dedicated stream, fire-and-forget) | N/A | `submit_d2h()` returns handle, waited on only during backward |
+| Activation spilling: Activation spill backward H2D | N/A | **No** (synchronous blocking wait) | `on_sublayer_backward()` submits H2D then immediately waits |
+| Optimizer state offload: Optimizer offload | N/A | **No** (all transfers synchronous, `non_blocking=False`) | `_adamw_offloaded_step_cpu_compute()` uses blocking copies |
 
 ### 6.3 Gap analysis
 
@@ -593,7 +631,7 @@ def on_backward_layer_end(self, layer_idx: int):
 
 **No.** FSDP's BACKWARD_PRE overlaps NCCL all-gather (inter-GPU communication) with compute. With DDP, there is no all-gather — gradients are synchronized via all-reduce after the entire backward pass completes. There is nothing to prefetch for DDP.
 
-For DDP + M2 + M3, the equivalent optimization is our weight and activation backward prefetch (Section 6.4, 6.5). This overlaps PCIe DMA (H2D) with CUDA compute, which is the single-node analog of FSDP's NCCL/compute overlap.
+For DDP + Weight streaming + Activation spilling, the equivalent optimization is our weight and activation backward prefetch (Section 6.4, 6.5). This overlaps PCIe DMA (H2D) with CUDA compute, which is the single-node analog of FSDP's NCCL/compute overlap.
 
 ---
 
@@ -611,10 +649,10 @@ How many GPUs?
 |       +-- No: Enable offload.enabled=true
 |           |
 |           +-- What doesn't fit?
-|               +-- Optimizer states too large: M1 (optimizer_offload=true)
-|               +-- Activations too large: M3 (activation_spill=true)
-|               +-- Parameters too large: M2 (weight_offload=true)
-|               +-- Multiple: M1+M2+M3 (all)
+|               +-- Optimizer states too large: Optimizer state offload (optimizer_offload=true)
+|               +-- Activations too large: Activation spilling (activation_spill=true)
+|               +-- Parameters too large: Weight streaming (weight_offload=true)
+|               +-- Multiple: Optimizer state offload+Weight streaming+Activation spilling (all)
 |
 +-- Multiple GPUs
     |
@@ -623,35 +661,35 @@ How many GPUs?
         +-- Yes
         |   |
         |   +-- FSDP FULL_SHARD + model fits per-GPU?
-        |   |   +-- Yes: FSDP alone. Add M3 if activations don't fit.
-        |   |   +-- No (optimizer OOM): Consider SHARD_GRAD_OP + M1 + M3
+        |   |   +-- Yes: FSDP alone. Add Activation spilling if activations don't fit.
+        |   |   +-- No (optimizer OOM): Consider SHARD_GRAD_OP + Optimizer state offload + Activation spilling
         |   |
         |   +-- FSDP SHARD_GRAD_OP?
-        |   |   +-- Optimizer states don't fit: Add M1 + M3
-        |   |   +-- Only activations don't fit: Add M3
+        |   |   +-- Optimizer states don't fit: Add Optimizer state offload + Activation spilling
+        |   |   +-- Only activations don't fit: Add Activation spilling
         |   |
         |   +-- Need CPUOffload (extreme constraint)?
-        |       +-- Yes: FSDP FULL_SHARD + CPUOffload + M3
+        |       +-- Yes: FSDP FULL_SHARD + CPUOffload + Activation spilling
         |       +-- Note: CPUOffload breaks gradient accumulation
         |
         +-- No (using DDP)
             |
             +-- Optimizer states too large per-rank?
-                +-- Yes: DDP + DistributedOptimizer + M1 + M3
-                +-- No: DDP + M1 + M3 (or M1+M2+M3 for max savings)
+                +-- Yes: DDP + DistributedOptimizer + Optimizer state offload + Activation spilling
+                +-- No: DDP + Optimizer state offload + Activation spilling (or Optimizer state offload+Weight streaming+Activation spilling for max savings)
 ```
 
 ### 7.2 Configuration selection criteria
 
 | Scenario | Recommended config | YAML |
 |----------|-------------------|------|
-| Single GPU, 7B model, 24GB VRAM | M1+M2+M3 | `offload.enabled=true, optimizer_offload=true, weight_offload=true, activation_spill=true` |
-| Single GPU, 7B model, 48GB VRAM | M1+M3 | `offload.enabled=true, optimizer_offload=true, activation_spill=true` |
-| Single GPU, model fits but want headroom | M1 | `offload.enabled=true, optimizer_offload=true` |
-| 4x GPU, FSDP, 13B model, 80GB each | FSDP FULL_SHARD + M3 | `parallel.use_fsdp=true, offload.enabled=true, activation_spill=true` |
-| 4x GPU, FSDP, 13B model, 48GB each | FSDP SHARD_GRAD_OP + M1 + M3 | `parallel.use_fsdp=true, parallel.fsdp_sharding_strategy="shard_grad_op", parallel.fsdp_use_orig_params=true, offload.enabled=true, optimizer_offload=true, activation_spill=true` |
-| 4x GPU, DDP, 13B model, 48GB each | DDP + DistOpt + M1 + M3 | `parallel.use_distributed_optimizer=true, offload.enabled=true, optimizer_offload=true, activation_spill=true` |
-| 8x GPU, FSDP, 70B model | FSDP FULL_SHARD + M3 | `parallel.use_fsdp=true, offload.enabled=true, activation_spill=true` |
+| Single GPU, 7B model, 24GB VRAM | Optimizer state offload+Weight streaming+Activation spilling | `offload.enabled=true, optimizer_offload=true, weight_offload=true, activation_spill=true` |
+| Single GPU, 7B model, 48GB VRAM | Optimizer state offload+Activation spilling | `offload.enabled=true, optimizer_offload=true, activation_spill=true` |
+| Single GPU, model fits but want headroom | Optimizer state offload | `offload.enabled=true, optimizer_offload=true` |
+| 4x GPU, FSDP, 13B model, 80GB each | FSDP FULL_SHARD + Activation spilling | `parallel.use_fsdp=true, offload.enabled=true, activation_spill=true` |
+| 4x GPU, FSDP, 13B model, 48GB each | FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling | `parallel.use_fsdp=true, parallel.fsdp_sharding_strategy="shard_grad_op", parallel.fsdp_use_orig_params=true, offload.enabled=true, optimizer_offload=true, activation_spill=true` |
+| 4x GPU, DDP, 13B model, 48GB each | DDP + DistOpt + Optimizer state offload + Activation spilling | `parallel.use_distributed_optimizer=true, offload.enabled=true, optimizer_offload=true, activation_spill=true` |
+| 8x GPU, FSDP, 70B model | FSDP FULL_SHARD + Activation spilling | `parallel.use_fsdp=true, offload.enabled=true, activation_spill=true` |
 
 #### 2x RTX 3090 Workstation (NVLink bridge, 128GB+ RAM) — Qwen Family Reference
 
@@ -659,17 +697,17 @@ Based on this codebase's primary development environment (2x RTX 3090, NVLink, 1
 
 | Model | Recommended config | Key rationale |
 |---|---|---|
-| Qwen2.5-1.5B / Qwen3-1.7B | DDP, offload not needed | Fits in single 3090. Throughput-focused. M1 optional |
-| Qwen2.5-3B / Qwen3-4B | DDP + M1 (M3 optional) | 24GB sufficient. host bf16 ~6GB only |
-| Qwen2.5-7B / Qwen3-8B | DDP + DistOpt + M1 + M3 | GPU ~12-15GB. ZeRO-1 reduces host optim (~7GB/rank) |
-| Qwen2.5-7B + TP=2 | TP=2 + M1 + M3 | TP shard halves per-GPU params. NVLink accelerates TP all-reduce |
-| Qwen2.5-14B / Qwen3-14B | TP=2 + M1 + M3, **or** FSDP SHARD_GRAD_OP + M1 + M3 | param/grad split → GPU ~14-16GB. TP-aware offload pending verification (Phase D) |
-| Qwen2.5-32B / Qwen3-32B | FSDP FULL_SHARD + CPUOffload + M3 (no grad_accum) | params also CPU. host ~80GB. NVLink accelerates all-gather. **grad accum not supported** |
-| **Qwen3-30B-A3B (MoE)** | FSDP FULL_SHARD + CPUOffload + M3 + EP=2 (experimental) | Active 3B so compute light. But full 30B params on host (~60GB bf16 + 30GB bf16 optim ≈ 90GB host). **MoE × offload verification case** |
-| Qwen2.5-32B + LoRA fine-tuning | DDP + LoRA (`offloadable=False` adapters) + M3 | base weight freeze. M1 disabled (adapters stay on GPU) |
+| Qwen2.5-1.5B / Qwen3-1.7B | DDP, offload not needed | Fits in single 3090. Throughput-focused. Optimizer state offload optional |
+| Qwen2.5-3B / Qwen3-4B | DDP + Optimizer state offload (Activation spilling optional) | 24GB sufficient. host bf16 ~6GB only |
+| Qwen2.5-7B / Qwen3-8B | DDP + DistOpt + Optimizer state offload + Activation spilling | GPU ~12-15GB. ZeRO-1 reduces host optim (~7GB/rank) |
+| Qwen2.5-7B + TP=2 | TP=2 + Optimizer state offload + Activation spilling | TP shard halves per-GPU params. NVLink accelerates TP all-reduce |
+| Qwen2.5-14B / Qwen3-14B | TP=2 + Optimizer state offload + Activation spilling, **or** FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling | param/grad split → GPU ~14-16GB. TP-aware offload pending verification (Phase D) |
+| Qwen2.5-32B / Qwen3-32B | FSDP FULL_SHARD + CPUOffload + Activation spilling (no grad_accum) | params also CPU. host ~80GB. NVLink accelerates all-gather. **grad accum not supported** |
+| **Qwen3-30B-A3B (MoE)** | FSDP FULL_SHARD + CPUOffload + Activation spilling + EP=2 (experimental) | Active 3B so compute light. But full 30B params on host (~60GB bf16 + 30GB bf16 optim ≈ 90GB host). **MoE × offload verification case** |
+| Qwen2.5-32B + LoRA fine-tuning | DDP + LoRA (`offloadable=False` adapters) + Activation spilling | base weight freeze. Optimizer state offload disabled (adapters stay on GPU) |
 | Qwen3-235B-A22B (MoE) | **Out of scope** (exceeds single-node limit — host 200GB+ required) | Reference only |
 
-YAML example (Qwen2.5-7B + DDP + DistOpt + M1 + M3):
+YAML example (Qwen2.5-7B + DDP + DistOpt + Optimizer state offload + Activation spilling):
 ```yaml
 parallel:
   use_distributed_optimizer: true
@@ -682,12 +720,12 @@ offload:
   pinned_memory_pool_gb: -1.0   # auto: psutil-based auto-detect (post-Phase B-1)
 ```
 
-YAML example (Qwen2.5-14B + FSDP SHARD_GRAD_OP + M1 + M3):
+YAML example (Qwen2.5-14B + FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling):
 ```yaml
 parallel:
   use_fsdp: true
   fsdp_sharding_strategy: "shard_grad_op"
-  fsdp_use_orig_params: true   # Required for M1+FSDP
+  fsdp_use_orig_params: true   # Required for Optimizer state offload+FSDP
 offload:
   enabled: true
   optimizer_offload: true
@@ -699,29 +737,125 @@ offload:
 
 ## 7.3 Complete Configuration Reference
 
+### Quick Start: Choosing Your Configuration
+
+This section helps you quickly determine which offload options to enable based on your hardware and model.
+
+#### Step 1: Identify your constraint
+
+Answer these questions:
+1. **What's your per-GPU VRAM?** (e.g., 24GB RTX 3090, 48GB RTX 6000, 80GB A100)
+2. **What's your host RAM?** (e.g., 64GB, 128GB, 256GB)
+3. **Which model are you training?** (e.g., 7B, 13B, 70B parameters)
+4. **How many GPUs?** (1, 2, 4, 8)
+
+#### Step 2: Find your scenario
+
+| VRAM | Host RAM | GPUs | Model Size | Recommended Config |
+|------|----------|------|------------|-------------------|
+| 24GB | 64GB+ | 1 | 1-3B | No offload needed |
+| 24GB | 128GB+ | 1 | 7B | `enabled=true, optimizer_offload=true, activation_spill=true` |
+| 24GB | 128GB+ | 2 | 7B | `enabled=true, optimizer_offload=true, activation_spill=true, use_distributed_optimizer=true` |
+| 48GB | 128GB+ | 1-2 | 7-14B | `enabled=true, optimizer_offload=true, activation_spill=true` |
+| 48GB | 256GB+ | 4 | 13-32B | FSDP `shard_grad_op` + `optimizer_offload=true, activation_spill=true` |
+| 80GB | 256GB+ | 4-8 | 30B+ | FSDP `full` + `activation_spill=true` |
+
+#### Step 3: Configure and validate
+
+**Example YAML** (single GPU, 7B model, 24GB VRAM):
+```yaml
+offload:
+  enabled: true
+  optimizer_offload: true           # Optimizer state offload: Save ~50% VRAM (optimizer states → CPU)
+  optimizer_state_precision: "bf16"  # Halves host memory vs fp32
+  activation_spill: true             # Activation spilling: Save ~30% VRAM (activations → CPU)
+  activation_spill_granularity: "sub_layer"
+  pinned_memory_pool_gb: -1.0        # Auto-detect from available RAM
+```
+
+**Example YAML** (4x GPU, 13B model, FSDP):
+```yaml
+parallel:
+  use_fsdp: true
+  fsdp_sharding_strategy: "shard_grad_op"  # ZeRO-2
+  fsdp_use_orig_params: true               # REQUIRED for Optimizer state offload+FSDP
+offload:
+  enabled: true
+  optimizer_offload: true           # Optimizer state offload: Offload unsharded optimizer states
+  optimizer_state_precision: "bf16"
+  activation_spill: true             # Activation spilling: Activation spilling
+```
+
+**Validate your config**:
+```bash
+ironcore config-check --config configs/your_config.yaml
+```
+
 ### OffloadConfig Fields
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | false | Master switch for all offload features |
-| `optimizer_offload` | bool | false | Enable M1 (optimizer state offload to CPU) |
+| `optimizer_offload` | bool | false | Enable Optimizer state offload (optimizer state offload to CPU) |
 | `optimizer_state_precision` | str | "fp32" | Precision for optimizer states: "fp32", "bf16", "fp16" |
 | `optimizer_min_param_elements` | int | 65536 | Skip offload for params smaller than this |
-| `weight_offload` | bool | false | Enable M2 (weight streaming) |
+| `weight_offload` | bool | false | Enable Weight streaming (weight streaming) |
 | `weight_prefetch_layers` | int | 2 | Forward prefetch depth for weight streaming |
 | `backward_weight_prefetch_layers` | int | 1 | Backward prefetch depth for weight streaming |
 | `weight_storage_precision` | str | "bf16" | Precision for streamed weights on host |
 | `gpu_staging_pool_mb` | float | 0.0 | GPU staging pool size (0 = auto) |
 | `gpu_staging_chunk_mb` | float | 256.0 | Chunk size for GPU staging pool |
-| `activation_spill` | bool | false | Enable M3 (activation spilling) |
+| `activation_spill` | bool | false | Enable Activation spilling (activation spilling) |
 | `activation_spill_granularity` | str | "sub_layer" | "sub_layer" or "full_layer" |
 | `pinned_memory_pool_gb` | float | -1.0 | Pinned memory pool size (-1 = auto-detect) |
 | `pinned_chunk_gb` | float | 4.0 | Chunk size for pinned pool allocation |
 | `prefetch_streams` | int | 1 | Number of CUDA streams for async transfers |
 
+### Detailed Argument Explanations
+
+#### Master Switch
+
+| Argument | Details |
+|----------|---------|
+| `enabled` | **Required**: Set to `true` to enable all offload features. All other offload options are ignored unless this is `true`. |
+
+#### Optimizer State Offload (`optimizer_offload`)
+
+| Argument | Details |
+|----------|---------|
+| `optimizer_offload` | **What it does**: Moves AdamW optimizer states (exp_avg, exp_avg_sq) from GPU to CPU. Saves ~50% GPU VRAM (optimizer states = 2× model size for AdamW).<br>**When to use**: Model parameters fit but optimizer states don't. Example: 7B bf16 model = 14GB params + 52GB fp32 optimizer states = 66GB total. Optimizer state offload reduces to ~27GB.<br>**Precision options**: See `optimizer_state_precision` below. |
+| `optimizer_state_precision` | **Options**: `"fp32"` (default, safest), `"bf16"` (recommended, halves host memory), `"fp16"` (risky, may overflow).<br>**Trade-off**: bf16 saves 50% host memory with minimal convergence impact. fp16 can overflow AdamW's exp_avg_sq.<br>**Host memory**: fp32 = 2× model size, bf16 = 1× model size. |
+| `optimizer_min_param_elements` | **What it does**: Skips CPU offload for parameters smaller than this threshold. Default: 65536 elements.<br>**Why**: Tiny params (LayerNorm, biases) have high PCIe transfer overhead relative to memory savings.<br>**When to adjust**: Increase if you have many small params and want more GPU optimizer states. |
+
+#### Weight Streaming (`weight_offload`)
+
+| Argument | Details |
+|----------|---------|
+| `weight_offload` | **What it does**: Stores layer weights on CPU, streams to GPU during forward pass. Saves ~30-50% GPU VRAM.<br>**⚠️ Auto-enables Activation spilling**: Setting this to `true` automatically enables `activation_spill` for safety.<br>**Incompatible with**: FSDP (blocked by config validation). |
+| `weight_prefetch_layers` | **What it does**: Number of layers ahead to prefetch weights. Default: 2.<br>**How it works**: While computing layer N, H2D transfers weights for layers N+1, N+2 asynchronously.<br>**When to adjust**: Increase (3-4) for faster GPUs or larger batch sizes. Decrease (1) for low-memory systems. |
+| `backward_weight_prefetch_layers` | **What it does**: Backward pass prefetch depth. Default: 1.<br>**How it works**: During backward, prefetches weights for previous layers to overlap with gradient computation.<br>**When to adjust**: Usually leave at 1. Higher values have diminishing returns. |
+| `weight_storage_precision` | **What it does**: Precision for storing weights on host. Default: `"bf16"`.<br>**Options**: `"bf16"` (recommended), `"fp32"` (doubles host memory), `"fp16"` (risky). |
+| `gpu_staging_pool_mb` | **What it does**: GPU buffer size for prefetched weights. Default: 0 (auto-size).<br>**How it works**: Weights are staged here before layer computation. Pool size = (prefetch_layers + 1) × layer_size.<br>**When to set manually**: Only if auto-size fails (rare). |
+| `gpu_staging_chunk_mb` | **What it does**: Chunk size for GPU staging pool allocation. Default: 256 MB.<br>**When to adjust**: Increase (512-1024) for very large layers. Decrease (128) for fragmented GPU memory. |
+
+#### Activation Spilling (`activation_spill`)
+
+| Argument | Details |
+|----------|---------|
+| `activation_spill` | **What it does**: Spills intermediate activations (layer inputs, attention outputs) to CPU during forward, restores during backward. Saves ~20-30% GPU VRAM.<br>**How it works**: Replaces activation checkpointing with CPU-backed spill.<br>**Granularity**: See `activation_spill_granularity`. |
+| `activation_spill_granularity` | **Options**: `"sub_layer"` (default, 2 spills/layer), `"full_layer"` (1 spill/layer).<br>**Trade-off**: `sub_layer` spills more (better VRAM savings) but has higher PCIe overhead. `full_layer` retains more GPU activations. |
+
+#### Memory Pool Configuration
+
+| Argument | Details |
+|----------|---------|
+| `pinned_memory_pool_gb` | **What it does**: Total pinned host memory budget. Default: -1 (auto-detect from available RAM).<br>**Why pinned**: Required for async CUDA transfers. Non-pinned memory forces synchronous transfers.<br>**Auto-detect**: When -1, uses 50% of available RAM (via `psutil`).<br>**When to set manually**: Override auto-detect for specific constraints. Example: `16.0` for 16GB pool. |
+| `pinned_chunk_gb` | **What it does**: Chunk size for pinned memory allocations. Default: 4.0 GB.<br>**When to adjust**: Increase (8-16) for large models to reduce allocation overhead. Decrease (1-2) for fragmented host memory. |
+| `prefetch_streams` | **What it does**: Number of CUDA streams for async transfers. Default: 1.<br>**When to increase**: 2-4 streams can overlap weight H2D with activation H2D. Most useful with Weight streaming+Activation spilling combined.<br>**Diminishing returns**: >4 streams rarely helps (PCIe bandwidth is the bottleneck). |
+
 ### Usage Examples by Scenario
 
-#### Example 1: Single GPU, model doesn't fit (M1+M2+M3)
+#### Example 1: Single GPU, model doesn't fit (Optimizer state offload+Weight streaming+Activation spilling)
 ```yaml
 offload:
   enabled: true
@@ -734,7 +868,7 @@ offload:
   pinned_memory_pool_gb: -1.0  # Auto-detect from available RAM
 ```
 
-#### Example 2: Single GPU, only optimizer states are large (M1 only)
+#### Example 2: Single GPU, only optimizer states are large (Optimizer state offload only)
 ```yaml
 offload:
   enabled: true
@@ -743,7 +877,7 @@ offload:
   pinned_memory_pool_gb: 8.0  # 8GB pinned pool sufficient for bf16 states
 ```
 
-#### Example 3: DDP + ZeRO-1 with M1+M3 (multi-GPU optimizer savings)
+#### Example 3: DDP + ZeRO-1 with Optimizer state offload+Activation spilling (multi-GPU optimizer savings)
 ```yaml
 parallel:
   use_distributed_optimizer: true
@@ -756,12 +890,12 @@ offload:
   pinned_memory_pool_gb: -1.0
 ```
 
-#### Example 4: FSDP SHARD_GRAD_OP + M1 + M3 (best for most multi-GPU)
+#### Example 4: FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling (best for most multi-GPU)
 ```yaml
 parallel:
   use_fsdp: true
   fsdp_sharding_strategy: "shard_grad_op"
-  fsdp_use_orig_params: true  # REQUIRED for M1+FSDP compatibility
+  fsdp_use_orig_params: true  # REQUIRED for Optimizer state offload+FSDP compatibility
 offload:
   enabled: true
   optimizer_offload: true
@@ -769,38 +903,38 @@ offload:
   activation_spill: true
 ```
 
-#### Example 5: FSDP FULL_SHARD + M3 (M1 is blocked to avoid duplication)
+#### Example 5: FSDP FULL_SHARD + Activation spilling (Optimizer state offload is blocked to avoid duplication)
 ```yaml
 parallel:
   use_fsdp: true
   fsdp_sharding_strategy: "full"
 offload:
   enabled: true
-  activation_spill: true  # M3 works, M1 must be disabled
+  activation_spill: true  # Activation spilling works, Optimizer state offload must be disabled
 ```
 
 ### Validation Rules (Automatically Enforced)
 
 The following configurations are automatically blocked with `ValueError`:
 
-1. **M1 + FSDP FULL_SHARD**: Duplicates optimizer states in host memory
-   - Use `fsdp_sharding_strategy: "shard_grad_op"` or disable M1
+1. **Optimizer state offload + FSDP FULL_SHARD**: Duplicates optimizer states in host memory
+   - Use `fsdp_sharding_strategy: "shard_grad_op"` or disable Optimizer state offload
 
-2. **M1 + FSDP CPUOffload**: Redundant optimizer offloading
-   - Use only one: either M1 or FSDP CPUOffload
+2. **Optimizer state offload + FSDP CPUOffload**: Redundant optimizer offloading
+   - Use only one: either Optimizer state offload or FSDP CPUOffload
 
-3. **M1 + FSDP without use_orig_params**: Breaks optimizer parameter references
-   - Set `fsdp_use_orig_params: true` when using M1 with FSDP
+3. **Optimizer state offload + FSDP without use_orig_params**: Breaks optimizer parameter references
+   - Set `fsdp_use_orig_params: true` when using Optimizer state offload with FSDP
 
-4. **M2 + FSDP**: Weight streaming conflicts with FSDP parameter sharding
+4. **Weight streaming + FSDP**: Weight streaming conflicts with FSDP parameter sharding
    - Already blocked; weight streaming is DDP/single-GPU only
 
 ### Config Validation Warnings
 
 The following produce warnings (not errors):
 
-1. **M1 + FSDP SHARD_GRAD_OP without use_orig_params**: Required for correctness
-2. **M2 enabled without activation_spill**: Auto-enables activation_spill (M3)
+1. **Optimizer state offload + FSDP SHARD_GRAD_OP without use_orig_params**: Required for correctness
+2. **Weight streaming enabled without activation_spill**: Auto-enables activation_spill (Activation spilling)
 3. **pinned_memory_pool_gb exceeds 80% of total RAM**: Host OOM risk
 4. **TP > 1 with offload enabled**: Experimental, each rank streams independently
 
@@ -816,7 +950,7 @@ The following produce warnings (not errors):
 
 > **RTX 3090 (Ampere) note**: bf16 on RTX 3090 runs via FP32 ALU emulation, so it may be slightly slower than H100/A100, but is still safer than fp16 for AdamW (exp_avg_sq can exceed fp16 dynamic range). bf16 is recommended over fp16 on Ampere.
 
-### 7.4 M3 activation_spill_granularity guidance
+### 7.4 Activation spilling activation_spill_granularity guidance
 
 | Granularity | Host memory per layer | GPU memory saved | When to use |
 |-------------|----------------------|-----------------|-------------|
@@ -825,13 +959,108 @@ The following produce warnings (not errors):
 
 ---
 
-## 8. Implementation Recommendations
+### 7.5 Telemetry and Monitoring
 
-### 8.1 Config validation changes
+The offload system includes built-in telemetry for monitoring H2D/D2H transfers, bandwidth, and stall events during training.
+
+#### Enabling Telemetry
+
+Set the environment variable before training:
+```bash
+export IRONCORE_OFFLOAD_TELEMETRY=1
+ironcore train --config configs/offload.yaml
+```
+
+#### Live Monitoring (Terminal Visualizer)
+
+Add the visualizer to your training script for real-time metrics:
+
+```python
+from ironcore.utils.offload_visualizer import start_offload_visualizer
+
+# Start visualizer (updates every 10 steps)
+viz = start_offload_visualizer(update_interval=10)
+
+try:
+    trainer.train()
+finally:
+    viz.stop()  # Prints final summary
+```
+
+**Output example**:
+```
+============================================================
+[Offload Telemetry] Step 100
+────────────────────────────────────────────────────────────
+H2D: 45.23 GB | 28.50 GB/s | 450 transfers
+D2H: 12.87 GB | 24.30 GB/s | 225 transfers
+Stalls: 3 events | 125.3 ms total
+Queue: 2/8 depth
+============================================================
+```
+
+#### Metrics Tracked
+
+| Metric | Description | Healthy Range |
+|--------|-------------|---------------|
+| `total_h2d_bytes` | Cumulative host→-device data | Monitor trend |
+| `total_d2h_bytes` | Cumulative device→host data | Monitor trend |
+| `h2d_bandwidth_gb_s` | Effective H2D bandwidth | >20 GB/s (PCIe 4.0) |
+| `d2h_bandwidth_gb_s` | Effective D2H bandwidth | >20 GB/s (PCIe 4.0) |
+| `stall_events` | Transfer queue full events | =0 or very low |
+| `max_queue_depth` | Maximum observed queue depth | Should be ≤ `prefetch_streams` |
+
+#### Hardware Benchmark
+
+Before training, benchmark your system's PCIe/NVLink bandwidth:
+
+```bash
+# Basic benchmark (10-500 MB transfers)
+python scripts/benchmark_offload_pcie.py --sizes 10 50 100 500
+
+# Compare NVLink on vs off
+NCCL_P2P_DISABLE=1 python scripts/benchmark_offload_pcie.py --output no_nvlink.json
+NCCL_P2P_DISABLE=0 python scripts/benchmark_offload_pcie.py --output with_nvlink.json
+
+# Custom sizes and output
+python scripts/benchmark_offload_pcie.py --sizes 100 500 1000 --output bandwidth_results.json
+```
+
+**Output example**:
+```json
+{
+  "device": "NVIDIA GeForce RTX 3090",
+  "nvlink_enabled": false,
+  "dtype": "bfloat16",
+  "benchmarks": {
+    "h2d": [
+      {"size_mb": 100, "bandwidth_gb_s": 28.5},
+      {"size_mb": 500, "bandwidth_gb_s": 29.2}
+    ],
+    "d2h": [
+      {"size_mb": 100, "bandwidth_gb_s": 24.8},
+      {"size_mb": 500, "bandwidth_gb_s": 25.1}
+    ]
+  }
+}
+```
+
+#### Troubleshooting via Telemetry
+
+| Symptom | Likely Cause | Action |
+|---------|--------------|--------|
+| Low bandwidth (<10 GB/s) | Non-pinned memory, slow storage, or PCIe 3.0 | Check `pinned_memory_pool_gb` is set |
+| High stall events | Transfer queue backing up | Increase `prefetch_streams` or reduce `weight_prefetch_layers` |
+| D2H much slower than H2D | GPU compute blocking transfers | Check for unnecessary `torch.cuda.synchronize()` calls |
+| Bandwidth drops over time | Thermal throttling or memory fragmentation | Monitor GPU temp, check `nvidia-smi` |
+
+---
+
+## 8. Historical Implementation Notes
 
 **File**: `ironcore/config/__init__.py`
 
-**Change 1**: Block M1 + FSDP FULL_SHARD (host OOM risk from duplicating optimizer states)
+**Change 1**: Block Optimizer state offload + FSDP FULL_SHARD (host OOM risk from duplicating optimizer states)
 
 ```python
 # After the existing weight_offload + FSDP block (line ~210)
@@ -845,7 +1074,7 @@ if config.offload.optimizer_offload and config.parallel.use_fsdp:
         )
 ```
 
-**Change 2**: Block M1 + FSDP CPUOffload (redundant, both run optimizer on CPU)
+**Change 2**: Block Optimizer state offload + FSDP CPUOffload (redundant, both run optimizer on CPU)
 
 ```python
 if config.offload.optimizer_offload and config.parallel.use_fsdp:
@@ -857,7 +1086,7 @@ if config.offload.optimizer_offload and config.parallel.use_fsdp:
         )
 ```
 
-**Change 3**: Warn M1 + FSDP without use_orig_params
+**Change 3**: Warn Optimizer state offload + FSDP without use_orig_params
 
 ```python
 if config.offload.optimizer_offload and config.parallel.use_fsdp:
@@ -891,7 +1120,7 @@ if self.config.parallel.use_fsdp and not self.config.parallel.fsdp_use_orig_para
 
 ### 8.3 Activation backward prefetch implementation
 
-**Priority**: Medium. 3-6% throughput improvement for large models with M3.
+**Priority**: Medium. 3-6% throughput improvement for large models with Activation spilling.
 
 **Files to modify**:
 
@@ -922,19 +1151,19 @@ Change `from_config()` to read the config value instead of hardcoding `prefetch_
 
 | Test | What it verifies |
 |------|-----------------|
-| `test_m1_fsdp_full_shard_blocked` | Config validation blocks M1 + FULL_SHARD |
-| `test_m1_fsdp_cpuoffload_blocked` | Config validation blocks M1 + CPUOffload |
-| `test_m3_fsdp_integration` | M3 activation spill works with FSDP FULL_SHARD. Loss parity over 50 steps. |
-| `test_m1_shard_grad_op_fsdp` | M1 + SHARD_GRAD_OP + M3 with FSDP. Optimizer states on CPU, params sharded. Loss parity. |
-| `test_m1_distributed_optimizer` | M1 + DistributedOptimizer. Each rank holds 1/N optimizer states on CPU. |
+| `test_m1_fsdp_full_shard_blocked` | Config validation blocks Optimizer state offload + FULL_SHARD |
+| `test_m1_fsdp_cpuoffload_blocked` | Config validation blocks Optimizer state offload + CPUOffload |
+| `test_m3_fsdp_integration` | Activation spilling activation spill works with FSDP FULL_SHARD. Loss parity over 50 steps. |
+| `test_m1_shard_grad_op_fsdp` | Optimizer state offload + SHARD_GRAD_OP + Activation spilling with FSDP. Optimizer states on CPU, params sharded. Loss parity. |
+| `test_m1_distributed_optimizer` | Optimizer state offload + DistributedOptimizer. Each rank holds 1/N optimizer states on CPU. |
 | `test_backward_prefetch_correctness` | Backward produces identical gradients with and without activation prefetch. |
 | `test_backward_prefetch_throughput` | Measure step time with and without prefetch. Verify improvement. |
 
 ### 8.6 Summary of recommended changes (ordered by priority)
 
 1. **Config validation** (8.1) — Prevent misconfiguration that causes host OOM. Low risk, high impact.
-2. **Optimizer creation order guard** (8.2) — Require `use_orig_params=True` when M1+FSDP. Low risk.
-3. **Activation backward prefetch** (8.3) — 3-6% throughput improvement for M3 users. Medium effort.
+2. **Optimizer creation order guard** (8.2) — Require `use_orig_params=True` when Optimizer state offload+FSDP. Low risk.
+3. **Activation backward prefetch** (8.3) — 3-6% throughput improvement for Activation spilling users. Medium effort.
 4. **Configurable transfer streams** (8.4) — Minor config change. Low priority.
 5. **Integration tests** (8.5) — Verify all configurations work end-to-end.
 
@@ -948,9 +1177,9 @@ Topics not covered in the English original but encountered during operations and
 
 Current `ironcore/offload/` code is not TP-aware (grep for `tp_size`, `expert_parallel` yields zero results).
 
-- **M1 + TP**: Optimizer states are created in TP-sharded weight form. M1 offloads per-parameter, so correctness is preserved, but the `optimizer_min_param_elements` threshold applies to sharded shapes. After sharding, parameters may fall below the threshold and unintentionally remain on GPU.
-- **M2 + TP**: Streaming TP-sharded weights reduces PCIe traffic, but verification is needed to ensure all-gather/all-reduce doesn't conflict with weight rematerialization timing.
-- **M3 + TP**: Activations are TP-split along sequence/hidden dimensions, so spill size is also 1/TP. High compatibility likelihood.
+- **Optimizer state offload + TP**: Optimizer states are created in TP-sharded weight form. Optimizer state offload offloads per-parameter, so correctness is preserved, but the `optimizer_min_param_elements` threshold applies to sharded shapes. After sharding, parameters may fall below the threshold and unintentionally remain on GPU.
+- **Weight streaming + TP**: Streaming TP-sharded weights reduces PCIe traffic, but verification is needed to ensure all-gather/all-reduce doesn't conflict with weight rematerialization timing.
+- **Activation spilling + TP**: Activations are TP-split along sequence/hidden dimensions, so spill size is also 1/TP. High compatibility likelihood.
 
 **Recommendation**: Add TP integration tests.
 
@@ -988,14 +1217,14 @@ Offload state save/restore is automatically handled at [checkpointing/native.py:
 
 ### 9.6 Convergence Regression
 
-User memory reports an M2+M3+grad_accum>1 device mismatch bug (commit `4a1597f`) and 1000-step loss divergence issues. Document should specify:
+User memory reports an Weight streaming+Activation spilling+grad_accum>1 device mismatch bug (commit `4a1597f`) and 1000-step loss divergence issues. Document should specify:
 - Regression test location
 - Validation step count (e.g., 1000-step baseline)
 - Known residual caveats
 
 ### 9.7 CPU Compute Thread Contention
 
-**When critical**: M1-only (CPU compute) mode where params are on GPU and M2 is inactive. AdamW math runs on CPU via SIMD/AVX-512 (MKL), competing with dataloader workers, gradient all-reduce background threads, NCCL helpers, and OMP/MKL thread pools.
+**When critical**: Optimizer state offload-only (CPU compute) mode where params are on GPU and Weight streaming is inactive. AdamW math runs on CPU via SIMD/AVX-512 (MKL), competing with dataloader workers, gradient all-reduce background threads, NCCL helpers, and OMP/MKL thread pools.
 
 **Recommended formula**:
 ```bash
@@ -1013,7 +1242,7 @@ export MKL_NUM_THREADS=10
 
 **Verification**: Use `top -H` or `htop` to check CPU thread distribution during training. If AdamW step time exceeds GPU compute time, thread starvation is likely.
 
-**When M2/M3 active**: AdamW takes GPU-compute path (params on CPU), reducing OMP impact. However, dataloader always uses CPU, so base recommendation remains.
+**When Weight streaming/Activation spilling active**: AdamW takes GPU-compute path (params on CPU), reducing OMP impact. However, dataloader always uses CPU, so base recommendation remains.
 
 ### 9.8 NUMA Locality
 
@@ -1040,7 +1269,7 @@ numactl --cpunodebind=0 --membind=0 \
 
 ### 9.9 PCIe Bandwidth Contention
 
-On systems without NVLink (e.g., PCIe-only 4×GPU), M1 grad D2H/delta H2D contends with DDP all-reduce / FSDP all-gather for PCIe. Quantitative analysis:
+On systems without NVLink (e.g., PCIe-only 4×GPU), Optimizer state offload grad D2H/delta H2D contends with DDP all-reduce / FSDP all-gather for PCIe. Quantitative analysis:
 - PCIe Gen4 x16: ~32 GB/s unidirectional
 - 13B model grad: 26 GB → requires 0.8s/step transfer bandwidth
 
@@ -1050,12 +1279,12 @@ Assume half effective bandwidth when bidirectional + concurrent communication.
 
 Section 5.1 table only covers standard AdamW (`exp_avg + exp_avg_sq`). AMSGrad persistently tracks `max_exp_avg_sq`:
 
-| Optimizer | Formula | 13B host (M1 bf16) | 13B host (fp32) |
+| Optimizer | Formula | 13B host (Optimizer state offload bf16) | 13B host (fp32) |
 |---|---|---|---|
 | AdamW | `2 × P × D` | 26 GB | 52 GB |
 | AdamW + AMSGrad | `3 × P × D` | **39 GB** | **78 GB** |
 
-**Applies when**: AMSGrad enabled in [optimizer/](../ironcore/optimizer/) (config `optimizer.amsgrad: true`). M1 offload state also stores `max_exp_avg_sq` on CPU at the same precision.
+**Applies when**: AMSGrad enabled in [optimizer/](../ironcore/optimizer/) (config `optimizer.amsgrad: true`). Optimizer state offload offload state also stores `max_exp_avg_sq` on CPU at the same precision.
 
 **Host memory impact**: 1.5×. All "Host per rank" values in §5.2 table should be multiplied by 1.5 for re-estimation. Phase B-1 auto-recommendation (§9.4) should also reflect AMSGrad enablement.
 
@@ -1065,7 +1294,7 @@ Section 5.1 table only covers standard AdamW (`exp_avg + exp_avg_sq`). AMSGrad p
 
 **Current state**: Codebase doesn't use CUDA Graphs (grep for `torch.cuda.graph`, `make_graphed_callables`, `CUDAGraph` yields 0 results). So no actual conflicts exist.
 
-**Fundamental incompatibility**: M1/M2/M3 async prefetch produces different tensor pointers/shapes each step — dynamic behavior. CUDA Graphs replay captured kernel sequences as frozen kernels + frozen pointers, incompatible with this dynamic pattern.
+**Fundamental incompatibility**: Optimizer state offload/Weight streaming/Activation spilling async prefetch produces different tensor pointers/shapes each step — dynamic behavior. CUDA Graphs replay captured kernel sequences as frozen kernels + frozen pointers, incompatible with this dynamic pattern.
 
 **If introduced in future**:
 - Don't use `torch.cuda.graph` / `make_graphed_callables` for training with offload enabled
@@ -1110,8 +1339,8 @@ Cross-referencing English document claims against actual codebase:
 
 | Item | English doc claim | Actual code | Location |
 |------|---------------|-----------|------|
-| M1 + FSDP FULL_SHARD blocked | "NOT blocked" | ✅ Matches — no blocking | [config/__init__.py:206-210](../ironcore/config/__init__.py#L206-L210) |
-| M1 + FSDP CPUOffload blocked | "NOT blocked" | ✅ Matches — no blocking | Same |
+| Optimizer state offload + FSDP FULL_SHARD blocked | "NOT blocked" | ✅ Matches — no blocking | [config/__init__.py:206-210](../ironcore/config/__init__.py#L206-L210) |
+| Optimizer state offload + FSDP CPUOffload blocked | "NOT blocked" | ✅ Matches — no blocking | Same |
 | Backward activation H2D | "Synchronous blocking (Gap 1)" | ✅ Matches — `wait()` + `synchronize_with_default_stream()` | [hooks.py:333-334](../ironcore/offload/hooks.py#L333-L334) |
 | Backward weight prefetch | "1-layer hardcoded (Gap 2)" | ✅ Matches — only `layer_idx - 1` | [scheduler.py:463-464](../ironcore/offload/scheduler.py#L463-L464) |
 | `prefetch_streams=1` (Gap 3) | "Not configurable" | ✅ Matches — hardcoded in `from_config` | [transfer_engine.py:77](../ironcore/offload/transfer_engine.py#L77) |
@@ -1119,11 +1348,11 @@ Cross-referencing English document claims against actual codebase:
 | FSDP `BACKWARD_PRE` | "Hardcoded" | ✅ Matches | [parallel/parallel.py:153](../ironcore/parallel/parallel.py#L153) |
 | Optimizer creation order | "Optimizer created before FSDP wrap" | ✅ Matches — line 314 vs 358 | [trainers/base_trainer.py](../ironcore/trainers/base_trainer.py) |
 
-**Test coverage gaps**: No integration tests for M1+FSDP, M3+FSDP, M1+DistOpt ([tests/](../tests/) search results).
+**Test coverage gaps**: No integration tests for Optimizer state offload+FSDP, Activation spilling+FSDP, Optimizer state offload+DistOpt ([tests/](../tests/) search results).
 
 **Recent related commits**:
-- `932779a` — M1-only mode CPU AdamW (40%+ VRAM savings)
-- `4a1597f` — M3 grad_accum>1 device mismatch fix
+- `932779a` — Optimizer state offload-only mode CPU AdamW (40%+ VRAM savings)
+- `4a1597f` — Activation spilling grad_accum>1 device mismatch fix
 - `78adb10` — backward prefetch overlap attempt (though activation H2D still blocking)
 
 ---
@@ -1144,15 +1373,15 @@ Cross-referencing English document claims against actual codebase:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | False | Master switch for all offload features |
-| `optimizer_offload` | bool | False | M1: offload optimizer states to CPU |
+| `optimizer_offload` | bool | False | Optimizer state offload: offload optimizer states to CPU |
 | `optimizer_state_precision` | str | "fp32" | Precision for CPU optimizer states (fp32/bf16/fp16) |
 | `optimizer_min_param_elements` | int | 65536 | Skip offload for params smaller than this |
-| `weight_offload` | bool | False | M2: enable weight streaming. **⚠️ Setting to `true` automatically enables `activation_spill`** (see [config/__init__.py:211-219](../ironcore/config/__init__.py#L211-L219) and §9.14) |
+| `weight_offload` | bool | False | Weight streaming: enable weight streaming. **⚠️ Setting to `true` automatically enables `activation_spill`** (see [config/__init__.py:211-219](../ironcore/config/__init__.py#L211-L219) and §9.14) |
 | `weight_prefetch_layers` | int | 2 | Number of layers to prefetch ahead |
 | `weight_storage_precision` | str | "bf16" | Precision for host weight tiles |
 | `gpu_staging_pool_mb` | float | 0.0 | GPU staging pool size (0 = auto) |
 | `gpu_staging_chunk_mb` | float | 256.0 | GPU staging chunk size |
-| `activation_spill` | bool | False | M3: enable activation spilling |
+| `activation_spill` | bool | False | Activation spilling: enable activation spilling |
 | `activation_spill_granularity` | str | "sub_layer" | "sub_layer" or "full_layer" |
 | `pinned_memory_pool_gb` | float | 100.0 | Total pinned host memory budget. **⚠️ 100GB default is excessive for consumer systems** (see §9.4) |
 | `pinned_chunk_gb` | float | 4.0 | Pinned memory chunk size |
@@ -1164,6 +1393,6 @@ Cross-referencing English document claims against actual codebase:
 | `use_fsdp` | bool | False | Enable FSDP wrapping |
 | `fsdp_sharding_strategy` | str | "full" | "full", "hybrid", "no_shard", or "shard_grad_op" |
 | `fsdp_offload_params` | bool | False | FSDP CPUOffload(offload_params=True) |
-| `fsdp_use_orig_params` | bool | False | Preserve original parameter objects (required for M1+FSDP) |
+| `fsdp_use_orig_params` | bool | False | Preserve original parameter objects (required for Optimizer state offload+FSDP) |
 | `fsdp_mixed_precision` | str | "native" | "native" or "mixed" |
 | `use_distributed_optimizer` | bool | False | Enable ZeRO-1 DistributedOptimizer (DDP only) |

@@ -21,7 +21,7 @@ DEVICE = torch.device("cuda:0")
 
 def _make_model_config():
     """Create minimal model config for testing."""
-    from ironcore.config import MainConfig
+    from ironcore.config import MainConfig, OffloadConfig
     from ironcore.config.config_alignment import AlignmentConfig
     from ironcore.config.config_data import DataConfig
     from ironcore.config.config_model import ModelConfig
@@ -30,7 +30,6 @@ def _make_model_config():
     from ironcore.config.config_peft import PEFTConfig
     from ironcore.config.config_trainer import InitConfig, OperationConfig, TrainerConfig
     from ironcore.config.config_utils import ProfilerConfig, UtilsConfig
-    from ironcore.config import OffloadConfig
 
     model_config = ModelConfig()
     model_config.num_layers = 2

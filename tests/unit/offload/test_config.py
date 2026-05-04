@@ -146,7 +146,9 @@ class TestOffloadConfigAutoDetect:
         _config_validation(config)
 
         # After validation, should be resolved to a positive value
-        assert config.offload.pinned_memory_pool_gb > 0, "Auto-detect should resolve to positive value"
+        assert config.offload.pinned_memory_pool_gb > 0, (
+            "Auto-detect should resolve to positive value"
+        )
         # Should be within reasonable bounds (8GB to 32GB typically)
         assert 8.0 <= config.offload.pinned_memory_pool_gb <= 32.0
 

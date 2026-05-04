@@ -8,13 +8,13 @@ Used by both AdamWOptimizer.step() and MuonOptimizer._step_adamw().
 This avoids DRY violations between the two codepaths.
 
 Two compute paths:
-  - CPU-compute path (params on GPU, M1-only): runs AdamW math on CPU,
+  - CPU-compute path (params on GPU, optimizer offload only): runs AdamW math on CPU,
     transfers only grad (GPU->CPU) and delta (CPU->GPU). Minimizes VRAM.
-  - GPU-compute path (params on CPU, M2 active): states stay on CPU,
+  - GPU-compute path (params on CPU, weight streaming active): states stay on CPU,
     .to() is a no-op, math runs on CPU anyway. Used when weight streaming
     has moved params to CPU.
 
-When params are on GPU (M1 without M2), the CPU-compute path saves ~4x
+When params are on GPU (optimizer offload without weight streaming), the CPU-compute path saves ~4x
 transient VRAM per parameter compared to staging optimizer states on GPU.
 """
 
@@ -37,6 +37,7 @@ def _should_offload_param(p: torch.nn.Parameter, min_param_elements: int) -> boo
     # Scale threshold for TP-sharded params (shard is 1/tp_size of original)
     if getattr(p, "is_tp_sharded", False):
         from ironcore.parallel.parallel_states import get_tensor_model_parallel_world_size
+
         numel = numel * get_tensor_model_parallel_world_size()
     return numel >= min_param_elements
 
@@ -68,7 +69,7 @@ def _adamw_offloaded_step_cpu_compute(
     state_dtype: torch.dtype,
 ) -> None:
     """
-    Run AdamW update on CPU when params are on GPU (M1-only, no weight streaming).
+    Run AdamW update on CPU when params are on GPU (optimizer offload only, no weight streaming).
 
     Transfers grad GPU->CPU, runs AdamW math on CPU, computes delta, transfers
     delta CPU->GPU, applies delta to param.data. States never leave CPU.
@@ -137,7 +138,7 @@ def _adamw_offloaded_step(
     """
     Run AdamW update with optimizer states on host (CPU).
 
-    When params are on GPU (M1-only, no weight streaming): delegates to
+    When params are on GPU (optimizer offload only, no weight streaming): delegates to
     _adamw_offloaded_step_cpu_compute which runs math on CPU, avoiding
     the VRAM spike from staging optimizer states on GPU.
 
@@ -151,7 +152,7 @@ def _adamw_offloaded_step(
 
     compute_device = p.data.device
 
-    # When params are on GPU (M1-only), run AdamW on CPU to avoid
+    # When params are on GPU (optimizer offload only), run AdamW on CPU to avoid
     # staging optimizer states on GPU (which would spike peak VRAM).
     if compute_device.type == "cuda":
         _adamw_offloaded_step_cpu_compute(

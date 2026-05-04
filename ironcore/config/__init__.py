@@ -15,10 +15,10 @@ from ironcore.utils.config import validate_path_within_dir as _validate_path_wit
 from .config import BaseConfig
 from .config_alignment import AlignmentConfig
 from .config_data import DataConfig
-from .config_offload import OffloadConfig
 from .config_model import KVCacheConfig as KVCacheConfig
 from .config_model import ModelConfig
 from .config_model import PositionalEmbeddingConfig as PositionalEmbeddingConfig
+from .config_offload import OffloadConfig
 from .config_optim import OptimConfig
 from .config_parallel import ParallelConfig
 from .config_peft import LoRAConfig as LoRAConfig
@@ -197,7 +197,7 @@ def _config_validation(config: MainConfig):
             f"offload.weight_prefetch_layers must be >= 1, got {config.offload.weight_prefetch_layers}"
         )
 
-    # M1 + FSDP FULL_SHARD → ValueError (host OOM from duplicated optimizer states)
+    # Optimizer offload + FSDP FULL_SHARD → ValueError (host OOM from duplicated optimizer states)
     if config.offload.optimizer_offload and config.parallel.use_fsdp:
         if config.parallel.fsdp_sharding_strategy == "full":
             raise ValueError(
@@ -205,14 +205,12 @@ def _config_validation(config: MainConfig):
                 "Use fsdp_sharding_strategy: shard_grad_op or disable optimizer_offload."
             )
 
-    # M1 + FSDP CPUOffload → ValueError (redundant)
+    # Optimizer offload + FSDP CPUOffload → ValueError (redundant)
     if config.offload.optimizer_offload and config.parallel.use_fsdp:
         if config.parallel.fsdp_offload_params:
-            raise ValueError(
-                "optimizer_offload is redundant with FSDP CPUOffload. Use only one."
-            )
+            raise ValueError("optimizer_offload is redundant with FSDP CPUOffload. Use only one.")
 
-    # M1 + FSDP without use_orig_params → ValueError (FlatParameter breaks optimizer refs)
+    # Optimizer offload + FSDP without use_orig_params → ValueError (FlatParameter breaks optimizer refs)
     if config.offload.optimizer_offload and config.parallel.use_fsdp:
         if not config.parallel.fsdp_use_orig_params:
             raise ValueError(

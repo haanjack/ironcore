@@ -1,10 +1,12 @@
 # Offload + 분산 학습 아키텍처 설계 (한글판)
 
-> **상태**: 설계 검토 (구현 일부 진행 중)
-> **범위**: M1/M2/M3 offload와 DDP, FSDP, DistributedOptimizer의 상호작용
+> **상태**: ✅ 구현 완료 (Phase A-H 완료)
+> **범위**: Optimizer state offload/Weight streaming/Activation spilling offload와 DDP, FSDP, DistributedOptimizer의 상호작용
 > **대상 독자**: 멀티-GPU 학습에서 메모리/처리량 트레이드오프를 평가해야 하는 엔지니어
 >
 > 본 문서는 [offload_fsdp_architecture.md](offload_fsdp_architecture.md) 의 한글 번역 + 코드베이스 검증 결과 + 추가 고려사항을 통합한 버전입니다.
+
+> **빠른 시작**: [§7.2 구성 선택 기준](#72-구성-선택-기준)에서 일반적인 시나리오를 확인하거나, [§7.3 전체 구성 참조](#73-전체-구성-참조)에서 모든 옵션을 확인하세요.
 
 ## 목차
 
@@ -25,9 +27,9 @@
 
 Ironcore의 offload 시스템은 GPU VRAM 사용량을 줄이는 세 가지 독립 모드를 제공합니다.
 
-- **M1 (Optimizer state offload)**: AdamW/Muon optimizer state를 CPU에 보관하며 정밀도(fp32/bf16/fp16) 설정 가능
-- **M2 (Weight streaming)**: layer 가중치를 CPU→GPU 비동기 prefetch + GPU staging pool 사용
-- **M3 (Activation spilling)**: forward 중 중간 activation을 CPU로 spill, backward 시 복원 + 재계산
+- **Optimizer state offload (Optimizer state offload)**: AdamW/Muon optimizer state를 CPU에 보관하며 정밀도(fp32/bf16/fp16) 설정 가능
+- **Weight streaming (Weight streaming)**: layer 가중치를 CPU→GPU 비동기 prefetch + GPU staging pool 사용
+- **Activation spilling (Activation spilling)**: forward 중 중간 activation을 CPU로 spill, backward 시 복원 + 재계산
 
 PyTorch의 FSDP는 파라미터/그래디언트/optimizer state를 rank들로 sharding하여 멀티-GPU에 적용됩니다. FSDP와 offload 시스템은 일부 영역에서 **중복**(둘 다 optimizer state 위치 관리), 일부 영역에서 **상호보완**(FSDP는 activation spill 미지원)됩니다.
 
@@ -35,13 +37,13 @@ PyTorch의 FSDP는 파라미터/그래디언트/optimizer state를 rank들로 sh
 
 ### 핵심 결론
 
-1. **M3는 모든 병렬 전략과 호환** — activation spilling은 파라미터가 아니라 중간 텐서를 다루므로 DDP/FSDP/단일-GPU 어디서든 사용 가능. 다른 어떤 시스템(FSDP, DeepSpeed, Megatron)도 CPU 기반 activation spilling을 제공하지 않음.
+1. **Activation spilling은 모든 병렬 전략과 호환** — activation spilling은 파라미터가 아니라 중간 텐서를 다루므로 DDP/FSDP/단일-GPU 어디서든 사용 가능. 다른 어떤 시스템(FSDP, DeepSpeed, Megatron)도 CPU 기반 activation spilling을 제공하지 않음.
 
-2. **M2는 DDP/단일-GPU 전용** — weight streaming은 FSDP의 sharding/unsharding과 충돌하므로 이미 차단되어 있음.
+2. **Weight streaming은 DDP/단일-GPU 전용** — weight streaming은 FSDP의 sharding/unsharding과 충돌하므로 이미 차단되어 있음.
 
-3. **M1은 FSDP SHARD_GRAD_OP를 보완** — SHARD_GRAD_OP는 param+grad만 shard하고 optimizer state는 복제 보관함. M1이 이 빈 자리를 CPU offload + 정밀도 설정으로 채움. 단, **FSDP FULL_SHARD와는 호환 금지** (호스트 메모리 중복).
+3. **Optimizer state offload는 FSDP SHARD_GRAD_OP를 보완** — SHARD_GRAD_OP는 param+grad만 shard하고 optimizer state는 복제 보관함. Optimizer state offload가 이 빈 자리를 CPU offload + 정밀도 설정으로 채움. 단, **FSDP FULL_SHARD와는 호환 금지** (호스트 메모리 중복).
 
-4. **M1 + DistributedOptimizer는 곱셈적으로 결합** — DistributedOptimizer가 ZeRO-1처럼 optimizer state를 DP rank들로 분산, M1이 각 rank의 분산분을 bf16으로 CPU offload. rank당 host memory = `1/N × 2 × params × 2B`.
+4. **Optimizer state offload + DistributedOptimizer는 곱셈적으로 결합** — DistributedOptimizer가 ZeRO-1처럼 optimizer state를 DP rank들로 분산, Optimizer state offload가 각 rank의 분산분을 bf16으로 CPU offload. rank당 host memory = `1/N × 2 × params × 2B`.
 
 5. **Backward prefetch 갭 존재** — FSDP는 `BACKWARD_PRE`로 all-gather와 backward 연산을 overlap. 우리 offload 시스템은 forward weight prefetch만 있고 backward activation prefetch는 없음. 추가 시 대형 모델에서 5-10% 처리량 향상 기대.
 
@@ -51,7 +53,7 @@ PyTorch의 FSDP는 파라미터/그래디언트/optimizer state를 rank들로 sh
 
 ### 2.1 Offload 모드
 
-#### M1: Optimizer State Offload
+#### Optimizer state offload: Optimizer State Offload
 
 **기능**: AdamW의 `exp_avg`, `exp_avg_sq` (옵션으로 `max_exp_avg_sq`)를 GPU 대신 CPU에 보관.
 
@@ -59,8 +61,8 @@ PyTorch의 FSDP는 파라미터/그래디언트/optimizer state를 rank들로 sh
 
 | 경로 | 조건 | 방식 | PCIe 트래픽 |
 |------|------|-----|------------|
-| CPU-compute | params on GPU (M1-only, M2 비활성) | AdamW 수식이 CPU에서 SIMD/AVX-512(MKL) 실행. grad는 D2H, delta는 H2D. state는 절대 GPU로 안 옮겨짐. | 파라미터당 step당 `2N × dtype_size` |
-| GPU-compute | params on CPU (M2 활성) | state도 이미 CPU. `.to()`는 no-op. CPU에서 native 수식. | 0 (전부 CPU) |
+| CPU-compute | params on GPU (Optimizer state offload-only, Weight streaming 비활성) | AdamW 수식이 CPU에서 SIMD/AVX-512(MKL) 실행. grad는 D2H, delta는 H2D. state는 절대 GPU로 안 옮겨짐. | 파라미터당 step당 `2N × dtype_size` |
+| GPU-compute | params on CPU (Weight streaming 활성) | state도 이미 CPU. `.to()`는 no-op. CPU에서 native 수식. | 0 (전부 CPU) |
 
 **FSDP optimizer 관리 대비 추가 기능**:
 
@@ -78,7 +80,7 @@ offload:
   optimizer_min_param_elements: 65536   # 이보다 작은 param은 offload skip
 ```
 
-#### M2: Weight Streaming
+#### Weight streaming: Weight Streaming
 
 **기능**: layer 가중치를 pinned host memory에 저장. 비동기 H2D + pooled staging buffer로 GPU에 stream. forward/backward 후 GPU에서 evict하고 갱신값을 host로 snapshot.
 
@@ -86,7 +88,7 @@ offload:
 
 **Forward prefetch**: N layer 미리 로드 (`weight_prefetch_layers`, 기본 2). 별도 CUDA stream에서 H2D를 현재 layer 연산과 overlap.
 
-**Backward prefetch**: M3와 결합 시 단일 layer lookahead. layer N의 backward 끝나면 layer N-1 가중치 H2D를 비동기 제출 (autograd가 layer 사이를 traversing 하는 동안).
+**Backward prefetch**: Activation spilling과 결합 시 단일 layer lookahead. layer N의 backward 끝나면 layer N-1 가중치 H2D를 비동기 제출 (autograd가 layer 사이를 traversing 하는 동안).
 
 **설정**:
 ```yaml
@@ -101,7 +103,7 @@ offload:
 
 > ⚠️ **자동 활성화 주의**: `weight_offload=true`로 두면 [config/__init__.py:211-219](../ironcore/config/__init__.py#L211-L219) 에서 `activation_spill`이 자동으로 켜집니다 (가중치 evict가 no_autograd_graph를 요구하기 때문). 문서에서 활성화한 적 없는 옵션이 켜져 있다면 이 자동화가 원인입니다.
 
-#### M3: Activation Spilling
+#### Activation spilling: Activation Spilling
 
 **기능**: activation checkpointing을 대체. forward 시 중간 activation(layer input, post-attention residual)을 비동기 D2H로 pinned host memory에 spill. backward 시 H2D로 복원하고 `torch.enable_grad()` 아래 sub-block을 재계산하여 autograd graph 재구축.
 
@@ -146,13 +148,13 @@ offload:
 
 **FSDP BACKWARD_PRE**: 현재 layer backward 연산 중 다음 layer의 all-gather를 미리 수행. NCCL 통신과 CUDA 연산을 overlap.
 
-**FSDP `use_orig_params`**: 원본 파라미터 객체 보존 (`torch.compile` 필수). FSDP wrapping 후에도 optimizer 참조 유효. **M1 + FSDP 호환에 필수**.
+**FSDP `use_orig_params`**: 원본 파라미터 객체 보존 (`torch.compile` 필수). FSDP wrapping 후에도 optimizer 참조 유효. **Optimizer state offload + FSDP 호환에 필수**.
 
 #### DistributedOptimizer (ZeRO-1)
 
 기존 optimizer(AdamWOptimizer/MuonOptimizer)를 wrapping하여 round-robin으로 optimizer state를 DP rank들로 분할. 각 rank는 자신 partition(1/N)의 state만 보유/갱신. `optimizer.step()` 후 owner rank가 갱신 파라미터를 broadcast.
 
-**직교(orthogonal)한 관계**: M1(배치), M3(activation), M2(weight streaming). DistributedOptimizer는 *어떤* 파라미터를 가질지 결정, M1은 그 state가 *어디에* 있을지(CPU vs GPU) 결정.
+**직교(orthogonal)한 관계**: Optimizer state offload(배치), Activation spilling(activation), Weight streaming(weight streaming). DistributedOptimizer는 *어떤* 파라미터를 가질지 결정, Optimizer state offload는 그 state가 *어디에* 있을지(CPU vs GPU) 결정.
 
 **호환 불가**: FSDP (자체 optimizer state sharding이 있음).
 
@@ -162,7 +164,7 @@ offload:
 
 ### 3.1 FSDP vs Offload 기능
 
-| 기능 | FSDP FULL_SHARD | FSDP CPUOffload | FSDP SHARD_GRAD_OP | M1 | M2 | M3 |
+| 기능 | FSDP FULL_SHARD | FSDP CPUOffload | FSDP SHARD_GRAD_OP | Optimizer state offload | Weight streaming | Activation spilling |
 |---|---|---|---|---|---|---|
 | Parameter sharding | Yes (ZeRO-3) | No | Yes (ZeRO-2) | No | No | No |
 | Gradient sharding | Yes (ZeRO-3) | No | Yes (ZeRO-2) | No | No | No |
@@ -183,13 +185,13 @@ offload:
 
 | 조합 | 중복 정도 | 위험 | 현재 상태 |
 |------|----------|------|----------|
-| M2 vs FSDP param sharding | **완전** | 둘 다 파라미터 배치 관리 | **차단됨** (config + runtime) |
-| M1 vs FSDP FULL_SHARD optim | **완전** | M1이 CPU에 두 번째 사본 생성 | **차단 안 됨 (호스트 OOM 위험)** |
-| M1 vs FSDP CPUOffload | **부분** | 둘 다 optimizer step을 CPU에서 | **차단 안 됨 (PCIe 낭비)** |
-| M1 vs FSDP SHARD_GRAD_OP | **없음** | SHARD_GRAD_OP는 optim state 안 건드림 | **호환** |
-| M3 vs FSDP | **없음** | 직교 (activation vs param) | **호환** |
-| M1 vs DistributedOptimizer | **없음** | 직교 (배치 vs 분할) | **호환** |
-| M3 vs DistributedOptimizer | **없음** | 직교 | **호환** |
+| Weight streaming vs FSDP param sharding | **완전** | 둘 다 파라미터 배치 관리 | **차단됨** (config + runtime) |
+| Optimizer state offload vs FSDP FULL_SHARD optim | **완전** | Optimizer state offload가 CPU에 두 번째 사본 생성 | **차단 안 됨 (호스트 OOM 위험)** |
+| Optimizer state offload vs FSDP CPUOffload | **부분** | 둘 다 optimizer step을 CPU에서 | **차단 안 됨 (PCIe 낭비)** |
+| Optimizer state offload vs FSDP SHARD_GRAD_OP | **없음** | SHARD_GRAD_OP는 optim state 안 건드림 | **호환** |
+| Activation spilling vs FSDP | **없음** | 직교 (activation vs param) | **호환** |
+| Optimizer state offload vs DistributedOptimizer | **없음** | 직교 (배치 vs 분할) | **호환** |
+| Activation spilling vs DistributedOptimizer | **없음** | 직교 | **호환** |
 
 ---
 
@@ -202,18 +204,18 @@ offload:
 ```
 GPU Memory                              Host Memory
 +----------------------------------+    +----------------------------------+
-| Model parameters (full)          |    | Optimizer states (M1, bf16)      |
-| Gradients (full)                 |    | Spilled activations (M3)         |
-| Activations (M3 미사용 시)       |    | Weight tiles (M2, bf16)          |
-| GPU staging pool (M2)            |    +----------------------------------+
+| Model parameters (full)          |    | Optimizer states (Optimizer state offload, bf16)      |
+| Gradients (full)                 |    | Spilled activations (Activation spilling)         |
+| Activations (Activation spilling 미사용 시)       |    | Weight tiles (Weight streaming, bf16)          |
+| GPU staging pool (Weight streaming)            |    +----------------------------------+
 +----------------------------------+
 ```
 
-**가용 모드**: M1 + M2 + M3 (전체)
+**가용 모드**: Optimizer state offload + Weight streaming + Activation spilling (전체)
 
 **VRAM 분해** (13B model, bf16 params, bf16 optimizer):
 
-| 구성 요소 | Offload 없음 | M1+M2+M3 |
+| 구성 요소 | Offload 없음 | Optimizer state offload+Weight streaming+Activation spilling |
 |-----------|-------------|----------|
 | Parameters | 26 GB | ~0.5 GB (3 layer staging pool) |
 | Optimizer states | 52 GB (fp32) | 0 GB (CPU에 bf16 = 26 GB host) |
@@ -229,10 +231,10 @@ GPU Memory                              Host Memory
 ```
 각 rank의 GPU                            각 rank의 Host
 +----------------------------------+    +----------------------------------+
-| Model parameters (full replica)  |    | Optimizer states (M1, bf16)      |
-| Gradients (full, sync 전)        |    | Spilled activations (M3)         |
-| Activations (M3 미사용 시)       |    | Weight tiles (M2, bf16)          |
-| GPU staging pool (M2)            |    +----------------------------------+
+| Model parameters (full replica)  |    | Optimizer states (Optimizer state offload, bf16)      |
+| Gradients (full, sync 전)        |    | Spilled activations (Activation spilling)         |
+| Activations (Activation spilling 미사용 시)       |    | Weight tiles (Weight streaming, bf16)          |
+| GPU staging pool (Weight streaming)            |    +----------------------------------+
 +----------------------------------+
          |                                      |
          +------ all-reduce gradients ----------+
@@ -249,10 +251,10 @@ GPU Memory                              Host Memory
 ```
 각 rank의 GPU                            각 rank의 Host
 +----------------------------------+    +----------------------------------+
-| Model parameters (full replica)  |    | Optimizer states (M1, bf16)      |
+| Model parameters (full replica)  |    | Optimizer states (Optimizer state offload, bf16)      |
 | Gradients (full, sync 전)        |    | local partition (1/N)            |
-| Activations (M3 미사용 시)       |    | Spilled activations (M3)         |
-| GPU staging pool (M2)            |    | Weight tiles (M2, bf16)          |
+| Activations (Activation spilling 미사용 시)       |    | Spilled activations (Activation spilling)         |
+| GPU staging pool (Weight streaming)            |    | Weight tiles (Weight streaming, bf16)          |
 +----------------------------------+    +----------------------------------+
          |                                      |
          +------ all-reduce gradients ----------+
@@ -260,7 +262,7 @@ GPU Memory                              Host Memory
                  (owner rank → others)
 ```
 
-**DistributedOptimizer + M1 동작**:
+**DistributedOptimizer + Optimizer state offload 동작**:
 
 ```
 DistributedOptimizer.step()
@@ -275,11 +277,11 @@ DistributedOptimizer.step()
 
 **rank당 host memory** (13B model, 4 GPUs, bf16):
 
-| 구성 요소 | DDP + M1 | DDP + DistOpt + M1 |
+| 구성 요소 | DDP + Optimizer state offload | DDP + DistOpt + Optimizer state offload |
 |-----------|----------|-------------------|
 | Optimizer states (CPU) | 26 GB (full) | **6.5 GB** (1/4) |
-| Weight tiles (M2) | 26 GB | 26 GB |
-| Spilled activations (M3) | 4-10 GB | 4-10 GB |
+| Weight tiles (Weight streaming) | 26 GB | 26 GB |
+| Spilled activations (Activation spilling) | 4-10 GB | 4-10 GB |
 | **Host 합계** | **56-62 GB** | **37-43 GB** |
 
 **사용 시기**: optimizer state가 VRAM 주범인 멀티-GPU 학습. DDP에서 optimizer-heavy workload 최적 구성.
@@ -293,24 +295,24 @@ DistributedOptimizer.step()
 | Gradient shard (1/N)             |    |                                  |
 | Optimizer state shard (1/N)      |    | (FSDP는 GPU에서 optim 수행)      |
 | Unsharded params (transient)     |    |                                  |
-| Activations (M3 미사용 시)       |    +----------------------------------+
+| Activations (Activation spilling 미사용 시)       |    +----------------------------------+
 +----------------------------------+
          |
          +------ all-gather params (fwd/bwd) --+
          +------ reduce-scatter grads ----------+
 ```
 
-**가용 offload 모드**: M3만
+**가용 offload 모드**: Activation spilling만
 
-**M1 금지 이유**: FSDP FULL_SHARD가 이미 optimizer state를 sharding함. M1이 추가 사본을 CPU에 만들면 host memory 중복. 13B 모델 4-GPU 기준, FSDP는 rank당 13 GB optimizer shard를 GPU 보유, M1이 추가로 52 GB(fp32) 또는 26 GB(bf16)를 host에 둠. 호스트 OOM 위험 실재.
+**Optimizer state offload 금지 이유**: FSDP FULL_SHARD가 이미 optimizer state를 sharding함. Optimizer state offload가 추가 사본을 CPU에 만들면 host memory 중복. 13B 모델 4-GPU 기준, FSDP는 rank당 13 GB optimizer shard를 GPU 보유, Optimizer state offload가 추가로 52 GB(fp32) 또는 26 GB(bf16)를 host에 둠. 호스트 OOM 위험 실재.
 
-**M2 금지 이유**: FSDP가 자체 sharding/unsharding 관리 — 충돌.
+**Weight streaming 금지 이유**: FSDP가 자체 sharding/unsharding 관리 — 충돌.
 
-**M3 호환 이유**: M3는 layer 사이의 중간 텐서를 다루지, 파라미터를 다루지 않음. 직교.
+**Activation spilling 호환 이유**: Activation spilling은 layer 사이의 중간 텐서를 다루지, 파라미터를 다루지 않음. 직교.
 
 **rank당 VRAM** (13B, 4 GPU):
 
-| 구성 요소 | FSDP 단독 | FSDP + M3 |
+| 구성 요소 | FSDP 단독 | FSDP + Activation spilling |
 |-----------|----------|-----------|
 | Parameter shard | 6.5 GB | 6.5 GB |
 | Optimizer shard | 13 GB (fp32) | 13 GB |
@@ -321,30 +323,30 @@ DistributedOptimizer.step()
 
 **rank당 Host memory**: spilled activation만 = 4-10 GB.
 
-**사용 시기**: FSDP만으로 충분한 sharding이 되는 멀티-GPU. M3 추가로 activation 절감. 대부분의 멀티-GPU 권장 구성.
+**사용 시기**: FSDP만으로 충분한 sharding이 되는 멀티-GPU. Activation spilling 추가로 activation 절감. 대부분의 멀티-GPU 권장 구성.
 
 ### 4.5 FSDP SHARD_GRAD_OP (ZeRO-2)
 
 ```
 각 rank의 GPU                            각 rank의 Host
 +----------------------------------+    +----------------------------------+
-| Parameter shard (1/N)            |    | Optimizer states (M1, bf16)      |
+| Parameter shard (1/N)            |    | Optimizer states (Optimizer state offload, bf16)      |
 | Gradient shard (1/N)             |    | 전체 모델 분 (sharding 안 됨)     |
-| Optimizer states (M1 미사용 시)  |    | Spilled activations (M3)         |
+| Optimizer states (Optimizer state offload 미사용 시)  |    | Spilled activations (Activation spilling)         |
 | Unsharded params (transient)     |    +----------------------------------+
-| Activations (M3 미사용 시)       |
+| Activations (Activation spilling 미사용 시)       |
 +----------------------------------+
 ```
 
-**가용 offload 모드**: M1 + M3
+**가용 offload 모드**: Optimizer state offload + Activation spilling
 
-**M1 가치**: SHARD_GRAD_OP는 param/grad만 shard, **optimizer state는 안 함**. rank마다 전체 optimizer state 보유 (13B = 52 GB fp32). M1이 이를 CPU bf16(26 GB)으로 offload — 정확히 M1이 메우는 갭.
+**Optimizer state offload 가치**: SHARD_GRAD_OP는 param/grad만 shard, **optimizer state는 안 함**. rank마다 전체 optimizer state 보유 (13B = 52 GB fp32). Optimizer state offload가 이를 CPU bf16(26 GB)으로 offload — 정확히 Optimizer state offload가 메우는 갭.
 
-**`use_orig_params=True` 필수 이유**: M1의 AdamWOptimizer가 원본 파라미터 객체 참조 보유. `use_orig_params=True`이면 sharded FlatParameter의 view로 보존. 미설정 시 FSDP가 FlatParameter로 교체하여 참조가 깨짐.
+**`use_orig_params=True` 필수 이유**: Optimizer state offload의 AdamWOptimizer가 원본 파라미터 객체 참조 보유. `use_orig_params=True`이면 sharded FlatParameter의 view로 보존. 미설정 시 FSDP가 FlatParameter로 교체하여 참조가 깨짐.
 
 **rank당 VRAM** (13B, 4 GPU):
 
-| 구성 요소 | SHARD_GRAD_OP | + M1 + M3 |
+| 구성 요소 | SHARD_GRAD_OP | + Optimizer state offload + Activation spilling |
 |-----------|---------------|-----------|
 | Parameter shard | 6.5 GB | 6.5 GB |
 | Optimizer states | 52 GB (fp32 전체!) | 0 GB (CPU bf16) |
@@ -355,7 +357,7 @@ DistributedOptimizer.step()
 
 **rank당 Host**: optimizer state(26 GB bf16) + activation(4-10 GB) = 30-36 GB.
 
-**사용 시기**: optimizer state가 VRAM 주범인 멀티-GPU. FSDP가 param/grad sharding, M1이 unsharded optimizer state offload. AdamW(state = 2× model)에서 특히 유용.
+**사용 시기**: optimizer state가 VRAM 주범인 멀티-GPU. FSDP가 param/grad sharding, Optimizer state offload가 unsharded optimizer state offload. AdamW(state = 2× model)에서 특히 유용.
 
 ### 4.6 FSDP FULL_SHARD + CPUOffload
 
@@ -364,17 +366,17 @@ DistributedOptimizer.step()
 +----------------------------------+    +----------------------------------+
 | (연산 중 transient만)            |    | Parameters (offload)             |
 | Unsharded params (transient)     |    | Gradients (offload)              |
-| Activations (M3 미사용 시)       |    | Optimizer states (fp32, 전체)    |
+| Activations (Activation spilling 미사용 시)       |    | Optimizer states (fp32, 전체)    |
 +----------------------------------+    +----------------------------------+
 ```
 
-**가용 offload 모드**: M3만
+**가용 offload 모드**: Activation spilling만
 
-**M1 중복 이유**: FSDP CPUOffload가 이미 fp32 state로 CPU optimizer step 수행. M1 추가 시 동일 데이터 두 곳에서 관리 — 무가치.
+**Optimizer state offload 중복 이유**: FSDP CPUOffload가 이미 fp32 state로 CPU optimizer step 수행. Optimizer state offload 추가 시 동일 데이터 두 곳에서 관리 — 무가치.
 
-**M3는 가치 있음**: FSDP CPUOffload가 activation 처리 안 함. M3로 activation VRAM ~0.
+**Activation spilling은 가치 있음**: FSDP CPUOffload가 activation 처리 안 함. Activation spilling으로 activation VRAM ~0.
 
-**제약**: FSDP CPUOffload는 `no_sync()` 밖에서 **grad accumulation 미지원**. 미니배치 누적 필요 시 FSDP FULL_SHARD + M3로 (CPUOffload 없이).
+**제약**: FSDP CPUOffload는 `no_sync()` 밖에서 **grad accumulation 미지원**. 미니배치 누적 필요 시 FSDP FULL_SHARD + Activation spilling으로 (CPUOffload 없이).
 
 **사용 시기**: 파라미터 shard도 offload해야 하는 극한 메모리 제약. grad accumulation 필요 시 회피.
 
@@ -405,12 +407,12 @@ P 파라미터, N GPU, D dtype 바이트(bf16=2, fp32=4) 기준:
 | Gradients (full) | `P × D` | params와 동일 크기 |
 | Gradients (sharded) | `P × D / N` | FSDP rank당 |
 | Optimizer states (fp32, AdamW) | `2 × P × 4` | exp_avg + exp_avg_sq |
-| Optimizer states (bf16) | `2 × P × 2` | M1 with bf16 |
+| Optimizer states (bf16) | `2 × P × 2` | Optimizer state offload with bf16 |
 | Optimizer states (AMSGrad fp32) | `3 × P × 4` | + max_exp_avg_sq |
-| Optimizer states (AMSGrad bf16) | `3 × P × 2` | M1 + AMSGrad with bf16 |
+| Optimizer states (AMSGrad bf16) | `3 × P × 2` | Optimizer state offload + AMSGrad with bf16 |
 | Optimizer states (sharded fp32) | `2 × P × 4 / N` | FSDP FULL_SHARD rank당 |
-| Optimizer states (ZeRO-1 + M1 bf16) | `2 × P × 2 / N` | DistOpt + M1 |
-| GPU staging pool (M2) | `(prefetch_layers + 1) × layer_bytes` | 연속 layer slide window |
+| Optimizer states (ZeRO-1 + Optimizer state offload bf16) | `2 × P × 2 / N` | DistOpt + Optimizer state offload |
+| GPU staging pool (Weight streaming) | `(prefetch_layers + 1) × layer_bytes` | 연속 layer slide window |
 | Activations | `batch × seq_len × hidden × layers × k` | k = 1~5 (checkpointing) |
 | Spilled activations on host | GPU activation과 유사 | free-after-consume bounded |
 
@@ -419,13 +421,13 @@ P 파라미터, N GPU, D dtype 바이트(bf16=2, fp32=4) 기준:
 | 구성 | rank GPU | rank Host | 비고 |
 |---|---|---|---|
 | No offload, DDP | 112-132 GB | ~0 GB | A100-80GB / H100 필요 |
-| M1+M2+M3, DDP | ~27 GB | 30-50 GB | 컨슈머 GPU(RTX 4090) 가능 |
-| M1+M2+M3+DistOpt, DDP | ~27 GB | 37-43 GB | ZeRO-1로 host optim 절감 |
+| Optimizer state offload+Weight streaming+Activation spilling, DDP | ~27 GB | 30-50 GB | 컨슈머 GPU(RTX 4090) 가능 |
+| Optimizer state offload+Weight streaming+Activation spilling+DistOpt, DDP | ~27 GB | 37-43 GB | ZeRO-1로 host optim 절감 |
 | FSDP FULL_SHARD | 60-72 GB | ~0 GB | A100-80GB 필요 |
-| FSDP FULL_SHARD + M3 | ~52 GB | 4-10 GB | A100-80GB 여유 있게 |
+| FSDP FULL_SHARD + Activation spilling | ~52 GB | 4-10 GB | A100-80GB 여유 있게 |
 | FSDP SHARD_GRAD_OP | 99-111 GB | ~0 GB | 단일 GPU 불가 |
-| FSDP SHARD_GRAD_OP + M1 + M3 | ~39 GB | 30-36 GB | 컨슈머 GPU 가능 |
-| FSDP FULL_SHARD + CPUOffload + M3 | ~30 GB | 36-46 GB | 최대 host offload, grad accum 불가 |
+| FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling | ~39 GB | 30-36 GB | 컨슈머 GPU 가능 |
+| FSDP FULL_SHARD + CPUOffload + Activation spilling | ~30 GB | 36-46 GB | 최대 host offload, grad accum 불가 |
 
 ### 5.3 호스트 메모리 중복 회피 규칙
 
@@ -435,10 +437,10 @@ P 파라미터, N GPU, D dtype 바이트(bf16=2, fp32=4) 기준:
 |---|---|---|
 | FSDP FULL_SHARD (GPU optim) | 0 GB | 중복 없음 |
 | FSDP FULL_SHARD + CPUOffload | `2 × P × 4 / N` | FSDP 관리, 중복 없음 |
-| FSDP FULL_SHARD + M1 (잘못) | `2 × P × 4 / N + 2 × P × 2` | **중복!** FSDP shard + M1 full |
-| FSDP SHARD_GRAD_OP + M1 (bf16) | `2 × P × 2` | 중복 없음 (SHARD_GRAD_OP가 optim sharding 안 함) |
-| DDP + M1 (bf16) | `2 × P × 2` | 중복 없음 |
-| DDP + DistOpt + M1 (bf16) | `2 × P × 2 / N` | 중복 없음 |
+| FSDP FULL_SHARD + Optimizer state offload (잘못) | `2 × P × 4 / N + 2 × P × 2` | **중복!** FSDP shard + Optimizer state offload full |
+| FSDP SHARD_GRAD_OP + Optimizer state offload (bf16) | `2 × P × 2` | 중복 없음 (SHARD_GRAD_OP가 optim sharding 안 함) |
+| DDP + Optimizer state offload (bf16) | `2 × P × 2` | 중복 없음 |
+| DDP + DistOpt + Optimizer state offload (bf16) | `2 × P × 2 / N` | 중복 없음 |
 
 ---
 
@@ -464,10 +466,10 @@ Layer 2 backward:                  |--all-gather L2 (prefetch)--|--compute grad 
 
 | 컴포넌트 | Forward prefetch | Backward prefetch | 메커니즘 |
 |---------|-----------------|-------------------|----------|
-| M2 weight streaming | **Yes** (N layer 미리, dedicated CUDA stream) | **부분** (M3 활성 시 1-layer lookahead) | `weight_prefetch_layers`, `MemoryTransferEngine` |
-| M3 forward D2H | **Yes** (dedicated stream, fire-and-forget) | N/A | `submit_d2h()` 핸들 반환, backward에서만 wait |
-| M3 backward H2D | N/A | **No (동기 블로킹)** | `on_sublayer_backward()`가 H2D 후 즉시 wait |
-| M1 optimizer offload | N/A | **No (전부 동기, `non_blocking=False`)** | `_adamw_offloaded_step_cpu_compute()` 블로킹 copy |
+| Weight streaming weight streaming | **Yes** (N layer 미리, dedicated CUDA stream) | **부분** (Activation spilling 활성 시 1-layer lookahead) | `weight_prefetch_layers`, `MemoryTransferEngine` |
+| Activation spilling forward D2H | **Yes** (dedicated stream, fire-and-forget) | N/A | `submit_d2h()` 핸들 반환, backward에서만 wait |
+| Activation spilling backward H2D | N/A | **No (동기 블로킹)** | `on_sublayer_backward()`가 H2D 후 즉시 wait |
+| Optimizer state offload optimizer offload | N/A | **No (전부 동기, `non_blocking=False`)** | `_adamw_offloaded_step_cpu_compute()` 블로킹 copy |
 
 ### 6.3 갭 분석
 
@@ -568,7 +570,7 @@ def on_sublayer_backward(self, microbatch_idx, layer_idx, sub_layer, gpu_dst):
 
 **아니오.** FSDP BACKWARD_PRE는 NCCL all-gather와 연산을 overlap. DDP는 all-gather가 없고 backward 끝난 후 all-reduce 일괄 동기화 — prefetch할 게 없음.
 
-DDP + M2 + M3 등가 최적화는 §6.4-§6.5의 weight/activation backward prefetch. 이건 PCIe DMA(H2D)와 CUDA 연산을 overlap — single-node에서 FSDP의 NCCL/연산 overlap 등가.
+DDP + Weight streaming + Activation spilling 등가 최적화는 §6.4-§6.5의 weight/activation backward prefetch. 이건 PCIe DMA(H2D)와 CUDA 연산을 overlap — single-node에서 FSDP의 NCCL/연산 overlap 등가.
 
 ---
 
@@ -586,10 +588,10 @@ GPU 몇 개?
 |       +-- No: offload.enabled=true
 |           |
 |           +-- 안 들어가는 게 뭐?
-|               +-- optimizer state: M1
-|               +-- activation: M3
-|               +-- parameter: M2
-|               +-- 다 안 됨: M1+M2+M3
+|               +-- optimizer state: Optimizer state offload
+|               +-- activation: Activation spilling
+|               +-- parameter: Weight streaming
+|               +-- 다 안 됨: Optimizer state offload+Weight streaming+Activation spilling
 |
 +-- 멀티 GPU
     |
@@ -598,22 +600,22 @@ GPU 몇 개?
         +-- Yes
         |   |
         |   +-- FULL_SHARD + per-GPU fit?
-        |   |   +-- Yes: FSDP 단독 (activation 안 들어가면 + M3)
-        |   |   +-- No (optim OOM): SHARD_GRAD_OP + M1 + M3 고려
+        |   |   +-- Yes: FSDP 단독 (activation 안 들어가면 + Activation spilling)
+        |   |   +-- No (optim OOM): SHARD_GRAD_OP + Optimizer state offload + Activation spilling 고려
         |   |
         |   +-- SHARD_GRAD_OP?
-        |   |   +-- optim 안 들어감: + M1 + M3
-        |   |   +-- activation만: + M3
+        |   |   +-- optim 안 들어감: + Optimizer state offload + Activation spilling
+        |   |   +-- activation만: + Activation spilling
         |   |
         |   +-- CPUOffload (극한)?
-        |       +-- Yes: FULL_SHARD + CPUOffload + M3
+        |       +-- Yes: FULL_SHARD + CPUOffload + Activation spilling
         |       +-- 단, CPUOffload는 grad accum 불가
         |
         +-- No (DDP)
             |
             +-- rank당 optim 안 들어감?
-                +-- Yes: DDP + DistOpt + M1 + M3
-                +-- No: DDP + M1 + M3 (또는 M1+M2+M3 최대 절감)
+                +-- Yes: DDP + DistOpt + Optimizer state offload + Activation spilling
+                +-- No: DDP + Optimizer state offload + Activation spilling (또는 Optimizer state offload+Weight streaming+Activation spilling 최대 절감)
 ```
 
 ### 7.2 시나리오별 권장 구성
@@ -622,13 +624,13 @@ GPU 몇 개?
 
 | 시나리오 | 권장 | YAML |
 |---------|-----|------|
-| 1 GPU, 7B, 24GB | M1+M2+M3 | `offload: {enabled: true, optimizer_offload: true, weight_offload: true, activation_spill: true}` |
-| 1 GPU, 7B, 48GB | M1+M3 | `offload: {enabled: true, optimizer_offload: true, activation_spill: true}` |
-| 1 GPU, headroom | M1 | `offload: {enabled: true, optimizer_offload: true}` |
-| 4 GPU FSDP, 13B, 80GB ea | FSDP FULL_SHARD + M3 | `parallel: {use_fsdp: true}, offload: {enabled: true, activation_spill: true}` |
-| 4 GPU FSDP, 13B, 48GB ea | SHARD_GRAD_OP + M1 + M3 | `parallel: {use_fsdp: true, fsdp_sharding_strategy: shard_grad_op, fsdp_use_orig_params: true}, offload: {enabled: true, optimizer_offload: true, activation_spill: true}` |
-| 4 GPU DDP, 13B, 48GB ea | DDP + DistOpt + M1 + M3 | `parallel: {use_distributed_optimizer: true}, offload: {enabled: true, optimizer_offload: true, activation_spill: true}` |
-| 8 GPU FSDP, 70B | FSDP FULL_SHARD + M3 | (위와 동일 패턴) |
+| 1 GPU, 7B, 24GB | Optimizer state offload+Weight streaming+Activation spilling | `offload: {enabled: true, optimizer_offload: true, weight_offload: true, activation_spill: true}` |
+| 1 GPU, 7B, 48GB | Optimizer state offload+Activation spilling | `offload: {enabled: true, optimizer_offload: true, activation_spill: true}` |
+| 1 GPU, headroom | Optimizer state offload | `offload: {enabled: true, optimizer_offload: true}` |
+| 4 GPU FSDP, 13B, 80GB ea | FSDP FULL_SHARD + Activation spilling | `parallel: {use_fsdp: true}, offload: {enabled: true, activation_spill: true}` |
+| 4 GPU FSDP, 13B, 48GB ea | SHARD_GRAD_OP + Optimizer state offload + Activation spilling | `parallel: {use_fsdp: true, fsdp_sharding_strategy: shard_grad_op, fsdp_use_orig_params: true}, offload: {enabled: true, optimizer_offload: true, activation_spill: true}` |
+| 4 GPU DDP, 13B, 48GB ea | DDP + DistOpt + Optimizer state offload + Activation spilling | `parallel: {use_distributed_optimizer: true}, offload: {enabled: true, optimizer_offload: true, activation_spill: true}` |
+| 8 GPU FSDP, 70B | FSDP FULL_SHARD + Activation spilling | (위와 동일 패턴) |
 
 #### 2x RTX 3090 워크스테이션 (NVLink bridge, 128GB+ RAM) — Qwen family 기준
 
@@ -636,17 +638,17 @@ GPU 몇 개?
 
 | 모델 | 권장 구성 | 핵심 근거 |
 |---|---|---|
-| Qwen2.5-1.5B / Qwen3-1.7B | DDP, offload 불필요 | 단일 3090에 fit. throughput 위주. M1 선택 |
-| Qwen2.5-3B / Qwen3-4B | DDP + M1 (M3 선택) | 24GB 여유 충분. host bf16 ~6GB만 |
-| Qwen2.5-7B / Qwen3-8B | DDP + DistOpt + M1 + M3 | GPU ~12-15GB. ZeRO-1로 host optim 절감 (~7GB/rank) |
-| Qwen2.5-7B + TP=2 | TP=2 + M1 + M3 | TP shard로 per-GPU param 절반. NVLink가 TP all-reduce 가속 |
-| Qwen2.5-14B / Qwen3-14B | TP=2 + M1 + M3, **또는** FSDP SHARD_GRAD_OP + M1 + M3 | param/grad 분할 → GPU ~14-16GB. TP-aware offload 검증 후 권장 (Phase D) |
-| Qwen2.5-32B / Qwen3-32B | FSDP FULL_SHARD + CPUOffload + M3 (grad_accum 없이) | params도 CPU. host ~80GB. NVLink가 all-gather 가속. **grad accum 불가 제약** |
-| **Qwen3-30B-A3B (MoE)** | FSDP FULL_SHARD + CPUOffload + M3 + EP=2 (실험적) | 활성 3B로 compute 가벼움. 단 전체 30B params host 보관 (~60GB bf16 + 30GB bf16 optim ≈ 90GB host). **MoE × offload 검증 케이스** |
-| Qwen2.5-32B + LoRA fine-tuning | DDP + LoRA (`offloadable=False` 어댑터) + M3 | base weight freeze. M1 비활성 (어댑터 GPU 잔류) |
+| Qwen2.5-1.5B / Qwen3-1.7B | DDP, offload 불필요 | 단일 3090에 fit. throughput 위주. Optimizer state offload 선택 |
+| Qwen2.5-3B / Qwen3-4B | DDP + Optimizer state offload (Activation spilling 선택) | 24GB 여유 충분. host bf16 ~6GB만 |
+| Qwen2.5-7B / Qwen3-8B | DDP + DistOpt + Optimizer state offload + Activation spilling | GPU ~12-15GB. ZeRO-1로 host optim 절감 (~7GB/rank) |
+| Qwen2.5-7B + TP=2 | TP=2 + Optimizer state offload + Activation spilling | TP shard로 per-GPU param 절반. NVLink가 TP all-reduce 가속 |
+| Qwen2.5-14B / Qwen3-14B | TP=2 + Optimizer state offload + Activation spilling, **또는** FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling | param/grad 분할 → GPU ~14-16GB. TP-aware offload 검증 후 권장 (Phase D) |
+| Qwen2.5-32B / Qwen3-32B | FSDP FULL_SHARD + CPUOffload + Activation spilling (grad_accum 없이) | params도 CPU. host ~80GB. NVLink가 all-gather 가속. **grad accum 불가 제약** |
+| **Qwen3-30B-A3B (MoE)** | FSDP FULL_SHARD + CPUOffload + Activation spilling + EP=2 (실험적) | 활성 3B로 compute 가벼움. 단 전체 30B params host 보관 (~60GB bf16 + 30GB bf16 optim ≈ 90GB host). **MoE × offload 검증 케이스** |
+| Qwen2.5-32B + LoRA fine-tuning | DDP + LoRA (`offloadable=False` 어댑터) + Activation spilling | base weight freeze. Optimizer state offload 비활성 (어댑터 GPU 잔류) |
 | Qwen3-235B-A22B (MoE) | **디자인 범위 외** (single-node 한계 초과 — host 200GB+ 필요) | 참고용 표시만 |
 
-YAML 예시 (Qwen2.5-7B + DDP + DistOpt + M1 + M3):
+YAML 예시 (Qwen2.5-7B + DDP + DistOpt + Optimizer state offload + Activation spilling):
 ```yaml
 parallel:
   use_distributed_optimizer: true
@@ -659,12 +661,12 @@ offload:
   pinned_memory_pool_gb: -1.0   # auto: psutil 기반 자동 감지 (Phase B-1 후)
 ```
 
-YAML 예시 (Qwen2.5-14B + FSDP SHARD_GRAD_OP + M1 + M3):
+YAML 예시 (Qwen2.5-14B + FSDP SHARD_GRAD_OP + Optimizer state offload + Activation spilling):
 ```yaml
 parallel:
   use_fsdp: true
   fsdp_sharding_strategy: "shard_grad_op"
-  fsdp_use_orig_params: true   # M1+FSDP 필수
+  fsdp_use_orig_params: true   # Optimizer state offload+FSDP 필수
 offload:
   enabled: true
   optimizer_offload: true
@@ -682,22 +684,122 @@ offload:
 
 > **RTX 3090 (Ampere) 특이사항**: bf16은 native FP32 ALU에서 emulation으로 동작하므로 H100/A100보다 약간 느릴 수 있으나 안전성 측면에서 fp16보다 우선 권장. AdamW는 `exp_avg_sq`가 fp16 동적 범위를 초과할 수 있어 fp16 비권장.
 
-### 7.4 M3 granularity 가이드
+### 7.4 Activation spilling granularity 가이드
 
 | Granularity | layer당 host 메모리 | GPU 절감 | 사용 시기 |
 |-------------|---------------------|---------|----------|
 | `sub_layer` | 2 activations | 최대 | 기본. 대부분 적합. |
 | `full_layer` | 1 activation | 적음 (attn/MLP 중간값 잔류) | host memory 매우 부족 + GPU 일부 잔류 허용 |
 
+### 7.5 Telemetry 및 모니터링
+
+Offload 시스템에는 학습 중 H2D/D2H 전송, 대역폭, 정지 이벤트를 모니터링하는 내장 telemetry가 포함되어 있습니다.
+
+#### Telemetry 활성화
+
+학습 전 환경 변수 설정:
+```bash
+export IRONCORE_OFFLOAD_TELEMETRY=1
+ironcore train --config configs/offload.yaml
+```
+
+#### 실시간 모니터링 (터미널 시각화)
+
+학습 스크립트에 실시간 메트릭을 위한 visualizer 추가:
+
+```python
+from ironcore.utils.offload_visualizer import start_offload_visualizer
+
+# visualizer 시작 (10단계마다 갱신)
+viz = start_offload_visualizer(update_interval=10)
+
+try:
+    trainer.train()
+finally:
+    viz.stop()  # 최종 요약 출력
+```
+
+**출력 예시**:
+```
+============================================================
+[Offload Telemetry] Step 100
+────────────────────────────────────────────────────────────
+H2D: 45.23 GB | 28.50 GB/s | 450 transfers
+D2H: 12.87 GB | 24.30 GB/s | 225 transfers
+Stalls: 3 events | 125.3 ms total
+Queue: 2/8 depth
+============================================================
+```
+
+#### 추적 메트릭
+
+| 메트릭 | 설명 | 정상 범위 |
+|--------|------|----------|
+| `total_h2d_bytes` | 누적 host→device 데이터 | 추세 모니터링 |
+| `total_d2h_bytes` | 누적 device→host 데이터 | 추세 모니터링 |
+| `h2d_bandwidth_gb_s` | 유효 H2D 대역폭 | >20 GB/s (PCIe 4.0) |
+| `d2h_bandwidth_gb_s` | 유효 D2H 대역폭 | >20 GB/s (PCIe 4.0) |
+| `stall_events` | 전송 큐 포화 이벤트 | =0 또는 매우 낮음 |
+| `max_queue_depth` | 최대 관찰 큐 깊이 | `prefetch_streams` 이하 |
+
+#### 하드웨어 벤치마크
+
+학습 전 시스템의 PCIe/NVLink 대역폭을 벤치마크:
+
+```bash
+# 기본 벤치마크 (10-500 MB 전송)
+python scripts/benchmark_offload_pcie.py --sizes 10 50 100 500
+
+# NVLink 켬기/끼기 비교
+NCCL_P2P_DISABLE=1 python scripts/benchmark_offload_pcie.py --output no_nvlink.json
+NCCL_P2P_DISABLE=0 python scripts/benchmark_offload_pcie.py --output with_nvlink.json
+
+# 사용자 정의 크기 및 출력
+python scripts/benchmark_offload_pcie.py --sizes 100 500 1000 --output bandwidth_results.json
+```
+
+#### Telemetry 통한 문제 해결
+
+| 증상 | 가능한 원인 | 조치 |
+|------|------------|------|
+| 낮은 대역폭 (<10 GB/s) | 비-pinned 메모리, 느린 저장소, PCIe 3.0 | `pinned_memory_pool_gb` 설정 확인 |
+| 높은 정지 이벤트 | 전송 큐 백업 | `prefetch_streams` 증가 또는 `weight_prefetch_layers` 감소 |
+| D2H가 H2D보다 훨씬 느림 | GPU 연산이 전송 차단 | 불필요한 `torch.cuda.synchronize()` 호출 확인 |
+| 대역폭이 시간이 지남에 감소 | 열 스로틀링 또는 메모리 단편화 | GPU 온도 모니터링, `nvidia-smi` 확인 |
+
 ---
 
-## 8. 구현 권고사항
+## 8. 구현 상태 (완료된 기능)
 
-### 8.1 Config 검증 추가
+> **참고**: 모든 Phase A-H가 완료되었습니다. 이 섹션은 구현된 내용을 문서화합니다.
+
+### 8.1 완료된 기능 목록
+
+| Phase | 기능 | 상태 | 위치 |
+|-------|---------|--------|----------|
+| A | Optimizer state offload (optimizer offload) | ✅ 완료 | `ironcore/offload/optimizer.py` |
+| A | Weight streaming (weight streaming) | ✅ 완료 | `ironcore/offload/scheduler.py` |
+| A | Activation spilling (activation spill) | ✅ 완료 | `ironcore/offload/hooks.py` |
+| B | Pinned 메모리 풀 자동 감지 | ✅ 완료 | `ironcore/utils/system_info.py` |
+| C | 단일 GPU 통합 테스트 | ✅ 완료 | `tests/integration/offload/` |
+| D | TP × Offload 지원 | ✅ 완료 | `ironcore/language_model.py` |
+| E | 멀티 GPU 설정 가드 | ✅ 완료 | `ironcore/config/__init__.py` |
+| E | DDP + Optimizer state offload/Activation spilling 테스트 | ✅ 완료 | `tests/integration/offload/test_ddp_offload.py` |
+| E | FSDP SHARD_GRAD_OP + Optimizer state offload | ✅ 완료 | `tests/integration/offload/test_fsdp_shard_grad_op_m1_m3.py` |
+| E | FSDP FULL_SHARD + Activation spilling | ✅ 완료 | `tests/integration/offload/test_fsdp_full_shard_m3.py` |
+| E | Backward weight prefetch | ✅ 완료 | `ironcore/offload/scheduler.py` |
+| F | Telemetry 시스템 | ✅ 완료 | `ironcore/utils/offload_metrics.py` |
+| F | Transfer engine 타이밍 | ✅ 완료 | `ironcore/offload/transfer_engine.py` |
+| F | 하드웨어 벤치마크 스크립트 | ✅ 완료 | `scripts/benchmark_offload_pcie.py` |
+| F | 라이브 visualizer | ✅ 완료 | `ironcore/utils/offload_visualizer.py` |
+| G | MoE × Offload 지원 | ✅ 완료 | `tests/integration/offload/test_moe_offload_smoke.py` |
+| H | OffloadConfig 재배치 | ✅ 완료 | `ironcore/config/config_offload.py` |
+
+### 8.2 Config 검증 (구현 완료)
 
 **파일**: [ironcore/config/__init__.py](../ironcore/config/__init__.py)
 
-**변경 1**: M1 + FSDP FULL_SHARD 차단 (host OOM 위험)
+**변경 1**: Optimizer state offload + FSDP FULL_SHARD 차단 (host OOM 위험)
 
 ```python
 # 기존 weight_offload + FSDP 블록 다음 (line ~210)
@@ -710,7 +812,7 @@ if config.offload.optimizer_offload and config.parallel.use_fsdp:
         )
 ```
 
-**변경 2**: M1 + FSDP CPUOffload 차단 (중복)
+**변경 2**: Optimizer state offload + FSDP CPUOffload 차단 (중복)
 
 ```python
 if config.offload.optimizer_offload and config.parallel.use_fsdp:
@@ -721,7 +823,7 @@ if config.offload.optimizer_offload and config.parallel.use_fsdp:
         )
 ```
 
-**변경 3**: M1 + FSDP without `use_orig_params` 경고
+**변경 3**: Optimizer state offload + FSDP without `use_orig_params` 경고
 
 ```python
 if config.offload.optimizer_offload and config.parallel.use_fsdp:
@@ -740,7 +842,7 @@ if config.offload.optimizer_offload and config.parallel.use_fsdp:
 
 **문제**: optimizer는 line ~314, FSDP wrapping은 line ~358. `use_orig_params=True`이면 동작, 아니면 깨짐.
 
-**수정**: FSDP + M1 활성 시 `use_orig_params=True` 강제.
+**수정**: FSDP + Optimizer state offload 활성 시 `use_orig_params=True` 강제.
 
 ```python
 # _build_model_and_optimizer() 의 get_optimizer() 호출 전:
@@ -754,7 +856,7 @@ if self.config.parallel.use_fsdp and not self.config.parallel.fsdp_use_orig_para
 
 ### 8.3 Activation backward prefetch 구현
 
-**우선순위**: 중. M3 사용 대형 모델 3-6% 처리량 향상.
+**우선순위**: 중. Activation spilling 사용 대형 모델 3-6% 처리량 향상.
 
 **수정 파일**:
 
@@ -784,19 +886,19 @@ prefetch_streams: int = 1  # 비동기 전송용 dedicated CUDA stream 수
 
 | 테스트 | 검증 내용 |
 |--------|----------|
-| `test_m1_fsdp_full_shard_blocked` | M1 + FULL_SHARD 차단 |
-| `test_m1_fsdp_cpuoffload_blocked` | M1 + CPUOffload 차단 |
-| `test_m3_fsdp_integration` | M3 + FSDP FULL_SHARD, 50 step loss parity |
-| `test_m1_shard_grad_op_fsdp` | M1 + SHARD_GRAD_OP + M3, optimizer state CPU + param shard, loss parity |
-| `test_m1_distributed_optimizer` | M1 + DistOpt, rank당 1/N state on CPU |
+| `test_m1_fsdp_full_shard_blocked` | Optimizer state offload + FULL_SHARD 차단 |
+| `test_m1_fsdp_cpuoffload_blocked` | Optimizer state offload + CPUOffload 차단 |
+| `test_m3_fsdp_integration` | Activation spilling + FSDP FULL_SHARD, 50 step loss parity |
+| `test_m1_shard_grad_op_fsdp` | Optimizer state offload + SHARD_GRAD_OP + Activation spilling, optimizer state CPU + param shard, loss parity |
+| `test_m1_distributed_optimizer` | Optimizer state offload + DistOpt, rank당 1/N state on CPU |
 | `test_backward_prefetch_correctness` | prefetch on/off에서 동일 그래디언트 |
 | `test_backward_prefetch_throughput` | step time 향상 측정 |
 
 ### 8.6 우선순위 정리
 
 1. **Config 검증** (§8.1) — 잘못된 설정으로 인한 host OOM 방지. 저위험 고임팩트.
-2. **Optimizer 순서 가드** (§8.2) — M1+FSDP 시 `use_orig_params=True` 강제. 저위험.
-3. **Activation backward prefetch** (§8.3) — M3 사용자 3-6% 향상. 중간 노력.
+2. **Optimizer 순서 가드** (§8.2) — Optimizer state offload+FSDP 시 `use_orig_params=True` 강제. 저위험.
+3. **Activation backward prefetch** (§8.3) — Activation spilling 사용자 3-6% 향상. 중간 노력.
 4. **Transfer stream 설정** (§8.4) — 작은 변경. 낮은 우선순위.
 5. **통합 테스트** (§8.5) — 모든 구성 end-to-end 검증.
 
@@ -810,9 +912,9 @@ prefetch_streams: int = 1  # 비동기 전송용 dedicated CUDA stream 수
 
 현재 `ironcore/offload/` 코드는 TP를 인지하지 않음 (`tp_size`, `expert_parallel` 키워드 grep 결과 없음).
 
-- **M1 + TP**: optimizer state는 본래 TP-shard된 weight 형태로 만들어짐. M1은 per-param offload이므로 정확성은 유지되나, `optimizer_min_param_elements` 임계값이 sharded shape로 적용됨. shard로 잘려 임계값 미만이 되어 의도치 않게 GPU에 잔류할 수 있음.
-- **M2 + TP**: TP-shard된 가중치를 streaming 시 PCIe 전송량은 작아지지만, all-gather/all-reduce가 weight rematerialization 시점과 충돌하지 않는지 검증 필요.
-- **M3 + TP**: activation은 sequence/hidden 차원으로 TP-split되므로 spill 크기도 1/TP. 호환 가능성 높음.
+- **Optimizer state offload + TP**: optimizer state는 본래 TP-shard된 weight 형태로 만들어짐. Optimizer state offload는 per-param offload이므로 정확성은 유지되나, `optimizer_min_param_elements` 임계값이 sharded shape로 적용됨. shard로 잘려 임계값 미만이 되어 의도치 않게 GPU에 잔류할 수 있음.
+- **Weight streaming + TP**: TP-shard된 가중치를 streaming 시 PCIe 전송량은 작아지지만, all-gather/all-reduce가 weight rematerialization 시점과 충돌하지 않는지 검증 필요.
+- **Activation spilling + TP**: activation은 sequence/hidden 차원으로 TP-split되므로 spill 크기도 1/TP. 호환 가능성 높음.
 
 **권고**: TP 결합 통합 테스트 추가.
 
@@ -850,14 +952,14 @@ prefetch_streams: int = 1  # 비동기 전송용 dedicated CUDA stream 수
 
 ### 9.6 수렴성 회귀
 
-사용자 메모리에 따르면 M2+M3+grad_accum>1 device mismatch 버그(커밋 `4a1597f`)와 1000-step loss 발산 이슈가 있었음. 문서에 다음 명시 필요:
+사용자 메모리에 따르면 Weight streaming+Activation spilling+grad_accum>1 device mismatch 버그(커밋 `4a1597f`)와 1000-step loss 발산 이슈가 있었음. 문서에 다음 명시 필요:
 - 회귀 테스트 위치
 - 검증 step 수 (예: 1000-step 기준)
 - 알려진 잔존 caveat
 
 ### 9.7 CPU compute 스레드 경합
 
-**언제 critical**: M1-only(CPU compute) 모드 (params on GPU, M2 비활성). AdamW 수식이 CPU에서 SIMD/AVX-512(MKL)로 실행되며 dataloader worker, gradient all-reduce 백그라운드 스레드, NCCL helper와 OMP/MKL 스레드 풀 경합.
+**언제 critical**: Optimizer state offload-only(CPU compute) 모드 (params on GPU, Weight streaming 비활성). AdamW 수식이 CPU에서 SIMD/AVX-512(MKL)로 실행되며 dataloader worker, gradient all-reduce 백그라운드 스레드, NCCL helper와 OMP/MKL 스레드 풀 경합.
 
 **권고 공식**:
 ```bash
@@ -875,7 +977,7 @@ export MKL_NUM_THREADS=10
 
 **검증 방법**: `top -H` 또는 `htop` 으로 학습 중 CPU 스레드 분포 확인. AdamW step 시간이 GPU 연산 시간을 초과하면 스레드 부족 가능성.
 
-**M2/M3 활성 시**: AdamW가 GPU-compute 경로(params on CPU 시)이므로 OMP 영향 줄어듦. 단, dataloader는 항상 CPU 사용하므로 기본 권고는 동일.
+**Weight streaming/Activation spilling 활성 시**: AdamW가 GPU-compute 경로(params on CPU 시)이므로 OMP 영향 줄어듦. 단, dataloader는 항상 CPU 사용하므로 기본 권고는 동일.
 
 ### 9.8 NUMA-locality
 
@@ -902,7 +1004,7 @@ numactl --cpunodebind=0 --membind=0 \
 
 ### 9.9 PCIe 대역폭 경합
 
-NVLink 없는 시스템(예: PCIe-only 4×GPU)에서 M1 grad D2H/delta H2D가 DDP all-reduce / FSDP all-gather와 PCIe 경합. 정량 분석:
+NVLink 없는 시스템(예: PCIe-only 4×GPU)에서 Optimizer state offload grad D2H/delta H2D가 DDP all-reduce / FSDP all-gather와 PCIe 경합. 정량 분석:
 - PCIe Gen4 x16: ~32 GB/s 단방향
 - 13B 모델 grad: 26 GB → 0.8s/step의 전송 대역폭 필요
 
@@ -912,12 +1014,12 @@ bidirectional + 통신 동시 발생 시 실효 대역폭 절반 가정.
 
 §5.1 표는 표준 AdamW(`exp_avg + exp_avg_sq`)만 다룸. AMSGrad는 `max_exp_avg_sq` 를 영구 보관:
 
-| 옵티마이저 | 공식 | 13B 호스트 (M1 bf16) | 13B 호스트 (fp32) |
+| 옵티마이저 | 공식 | 13B 호스트 (Optimizer state offload bf16) | 13B 호스트 (fp32) |
 |---|---|---|---|
 | AdamW | `2 × P × D` | 26 GB | 52 GB |
 | AdamW + AMSGrad | `3 × P × D` | **39 GB** | **78 GB** |
 
-**적용 위치**: [optimizer/](../ironcore/optimizer/) 의 AMSGrad 활성화 시 (config `optimizer.amsgrad: true`). M1 offload state는 `max_exp_avg_sq` 도 동일 정밀도로 CPU 저장.
+**적용 위치**: [optimizer/](../ironcore/optimizer/) 의 AMSGrad 활성화 시 (config `optimizer.amsgrad: true`). Optimizer state offload offload state는 `max_exp_avg_sq` 도 동일 정밀도로 CPU 저장.
 
 **호스트 메모리 영향**: 1.5×. §5.2 표의 모든 Host per rank 값에 1.5 곱해 재산정 필요. Phase B-1 의 자동 추천 (§9.4) 에서도 AMSGrad 활성화 여부 반영해야 함.
 
@@ -927,7 +1029,7 @@ bidirectional + 통신 동시 발생 시 실효 대역폭 절반 가정.
 
 **현재 상태**: 코드베이스가 CUDA Graphs를 사용하지 않음 (`torch.cuda.graph`, `make_graphed_callables`, `CUDAGraph` grep 결과 0건). 따라서 실제 충돌은 없음.
 
-**근본 비호환성**: M1/M2/M3 의 비동기 prefetch는 매 step마다 다른 텐서 포인터/shape를 만들어내는 동적 동작. CUDA Graphs는 캡처된 커널 시퀀스를 frozen kernel + frozen pointer로 재실행하므로 이와 비호환.
+**근본 비호환성**: Optimizer state offload/Weight streaming/Activation spilling 의 비동기 prefetch는 매 step마다 다른 텐서 포인터/shape를 만들어내는 동적 동작. CUDA Graphs는 캡처된 커널 시퀀스를 frozen kernel + frozen pointer로 재실행하므로 이와 비호환.
 
 **향후 도입 시 권고**:
 - offload 활성 학습에선 `torch.cuda.graph` / `make_graphed_callables` 사용 금지
@@ -972,8 +1074,8 @@ production 모니터링 권고 지표:
 
 | 항목 | 영문 문서 주장 | 실제 코드 | 위치 |
 |------|---------------|-----------|------|
-| M1 + FSDP FULL_SHARD 차단 | "차단 안 됨" | ✅ 일치 — 차단 없음 | [config/__init__.py:206-210](../ironcore/config/__init__.py#L206-L210) |
-| M1 + FSDP CPUOffload 차단 | "차단 안 됨" | ✅ 일치 — 차단 없음 | 동일 |
+| Optimizer state offload + FSDP FULL_SHARD 차단 | "차단 안 됨" | ✅ 일치 — 차단 없음 | [config/__init__.py:206-210](../ironcore/config/__init__.py#L206-L210) |
+| Optimizer state offload + FSDP CPUOffload 차단 | "차단 안 됨" | ✅ 일치 — 차단 없음 | 동일 |
 | Backward activation H2D | "동기 블로킹 (Gap 1)" | ✅ 일치 — `wait()` + `synchronize_with_default_stream()` | [hooks.py:333-334](../ironcore/offload/hooks.py#L333-L334) |
 | Backward weight prefetch | "1-layer 하드코드 (Gap 2)" | ✅ 일치 — `layer_idx - 1`만 | [scheduler.py:463-464](../ironcore/offload/scheduler.py#L463-L464) |
 | `prefetch_streams=1` (Gap 3) | "설정 불가" | ✅ 일치 — `from_config`에 하드코드 | [transfer_engine.py:77](../ironcore/offload/transfer_engine.py#L77) |
@@ -981,11 +1083,11 @@ production 모니터링 권고 지표:
 | FSDP `BACKWARD_PRE` | "하드코드" | ✅ 일치 | [parallel/parallel.py:153](../ironcore/parallel/parallel.py#L153) |
 | Optimizer 생성 순서 | "FSDP wrap 전에 optimizer 생성" | ✅ 일치 — line 314 vs 358 | [trainers/base_trainer.py](../ironcore/trainers/base_trainer.py) |
 
-**테스트 커버리지 갭**: M1+FSDP, M3+FSDP, M1+DistOpt 통합 테스트 **없음** ([tests/](../tests/) 검색 결과).
+**테스트 커버리지 갭**: Optimizer state offload+FSDP, Activation spilling+FSDP, Optimizer state offload+DistOpt 통합 테스트 **없음** ([tests/](../tests/) 검색 결과).
 
 **최근 관련 커밋**:
-- `932779a` — M1-only 모드 CPU AdamW (40%+ VRAM 절감)
-- `4a1597f` — M3 grad_accum>1 device mismatch 수정
+- `932779a` — Optimizer state offload-only 모드 CPU AdamW (40%+ VRAM 절감)
+- `4a1597f` — Activation spilling grad_accum>1 device mismatch 수정
 - `78adb10` — backward prefetch overlap 시도 (단, activation H2D는 여전히 블로킹)
 
 ---
@@ -1006,15 +1108,15 @@ production 모니터링 권고 지표:
 | 필드 | 타입 | 기본값 | 설명 |
 |-----|------|--------|------|
 | `enabled` | bool | False | 모든 offload 마스터 스위치 |
-| `optimizer_offload` | bool | False | M1 |
+| `optimizer_offload` | bool | False | Optimizer state offload |
 | `optimizer_state_precision` | str | "fp32" | fp32/bf16/fp16 |
 | `optimizer_min_param_elements` | int | 65536 | 이보다 작은 param skip |
-| `weight_offload` | bool | False | M2. **⚠ true 시 `activation_spill` 자동 활성화** ([config/__init__.py:211-219](../ironcore/config/__init__.py#L211-L219), §9.14) |
+| `weight_offload` | bool | False | Weight streaming. **⚠ true 시 `activation_spill` 자동 활성화** ([config/__init__.py:211-219](../ironcore/config/__init__.py#L211-L219), §9.14) |
 | `weight_prefetch_layers` | int | 2 | forward prefetch layer 수 |
 | `weight_storage_precision` | str | "bf16" | host weight tile 정밀도 |
 | `gpu_staging_pool_mb` | float | 0.0 | 0=자동 |
 | `gpu_staging_chunk_mb` | float | 256.0 | staging chunk |
-| `activation_spill` | bool | False | M3 |
+| `activation_spill` | bool | False | Activation spilling |
 | `activation_spill_granularity` | str | "sub_layer" | sub_layer / full_layer |
 | `pinned_memory_pool_gb` | float | 100.0 | ⚠ 컨슈머 시스템엔 과도. §9.4 참조 (Phase B-1 후 `auto` 권장) |
 | `pinned_chunk_gb` | float | 4.0 | pinned chunk |
@@ -1026,6 +1128,6 @@ production 모니터링 권고 지표:
 | `use_fsdp` | bool | False | FSDP wrapping |
 | `fsdp_sharding_strategy` | str | "full" | full/hybrid/no_shard/shard_grad_op |
 | `fsdp_offload_params` | bool | False | CPUOffload(offload_params=True) |
-| `fsdp_use_orig_params` | bool | False | 원본 param 보존 (M1+FSDP 필수) |
+| `fsdp_use_orig_params` | bool | False | 원본 param 보존 (Optimizer state offload+FSDP 필수) |
 | `fsdp_mixed_precision` | str | "native" | native/mixed |
 | `use_distributed_optimizer` | bool | False | ZeRO-1 (DDP 전용) |

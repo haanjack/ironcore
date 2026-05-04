@@ -6,13 +6,13 @@ The offload subsystem moves tensors between GPU VRAM and host RAM to train model
 
 Three independent features, each gated on `offload.enabled: true`:
 
-| Milestone | Feature | What moves | Direction |
-|---|---|---|---|
-| M1 | Optimizer state offload | AdamW/Muon momentum, variance states | GPU → CPU (after step), CPU → GPU (before step) |
-| M2 | Weight streaming | Layer weights (attention, MLP projections) | CPU → GPU (prefetch before compute), GPU → CPU (snapshot after step) |
-| M3 | Activation spilling | Intermediate activations at sub-layer boundaries | GPU → CPU (forward), CPU → GPU (backward) |
+| Feature | What moves | Direction |
+|---|---|---|
+| Optimizer state offload | AdamW/Muon momentum, variance states | GPU → CPU (after step), CPU → GPU (before step) |
+| Weight streaming | Layer weights (attention, MLP projections) | CPU → GPU (prefetch before compute), GPU → CPU (snapshot after step) |
+| Activation spilling | Intermediate activations at sub-layer boundaries | GPU → CPU (forward), CPU → GPU (backward) |
 
-Each can be enabled independently. M1 + M2 + M3 can all run simultaneously.
+Each can be enabled independently. All three can run simultaneously.
 
 ## Quick start
 
@@ -20,25 +20,25 @@ Each can be enabled independently. M1 + M2 + M3 can all run simultaneously.
 offload:
   enabled: true
 
-  # M1: Optimizer offload
+  # Optimizer state offload
   optimizer_offload: true
 
-  # M2: Weight streaming
+  # Weight streaming
   weight_offload: true
   weight_prefetch_layers: 2
   weight_storage_precision: fp32
 
-  # M3: Activation spilling
+  # Activation spilling
   activation_spill: false
 ```
 
-## M1: Optimizer state offload
+## Optimizer state offload
 
 After the optimizer step, momentum and variance states are moved to CPU RAM. Before the next step, they are moved back to GPU. Parameters with fewer than `optimizer_min_param_elements` (default 65536) elements stay on GPU (not worth the transfer overhead).
 
-M1 supports fp32, fp16, and bf16 precision for optimizer states via `optimizer_state_precision` (default: fp32). Lower precision reduces RAM usage and PCIe bandwidth but may affect training stability for AdamW.
+Optimizer state offload supports fp32, fp16, and bf16 precision for optimizer states via `optimizer_state_precision` (default: fp32). Lower precision reduces RAM usage and PCIe bandwidth but may affect training stability for AdamW.
 
-## M2: Weight streaming
+## Weight streaming
 
 ### How it works
 
@@ -48,7 +48,7 @@ Lifecycle per training step:
 
 1. **`on_training_step_start()`**: Prefetch first N layers
 2. **`on_layer_start(i)`**: Wait for layer i's transfer, apply weights to params (swap CPU param.data for GPU staging buffer), prefetch next layers
-3. **`on_layer_end(i)`**: With M3 active (auto-enabled): evict weights from GPU — replace param.data with host tile values, return GPU staging buffer to pool. Without M3: no-op (weights stay for backward).
+3. **`on_layer_end(i)`**: With activation spilling active (auto-enabled): evict weights from GPU — replace param.data with host tile values, return GPU staging buffer to pool. Without activation spilling: no-op (weights stay for backward).
 4. **`on_backward_layer_start(i)`**: Reload evicted weights if needed for backward recomputation
 5. **`on_backward_layer_end(i)`**: Evict weights again after backward computation
 6. **`on_training_step_end()`**: Snapshot updated params (after optimizer step) back to host tiles
@@ -98,7 +98,7 @@ Weight streaming is **incompatible** with:
 - **FSDP** (`parallel.use_fsdp: true`): FSDP manages its own parameter sharding/unsharding.
 - **Activation checkpointing** (`model.activation_recompute: true`): Checkpointing replays the forward pass during backward, but scheduler hooks only fire in the main forward pass. Weights must stay resident for correctness.
 
-Activation spilling (M3) is a replacement for checkpointing that is compatible with weight streaming.
+Activation spilling is a replacement for checkpointing that is compatible with weight streaming.
 
 ### CPU-resident parameters and optimizer
 
@@ -120,7 +120,7 @@ During forward and backward, each layer's weights are evicted from GPU after exe
 
 The D2H snapshot to host tiles happens only once per step, in `on_training_step_end()`, after the optimizer updates `param.data` on CPU. This saves ~2 redundant D2H copies per layer per step (~5% step time improvement at 13B scale).
 
-## M3: Activation spilling
+## Activation spilling
 
 When enabled, intermediate activations are spilled to CPU at sub-layer boundaries during the forward pass (layer input, post-attention residual) and prefetched back during the backward pass. Freed after consumption to limit host memory.
 
