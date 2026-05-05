@@ -400,7 +400,10 @@ def generate_rollouts_paged(
     padded_len = ((prompt_len + block_size - 1) // block_size) * block_size
     if padded_len > prompt_len:
         pad = torch.full(
-            (B, padded_len - prompt_len), prompt_ids[0, -1].item(), dtype=prompt_ids.dtype, device=device
+            (B, padded_len - prompt_len),
+            prompt_ids[0, -1].item(),
+            dtype=prompt_ids.dtype,
+            device=device,
         )
         padded_prompts = torch.cat([prompt_ids, pad], dim=1)
     else:
@@ -474,7 +477,9 @@ def generate_rollouts_paged(
             unwrapped_model.advance_cache_position(active_seq_ids, 1)
 
             # Scatter logits back to full batch
-            next_logits = torch.zeros(total_samples, logits.size(-1), device=device, dtype=logits.dtype)
+            next_logits = torch.zeros(
+                total_samples, logits.size(-1), device=device, dtype=logits.dtype
+            )
             next_logits[active_seq_ids] = logits[:, 0, :]
 
             next_tokens = _sample_tokens_batched(

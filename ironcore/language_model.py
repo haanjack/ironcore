@@ -110,7 +110,8 @@ class LanguageModel(BaseModule):
             if bkv is not None and seq_id is not None and isinstance(seq_id, list):
                 cache_position = torch.tensor(
                     [bkv.token_positions[sid].item() for sid in seq_id],
-                    dtype=torch.long, device=input_ids.device,
+                    dtype=torch.long,
+                    device=input_ids.device,
                 )
             else:
                 cache_position = 0
@@ -151,7 +152,11 @@ class LanguageModel(BaseModule):
             seq_id=seq_id,
         )
 
-        has_cache = use_cache or (self.kv_cache_manager is not None and not self.training) or (bkv is not None)
+        has_cache = (
+            use_cache
+            or (self.kv_cache_manager is not None and not self.training)
+            or (bkv is not None)
+        )
         if has_cache:
             lm_output, new_key_values = model_out
         else:
@@ -249,12 +254,18 @@ class LanguageModel(BaseModule):
             if use_stateful:
                 cur_cache_pos = self.kv_cache_manager.get_cache_position()
                 out = self.forward(
-                    cur_input, labels=None, use_cache=False, cache_position=cur_cache_pos,
+                    cur_input,
+                    labels=None,
+                    use_cache=False,
+                    cache_position=cur_cache_pos,
                 )
                 logits, _ = out
             elif use_paged:
                 out = self.forward(
-                    cur_input, labels=None, use_cache=False, seq_id=0,
+                    cur_input,
+                    labels=None,
+                    use_cache=False,
+                    seq_id=0,
                 )
                 logits, _ = out
                 # Advance position after all layers have written
@@ -262,7 +273,10 @@ class LanguageModel(BaseModule):
                 self.advance_cache_position(0, tokens_written)
             else:
                 out = self.forward(
-                    cur_input, labels=None, use_cache=True, past_key_values=past_key_values,
+                    cur_input,
+                    labels=None,
+                    use_cache=True,
+                    past_key_values=past_key_values,
                 )
                 logits, past_key_values = out
 
@@ -365,7 +379,9 @@ class LanguageModel(BaseModule):
         if self.kv_cache_manager is not None:
             self.kv_cache_manager.initialize(batch_size, len(self.model.layers), device, dtype)
         if self.block_kv_cache_manager is not None:
-            self.block_kv_cache_manager.initialize(batch_size, len(self.model.layers), device, dtype)
+            self.block_kv_cache_manager.initialize(
+                batch_size, len(self.model.layers), device, dtype
+            )
 
     def reset_cache(self, batch_indices: list[int] | None = None):
         if self.kv_cache_manager is not None:

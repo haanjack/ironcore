@@ -19,7 +19,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parents[2]  # tests/integration → repo root
-GRPO_BASELINE_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_baseline_smoke.yaml")
+GRPO_BASELINE_CONFIG = str(
+    REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_baseline_smoke.yaml"
+)
 GRPO_PAGED_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_paged_smoke.yaml")
 TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=2"]
 

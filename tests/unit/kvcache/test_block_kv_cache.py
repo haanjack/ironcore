@@ -42,19 +42,31 @@ def _make_paged_config(
 
     Returns (manager, num_layers).
     """
-    config = type("Config", (), {
-        "model": type("Model", (), {
-            "kv_cache": type("KV", (), {
-                "block_size": block_size,
-                "max_batch_size": max_batch_size,
-                "max_seq_length": max_seq_length,
-                "gpu_memory_utilization": 0.9,
-            })(),
-            "num_attention_groups": num_kv_groups,
-            "head_dim": head_dim,
-        })(),
-        "trainer": type("Trainer", (), {"tensor_model_parallel_size": 1})(),
-    })()
+    config = type(
+        "Config",
+        (),
+        {
+            "model": type(
+                "Model",
+                (),
+                {
+                    "kv_cache": type(
+                        "KV",
+                        (),
+                        {
+                            "block_size": block_size,
+                            "max_batch_size": max_batch_size,
+                            "max_seq_length": max_seq_length,
+                            "gpu_memory_utilization": 0.9,
+                        },
+                    )(),
+                    "num_attention_groups": num_kv_groups,
+                    "head_dim": head_dim,
+                },
+            )(),
+            "trainer": type("Trainer", (), {"tensor_model_parallel_size": 1})(),
+        },
+    )()
 
     original_compute = BlockKVCacheManager._compute_pool_size
     BlockKVCacheManager._compute_pool_size = lambda self, *a, **kw: 64
@@ -332,19 +344,31 @@ class TestPrefixSharing:
 
 class TestPoolExhaustion:
     def test_exhaustion_raises_error(self):
-        config = type("Config", (), {
-            "model": type("Model", (), {
-                "kv_cache": type("KV", (), {
-                    "block_size": 4,
-                    "max_batch_size": 4,
-                    "max_seq_length": 32,
-                    "gpu_memory_utilization": 0.9,
-                })(),
-                "num_attention_groups": 2,
-                "head_dim": 8,
-            })(),
-            "trainer": type("Trainer", (), {"tensor_model_parallel_size": 1})(),
-        })()
+        config = type(
+            "Config",
+            (),
+            {
+                "model": type(
+                    "Model",
+                    (),
+                    {
+                        "kv_cache": type(
+                            "KV",
+                            (),
+                            {
+                                "block_size": 4,
+                                "max_batch_size": 4,
+                                "max_seq_length": 32,
+                                "gpu_memory_utilization": 0.9,
+                            },
+                        )(),
+                        "num_attention_groups": 2,
+                        "head_dim": 8,
+                    },
+                )(),
+                "trainer": type("Trainer", (), {"tensor_model_parallel_size": 1})(),
+            },
+        )()
 
         original_compute = BlockKVCacheManager._compute_pool_size
         BlockKVCacheManager._compute_pool_size = lambda self, *a, **kw: 8
@@ -440,9 +464,24 @@ class TestGatherKVBlocks:
         total_tokens = 12
 
         result = gather_kv_blocks(cache, block_table, num_valid, total_tokens, block_size)
-        expected = torch.tensor([[[[1.0]], [[1.0]], [[1.0]], [[1.0]],
-                                  [[2.0]], [[2.0]], [[2.0]], [[2.0]],
-                                  [[3.0]], [[3.0]], [[3.0]], [[3.0]]]])
+        expected = torch.tensor(
+            [
+                [
+                    [[1.0]],
+                    [[1.0]],
+                    [[1.0]],
+                    [[1.0]],
+                    [[2.0]],
+                    [[2.0]],
+                    [[2.0]],
+                    [[2.0]],
+                    [[3.0]],
+                    [[3.0]],
+                    [[3.0]],
+                    [[3.0]],
+                ]
+            ]
+        )
         torch.testing.assert_close(result, expected)
 
 
@@ -457,8 +496,12 @@ class TestGatherKVBlocksBatched:
         block_tables[1, :3] = torch.tensor([5, 0, 7])
 
         result = gather_kv_blocks_batched(
-            cache, block_tables, seq_ids=[0, 1],
-            num_valid_blocks=[2, 3], token_positions=[8, 12], block_size=block_size,
+            cache,
+            block_tables,
+            seq_ids=[0, 1],
+            num_valid_blocks=[2, 3],
+            token_positions=[8, 12],
+            block_size=block_size,
         )
         assert result.shape == (2, 12, ng, hd)
         expected_0 = torch.cat([cache[3], cache[1]], dim=0)
@@ -476,8 +519,12 @@ class TestGatherKVBlocksBatched:
         block_tables[1, :1] = torch.tensor([5])
 
         result = gather_kv_blocks_batched(
-            cache, block_tables, seq_ids=[0, 1],
-            num_valid_blocks=[2, 1], token_positions=[6, 3], block_size=block_size,
+            cache,
+            block_tables,
+            seq_ids=[0, 1],
+            num_valid_blocks=[2, 1],
+            token_positions=[6, 3],
+            block_size=block_size,
         )
         assert result.shape == (2, 6, ng, hd)
         expected_0 = torch.cat([cache[3], cache[1, :2]], dim=0)
@@ -492,7 +539,12 @@ class TestGatherKVBlocksBatched:
         block_tables = torch.full((4, 4), -1, dtype=torch.long)
 
         result = gather_kv_blocks_batched(
-            cache, block_tables, seq_ids=[], num_valid_blocks=[], token_positions=[], block_size=4,
+            cache,
+            block_tables,
+            seq_ids=[],
+            num_valid_blocks=[],
+            token_positions=[],
+            block_size=4,
         )
         assert result.shape == (0, 0, 2, 8)
 
@@ -513,8 +565,12 @@ class TestGatherKVBlocksBatched:
                 block_tables[sid, j] = (i * 5 + j) % pool_size
 
         result = gather_kv_blocks_batched(
-            cache, block_tables, seq_ids=seq_ids,
-            num_valid_blocks=num_valid, token_positions=token_positions, block_size=block_size,
+            cache,
+            block_tables,
+            seq_ids=seq_ids,
+            num_valid_blocks=num_valid,
+            token_positions=token_positions,
+            block_size=block_size,
         )
 
         max_len = max(token_positions)
@@ -522,11 +578,13 @@ class TestGatherKVBlocksBatched:
 
         for idx, sid in enumerate(seq_ids):
             single = gather_kv_blocks(
-                cache, block_tables[sid], num_valid[idx], token_positions[idx], block_size,
+                cache,
+                block_tables[sid],
+                num_valid[idx],
+                token_positions[idx],
+                block_size,
             )
-            torch.testing.assert_close(
-                result[idx, :token_positions[idx]], single.squeeze(0)
-            )
+            torch.testing.assert_close(result[idx, : token_positions[idx]], single.squeeze(0))
 
 
 class TestBatchedDecodeWrite:
@@ -591,8 +649,12 @@ class TestBatchedDecodeWrite:
 
             for idx, sid in enumerate(seq_ids):
                 single_key, single_value = mgr.get_layer_kv_gathered(layer_idx, sid)
-                torch.testing.assert_close(batched_key[idx, :seq_lengths[idx]], single_key.squeeze(0))
-                torch.testing.assert_close(batched_value[idx, :seq_lengths[idx]], single_value.squeeze(0))
+                torch.testing.assert_close(
+                    batched_key[idx, : seq_lengths[idx]], single_key.squeeze(0)
+                )
+                torch.testing.assert_close(
+                    batched_value[idx, : seq_lengths[idx]], single_value.squeeze(0)
+                )
 
     def test_advance_positions_batched(self):
         mgr, _ = _make_paged_config()

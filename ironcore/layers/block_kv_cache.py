@@ -98,9 +98,7 @@ class BlockKVCacheManager:
 
         # Calculate pool size from GPU memory
         gpu_util = self.cache_config.gpu_memory_utilization
-        self.num_physical_blocks = self._compute_pool_size(
-            num_layers, batch_size, gpu_util, device
-        )
+        self.num_physical_blocks = self._compute_pool_size(num_layers, batch_size, gpu_util, device)
 
         bs = self.block_size
         ng = self.num_local_kv_groups
@@ -331,7 +329,9 @@ class BlockKVCacheManager:
             raise RuntimeError("Cache not initialized")
 
         if key.dim() == 4:
-            assert key.shape[1] == 1, f"write_decode_batched expects single token, got seq_len={key.shape[1]}"
+            assert key.shape[1] == 1, (
+                f"write_decode_batched expects single token, got seq_len={key.shape[1]}"
+            )
             key = key.squeeze(1)
         if value.dim() == 4:
             value = value.squeeze(1)
@@ -467,7 +467,9 @@ class BlockKVCacheManager:
 
         for dst_id in dst_seq_ids:
             # Copy block table entries and token position
-            self.block_tables[dst_id, :src_num_blocks] = self.block_tables[src_seq_id, :src_num_blocks]
+            self.block_tables[dst_id, :src_num_blocks] = self.block_tables[
+                src_seq_id, :src_num_blocks
+            ]
             self.num_valid_blocks[dst_id] = src_num_blocks
             self.token_positions[dst_id] = self.token_positions[src_seq_id]
 
@@ -554,17 +556,25 @@ class BlockKVCacheManager:
         elif remainder == 0:
             # All blocks are fully filled
             block_indices = self.block_tables[seq_id, :num_valid].long()
-            key = self.physical_key_caches[layer_idx][block_indices].reshape(1, total_tokens, -1, self.head_dim)
-            value = self.physical_value_caches[layer_idx][block_indices].reshape(1, total_tokens, -1, self.head_dim)
+            key = self.physical_key_caches[layer_idx][block_indices].reshape(
+                1, total_tokens, -1, self.head_dim
+            )
+            value = self.physical_value_caches[layer_idx][block_indices].reshape(
+                1, total_tokens, -1, self.head_dim
+            )
         else:
             # Full blocks + partial last block
             full_indices = self.block_tables[seq_id, :num_full_blocks].long()
             last_block_idx = self.block_tables[seq_id, num_full_blocks].item()
 
-            full_key = self.physical_key_caches[layer_idx][full_indices].reshape(-1, self.num_local_kv_groups, self.head_dim)
+            full_key = self.physical_key_caches[layer_idx][full_indices].reshape(
+                -1, self.num_local_kv_groups, self.head_dim
+            )
             last_key = self.physical_key_caches[layer_idx][last_block_idx, :remainder]
 
-            full_value = self.physical_value_caches[layer_idx][full_indices].reshape(-1, self.num_local_kv_groups, self.head_dim)
+            full_value = self.physical_value_caches[layer_idx][full_indices].reshape(
+                -1, self.num_local_kv_groups, self.head_dim
+            )
             last_value = self.physical_value_caches[layer_idx][last_block_idx, :remainder]
 
             key = torch.cat([full_key, last_key], dim=0).unsqueeze(0)

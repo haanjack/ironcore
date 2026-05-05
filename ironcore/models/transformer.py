@@ -162,16 +162,22 @@ class TransformerLayer(BaseModule):
             if is_batched:
                 if seq_len > 1:
                     for i, sid in enumerate(seq_id):
-                        block_kv_cache_manager.write_prefill(self.layer_idx, sid, key[i:i+1], value[i:i+1])
+                        block_kv_cache_manager.write_prefill(
+                            self.layer_idx, sid, key[i : i + 1], value[i : i + 1]
+                        )
                 else:
                     block_kv_cache_manager.write_decode_batched(self.layer_idx, seq_id, key, value)
-                full_key, full_value = block_kv_cache_manager.get_layer_kv_gathered_batched(self.layer_idx, seq_id)
+                full_key, full_value = block_kv_cache_manager.get_layer_kv_gathered_batched(
+                    self.layer_idx, seq_id
+                )
             else:
                 if seq_len > 1:
                     block_kv_cache_manager.write_prefill(self.layer_idx, seq_id, key, value)
                 else:
                     block_kv_cache_manager.write_decode(self.layer_idx, seq_id, key, value)
-                full_key, full_value = block_kv_cache_manager.get_layer_kv_gathered(self.layer_idx, seq_id)
+                full_key, full_value = block_kv_cache_manager.get_layer_kv_gathered(
+                    self.layer_idx, seq_id
+                )
             attn_output = self.self_attention(query, full_key, full_value, attention_mask)
             new_kv = None
         elif (

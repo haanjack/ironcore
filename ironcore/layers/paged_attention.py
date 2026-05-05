@@ -38,9 +38,7 @@ def gather_kv_blocks(
         [1, total_tokens, num_groups, head_dim] contiguous KV tensor
     """
     if total_tokens == 0:
-        return physical_cache.new_zeros(
-            1, 0, physical_cache.shape[2], physical_cache.shape[3]
-        )
+        return physical_cache.new_zeros(1, 0, physical_cache.shape[2], physical_cache.shape[3])
 
     num_full_blocks = total_tokens // block_size
     remainder = total_tokens % block_size
@@ -96,9 +94,7 @@ def gather_kv_blocks_batched(
         [batch, max_seq_len, num_groups, head_dim] padded contiguous KV tensor
     """
     if len(seq_ids) == 0:
-        return physical_cache.new_zeros(
-            0, 0, physical_cache.shape[2], physical_cache.shape[3]
-        )
+        return physical_cache.new_zeros(0, 0, physical_cache.shape[2], physical_cache.shape[3])
 
     batch_size = len(seq_ids)
     ng = physical_cache.shape[2]
@@ -153,8 +149,8 @@ def gather_kv_blocks_batched(
         # Write partial last block
         if remainder > 0:
             partial_block_idx = block_tables[sid, num_full].item()
-            result[i, num_full * block_size : num_full * block_size + remainder] = (
-                physical_cache[partial_block_idx, :remainder]
-            )
+            result[i, num_full * block_size : num_full * block_size + remainder] = physical_cache[
+                partial_block_idx, :remainder
+            ]
 
     return result

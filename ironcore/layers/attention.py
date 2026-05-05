@@ -101,7 +101,9 @@ class Attention(BaseModule):
         """
         batch_size = query.size(0)
         if seq_len_kv <= 0:
-            return query.new_zeros(batch_size, query.size(1), query.size(2), self.head_dimension, device=query.device)
+            return query.new_zeros(
+                batch_size, query.size(1), query.size(2), self.head_dimension, device=query.device
+            )
 
         # Flatten batch+seq: [b*sq, hn, hd] / [b*sk, gn, hd]
         query = query.reshape(-1, self.num_local_attention_heads, self.head_dimension)
