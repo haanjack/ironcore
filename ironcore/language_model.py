@@ -101,12 +101,13 @@ class LanguageModel(BaseModule):
         if labels is not None:
             labels = labels.to(self.device, non_blocking=True)
 
+        bkv = block_kv_cache_manager
+        if bkv is None and self.block_kv_cache_manager is not None and not self.training:
+            bkv = self.block_kv_cache_manager
+
         # Determine cache position
         # For batched paged decode, use per-sequence positions from block cache
         if cache_position is None:
-            bkv = block_kv_cache_manager
-            if bkv is None and self.block_kv_cache_manager is not None and not self.training:
-                bkv = self.block_kv_cache_manager
             if bkv is not None and seq_id is not None and isinstance(seq_id, list):
                 cache_position = torch.tensor(
                     [bkv.token_positions[sid].item() for sid in seq_id],
@@ -134,10 +135,6 @@ class LanguageModel(BaseModule):
             position_ids = position_ids.to(self.device, non_blocking=True)
 
         x = self.embedding(input_ids, position_ids)
-
-        # Use external block_kv_cache_manager if provided, else use self's
-        if bkv is None and self.block_kv_cache_manager is not None and not self.training:
-            bkv = self.block_kv_cache_manager
 
         model_out = self.model(
             x,

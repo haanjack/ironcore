@@ -75,14 +75,18 @@ def _run_training(config: str) -> subprocess.CompletedProcess:
     """Run torchrun training job, return CompletedProcess."""
     resolved_config = _resolve_config_paths(config)
     cmd = TORCHRUN_CMD + ["-m", "ironcore", "train", "--config", resolved_config]
-    return subprocess.run(
-        cmd,
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=900,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            cmd,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+    finally:
+        if resolved_config != config:
+            Path(resolved_config).unlink(missing_ok=True)
 
 
 def _assert_training_success(result: subprocess.CompletedProcess, label: str) -> None:

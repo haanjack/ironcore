@@ -466,6 +466,14 @@ class BlockKVCacheManager:
         src_num_blocks = self.num_valid_blocks[src_seq_id].item()
 
         for dst_id in dst_seq_ids:
+            if self.num_valid_blocks[dst_id].item() > 0:
+                raise RuntimeError(
+                    f"Cannot share prefix to seq_id={dst_id}: already has "
+                    f"{self.num_valid_blocks[dst_id].item()} blocks allocated. "
+                    f"Free the sequence first."
+                )
+
+        for dst_id in dst_seq_ids:
             # Copy block table entries and token position
             self.block_tables[dst_id, :src_num_blocks] = self.block_tables[
                 src_seq_id, :src_num_blocks

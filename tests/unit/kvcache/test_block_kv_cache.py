@@ -70,17 +70,17 @@ def _make_paged_config(
 
     original_compute = BlockKVCacheManager._compute_pool_size
     BlockKVCacheManager._compute_pool_size = lambda self, *a, **kw: 64
-
-    mgr = BlockKVCacheManager(config)
-    mgr.initialize(
-        batch_size=max_batch_size,
-        num_layers=num_layers,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
-    )
-
-    BlockKVCacheManager._compute_pool_size = original_compute
-    return mgr, num_layers
+    try:
+        mgr = BlockKVCacheManager(config)
+        mgr.initialize(
+            batch_size=max_batch_size,
+            num_layers=num_layers,
+            device=torch.device("cpu"),
+            dtype=torch.float32,
+        )
+        return mgr, num_layers
+    finally:
+        BlockKVCacheManager._compute_pool_size = original_compute
 
 
 class TestBlockAllocation:
