@@ -128,5 +128,5 @@ def start_offload_visualizer(update_interval: int = 10) -> OffloadVisualizer:
 
 def print_offload_snapshot():
     """Print a one-time snapshot of current offload metrics."""
-    viz = SimpleOffloadVisualizer()
+    viz = OffloadVisualizer()
     print(viz.snapshot())

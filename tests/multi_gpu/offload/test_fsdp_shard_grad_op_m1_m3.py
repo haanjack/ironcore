@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-DistributedOptimizer × Offload integration test.
+FSDP SHARD_GRAD_OP × Offload integration test.
 
-Verifies DistOpt (ZeRO-1) + M1+M3 works correctly with 2 GPUs.
-Optimizer states are partitioned across ranks, with each rank's portion offloaded to host.
+Verifies FSDP shard_grad_op + M1+M3 works correctly with 2 GPUs.
+Requires fsdp_use_orig_params=True for optimizer state offload compatibility.
 """
 
 import math
@@ -26,7 +26,15 @@ from ironcore.global_vars import reset_global_states
 from ironcore.trainers import LanguageModelTrainer
 
 cuda_available = torch.cuda.is_available()
-skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
+has_multi_gpu = (
+    cuda_available
+    and torch.cuda.device_count() >= 2
+    and os.environ.get("RANK") is not None
+)
+skip_no_multi_gpu = pytest.mark.skipif(
+    not has_multi_gpu,
+    reason="Requires torchrun with 2+ GPUs",
+)
 
 NUM_STEPS = 50
 BATCH_SIZE = 2
@@ -41,7 +49,7 @@ if torch.cuda.is_available():
 
 
 def _make_config(**overrides):
-    """GPT-small architecture config with DistOpt+offload."""
+    """GPT-small architecture config with FSDP+offload."""
     config = create_test_config(
         d_model=768,
         d_ffn=3072,
@@ -61,7 +69,9 @@ def _make_config(**overrides):
     config.trainer.train_batch_size = 2  # Global batch = 2 (same as single-GPU)
     config.trainer.gradient_accumulation_steps = 1
     config.parallel.world_size = 2
-    config.parallel.use_distributed_optimizer = True
+    config.parallel.use_fsdp = True
+    config.parallel.fsdp_sharding_strategy = "shard_grad_op"
+    config.parallel.fsdp_use_orig_params = True  # Required for optimizer offload
 
     # Apply overrides (offload settings)
     from ironcore.config import OffloadConfig
@@ -133,13 +143,13 @@ def _run_training(config, num_steps):
     return initial_loss, final_loss
 
 
-@skip_no_cuda
+@skip_no_multi_gpu
 @pytest.mark.mp
-class TestDistOptM1:
-    """DistributedOptimizer × Offload integration test (requires 2 GPUs)."""
+class TestFSDPShardGradOpM1M3:
+    """FSDP SHARD_GRAD_OP × Offload integration test (requires 2 GPUs)."""
 
-    def test_distopt_m1_m3_converges(self):
-        """DistOpt + M1+M3 should converge on both ranks."""
+    def test_fsdp_shard_grad_op_m1_m3_converges(self):
+        """FSDP shard_grad_op + M1+M3 should converge on both ranks."""
         config = _make_config(
             offload={
                 "optimizer_offload": True,
@@ -155,12 +165,12 @@ class TestDistOptM1:
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
             print(
-                f"\n[DistOpt+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+                f"\n[FSDP SHARD_GRAD_OP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
             )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"DistOpt+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"FSDP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"

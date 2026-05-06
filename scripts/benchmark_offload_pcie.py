@@ -26,7 +26,6 @@ import time
 import torch
 import torch.distributed as dist
 
-from ironcore.config import OffloadConfig
 from ironcore.offload.transfer_engine import MemoryTransferEngine
 from ironcore.utils.offload_metrics import get_offload_metrics
 

@@ -117,7 +117,6 @@ def _run_training_with_memory(config, num_steps, label=""):
 
         for step in range(num_steps):
             torch.cuda.reset_peak_memory_stats()
-            before = torch.cuda.memory_allocated()
 
             loss, _, _ = trainer.train_step(step=step)
             losses.append(loss)
@@ -212,7 +211,7 @@ def main():
         print(f"\n  VRAM savings: {vram_pct:+.1f}% ({vram_delta:+.1f} MB) — {vram_verdict}")
 
         # Per-step peak VRAM comparison
-        print(f"\n  Per-step peak VRAM (selected steps):")
+        print("\n  Per-step peak VRAM (selected steps):")
         print(f"  {'Step':<6} {'Baseline':>10} {'M1-only':>10} {'Delta':>10}")
         print(f"  {'-'*40}")
         for i in [1, 5, 10, 20, 30, 40, 49]:

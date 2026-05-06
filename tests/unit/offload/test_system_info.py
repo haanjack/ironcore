@@ -6,8 +6,6 @@
 Unit tests for system_info utilities.
 """
 
-import pytest
-
 from ironcore.utils import (
     available_host_memory_gb,
     recommend_pinned_pool_gb,

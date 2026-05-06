@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-TP × Offload integration test.
+FSDP FULL_SHARD × Activation Spill integration test.
 
-Verifies M1+M3 works correctly with TP=2 tensor parallelism.
-Each rank streams its own TP shard independently.
+Verifies FSDP full_shard + M3 (activation spill only) works correctly.
+Optimizer state offload (M1) is blocked by validation guard to avoid host OOM.
 """
 
 import math
@@ -26,7 +26,15 @@ from ironcore.global_vars import reset_global_states
 from ironcore.trainers import LanguageModelTrainer
 
 cuda_available = torch.cuda.is_available()
-skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
+has_multi_gpu = (
+    cuda_available
+    and torch.cuda.device_count() >= 2
+    and os.environ.get("RANK") is not None
+)
+skip_no_multi_gpu = pytest.mark.skipif(
+    not has_multi_gpu,
+    reason="Requires torchrun with 2+ GPUs",
+)
 
 NUM_STEPS = 50
 BATCH_SIZE = 2
@@ -41,11 +49,11 @@ if torch.cuda.is_available():
 
 
 def _make_config(**overrides):
-    """GPT-small architecture config with TP+offload."""
+    """GPT-small architecture config with FSDP+activation spill."""
     config = create_test_config(
         d_model=768,
         d_ffn=3072,
-        num_layers=2,  # 2 layers for faster testing
+        num_layers=4,  # Same as single-GPU tests
         num_attention_heads=12,
         num_attention_groups=12,
         head_dim=64,
@@ -57,13 +65,15 @@ def _make_config(**overrides):
         seed=42,
     )
     config.operation.train_steps = NUM_STEPS + 10
-    config.trainer.micro_batch_size = BATCH_SIZE
-    config.trainer.train_batch_size = BATCH_SIZE
+    config.trainer.micro_batch_size = 1  # Per-rank batch
+    config.trainer.train_batch_size = 2  # Global batch = 2 (same as single-GPU)
     config.trainer.gradient_accumulation_steps = 1
-    config.trainer.tensor_model_parallel_size = 2
     config.parallel.world_size = 2
+    config.parallel.use_fsdp = True
+    config.parallel.fsdp_sharding_strategy = "full"
+    config.parallel.fsdp_use_orig_params = True
 
-    # Apply overrides (offload settings)
+    # Apply overrides (offload settings - M3 only, M1 is blocked)
     from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **overrides.get("offload", {}))
@@ -81,11 +91,8 @@ def _create_forward_step_func():
         device = next(model.parameters()).device
         torch.manual_seed(42 + step_counter[0])
         step_counter[0] += 1
-        # Generate inputs on CPU first so all TP ranks get the same data
-        input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN))
+        input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN), device=device)
         labels = input_ids.clone()
-        input_ids = input_ids.to(device)
-        labels = labels.to(device)
         logits = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
@@ -136,19 +143,17 @@ def _run_training(config, num_steps):
     return initial_loss, final_loss
 
 
-@skip_no_cuda
+@skip_no_multi_gpu
 @pytest.mark.mp
-class TestTPOffload:
-    """TP × Offload integration test (requires 2 GPUs)."""
+class TestFSDPFullShardM3:
+    """FSDP FULL_SHARD × Activation Spill integration test (requires 2 GPUs)."""
 
-    def test_tp_m1_m3_converges(self):
-        """TP=2 + M1+M3 should converge on both ranks."""
+    def test_fsdp_full_shard_m3_converges(self):
+        """FSDP full_shard + M3 should converge on both ranks."""
         config = _make_config(
             offload={
-                "optimizer_offload": True,
                 "activation_spill": True,
                 "activation_spill_granularity": "sub_layer",
-                "optimizer_state_precision": "bf16",
                 "pinned_memory_pool_gb": 2.0,
             }
         )
@@ -158,12 +163,12 @@ class TestTPOffload:
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
             print(
-                f"\n[TP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+                f"\n[FSDP FULL_SHARD+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
             )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"TP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"FSDP+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"

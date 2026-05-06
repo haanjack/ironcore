@@ -12,8 +12,18 @@ Usage:
     python scripts/training_accuracy_validation.py --steps 1000 --output results.json
 """
 
-import argparse, glob, json, os, re, shutil, subprocess, sys, time
-import torch, yaml
+import argparse
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+import torch
+import yaml
 
 BASE_CONFIG = "configs/validate_training_accuracy.yaml"
 GEN_PREFIX = "configs/e2e_accuracy_"
@@ -42,7 +52,6 @@ def _nested(flat):
 
 
 def _deep_merge(base, override):
-    import collections.abc
     result = dict(base)
     for k, v in override.items():
         if k in result and isinstance(result[k], dict) and isinstance(v, dict):
