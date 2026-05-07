@@ -15,17 +15,22 @@ Usage:
 import argparse
 
 from ironcore.config import load_trainer_config
+from ironcore.training_utils import forward_step, get_loss_func
 from ironcore.trainers.grpo_trainer import GRPOTrainer
 
 
 def main():
+    import sys
+
     parser = argparse.ArgumentParser(description="GRPO training example")
     parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
     args = parser.parse_args()
 
-    config = load_trainer_config(args.config)
+    sys.argv = ["train", "--config-path", args.config]
+    config = load_trainer_config()
 
-    with GRPOTrainer(config) as trainer:
+    loss_fn = get_loss_func(config.data.task_type)
+    with GRPOTrainer(config, forward_step_func=forward_step, loss_fn=loss_fn) as trainer:
         trainer.train()
 
 

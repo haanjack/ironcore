@@ -118,6 +118,14 @@ class GRPOTrainer(BaseTrainer):
         self.logger.info("Creating reference model for GRPO...")
         self.reference_model = self._create_reference_model()
 
+        if is_first_rank() and torch.cuda.is_available():
+            dev = self._get_compute_device()
+            self.logger.info(
+                f"[VRAM] After ref model creation: "
+                f"allocated={torch.cuda.memory_allocated(dev) / 1024**3:.2f} GB, "
+                f"reserved={torch.cuda.memory_reserved(dev) / 1024**3:.2f} GB"
+            )
+
         # Offload reference model to CPU to free GPU memory for policy model
         offload_ref = getattr(self.config.alignment, "offload_ref_model", False)
         is_fsdp = isinstance(self.model, FSDP)
@@ -456,6 +464,10 @@ class GRPOTrainer(BaseTrainer):
           - Offline (num_epochs>1): IS ratio = π_θ / π_old, optionally PPO-clipped
         """
         self.timer.start(name="iter")
+        device = self._get_compute_device()
+
+        if is_first_rank() and step == 0:
+            torch.cuda.reset_peak_memory_stats(device)
 
         # === Phase 1: Rollout (once) ===
         batch = next(self.data_iterator["train"])
@@ -465,7 +477,6 @@ class GRPOTrainer(BaseTrainer):
         metadata = batch["metadata"]
 
         # Prepare prompt IDs (with optional chat template / system prompt)
-        device = self._get_compute_device()
         if self.use_chat_template or self.system_prompt:
             prompt_ids = self._prepare_prompt_ids(prompts, device)
         else:
@@ -513,6 +524,10 @@ class GRPOTrainer(BaseTrainer):
         # Explicitly clear generation cache before starting training phase
         torch.cuda.empty_cache()
 
+        if is_first_rank():
+            peak_after_rollout = torch.cuda.max_memory_allocated(device)
+            self.logger.info(f"[VRAM] After rollout: peak={peak_after_rollout / 1024**3:.2f} GB")
+
         self.model.train()
 
         # Safety check - rollout should never be None here
@@ -559,6 +574,10 @@ class GRPOTrainer(BaseTrainer):
         with torch.no_grad():
             ref_log_probs = self._get_ref_log_probs(rollout)
 
+        if is_first_rank():
+            peak_after_ref = torch.cuda.max_memory_allocated(device)
+            self.logger.info(f"[VRAM] After ref log probs: peak={peak_after_ref / 1024**3:.2f} GB")
+
         # === Phase 2: Multi-epoch update ===
         metrics: dict[str, float] = {}
         grad_norm = param_norm = 0.0
@@ -603,6 +622,10 @@ class GRPOTrainer(BaseTrainer):
             self._optimizer_step()
 
         self.timer.stop(name="iter")
+
+        if is_first_rank():
+            peak_after_step = torch.cuda.max_memory_allocated(device)
+            self.logger.info(f"[VRAM] After optimizer step: peak={peak_after_step / 1024**3:.2f} GB")
 
         self._check_loss_for_nan(metrics["grpo_loss"], step)
 

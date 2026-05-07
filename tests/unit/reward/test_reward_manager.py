@@ -1086,7 +1086,6 @@ def _resolve_config_paths(config_path: str) -> str:
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
 
-    # Load YAML
     with open(config_file) as f:
         config = yaml.safe_load(f)
 
@@ -1152,7 +1151,6 @@ def _resolve_config_paths(config_path: str) -> str:
 
     modified = resolve_paths(config)
 
-    # If no modifications needed, return original path
     if not modified:
         return config_path
 
