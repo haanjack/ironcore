@@ -249,9 +249,34 @@ def generate_rollouts_batched(
         done_mask = done_mask | newly_done
 
     with profile_context("grpo_decode_loop"):
+        # When using FSDP with multiple ranks, different prompts can produce
+        # different generation lengths.  Without synchronisation the rank that
+        # finishes early skips FSDP all-gathers, deadlocking the other rank.
+        # We communicate done status via all_reduce on the default process group
+        # (separate from FSDP's PG) before each forward, so both ranks always
+        # call forward the same number of times.
+        _need_fsdp_sync = dist.is_initialized()
+
         for t in range(1, max_new_tokens):
+            if _need_fsdp_sync:
+                done_signal = torch.tensor(
+                    0 if done_mask.all() else 1,
+                    dtype=torch.int8,
+                    device=device,
+                )
+                dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
+
             if done_mask.all():
-                break
+                if _need_fsdp_sync and done_signal.item() == 0:
+                    break  # All ranks done — stop together
+                # Dummy forward to keep FSDP collective ordering in sync
+                model.forward(
+                    generated[:, t - 1 : t],
+                    labels=None,
+                    use_cache=True,
+                    past_key_values=past_kv,
+                )
+                continue
 
             # Forward with cached KV
             logits, past_kv = model.forward(
@@ -468,9 +493,26 @@ def generate_rollouts_paged(
             done_mask = done_mask | newly_done
 
         with profile_context("grpo_paged_decode_loop"):
+            _need_fsdp_sync = dist.is_initialized()
+
             for t in range(1, max_new_tokens):
+                if _need_fsdp_sync:
+                    done_signal = torch.tensor(
+                        0 if done_mask.all() else 1,
+                        dtype=torch.int8,
+                        device=device,
+                    )
+                    dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
+
                 if done_mask.all():
-                    break
+                    if _need_fsdp_sync and done_signal.item() == 0:
+                        break
+                    unwrapped_model.forward(
+                        generated[:, t - 1 : t],
+                        labels=None,
+                        seq_id=[completion_seq_ids[0]],
+                    )
+                    continue
 
                 cur_tokens = generated[:, t - 1 : t]
 
