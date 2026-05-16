@@ -266,7 +266,7 @@ class TestMemoryTransferEngine:
         assert engine.pending_count >= 1
 
         engine.synchronize()
-        assert engine.drain_completed() == 0
+        assert engine.pending_count == 0
 
     def test_shape_mismatch_raises(self):
         from ironcore.offload.transfer_engine import MemoryTransferEngine

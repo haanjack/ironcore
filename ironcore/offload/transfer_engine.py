@@ -208,6 +208,8 @@ class MemoryTransferEngine:
             pending = list(self._pending)
         for handle in pending:
             self.wait(handle)
+        with self._lock:
+            self._pending.clear()
 
     def synchronize_with_default_stream(self) -> None:
         """
@@ -218,25 +220,6 @@ class MemoryTransferEngine:
         """
         for stream in self._streams:
             torch.cuda.current_stream(self._device).wait_stream(stream)
-
-    def drain_completed(self) -> int:
-        """
-        Remove completed transfers from the pending list.
-
-        Returns the number of transfers still pending.
-        """
-        with self._lock:
-            still_pending = []
-            for handle in self._pending:
-                if handle.completed:
-                    continue
-                # Query without blocking
-                if handle.event.query():
-                    handle.completed = True
-                else:
-                    still_pending.append(handle)
-            self._pending = still_pending
-            return len(self._pending)
 
     @property
     def pending_count(self) -> int:

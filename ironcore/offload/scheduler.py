@@ -467,6 +467,14 @@ class ExecutionScheduler:
             for dl in range(1, self._backward_prefetch_layers + 1):
                 if layer_idx - dl >= 0:
                     self._prefetch_layer(layer_idx - dl)
+
+            # Prefetch sub_layer=1 activation for the next backward layer.
+            # Backward order: layer N sub=0 → layer N-1 sub=1, so after
+            # finishing layer N, the next activation needed is N-1 sub=1.
+            if layer_idx > 0:
+                self._spill_manager.prefetch_activation(
+                    layer_idx - 1, 1, self._device
+                )
         # Weight streaming only: don't evict or discard — weights stay on GPU
         # for the next micro-batch. Eviction happens in on_backward_pass_end().
 
@@ -557,6 +565,13 @@ class ExecutionScheduler:
         """Called after a micro-batch backward pass completes."""
         if self._spill_manager is not None:
             self._spill_manager.on_microbatch_backward_end()
+
+    def prefetch_sublayer_activation(
+        self, layer_idx: int, sub_layer: int, device: torch.device
+    ) -> None:
+        """Prefetch an activation for the next backward sub-layer."""
+        if self._spill_manager is not None:
+            self._spill_manager.prefetch_activation(layer_idx, sub_layer, device)
 
     @property
     def spill_manager(self) -> ActivationSpillManager | None:

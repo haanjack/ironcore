@@ -133,6 +133,14 @@ class _SpillCheckpointFn(torch.autograd.Function):
         if ctx.scheduler is not None and ctx.sub_layer == 0:
             ctx.scheduler.on_backward_layer_end(ctx.layer_idx)
 
+        # After MLP backward (sub_layer=1), prefetch attention input (sub_layer=0)
+        # for the same layer. The autograd engine will call backward for sub_layer=0
+        # next, so overlapping this H2D with gradient computation reduces wait time.
+        if ctx.scheduler is not None and ctx.sub_layer == 1:
+            ctx.scheduler.prefetch_sublayer_activation(
+                ctx.layer_idx, 0, ctx.activation_device
+            )
+
         # None for block_fn, scheduler, layer_idx, sub_layer
         # activation.grad for the spilled input
         # None for each aux arg
@@ -158,10 +166,14 @@ class SpilledActivation:
     # GPU tensor reference (for shape/dtype, not kept alive)
     shape: tuple[int, ...]
     dtype: torch.dtype
-    # Transfer handle (set during D2H, consumed during backward)
+    # D2H transfer handle from forward spill
     transfer_handle: object | None = None
     # Whether this activation has been consumed by backward
     consumed: bool = False
+    # Backward prefetch state (set by prefetch_activation)
+    is_prefetched: bool = False
+    h2d_handle: object | None = None
+    gpu_tensor: torch.Tensor | None = None
 
 
 class ActivationSpillManager:
@@ -282,6 +294,48 @@ class ActivationSpillManager:
         """Begin backward pass. Activations will be prefetched in reverse order."""
         self._backward_microbatch = microbatch_idx
 
+    def prefetch_activation(
+        self,
+        layer_idx: int,
+        sub_layer: int,
+        device: torch.device,
+    ) -> None:
+        """
+        Kick off async H2D for an activation that will be needed during backward.
+
+        Overlaps the PCIe transfer with backward computation of the current layer.
+        When on_sublayer_backward() is called later, the transfer will already be
+        in flight (or completed), reducing the wait time.
+
+        Args:
+            layer_idx: Layer index
+            sub_layer: 0 for layer input, 1 for post-attention residual
+            device: Target CUDA device
+        """
+        key = (self._backward_microbatch, layer_idx, sub_layer)
+        activation = self._activations.get(key)
+        if activation is None or activation.consumed or activation.is_prefetched:
+            return
+
+        # Ensure forward D2H completed before starting backward H2D
+        if activation.transfer_handle is not None:
+            self._engine.wait(activation.transfer_handle)
+            activation.transfer_handle = None
+
+        # Allocate temp GPU buffer and submit async H2D
+        gpu_buf = torch.empty(
+            activation.host_tensor.shape,
+            dtype=activation.dtype,
+            device=device,
+        )
+        h2d_handle = self._engine.submit_h2d(
+            src=activation.host_tensor,
+            dst=gpu_buf,
+        )
+        activation.is_prefetched = True
+        activation.h2d_handle = h2d_handle
+        activation.gpu_tensor = gpu_buf
+
     def on_sublayer_backward(
         self,
         layer_idx: int,
@@ -291,18 +345,14 @@ class ActivationSpillManager:
         """
         Prefetch a spilled activation back to GPU (H2D), then free host memory.
 
-        Waits for the D2H transfer to complete (should be done by now), then
-        submits an H2D transfer to copy the activation back to the provided
-        GPU buffer. After the transfer completes, the pinned host memory is
-        returned to the pool.
+        If the activation was already prefetched via prefetch_activation(), just
+        waits for the in-flight transfer and copies to the caller's buffer.
+        Otherwise, submits H2D and waits synchronously.
 
         Args:
             layer_idx: Layer index
             sub_layer: 0 for layer input, 1 for post-attention residual
             gpu_dst: GPU tensor to copy the activation into
-
-        Returns:
-            The GPU tensor with the restored activation data.
         """
         key = (self._backward_microbatch, layer_idx, sub_layer)
         activation = self._activations.get(key)
@@ -314,24 +364,28 @@ class ActivationSpillManager:
             )
             return
 
-        # Wait for D2H to complete (should be done already)
-        if activation.transfer_handle is not None:
-            self._engine.wait(activation.transfer_handle)
-            activation.transfer_handle = None
-
-        # Submit H2D prefetch
-        # Caller must provide a contiguous GPU buffer; non-contiguous tensors
-        # would require a separate allocation, breaking the caller's contract.
-        if not gpu_dst.is_contiguous():
-            raise ValueError(
-                f"on_sublayer_backward expects a contiguous gpu_dst, got strides={gpu_dst.stride()}"
+        if activation.is_prefetched:
+            # Transfer was already submitted during prefetch_activation()
+            self._engine.wait(activation.h2d_handle)
+            self._engine.synchronize_with_default_stream()
+            gpu_dst.copy_(activation.gpu_tensor.view(activation.shape))
+            activation.h2d_handle = None
+            activation.gpu_tensor = None
+        else:
+            # Synchronous path: submit H2D and wait
+            if activation.transfer_handle is not None:
+                self._engine.wait(activation.transfer_handle)
+                activation.transfer_handle = None
+            if not gpu_dst.is_contiguous():
+                raise ValueError(
+                    f"on_sublayer_backward expects a contiguous gpu_dst, got strides={gpu_dst.stride()}"
+                )
+            h2d_handle = self._engine.submit_h2d(
+                src=activation.host_tensor,
+                dst=gpu_dst.reshape(-1),
             )
-        h2d_handle = self._engine.submit_h2d(
-            src=activation.host_tensor,
-            dst=gpu_dst.reshape(-1),
-        )
-        self._engine.wait(h2d_handle)
-        self._engine.synchronize_with_default_stream()
+            self._engine.wait(h2d_handle)
+            self._engine.synchronize_with_default_stream()
 
         self._total_prefetched_bytes += (
             activation.host_tensor.numel() * activation.host_tensor.element_size()
