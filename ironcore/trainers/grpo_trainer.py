@@ -625,7 +625,9 @@ class GRPOTrainer(BaseTrainer):
 
         if is_first_rank():
             peak_after_step = torch.cuda.max_memory_allocated(device)
-            self.logger.info(f"[VRAM] After optimizer step: peak={peak_after_step / 1024**3:.2f} GB")
+            self.logger.info(
+                f"[VRAM] After optimizer step: peak={peak_after_step / 1024**3:.2f} GB"
+            )
 
         self._check_loss_for_nan(metrics["grpo_loss"], step)
 

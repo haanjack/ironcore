@@ -38,9 +38,7 @@ from ironcore.parallel import parallel_states
 
 def _tp_config(d_model: int = 512, num_layers: int = 2):
     """Create config for TP=1."""
-    parallel_states.initialize_model_parallel(
-        tensor_model_parallel_size=1, timeout_in_minutes=10.0
-    )
+    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
 
     kv_cache_config = KVCacheConfig(enabled=True, max_batch_size=4, max_seq_length=256)
     pos_emb_config = PositionalEmbeddingConfig(type="rope")

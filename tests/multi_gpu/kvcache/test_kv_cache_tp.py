@@ -202,11 +202,7 @@ class TestKVCacheTP2:
         assert cache_manager.get_cache_position(1) == 8
 
         for layer_idx in range(config.model.num_layers):
-            value_0 = cache_manager.get_layer_kv(
-                layer_idx, start_pos=0, end_pos=8, batch_idx=0
-            )[1]
+            value_0 = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8, batch_idx=0)[1]
             assert torch.all(value_0 == 0), f"Sequence 0 not reset in layer {layer_idx}"
-            value_1 = cache_manager.get_layer_kv(
-                layer_idx, start_pos=0, end_pos=8, batch_idx=1
-            )[1]
+            value_1 = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8, batch_idx=1)[1]
             assert value_1.abs().sum() > 0, f"Sequence 1 unexpectedly reset in layer {layer_idx}"
