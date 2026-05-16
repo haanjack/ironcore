@@ -358,11 +358,10 @@ class ActivationSpillManager:
         activation = self._activations.get(key)
 
         if activation is None:
-            _get_logger().warning(
+            raise RuntimeError(
                 f"No spilled activation for key {key}. "
                 f"Was on_sublayer_forward called during the forward pass?"
             )
-            return
 
         if activation.is_prefetched:
             # Transfer was already submitted during prefetch_activation()

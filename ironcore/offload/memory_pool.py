@@ -170,13 +170,15 @@ class PinnedMemoryPool:
         for reuse within the same chunk.
         """
         with self._lock:
-            element_bytes = tensor.element_size()
-            freed_bytes = tensor.numel() * element_bytes
-
             for chunk in self._chunks:
-                if chunk.try_free(tensor):
+                freed_bytes = chunk.try_free(tensor)
+                if freed_bytes is not None:
                     self._total_used -= freed_bytes
                     return
+            raise ValueError(
+                f"PinnedMemoryPool.free(): tensor at {tensor.data_ptr():#x} "
+                f"does not belong to this pool. Double-free or foreign tensor."
+            )
 
     @contextmanager
     def allocate_temp(self, numel: int, dtype: torch.dtype) -> Iterator[torch.Tensor]:
@@ -289,15 +291,16 @@ class _PinnedChunk:
 
         return None
 
-    def try_free(self, tensor: torch.Tensor) -> bool:
+    def try_free(self, tensor: torch.Tensor) -> int | None:
         """
         Try to free a tensor from this chunk.
 
-        Returns True if the tensor belongs to this chunk and was freed.
+        Returns the recorded byte count on success, None if the tensor does
+        not belong to this chunk.
         """
         ptr = tensor.data_ptr()
         if ptr not in self._live_allocations:
-            return False
+            return None
 
         offset, num_bytes = self._live_allocations.pop(ptr)
 
@@ -325,4 +328,4 @@ class _PinnedChunk:
             self._free_list = remaining
 
         self._free_list.append((merged_start, merged_end - merged_start))
-        return True
+        return num_bytes

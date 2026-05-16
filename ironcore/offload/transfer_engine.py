@@ -208,8 +208,9 @@ class MemoryTransferEngine:
             pending = list(self._pending)
         for handle in pending:
             self.wait(handle)
+        waited_ids = {id(h) for h in pending}
         with self._lock:
-            self._pending.clear()
+            self._pending = [h for h in self._pending if id(h) not in waited_ids]
 
     def synchronize_with_default_stream(self) -> None:
         """
