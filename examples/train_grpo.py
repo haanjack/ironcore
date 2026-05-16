@@ -15,8 +15,8 @@ Usage:
 import argparse
 
 from ironcore.config import load_trainer_config
-from ironcore.training_utils import forward_step, get_loss_func
 from ironcore.trainers.grpo_trainer import GRPOTrainer
+from ironcore.training_utils import forward_step, get_loss_func
 
 
 def main():
