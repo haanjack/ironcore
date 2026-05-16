@@ -345,9 +345,10 @@ class BlockKVCacheManager:
         num_valid = self.num_valid_blocks[seq_ids]
         needs_alloc = logical_block_idxs >= num_valid
 
-        for i, sid in enumerate(seq_ids):
-            if needs_alloc[i]:
-                self.allocate_blocks(sid, 1)
+        if layer_idx == 0:
+            for i, sid in enumerate(seq_ids):
+                if needs_alloc[i]:
+                    self.allocate_blocks(sid, 1)
 
         # Vectorized write: scatter each seq's token into its block
         for i, sid in enumerate(seq_ids):
@@ -562,8 +563,7 @@ class BlockKVCacheManager:
             key = self.physical_key_caches[layer_idx][block_idx, :remainder].unsqueeze(0)
             value = self.physical_value_caches[layer_idx][block_idx, :remainder].unsqueeze(0)
         elif remainder == 0:
-            # All blocks are fully filled
-            block_indices = self.block_tables[seq_id, :num_valid].long()
+            block_indices = self.block_tables[seq_id, :num_full_blocks].long()
             key = self.physical_key_caches[layer_idx][block_indices].reshape(
                 1, total_tokens, -1, self.head_dim
             )

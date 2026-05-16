@@ -384,7 +384,13 @@ class LanguageModel(BaseModule):
         if self.kv_cache_manager is not None:
             self.kv_cache_manager.reset(batch_indices)
         if self.block_kv_cache_manager is not None:
-            self.block_kv_cache_manager.free_sequence(batch_indices[0] if batch_indices else None)
+            bkv = self.block_kv_cache_manager
+            if batch_indices is None:
+                for sid in range(bkv.block_tables.shape[0]):
+                    bkv.free_sequence(sid)
+            else:
+                for sid in batch_indices:
+                    bkv.free_sequence(sid)
 
     def get_cache_statistics(self) -> dict:
         if self.kv_cache_manager is not None:

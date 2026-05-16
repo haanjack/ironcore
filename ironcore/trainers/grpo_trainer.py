@@ -490,15 +490,17 @@ class GRPOTrainer(BaseTrainer):
             chunk_group_size = self.rollout_micro_group_size
             chunk_metadata = metadata  # Same metadata for each chunk (will be expanded)
 
+            if self.use_paged_rollout:
+                from ironcore.alignment.rollout import generate_rollouts_paged
+
+                unwrapped = getattr(self.model, "module", self.model)
+                unwrapped.initialize_cache(
+                    prompt_ids.size(0) + prompt_ids.size(0) * chunk_group_size,
+                    prompt_ids.device,
+                )
+
             for chunk_idx in range(self.rollout_chunks):
                 if self.use_paged_rollout:
-                    from ironcore.alignment.rollout import generate_rollouts_paged
-
-                    unwrapped = getattr(self.model, "module", self.model)
-                    unwrapped.initialize_cache(
-                        prompt_ids.size(0) + prompt_ids.size(0) * chunk_group_size,
-                        prompt_ids.device,
-                    )
                     chunk_rollout = generate_rollouts_paged(
                         model=self.model,
                         prompt_ids=prompt_ids,
