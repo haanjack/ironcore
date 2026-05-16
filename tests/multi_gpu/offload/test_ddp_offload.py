@@ -5,7 +5,7 @@
 """
 DDP × Offload integration test.
 
-Verifies DDP + M1+M3 works correctly with 2 GPUs via torchrun.
+Verifies DDP + optimizer_offload+activation_spill works correctly with 2 GPUs via torchrun.
 Each rank independently offloads its optimizer states to host RAM.
 """
 
@@ -146,7 +146,7 @@ class TestDDPOffload:
     """DDP × Offload integration test (requires 2 GPUs)."""
 
     def test_ddp_m1_m3_converges(self):
-        """DDP + M1+M3 should converge on both ranks."""
+        """DDP + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={
                 "optimizer_offload": True,
@@ -162,12 +162,12 @@ class TestDDPOffload:
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
             print(
-                f"\n[DDP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+                f"\n[DDP+optimizer_offload+activation_spill] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
             )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"DDP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"DDP+optimizer_offload+activation_spill did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"

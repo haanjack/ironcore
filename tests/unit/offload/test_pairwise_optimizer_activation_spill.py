@@ -129,7 +129,7 @@ def _run_training(config, num_steps):
 
 @skip_no_cuda
 class TestOptimizerActivationSpill:
-    """Optimizer state offload + Activation spilling combination test (M2 disabled)."""
+    """Optimizer state offload + Activation spilling combination test (weight_offload disabled)."""
 
     def test_optimizer_activation_spill_converges(self):
         """Optimizer offload + activation spill should converge and produce valid gradients."""

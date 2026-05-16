@@ -109,8 +109,8 @@ if __name__ == "__main__":
         print("MULTI-GPU LOSS VALIDATION (50 steps)")
         print("=" * 70)
 
-    # DDP + M1+M3
-    init_ddp, final_ddp = run_training("DDP+M1+M3", {
+    # DDP + optimizer_offload+activation_spill
+    init_ddp, final_ddp = run_training("DDP+optimizer_offload+activation_spill", {
         "offload": OffloadConfig(
             enabled=True,
             optimizer_offload=True,
@@ -122,10 +122,10 @@ if __name__ == "__main__":
     })
 
     if rank == 0:
-        print(f"DDP + M1+M3:       Init={init_ddp:.4f}, Final={final_ddp:.4f}")
+        print(f"DDP + optimizer_offload+activation_spill:       Init={init_ddp:.4f}, Final={final_ddp:.4f}")
 
-    # DistOpt + M1+M3
-    init_dist, final_dist = run_training("DistOpt+M1+M3", {
+    # DistOpt + optimizer_offload+activation_spill
+    init_dist, final_dist = run_training("DistOpt+optimizer_offload+activation_spill", {
         "parallel.use_distributed_optimizer": True,
         "offload": OffloadConfig(
             enabled=True,
@@ -138,10 +138,10 @@ if __name__ == "__main__":
     })
 
     if rank == 0:
-        print(f"DistOpt + M1+M3:   Init={init_dist:.4f}, Final={final_dist:.4f}")
+        print(f"DistOpt + optimizer_offload+activation_spill:   Init={init_dist:.4f}, Final={final_dist:.4f}")
 
-    # FSDP SHARD_GRAD_OP + M1+M3
-    init_fsdp, final_fsdp = run_training("FSDP+M1+M3", {
+    # FSDP SHARD_GRAD_OP + optimizer_offload+activation_spill
+    init_fsdp, final_fsdp = run_training("FSDP+optimizer_offload+activation_spill", {
         "parallel.use_fsdp": True,
         "parallel.fsdp_sharding_strategy": "shard_grad_op",
         "parallel.fsdp_use_orig_params": True,
@@ -156,10 +156,10 @@ if __name__ == "__main__":
     })
 
     if rank == 0:
-        print(f"FSDP SHARD_GRAD_OP+M1+M3: Init={init_fsdp:.4f}, Final={final_fsdp:.4f}")
+        print(f"FSDP SHARD_GRAD_OP+optimizer_offload+activation_spill: Init={init_fsdp:.4f}, Final={final_fsdp:.4f}")
 
-    # FSDP FULL_SHARD + M3
-    init_fsdp_full, final_fsdp_full = run_training("FSDP-FULL+M3", {
+    # FSDP FULL_SHARD + activation_spill
+    init_fsdp_full, final_fsdp_full = run_training("FSDP-FULL+activation_spill", {
         "parallel.use_fsdp": True,
         "parallel.fsdp_sharding_strategy": "full",
         "parallel.fsdp_use_orig_params": True,
@@ -172,5 +172,5 @@ if __name__ == "__main__":
     })
 
     if rank == 0:
-        print(f"FSDP FULL_SHARD+M3:        Init={init_fsdp_full:.4f}, Final={final_fsdp_full:.4f}")
+        print(f"FSDP FULL_SHARD+activation_spill:        Init={init_fsdp_full:.4f}, Final={final_fsdp_full:.4f}")
         print("=" * 70)

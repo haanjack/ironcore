@@ -12,11 +12,11 @@ losses against a no-offload baseline.
 Model: GPT-small architecture (4L, 768d, 3072 FFN, 12 heads).
 
 Combinations tested:
-  - Optimizer offload only (optimizer offload)
-  - Weight streaming + activation spill (weight streaming + activation spill)
-  - M1 + Weight streaming + activation spill (all three)
-  - Weight streaming + activation spill with grad_accum=2
-  - M1 + Weight streaming + activation spill with full_layer granularity
+  - optimizer_offload only
+  - weight_offload + activation_spill
+  - optimizer_offload + weight_offload + activation_spill (all three)
+  - weight_offload + activation_spill with grad_accum=2
+  - optimizer_offload + weight_offload + activation_spill with full_layer granularity
 """
 
 import math
@@ -150,20 +150,20 @@ def _run_training(config, num_steps):
 class TestCombinationalTraining:
     """100-step training loss parity across offload mode combinations."""
 
-    def test_m1_only(self):
-        """M1 (optimizer offload): final loss must match baseline."""
+    def test_optimizer_offload_only(self):
+        """optimizer_offload only: final loss must match baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(_make_config(optimizer_offload=True), NUM_STEPS)
 
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
         assert rel_err < 0.01, (
-            f"M1 final loss diverged after {NUM_STEPS} steps: "
+            f"optimizer_offload final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_m2_m3(self):
-        """Weight streaming + activation spill: final loss must be within tolerance of baseline."""
+    def test_weight_offload_activation_spill(self):
+        """weight_offload + activation_spill: final loss must be within tolerance of baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -181,12 +181,12 @@ class TestCombinationalTraining:
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
         assert rel_err < 0.01, (
-            f"M2+M3 final loss diverged after {NUM_STEPS} steps: "
+            f"weight_offload+activation_spill final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_m1_m2_m3(self):
-        """M1 + Weight streaming + activation spill (all offload): final loss must stay close to baseline."""
+    def test_full_offload(self):
+        """optimizer_offload + weight_offload + activation_spill: final loss must stay close to baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -207,12 +207,12 @@ class TestCombinationalTraining:
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
         assert rel_err < 0.01, (
-            f"M1+M2+M3 final loss diverged after {NUM_STEPS} steps: "
+            f"full_offload final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_m2_m3_grad_accum(self):
-        """Weight streaming + activation spill with grad_accum=2: loss must track baseline."""
+    def test_weight_offload_activation_spill_grad_accum(self):
+        """weight_offload + activation_spill with grad_accum=2: loss must track baseline."""
         config_ref = _make_config()
         config_ref.trainer.gradient_accumulation_steps = 2
         config_ref.trainer.train_batch_size = BATCH_SIZE * 2
@@ -235,16 +235,16 @@ class TestCombinationalTraining:
         assert not math.isnan(final_off) and not math.isinf(final_off)
         assert init_off is not None
         assert final_off < init_off, (
-            f"M2+M3+grad_accum did not converge: {init_off:.4f} -> {final_off:.4f}"
+            f"weight_offload+activation_spill+grad_accum did not converge: {init_off:.4f} -> {final_off:.4f}"
         )
         rel_err = abs(final_ref - final_off) / (abs(final_ref) + 1e-8)
         assert rel_err < 0.05, (
-            f"M2+M3+grad_accum final loss diverged: "
+            f"weight_offload+activation_spill+grad_accum final loss diverged: "
             f"ref={final_ref:.4f} off={final_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_m1_m2_m3_full_layer(self):
-        """M1 + Weight streaming + activation spill with full_layer granularity: final loss must track baseline."""
+    def test_full_offload_full_layer(self):
+        """optimizer_offload + weight_offload + activation_spill with full_layer granularity: final loss must track baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -269,8 +269,8 @@ class TestCombinationalTraining:
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_m3_only(self):
-        """M3 only (activation spill without weight offload): loss must track baseline."""
+    def test_activation_spill_only(self):
+        """activation_spill only (without weight_offload): loss must track baseline."""
         _, loss_ref = _run_training(_make_config(), NUM_STEPS)
         _, loss_off = _run_training(
             _make_config(
@@ -285,7 +285,7 @@ class TestCombinationalTraining:
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
         assert rel_err < 0.01, (
-            f"M3-only final loss diverged after {NUM_STEPS} steps: "
+            f"activation_spill final loss diverged after {NUM_STEPS} steps: "
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
 
@@ -313,8 +313,8 @@ class TestCombinationalTraining:
             f"ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_m3_only_convergence(self):
-        """M3-only training must converge over 50 steps."""
+    def test_activation_spill_convergence(self):
+        """activation_spill training must converge over 50 steps."""
         init_loss, final_loss = _run_training(
             _make_config(
                 activation_spill=True,
@@ -327,11 +327,11 @@ class TestCombinationalTraining:
 
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"M3-only did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"activation_spill did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
 
-    def test_m2_m3_grad_accum_4(self):
-        """Weight streaming + activation spill with grad_accum=4: loss must track baseline."""
+    def test_weight_offload_activation_spill_grad_accum_4(self):
+        """weight_offload + activation_spill with grad_accum=4: loss must track baseline."""
         config_ref = _make_config()
         config_ref.trainer.gradient_accumulation_steps = 4
         config_ref.trainer.train_batch_size = BATCH_SIZE * 4
@@ -354,12 +354,12 @@ class TestCombinationalTraining:
         assert not math.isnan(final_off) and not math.isinf(final_off)
         rel_err = abs(final_ref - final_off) / (abs(final_ref) + 1e-8)
         assert rel_err < 0.05, (
-            f"M2+M3+grad_accum=4 diverged: "
+            f"weight_offload+activation_spill+grad_accum=4 diverged: "
             f"ref={final_ref:.4f} off={final_off:.4f} rel_err={rel_err:.4f}"
         )
 
-    def test_larger_model_m2_m3(self):
-        """8-layer model with M2+M3: stress test for offloading system."""
+    def test_larger_model_weight_offload_activation_spill(self):
+        """8-layer model with weight_offload+activation_spill: stress test for offloading system."""
         config_ref = _make_config()
         config_ref.model.num_layers = 8
 
@@ -380,5 +380,5 @@ class TestCombinationalTraining:
         assert not math.isnan(loss_off) and not math.isinf(loss_off)
         rel_err = abs(loss_ref - loss_off) / (abs(loss_ref) + 1e-8)
         assert rel_err < 0.01, (
-            f"8L M2+M3 loss diverged: ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
+            f"8L weight_offload+activation_spill loss diverged: ref={loss_ref:.4f} off={loss_off:.4f} rel_err={rel_err:.4f}"
         )

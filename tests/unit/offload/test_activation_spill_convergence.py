@@ -84,7 +84,7 @@ def _make_inputs(device, dtype):
 
 
 @skip_no_cuda
-class TestM3GradientParity:
+class TestActivationSpillGradientParity:
     """Compare forward output and backward gradients with/without activation spill."""
 
     def test_forward_output_parity_no_dropout(self):

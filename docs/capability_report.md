@@ -12,9 +12,9 @@ All results below are **measured** on RTX 3090 (24GB VRAM, 123GB RAM).
 | Model | Offload Mode | Peak VRAM | Allocated VRAM | Avg Step | Throughput | Status |
 |-------|-------------|-----------|----------------|----------|------------|--------|
 | 3B (~3.0B) | Baseline | 23.44 GB | 22.63 GB | OOM | OOM | ❌ OOM |
-| 3B (~3.0B) | M1 only | 10.78 GB | 5.23 GB | 11,175 ms | 5.4 steps/min | ✅ PASS |
-| 7B (~6.6B) | Full (M1+M2+M3) | 11.69 GB | 1.01 GB | 23,831 ms | 2.5 steps/min | ✅ PASS |
-| **13B (~12.9B)** | **Full (M1+M2+M3, bf16 optim)** | **22.26 GB** | **1.56 GB** | **61,662 ms** | **1.0 steps/min** | **✅ PASS** |
+| 3B (~3.0B) | optimizer_offload only | 10.78 GB | 5.23 GB | 11,175 ms | 5.4 steps/min | ✅ PASS |
+| 7B (~6.6B) | full_offload | 11.69 GB | 1.01 GB | 23,831 ms | 2.5 steps/min | ✅ PASS |
+| **13B (~12.9B)** | **full_offload (bf16 optim)** | **22.26 GB** | **1.56 GB** | **61,662 ms** | **1.0 steps/min** | **✅ PASS** |
 
 **Key finding:** 13B model trains on a single 24GB consumer GPU with full offload.
 
@@ -25,15 +25,15 @@ All results below are **measured** on RTX 3090 (24GB VRAM, 123GB RAM).
 | Configuration | Peak VRAM | Steady-State | Avg Step | Throughput |
 |---------------|-----------|--------------|----------|------------|
 | No offload | 23.44 GB | 22.63 GB | OOM | OOM |
-| M1 (optimizer offload) | 10.78 GB | 5.23 GB | 11.2s | 5.4 steps/min |
+| optimizer_offload | 10.78 GB | 5.23 GB | 11.2s | 5.4 steps/min |
 
-M1 saves **54% peak VRAM** and **78% steady-state VRAM**.
+optimizer_offload saves **54% peak VRAM** and **78% steady-state VRAM**.
 
 ### 7B Model (d_model=4096, d_ffn=11008, 32 layers)
 
 | Configuration | Peak VRAM | Steady-State | Avg Step | Throughput |
 |---------------|-----------|--------------|----------|------------|
-| Full (M1+M2+M3) | 11.69 GB | 1.01 GB | 23.8s | 2.5 steps/min |
+| full_offload | 11.69 GB | 1.01 GB | 23.8s | 2.5 steps/min |
 
 7B weights (13.2GB) exceed 24GB with optimizer states, but full offload fits easily.
 
@@ -41,7 +41,7 @@ M1 saves **54% peak VRAM** and **78% steady-state VRAM**.
 
 | Configuration | Peak VRAM | Steady-State | Avg Step | Throughput |
 |---------------|-----------|--------------|----------|------------|
-| Full (M1+M2+M3, bf16 optim) | 22.26 GB | 1.56 GB | 61.7s | 1.0 steps/min |
+| full_offload (bf16 optim) | 22.26 GB | 1.56 GB | 61.7s | 1.0 steps/min |
 
 - **GPU utilization:** 92.7% of 24GB (peak) → 6.5% steady-state
 - **CPU pinned pool:** 80GB (weights 26GB + optimizer 51GB + activations)
@@ -51,10 +51,10 @@ M1 saves **54% peak VRAM** and **78% steady-state VRAM**.
 
 | Test | Mode | Steps | Final Loss | Δ vs Baseline | Status |
 |------|------|-------|------------|---------------|--------|
-| Pairwise M1+M2 | optimizer + weight offload | 50 | 6.972 | +0.001 | ✅ PASS |
-| Pairwise M1+M3 | optimizer + activation spill | 50 | 6.981 | +0.010 | ✅ PASS |
-| M1 only | optimizer offload | 1000 | 5.832 | +0.005 | ✅ PASS |
-| Full (M1+M2+M3) | all offload | 1000 | 5.842 | +0.015 | ✅ PASS |
+| optimizer_offload+weight_offload | optimizer + weight offload | 50 | 6.972 | +0.001 | ✅ PASS |
+| optimizer_offload+activation_spill | optimizer + activation spill | 50 | 6.981 | +0.010 | ✅ PASS |
+| optimizer_offload only | optimizer offload | 1000 | 5.832 | +0.005 | ✅ PASS |
+| full_offload | all offload | 1000 | 5.842 | +0.015 | ✅ PASS |
 
 Source: `scripts/validate_m1_memory.py`, `tests/unit/offload/test_pairwise_*.py`, `test_13b_full_offload.py`
 
@@ -80,7 +80,7 @@ Source: `scripts/validate_m1_memory.py`, `tests/unit/offload/test_pairwise_*.py`
 
 ### Theoretical Maximums (measured on 24GB)
 
-With full offload (M1+M2+M3, bf16 optimizer):
+With full_offload (bf16 optimizer):
 - **Single 24GB GPU:** 13B verified ✅ (with 80GB CPU RAM)
 - **Single 24GB GPU:** ~34B projected (with 128GB CPU RAM)
 - **Multi-GPU (2x24GB):** ~70B projected (with 256GB CPU RAM)
@@ -94,11 +94,11 @@ With full offload (M1+M2+M3, bf16 optimizer):
   Status: ❌ OOM during optimizer step
 ```
 
-### LLaMA-13B on RTX 3090 (24GB) — Full Offload (M1+M2+M3)
+### LLaMA-13B on RTX 3090 (24GB) — full_offload
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ MEASURED: Full Offload (M1+M2+M3, bf16 optimizer)           │
+│ MEASURED: full_offload (bf16 optimizer)                      │
 ├─────────────────────────────────────────────────────────────┤
 │ Peak VRAM                 22.3 GB  ████████████████████     │
 │ Allocated (steady)         1.6 GB  █                        │
@@ -131,7 +131,7 @@ Activation memory scaling with sequence length during 13B full offload training:
 | 3072 | — | — | — | — | OOM (staging) |
 | 4096 | — | — | — | — | OOM |
 
-M3 (activation spilling) keeps activations on CPU, so steady-state VRAM stays constant regardless of seq_len. The VRAM increase from 512 to 2048 is only ~230 MB (1%), mostly from temporary forward-pass tensors that can't be spilled. seq_len 3072 fails — the GPU staging buffer (0.5 GB) can't be allocated because model init peak (~22.3 GB) already consumes nearly all 24 GB. **Hard limit for 13B full offload on 24 GB: seq_len ≤ 2048.**
+activation_spilling keeps activations on CPU, so steady-state VRAM stays constant regardless of seq_len. The VRAM increase from 512 to 2048 is only ~230 MB (1%), mostly from temporary forward-pass tensors that can't be spilled. seq_len 3072 fails — the GPU staging buffer (0.5 GB) can't be allocated because model init peak (~22.3 GB) already consumes nearly all 24 GB. **Hard limit for 13B full offload on 24 GB: seq_len ≤ 2048.**
 
 Source: `test_long_context_training.py`
 
@@ -163,10 +163,10 @@ Source: `test_cpu_gpu_profiling.py`
 | Combination | GPU VRAM for 13B | When to Use |
 |-------------|------------------|-------------|
 | Baseline | 129 GB | A100 80GB × 2 |
-| M1 only | 26 GB | RTX 4090/3090 (24GB) |
-| M1 + M3 | 26 GB | Long context on 24GB |
-| M1 + M2 | 3 GB | 8GB GPU training |
-| M1 + M2 + M3 | 3 GB | Maximum memory savings |
+| optimizer_offload only | 26 GB | RTX 4090/3090 (24GB) |
+| optimizer_offload + activation_spill | 26 GB | Long context on 24GB |
+| optimizer_offload + weight_offload | 3 GB | 8GB GPU training |
+| full_offload | 3 GB | Maximum memory savings |
 
 ## Test Results Summary
 
@@ -178,22 +178,22 @@ All offload modes produce numerically identical results to baseline training:
 
 | Test | Mode | Steps | Final Loss | Δ vs Baseline | Status |
 |------|------|-------|------------|---------------|--------|
-| Pairwise M1+M2 | optimizer + weight offload | 50 | 6.972 | +0.001 | ✅ PASS |
-| Pairwise M1+M3 | optimizer + activation spill | 50 | 6.981 | +0.010 | ✅ PASS |
-| M1 only | optimizer offload | 1000 | 5.832 | +0.005 | ✅ PASS |
-| M2 only | weight streaming | 1000 | 5.838 | +0.011 | ✅ PASS |
-| M3 only | activation spill | 1000 | 5.835 | +0.008 | ✅ PASS |
-| Full (M1+M2+M3) | all offload | 1000 | 5.842 | +0.015 | ✅ PASS |
+| optimizer_offload+weight_offload | optimizer + weight offload | 50 | 6.972 | +0.001 | ✅ PASS |
+| optimizer_offload+activation_spill | optimizer + activation spill | 50 | 6.981 | +0.010 | ✅ PASS |
+| optimizer_offload only | optimizer offload | 1000 | 5.832 | +0.005 | ✅ PASS |
+| weight_offload only | weight streaming | 1000 | 5.838 | +0.011 | ✅ PASS |
+| activation_spill only | activation spill | 1000 | 5.835 | +0.008 | ✅ PASS |
+| full_offload | all offload | 1000 | 5.842 | +0.015 | ✅ PASS |
 
 ### Multi-GPU Integration
 
 | Configuration | World Size | Test | Status |
 |---------------|------------|------|--------|
-| DDP + M1+M3 | 2 | `test_ddp_offload.py` | ✅ PASS |
-| DistOpt + M1 | 2 | `test_distopt_m1.py` | ✅ PASS |
-| FSDP (shard_grad_op) + M1+M3 | 2 | `test_fsdp_shard_grad_op_m1_m3.py` | ✅ PASS |
-| FSDP (full_shard) + M3 | 2 | `test_fsdp_full_shard_m3.py` | ✅ PASS |
-| TP (2) + M1+M2+M3 | 1 | `test_tp_offload.py` | ✅ PASS |
+| DDP + optimizer_offload+activation_spill | 2 | `test_ddp_offload.py` | ✅ PASS |
+| DistOpt + optimizer_offload | 2 | `test_distopt_m1.py` | ✅ PASS |
+| FSDP (shard_grad_op) + optimizer_offload+activation_spill | 2 | `test_fsdp_shard_grad_op_m1_m3.py` | ✅ PASS |
+| FSDP (full_shard) + activation_spill | 2 | `test_fsdp_full_shard_m3.py` | ✅ PASS |
+| TP (2) + full_offload | 1 | `test_tp_offload.py` | ✅ PASS |
 
 ## Configuration Examples
 
@@ -255,7 +255,7 @@ offload:
 ## Recommendations
 
 1. **For 13B on 24GB consumer GPU (RTX 3090/4090):**
-   - Must use full offload (M1+M2+M3)
+   - Must use full_offload
    - `optimizer_state_precision: bf16` is **critical** — fp32 requires 103GB CPU RAM
    - Needs ≥80GB CPU RAM for pinned memory pool
    - Throughput: ~1 step/min
@@ -266,12 +266,12 @@ offload:
    - Throughput: ~2.5 steps/min
 
 3. **For 3B on 24GB GPU:**
-   - M1 only is sufficient (10.8 GB peak, 5.2 GB steady)
+   - optimizer_offload only is sufficient (10.8 GB peak, 5.2 GB steady)
    - No weight streaming needed
    - Throughput: ~5.4 steps/min
 
 4. **Long context training:**
-   - seq_len 512 to 2048 works on 13B with full offload (M3 spills activations)
+   - seq_len 512 to 2048 works on 13B with full_offload (activation_spill spills activations)
    - seq_len 4096 OOMs — single-sub-layer forward activations exceed GPU staging capacity
    - Steady-state VRAM is constant regardless of seq_len (~1.6 GB)
    - Step time is essentially flat (~60s) because CPU AdamW is the bottleneck
@@ -285,7 +285,7 @@ offload:
 
 ### What works
 
-13B training on a single 24GB consumer GPU (RTX 3090/4090) is fully functional with full offload (M1+M2+M3, bf16 optimizer). Loss parity is confirmed across all offload modes — offload introduces at most +0.015 loss delta over 1000 steps vs baseline. 3B and 7B are comfortably within single-GPU reach at useful throughput (5.4 and 2.5 steps/min respectively).
+13B training on a single 24GB consumer GPU (RTX 3090/4090) is fully functional with full_offload (bf16 optimizer). Loss parity is confirmed across all offload modes — offload introduces at most +0.015 loss delta over 1000 steps vs baseline. 3B and 7B are comfortably within single-GPU reach at useful throughput (5.4 and 2.5 steps/min respectively).
 
 ### The desktop bottleneck is bandwidth, not capacity
 
@@ -305,7 +305,7 @@ The initial hypothesis was that longer sequences would shift more compute to GPU
 
 ### Maximum training context length: seq_len 2048
 
-For 13B full offload on 24GB, the hard context limit is seq_len 2048. seq_len 3072 fails during staging buffer allocation — model initialization peak (~22.3 GB) leaves insufficient room for the forward-pass staging buffer. Steady-state VRAM is constant at ~1.6 GB regardless of seq_len because M3 spills activations to CPU, but peak VRAM during init is the binding constraint.
+For 13B full offload on 24GB, the hard context limit is seq_len 2048. seq_len 3072 fails during staging buffer allocation — model initialization peak (~22.3 GB) leaves insufficient room for the forward-pass staging buffer. Steady-state VRAM is constant at ~1.6 GB regardless of seq_len because activation_spilling spills activations to CPU, but peak VRAM during init is the binding constraint.
 
 ### Practical positioning
 

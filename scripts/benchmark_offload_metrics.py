@@ -115,16 +115,16 @@ if __name__ == "__main__":
     cfg.trainer.gradient_accumulation_steps = 1
     run_benchmark("GPT-2 Large Baseline (~774M)", cfg)
 
-    # M1: Optimizer offload
+    # optimizer_offload
     cfg = create_test_config(**gpt2_large)
     cfg.offload.enabled = True
     cfg.offload.optimizer_offload = True
     cfg.trainer.gradient_accumulation_steps = 1
-    run_benchmark("GPT-2 Large + M1 Optimizer Offload", cfg)
+    run_benchmark("GPT-2 Large + optimizer_offload", cfg)
 
-    # M2: Weight streaming
+    # weight_offload
     cfg = create_test_config(**gpt2_large)
     cfg.offload.enabled = True
     cfg.offload.weight_offload = True
     cfg.trainer.gradient_accumulation_steps = 1
-    run_benchmark("GPT-2 Large + M2 Weight Streaming", cfg)
+    run_benchmark("GPT-2 Large + weight_offload", cfg)

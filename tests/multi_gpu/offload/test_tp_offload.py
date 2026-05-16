@@ -5,7 +5,7 @@
 """
 TP × Offload integration test.
 
-Verifies M1+M3 works correctly with TP=2 tensor parallelism.
+Verifies optimizer_offload+activation_spill works correctly with TP=2 tensor parallelism.
 Each rank streams its own TP shard independently.
 """
 
@@ -150,7 +150,7 @@ class TestTPOffload:
     """TP × Offload integration test (requires 2 GPUs)."""
 
     def test_tp_m1_m3_converges(self):
-        """TP=2 + M1+M3 should converge on both ranks."""
+        """TP=2 + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={
                 "optimizer_offload": True,
@@ -166,12 +166,12 @@ class TestTPOffload:
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
             print(
-                f"\n[TP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+                f"\n[TP+optimizer_offload+activation_spill] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
             )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"TP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"TP+optimizer_offload+activation_spill did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"

@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-FSDP SHARD_GRAD_OP × Offload integration test.
+FSDP FULL_SHARD × Activation Spill integration test.
 
-Verifies FSDP shard_grad_op + M1+M3 works correctly with 2 GPUs.
-Requires fsdp_use_orig_params=True for optimizer state offload compatibility.
+Verifies FSDP full_shard + activation_spill only works correctly.
+Optimizer state offload (optimizer_offload) is blocked by validation guard to avoid host OOM.
 """
 
 import math
@@ -49,7 +49,7 @@ if torch.cuda.is_available():
 
 
 def _make_config(**overrides):
-    """GPT-small architecture config with FSDP+offload."""
+    """GPT-small architecture config with FSDP+activation spill."""
     config = create_test_config(
         d_model=768,
         d_ffn=3072,
@@ -70,10 +70,10 @@ def _make_config(**overrides):
     config.trainer.gradient_accumulation_steps = 1
     config.parallel.world_size = 2
     config.parallel.use_fsdp = True
-    config.parallel.fsdp_sharding_strategy = "shard_grad_op"
-    config.parallel.fsdp_use_orig_params = True  # Required for optimizer offload
+    config.parallel.fsdp_sharding_strategy = "full"
+    config.parallel.fsdp_use_orig_params = True
 
-    # Apply overrides (offload settings)
+    # Apply overrides (offload settings - activation_spill only, optimizer_offload is blocked)
     from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **overrides.get("offload", {}))
@@ -145,17 +145,15 @@ def _run_training(config, num_steps):
 
 @skip_no_multi_gpu
 @pytest.mark.mp
-class TestFSDPShardGradOpM1M3:
-    """FSDP SHARD_GRAD_OP × Offload integration test (requires 2 GPUs)."""
+class TestFSDPFullShardActivationSpill:
+    """FSDP FULL_SHARD × Activation Spill integration test (requires 2 GPUs)."""
 
-    def test_fsdp_shard_grad_op_m1_m3_converges(self):
-        """FSDP shard_grad_op + M1+M3 should converge on both ranks."""
+    def test_fsdp_full_shard_m3_converges(self):
+        """FSDP full_shard + activation_spill should converge on both ranks."""
         config = _make_config(
             offload={
-                "optimizer_offload": True,
                 "activation_spill": True,
                 "activation_spill_granularity": "sub_layer",
-                "optimizer_state_precision": "bf16",
                 "pinned_memory_pool_gb": 2.0,
             }
         )
@@ -165,12 +163,12 @@ class TestFSDPShardGradOpM1M3:
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
             print(
-                f"\n[FSDP SHARD_GRAD_OP+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+                f"\n[FSDP FULL_SHARD+activation_spill] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
             )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"FSDP+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"FSDP+activation_spill did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"

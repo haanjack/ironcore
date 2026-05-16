@@ -164,4 +164,4 @@ Key files:
 | `ironcore/offload/tile_manager.py` | `WeightTile`, `WeightGroup`, `TileManager` |
 | `ironcore/offload/transfer_engine.py` | `MemoryTransferEngine` (async H2D/D2H) |
 | `ironcore/offload/scheduler.py` | `ExecutionScheduler` (lifecycle orchestration) |
-| `ironcore/offload/hooks.py` | `ActivationSpillManager` (M3) |
+| `ironcore/offload/hooks.py` | `ActivationSpillManager` (activation_spill) |

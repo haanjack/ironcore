@@ -595,7 +595,7 @@ class TestExecutionScheduler:
 
 
 @skip_no_cuda
-class TestM2CPUResidentParams:
+class TestWeightStreamingCPUResidentParams:
     """Test weight streaming with CPU-resident parameters.
 
     These tests verify the D4 fix (host tile values for CPU placeholder),
@@ -961,7 +961,7 @@ class TestCPUAdamW:
 # ---------------------------------------------------------------------------
 
 
-class TestM2ConfigValidation:
+class TestWeightStreamingConfigValidation:
     """Test weight streaming-specific config validation rules."""
 
     def test_weight_offload_requires_enabled(self):

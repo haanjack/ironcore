@@ -6,8 +6,8 @@ Validates LLaMA-13B training with different offload configurations.
 Reports actual measured VRAM, timing, and loss convergence.
 
 Requirements:
-    - GPU with 24GB+ VRAM for M1-only test
-    - GPU with 8GB+ VRAM for full offload (M1+M2+M3)
+    - GPU with 24GB+ VRAM for optimizer_offload test
+    - GPU with 8GB+ VRAM for full offload (optimizer_offload+weight_offload+activation_spill)
     - 64GB+ system RAM for offload tests
 
 Usage:

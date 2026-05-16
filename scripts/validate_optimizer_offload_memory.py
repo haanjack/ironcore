@@ -1,6 +1,6 @@
-"""M1 optimizer offload validation: loss parity + VRAM measurement.
+"""Optimizer offload validation: loss parity + VRAM measurement.
 
-Compares baseline (no offload) vs M1-only (optimizer offload) across two model sizes.
+Compares baseline (no offload) vs optimizer_offload only across two model sizes.
 Reports: loss trajectory, final loss relative error, peak VRAM, VRAM savings.
 
 Usage:
@@ -139,7 +139,7 @@ def _print_section(title):
 
 def main():
     if not torch.cuda.is_available():
-        print("CUDA required for M1 validation")
+        print("CUDA required for optimizer_offload validation")
         sys.exit(1)
 
     configs = [
@@ -155,7 +155,7 @@ def main():
 
     print()
     print("=" * 70)
-    print("  M1 OPTIMIZER OFFLOAD VALIDATION REPORT")
+    print("  OPTIMIZER OFFLOAD VALIDATION REPORT")
     print("  CPU-compute path: AdamW math on CPU, grad+delta transfers only")
     print("=" * 70)
 
@@ -169,15 +169,15 @@ def main():
             config_base, NUM_STEPS, "baseline"
         )
 
-        # M1 only (optimizer offload, CPU-compute path)
+        # optimizer_offload only (CPU-compute path)
         config_m1 = _make_config(optimizer_offload=True, enabled=True, **cfg)
         losses_m1, peak_m1, alloc_m1 = _run_training_with_memory(
-            config_m1, NUM_STEPS, "M1-only"
+            config_m1, NUM_STEPS, "optimizer_offload"
         )
 
         # Loss report
         print(f"\n  Loss trajectory (first 5 + last 5 of {NUM_STEPS} steps):")
-        print(f"  {'Step':<6} {'Baseline':>10} {'M1-only':>10} {'Diff':>10}")
+        print(f"  {'Step':<6} {'Baseline':>10} {'optimizer_offload':>18} {'Diff':>10}")
         print(f"  {'-'*40}")
         indices = list(range(5)) + list(range(NUM_STEPS - 5, NUM_STEPS))
         for i in indices:
@@ -187,7 +187,7 @@ def main():
             print(f"  {i:<6} {losses_base[i]:>10.4f} {losses_m1[i]:>10.4f} {diff:>+10.4f}")
 
         rel_err = abs(losses_base[-1] - losses_m1[-1]) / (abs(losses_base[-1]) + 1e-8)
-        print(f"\n  Final loss: baseline={losses_base[-1]:.4f}  M1={losses_m1[-1]:.4f}  rel_err={rel_err:.4f}")
+        print(f"\n  Final loss: baseline={losses_base[-1]:.4f}  optimizer_offload={losses_m1[-1]:.4f}  rel_err={rel_err:.4f}")
         verdict = "PASS" if rel_err < 0.01 else "FAIL"
         print(f"  Loss parity: {verdict} (threshold: 1%)")
 
@@ -202,7 +202,7 @@ def main():
         vram_pct = (vram_delta / steady_peak_base) * 100 if steady_peak_base > 0 else 0
 
         print(f"\n  VRAM (steady-state peak, steps 1-{NUM_STEPS-1}):")
-        print(f"  {'Metric':<25} {'Baseline':>10} {'M1-only':>10} {'Delta':>10}")
+        print(f"  {'Metric':<25} {'Baseline':>10} {'optimizer_offload':>18} {'Delta':>10}")
         print(f"  {'-'*55}")
         print(f"  {'Peak VRAM (MB)':<25} {steady_peak_base:>10.1f} {steady_peak_m1:>10.1f} {vram_delta:>+10.1f}")
         print(f"  {'Allocated VRAM (MB)':<25} {steady_alloc_base:>10.1f} {steady_alloc_m1:>10.1f} {steady_alloc_base - steady_alloc_m1:>+10.1f}")
@@ -212,7 +212,7 @@ def main():
 
         # Per-step peak VRAM comparison
         print("\n  Per-step peak VRAM (selected steps):")
-        print(f"  {'Step':<6} {'Baseline':>10} {'M1-only':>10} {'Delta':>10}")
+        print(f"  {'Step':<6} {'Baseline':>10} {'optimizer_offload':>18} {'Delta':>10}")
         print(f"  {'-'*40}")
         for i in [1, 5, 10, 20, 30, 40, 49]:
             if i < NUM_STEPS:
@@ -224,7 +224,7 @@ def main():
     print(f"\n{'='*70}")
     print("  SUMMARY")
     print(f"{'='*70}")
-    print("  M1 optimizer offload now uses CPU-compute path when params are on GPU.")
+    print("  Optimizer offload now uses CPU-compute path when params are on GPU.")
     print("  AdamW math runs on CPU (AVX-512/SIMD via MKL). Only grad (GPU->CPU)")
     print("  and delta (CPU->GPU) are transferred. Optimizer states never leave CPU.")
     print(f"{'='*70}\n")

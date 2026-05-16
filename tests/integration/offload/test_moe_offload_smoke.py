@@ -168,8 +168,8 @@ class TestMoEOffload:
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
 
-    def test_moe_m1_only(self):
-        """MoE + M1 (optimizer offload) should run."""
+    def test_moe_optimizer_offload(self):
+        """MoE + optimizer_offload should run."""
         config = _make_moe_config(
             offload={
                 "optimizer_offload": True,
@@ -180,15 +180,15 @@ class TestMoEOffload:
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
         print(
-            f"\n[MoE+M1] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+            f"\n[MoE+optimizer_offload] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
         )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
 
-    def test_moe_m3_only(self):
-        """MoE + M3 (activation spill) should run."""
+    def test_moe_activation_spill(self):
+        """MoE + activation_spill should run."""
         config = _make_moe_config(
             offload={
                 "activation_spill": True,
@@ -199,15 +199,15 @@ class TestMoEOffload:
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
         print(
-            f"\n[MoE+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+            f"\n[MoE+activation_spill] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
         )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
 
-    def test_moe_m1_m3(self):
-        """MoE + M1+M3 should run."""
+    def test_moe_optimizer_offload_activation_spill(self):
+        """MoE + optimizer_offload+activation_spill should run."""
         config = _make_moe_config(
             offload={
                 "optimizer_offload": True,
@@ -221,7 +221,7 @@ class TestMoEOffload:
         init_loss, final_loss = _run_training(config, NUM_STEPS)
 
         print(
-            f"\n[MoE+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+            f"\n[MoE+optimizer_offload+activation_spill] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
         )
 
         assert init_loss is not None

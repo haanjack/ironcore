@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Benchmark VRAM usage with and without optimizer offloading (M1).
+Benchmark VRAM usage with and without optimizer offloading.
 
 Runs each configuration as a subprocess to avoid CUDA caching allocator
 polluting baselines between in-VRAM and offloaded runs.

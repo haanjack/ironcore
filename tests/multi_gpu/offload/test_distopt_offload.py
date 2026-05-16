@@ -5,7 +5,7 @@
 """
 DistributedOptimizer × Offload integration test.
 
-Verifies DistOpt (ZeRO-1) + M1+M3 works correctly with 2 GPUs.
+Verifies DistOpt (ZeRO-1) + optimizer_offload+activation_spill works correctly with 2 GPUs.
 Optimizer states are partitioned across ranks, with each rank's portion offloaded to host.
 """
 
@@ -143,11 +143,11 @@ def _run_training(config, num_steps):
 
 @skip_no_multi_gpu
 @pytest.mark.mp
-class TestDistOptM1:
+class TestDistOptOffload:
     """DistributedOptimizer × Offload integration test (requires 2 GPUs)."""
 
     def test_distopt_m1_m3_converges(self):
-        """DistOpt + M1+M3 should converge on both ranks."""
+        """DistOpt + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={
                 "optimizer_offload": True,
@@ -163,12 +163,12 @@ class TestDistOptM1:
         rank = int(os.getenv("RANK", "0"))
         if rank == 0:
             print(
-                f"\n[DistOpt+M1+M3] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+                f"\n[DistOpt+optimizer_offload+activation_spill] Init loss: {init_loss:.4f}, Final loss: {final_loss:.4f}, Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
             )
 
         assert init_loss is not None
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
-            f"DistOpt+M1+M3 did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+            f"DistOpt+optimizer_offload+activation_spill did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
