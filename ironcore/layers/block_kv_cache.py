@@ -22,16 +22,13 @@ Cache layout per layer:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import torch
 
 from ironcore.config import MainConfig
 from ironcore.layers.kv_cache_utils import compute_memory_mb, compute_utilization
 from ironcore.utils import get_model_dtype
 
-if TYPE_CHECKING:
-    pass
+_CPU_FALLBACK_CACHE_BYTES = 4 * 1024**3  # 4 GB — generous budget for CPU-only testing
 
 
 class BlockKVCacheManager:
@@ -180,8 +177,7 @@ class BlockKVCacheManager:
             allocated = torch.cuda.memory_allocated(device)
             available = (total_mem - allocated) * gpu_util
         else:
-            # CPU fallback: generous allocation
-            available = 4 * 1024**3  # 4 GB
+            available = _CPU_FALLBACK_CACHE_BYTES
 
         # Reserve minimum blocks: each sequence needs at least a few blocks
         min_blocks = batch_size * 2
@@ -245,7 +241,8 @@ class BlockKVCacheManager:
         """Write prefill KV into allocated blocks for a single layer.
 
         The caller must have already allocated sufficient blocks via `allocate_blocks()`.
-        Token position is advanced only on layer_idx==0 to avoid double-counting.
+        tokens_written is updated on layer_idx==0. token_positions is NOT advanced here;
+        the caller must explicitly call advance_position() after prefill completes.
 
         Args:
             layer_idx: Transformer layer index.
@@ -319,10 +316,7 @@ class BlockKVCacheManager:
         """Advance token positions for multiple sequences."""
         if not self.is_initialized:
             return
-        if isinstance(seq_ids, torch.Tensor):
-            self.token_positions[seq_ids] += tokens
-        else:
-            self.token_positions[seq_ids] += tokens
+        self.token_positions[seq_ids] += tokens
 
     def write_decode_batched(
         self,
@@ -392,20 +386,17 @@ class BlockKVCacheManager:
         if isinstance(seq_ids, torch.Tensor):
             seq_ids = seq_ids.tolist()
 
-        num_valid_list = [self.num_valid_blocks[sid].item() for sid in seq_ids]
-        token_pos_list = [self.token_positions[sid].item() for sid in seq_ids]
+        seq_id_t = torch.tensor(seq_ids, dtype=torch.long, device=self.device)
+        num_valid_list = self.num_valid_blocks[seq_id_t].tolist()
+        tokens_written_list = self.tokens_written[seq_id_t].tolist()
 
-        # Use tokens_written (updated atomically by _write_kv_to_blocks on
-        # layer_idx==0) as the true count. Fall back to token_positions if
-        # tokens_written is somehow 0 (shouldn't happen post-initialize).
-        token_pos_list = [
-            tw if tw > 0 else tp
-            for tw, tp in zip(
-                [self.tokens_written[sid].item() for sid in seq_ids],
-                token_pos_list,
-                strict=True,
+        for i, tw in enumerate(tokens_written_list):
+            assert tw > 0, (
+                f"tokens_written[{seq_ids[i]}] == 0 in get_layer_kv_gathered_batched — "
+                f"gather called before any write completed for this sequence"
             )
-        ]
+
+        token_pos_list = [int(tw) for tw in tokens_written_list]
 
         key = gather_kv_blocks_batched(
             self.physical_key_caches[layer_idx],

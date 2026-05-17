@@ -109,9 +109,9 @@ def gather_kv_blocks_batched(
 
     # Collect (num_full_blocks, remainder) per sequence and gather all full block
     # indices into one flat list for a single advanced-indexing operation.
-    flat_block_indices: list[int] = []
     per_seq_full_count: list[int] = []
     per_seq_remainder: list[int] = []
+    flat_tensors: list[torch.Tensor] = []
 
     for i, sid in enumerate(seq_ids):
         total = token_positions[i]
@@ -120,12 +120,11 @@ def gather_kv_blocks_batched(
         per_seq_full_count.append(num_full)
         per_seq_remainder.append(remainder)
         if num_full > 0:
-            indices = block_tables[sid, :num_full].long().tolist()
-            flat_block_indices.extend(indices)
+            flat_tensors.append(block_tables[sid, :num_full].long())
 
-    # Single gather for all full blocks
-    if flat_block_indices:
-        flat_idx = torch.tensor(flat_block_indices, device=device, dtype=torch.long)
+    # Single gather for all full blocks — stays on-device, no Python list round-trip
+    if flat_tensors:
+        flat_idx = torch.cat(flat_tensors, dim=0)
         gathered_flat = physical_cache[flat_idx]  # [total_full_blocks, block_size, ng, hd]
     else:
         gathered_flat = physical_cache.new_zeros(0, block_size, ng, hd)

@@ -380,12 +380,6 @@ class GRPOTrainer(BaseTrainer):
             iterators["eval"] = get_grpo_data_iterator(self.config, split="eval")
         return iterators
 
-    def _initialize(self):
-        """Override base to add eval-file iterator after standard init."""
-        super()._initialize()
-        if hasattr(self.config.data, "eval_file") and self.config.data.eval_file:
-            self.data_iterator["eval"] = get_grpo_data_iterator(self.config, split="eval")
-
     def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
         """Forward pass for a single micro-batch in GRPO training."""
         raise NotImplementedError("GRPO uses custom train_step, not _forward_micro_batch")

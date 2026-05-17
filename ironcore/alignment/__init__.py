@@ -31,7 +31,11 @@ from .rewards import (
     StrictFormatRewardFunction,
     TemplateRuleReward,
 )
-from .rollout import generate_rollouts_batched, generate_rollouts_with_prefix_cache
+from .rollout import (
+    generate_rollouts_batched,
+    generate_rollouts_paged,
+    generate_rollouts_with_prefix_cache,
+)
 
 __all__ = [
     # Loss functions
@@ -48,6 +52,7 @@ __all__ = [
     "RolloutBuffer",
     # Rollout generation
     "generate_rollouts_batched",
+    "generate_rollouts_paged",
     "generate_rollouts_with_prefix_cache",
     # Rewards
     "RewardFunction",

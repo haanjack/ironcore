@@ -77,11 +77,7 @@ def _fsdp_done_check(done_mask: torch.Tensor, device: torch.device) -> bool | No
         return None
     if not dist.is_initialized():
         return True
-    done_signal = torch.tensor(
-        0 if done_mask.all() else 1,
-        dtype=torch.int8,
-        device=device,
-    )
+    done_signal = torch.tensor(0, dtype=torch.int8, device=device)
     dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
     return done_signal.item() == 0
 
@@ -456,7 +452,7 @@ def generate_rollouts_paged(
                 bkv.allocate_blocks(seq_id=i, count=blocks_per_prompt)
 
                 single_prompt = prompt_ids[i : i + 1]
-                logits, _ = unwrapped_model.forward(single_prompt, labels=None, seq_id=i)
+                logits, _ = model(single_prompt, labels=None, seq_id=i)
 
                 bkv.advance_position(seq_id=i, tokens=prompt_len)
 

@@ -109,11 +109,8 @@ class LanguageModel(BaseModule):
         # For batched paged decode, use per-sequence positions from block cache
         if cache_position is None:
             if bkv is not None and seq_id is not None and isinstance(seq_id, list):
-                cache_position = torch.tensor(
-                    [bkv.token_positions[sid].item() for sid in seq_id],
-                    dtype=torch.long,
-                    device=input_ids.device,
-                )
+                seq_id_t = torch.tensor(seq_id, dtype=torch.long, device=input_ids.device)
+                cache_position = bkv.token_positions[seq_id_t]
             else:
                 cache_position = 0
             if use_cache and past_key_values is not None and len(past_key_values) > 0:
