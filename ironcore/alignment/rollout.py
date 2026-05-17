@@ -25,6 +25,67 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+def _build_rollout_output(
+    prompt_ids: torch.Tensor,
+    generated: torch.Tensor,
+    log_probs_list: list[torch.Tensor],
+    response_lengths: torch.Tensor,
+    group_size: int,
+    metadata: list[dict],
+) -> RolloutBuffer:
+    """Build RolloutBuffer from generation outputs (shared by both rollout paths)."""
+    B, prompt_len = prompt_ids.shape
+    G = group_size
+    total_samples = B * G
+    device = prompt_ids.device
+
+    actual_len = len(log_probs_list)
+    generated = generated[:, :actual_len]
+    response_lengths = response_lengths.clamp(max=actual_len)
+
+    expanded_prompts = (
+        prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
+    )
+    completion_ids = torch.cat([expanded_prompts, generated], dim=1)
+
+    log_probs_stacked = torch.stack(log_probs_list, dim=1)
+    old_log_probs = log_probs_stacked.sum(dim=1)
+
+    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
+
+    expanded_metadata = []
+    for meta in metadata:
+        expanded_metadata.extend([meta.copy() for _ in range(G)])
+
+    return RolloutBuffer(
+        prompt_ids=prompt_ids,
+        prompt_attention_mask=torch.ones_like(prompt_ids),
+        completion_ids=completion_ids,
+        response_ids=generated,
+        old_log_probs=old_log_probs,
+        rewards=torch.zeros(total_samples, device=device),
+        advantages=torch.zeros(total_samples, device=device),
+        group_ids=group_ids,
+        metadata=expanded_metadata,
+        response_lengths=response_lengths,
+    )
+
+
+def _fsdp_done_check(done_mask: torch.Tensor, device: torch.device) -> bool | None:
+    """Check FSDP sync: returns True if should break, False if dummy forward needed, None if not all done."""
+    if not done_mask.all():
+        return None
+    if not dist.is_initialized():
+        return True
+    done_signal = torch.tensor(
+        0 if done_mask.all() else 1,
+        dtype=torch.int8,
+        device=device,
+    )
+    dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
+    return done_signal.item() == 0
+
+
 def _expand_kv_cache(
     past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]],
     group_size: int,
@@ -255,20 +316,12 @@ def generate_rollouts_batched(
         # We communicate done status via all_reduce on the default process group
         # (separate from FSDP's PG) before each forward, so both ranks always
         # call forward the same number of times.
-        _need_fsdp_sync = dist.is_initialized()
 
         for t in range(1, max_new_tokens):
-            if _need_fsdp_sync:
-                done_signal = torch.tensor(
-                    0 if done_mask.all() else 1,
-                    dtype=torch.int8,
-                    device=device,
-                )
-                dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
-
-            if done_mask.all():
-                if _need_fsdp_sync and done_signal.item() == 0:
-                    break  # All ranks done — stop together
+            done_result = _fsdp_done_check(done_mask, device)
+            if done_result is True:
+                break
+            if done_result is False:
                 # Dummy forward to keep FSDP collective ordering in sync
                 model.forward(
                     generated[:, t - 1 : t],
@@ -308,42 +361,9 @@ def generate_rollouts_batched(
 
             generated[:, t] = next_tokens.squeeze(-1)
 
-    # Trim to actual length if all sequences reached EOS early
-    actual_len = len(log_probs_list)
-    generated = generated[:, :actual_len]
-    # Clamp response_lengths to actual_len (sequences that never hit EOS)
-    response_lengths = response_lengths.clamp(max=actual_len)
-
-    # === Step 5: Build output ===
-    # Expand prompt_ids to [B×G, prompt_len]
-    expanded_prompts = prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
-
-    # Concatenate prompts + completions
-    completion_ids = torch.cat([expanded_prompts, generated], dim=1)  # [B×G, total_len]
-
-    # Compute total log probs per sequence
-    log_probs_stacked = torch.stack(log_probs_list, dim=1)  # [B×G, gen_len]
-    old_log_probs = log_probs_stacked.sum(dim=1)  # [B×G]
-
-    # Group IDs: [0,0,0,0, 1,1,1,1, ...]
-    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
-
-    # Expand metadata
-    expanded_metadata = []
-    for meta in metadata:
-        expanded_metadata.extend([meta.copy() for _ in range(G)])
-
-    return RolloutBuffer(
-        prompt_ids=prompt_ids,
-        prompt_attention_mask=torch.ones_like(prompt_ids),
-        completion_ids=completion_ids,
-        response_ids=generated,
-        old_log_probs=old_log_probs,
-        rewards=torch.zeros(total_samples, device=device),
-        advantages=torch.zeros(total_samples, device=device),
-        group_ids=group_ids,
-        metadata=expanded_metadata,
-        response_lengths=response_lengths,
+    return _build_rollout_output(
+        prompt_ids, generated, log_probs_list,
+        response_lengths, group_size, metadata,
     )
 
 
@@ -423,33 +443,22 @@ def generate_rollouts_paged(
             except (AssertionError, ImportError):
                 pass
 
-        # Pad prompt to block boundary so prefix blocks are fully shared
         block_size = bkv.block_size
-        padded_len = ((prompt_len + block_size - 1) // block_size) * block_size
-        if padded_len > prompt_len:
-            pad = torch.full(
-                (B, padded_len - prompt_len),
-                prompt_ids[0, -1].item(),
-                dtype=prompt_ids.dtype,
-                device=device,
-            )
-            padded_prompts = torch.cat([prompt_ids, pad], dim=1)
-        else:
-            padded_prompts = prompt_ids
-
-        padded_prompt_len = padded_prompts.size(1)
-        blocks_per_prompt = padded_prompt_len // block_size
+        blocks_per_prompt = (prompt_len + block_size - 1) // block_size
 
         # === Step 1: Prefill each prompt into block cache ===
+        # No padding — prompts are written at their true length so RoPE positions
+        # match training-time recomputation exactly. Partial last blocks are
+        # handled correctly by tokens_written tracking in gather functions.
         with profile_context("grpo_paged_prefill"):
             prefill_logits_list = []
             for i in range(B):
                 bkv.allocate_blocks(seq_id=i, count=blocks_per_prompt)
 
-                single_prompt = padded_prompts[i : i + 1]
+                single_prompt = prompt_ids[i : i + 1]
                 logits, _ = unwrapped_model.forward(single_prompt, labels=None, seq_id=i)
 
-                bkv.advance_position(seq_id=i, tokens=padded_prompt_len)
+                bkv.advance_position(seq_id=i, tokens=prompt_len)
 
                 prefill_logits_list.append(logits[:, -1, :])
 
@@ -493,46 +502,35 @@ def generate_rollouts_paged(
             done_mask = done_mask | newly_done
 
         with profile_context("grpo_paged_decode_loop"):
-            _need_fsdp_sync = dist.is_initialized()
-
             for t in range(1, max_new_tokens):
-                if _need_fsdp_sync:
-                    done_signal = torch.tensor(
-                        0 if done_mask.all() else 1,
-                        dtype=torch.int8,
-                        device=device,
-                    )
-                    dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
-
-                if done_mask.all():
-                    if _need_fsdp_sync and done_signal.item() == 0:
-                        break
-                    unwrapped_model.forward(
+                done_result = _fsdp_done_check(done_mask, device)
+                if done_result is True:
+                    break
+                if done_result is False:
+                    # Dummy forward: use full batch with all completion seq_ids
+                    # to keep FSDP param-gather shapes consistent across ranks.
+                    # Done sequences write into cache but results are ignored.
+                    model.forward(
                         generated[:, t - 1 : t],
                         labels=None,
-                        seq_id=[completion_seq_ids[0]],
+                        seq_id=completion_seq_ids,
                     )
                     continue
 
                 cur_tokens = generated[:, t - 1 : t]
 
-                # Batched forward: use completion seq_ids (offset by B)
-                active_indices = [i for i in range(total_samples) if not done_mask[i]]
-                if not active_indices:
-                    break
-
-                active_seq_ids = [completion_seq_ids[i] for i in active_indices]
-                active_tokens = cur_tokens[active_indices]
-                logits, _ = unwrapped_model.forward(
-                    active_tokens, labels=None, seq_id=active_seq_ids
+                # Always forward the full batch to keep FSDP shapes consistent
+                # across DP ranks. Done sequences participate but their results
+                # are masked out below.
+                logits, _ = model.forward(
+                    cur_tokens, labels=None, seq_id=completion_seq_ids
                 )
-                unwrapped_model.advance_cache_position(active_seq_ids, 1)
+                unwrapped_model.advance_cache_position(completion_seq_ids, 1)
 
-                # Scatter logits back to full batch
-                next_logits = torch.zeros(
-                    total_samples, logits.size(-1), device=device, dtype=logits.dtype
-                )
-                next_logits[active_indices] = logits[:, 0, :]
+                # Mask out logits for done sequences (they attended to stale KV)
+                active_mask = ~done_mask
+                next_logits = logits[:, 0, :].clone()
+                next_logits[~active_mask] = 0.0
 
                 next_tokens = _sample_tokens_batched(
                     next_logits, temperature, top_p, top_k, do_sample, tp_group
@@ -542,51 +540,25 @@ def generate_rollouts_paged(
                     next_logits, next_tokens.squeeze(-1)
                 )
 
+                # Always mask log probs for done sequences
+                log_probs_list.append(next_log_probs * active_mask.float())
+
                 if eos_token_id is not None:
-                    newly_done = (~done_mask) & (next_tokens.squeeze(-1) == eos_token_id)
+                    newly_done = active_mask & (next_tokens.squeeze(-1) == eos_token_id)
                     response_lengths[newly_done] = t + 1
-                    log_probs_list.append(next_log_probs * (~done_mask).float())
                     done_mask = done_mask | newly_done
-                else:
-                    log_probs_list.append(next_log_probs)
 
                 generated[:, t] = next_tokens.squeeze(-1)
 
-        actual_len = len(log_probs_list)
-        generated = generated[:, :actual_len]
-        response_lengths = response_lengths.clamp(max=actual_len)
-
-        # === Step 5: Free all sequences and build output ===
+        # Free all sequences before building output
         for sid in completion_seq_ids:
             unwrapped_model.free_sequence_cache(sid)
         for sid in range(B):
             unwrapped_model.free_sequence_cache(sid)
 
-        expanded_prompts = (
-            prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
-        )
-        completion_ids = torch.cat([expanded_prompts, generated], dim=1)
-
-        log_probs_stacked = torch.stack(log_probs_list, dim=1)
-        old_log_probs = log_probs_stacked.sum(dim=1)
-
-        group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
-
-        expanded_metadata = []
-        for meta in metadata:
-            expanded_metadata.extend([meta.copy() for _ in range(G)])
-
-        return RolloutBuffer(
-            prompt_ids=prompt_ids,
-            prompt_attention_mask=torch.ones_like(prompt_ids),
-            completion_ids=completion_ids,
-            response_ids=generated,
-            old_log_probs=old_log_probs,
-            rewards=torch.zeros(total_samples, device=device),
-            advantages=torch.zeros(total_samples, device=device),
-            group_ids=group_ids,
-            metadata=expanded_metadata,
-            response_lengths=response_lengths,
+        return _build_rollout_output(
+            prompt_ids, generated, log_probs_list,
+            response_lengths, group_size, metadata,
         )
     finally:
         if was_training:

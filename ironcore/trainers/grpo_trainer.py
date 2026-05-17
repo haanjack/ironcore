@@ -13,7 +13,6 @@ Reference:
 from __future__ import annotations
 
 import copy
-from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import torch
@@ -29,13 +28,8 @@ from ironcore.alignment.loss.grpo import compute_advantages, compute_entropy, gr
 from ironcore.alignment.loss.kl import kl_divergence_approx
 from ironcore.alignment.rewards import RewardManager, RewardWorkerPool
 from ironcore.alignment.rollout import generate_rollouts_batched
-from ironcore.eval import get_evaluators
 from ironcore.global_vars import log_metric
-from ironcore.optimizer.lr_scheduler import get_lr_scheduler
-from ironcore.parallel import initialize_process
-from ironcore.parallel.parallel_states import initialize_model_parallel
 from ironcore.utils import is_first_rank
-from ironcore.utils.device import get_device, get_model_dtype
 
 from .base_trainer import BaseTrainer
 
@@ -387,61 +381,8 @@ class GRPOTrainer(BaseTrainer):
         return iterators
 
     def _initialize(self):
-        """Override base to use GRPO-specific data loading (raw JSONL, no preprocessing)."""
-        if self._initialized:
-            return
-
-        self.logger.info("Acquiring training resources...")
-
-        initialize_process(self.config)
-        initialize_model_parallel(
-            self.config.trainer.tensor_model_parallel_size,
-            timeout_in_minutes=int(self.config.parallel.timeout_minute)
-            if self.config.parallel.timeout_minute is not None
-            else 10,
-        )
-
-        if self.config.model.moe.use_moe and self.config.model.moe.expert_model_parallel_size > 1:
-            from ironcore.parallel.expert_parallel import initialize_expert_parallel
-
-            initialize_expert_parallel(
-                expert_model_parallel_size=self.config.model.moe.expert_model_parallel_size,
-                tensor_model_parallel_size=self.config.trainer.tensor_model_parallel_size,
-            )
-
-        # GRPO uses raw JSONL data, not preprocessed binary
-        self._setup_data_iterators()
-
-        self.evaluators = get_evaluators(
-            self.config.data.eval_datasets,
-            self.config.trainer.eval_batch_size,
-            self.config.operation.eval_samples,
-        )
-
-        from ironcore.profiler import ProfileManager
-
-        self.profiler = ProfileManager(self.config)
-
-        if self.config.profiler.data_load_profiler and "train" in self.data_iterator:
-            self.data_iterator["train"] = self.profiler.wrap_data_iterator(
-                self.data_iterator["train"]
-            )
-
-        self.model, self.optimizer = self._build_model_and_optimizer()
-        self.lr_scheduler = get_lr_scheduler(self.config, self.optimizer)
-        self._init_mfu_calculator()
-
-        self.context: dict = {"autocast": nullcontext()}
-        if self.model.device != "mps":
-            self.context["autocast"] = torch.autocast(
-                device_type=get_device(), dtype=get_model_dtype(self.config)
-            )
-
-        self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(self.config) == torch.float16))
-
-        self._initialized = True
-        self.logger.info("Resources acquired successfully.")
-
+        """Override base to add eval-file iterator after standard init."""
+        super()._initialize()
         if hasattr(self.config.data, "eval_file") and self.config.data.eval_file:
             self.data_iterator["eval"] = get_grpo_data_iterator(self.config, split="eval")
 

@@ -60,7 +60,8 @@ class BlockKVCacheManager:
         self.physical_value_caches: list[torch.Tensor] = []
         self.block_tables: torch.Tensor | None = None  # [max_batch_size, max_num_blocks_per_seq]
         self.num_valid_blocks: torch.Tensor | None = None  # [max_batch_size]
-        self.token_positions: torch.Tensor | None = None  # [max_batch_size] — actual tokens written
+        self.token_positions: torch.Tensor | None = None  # [max_batch_size] — externally managed positions
+        self.tokens_written: torch.Tensor | None = None  # [max_batch_size] — actual tokens in cache (updated by _write_kv_to_blocks)
 
         # Pool management
         self.free_blocks: list[int] = []
@@ -87,6 +88,16 @@ class BlockKVCacheManager:
             device: Device to allocate on.
             dtype: Data type for cache (defaults to model dtype).
         """
+        if self.is_initialized:
+            # Already initialized — free all sequences and reuse existing pool.
+            for sid in range(self.block_tables.shape[0]):
+                self.free_sequence(sid)
+            # Reset token positions and block tables to clean state
+            self.block_tables.fill_(-1)
+            self.num_valid_blocks.zero_()
+            self.token_positions.zero_()
+            self.tokens_written.zero_()
+            return
         if dtype is None:
             dtype = get_model_dtype(self.config)
 
@@ -127,6 +138,10 @@ class BlockKVCacheManager:
 
         # Actual number of tokens written per sequence (may be < num_valid_blocks * block_size)
         self.token_positions = torch.zeros(batch_size, dtype=torch.long, device=device)
+
+        # True count of tokens written to cache (updated atomically by _write_kv_to_blocks).
+        # This tracks writes even when token_positions hasn't been externally advanced yet.
+        self.tokens_written = torch.zeros(batch_size, dtype=torch.long, device=device)
 
         # Reference counts for shared blocks
         self.ref_counts = torch.zeros(self.num_physical_blocks, dtype=torch.long, device=device)
@@ -203,7 +218,7 @@ class BlockKVCacheManager:
                 f"Try reducing batch_size, increasing gpu_memory_utilization, or using CPU offloading."
             )
 
-        current_valid = self.num_valid_blocks[seq_id].item()
+        current_valid = self.num_valid_blocks[seq_id]
         if current_valid + count > self.max_num_blocks_per_seq:
             raise RuntimeError(
                 f"Sequence {seq_id} exceeds max blocks: "
@@ -248,7 +263,7 @@ class BlockKVCacheManager:
 
         seq_len = key.shape[0]
         num_blocks_needed = (seq_len + self.block_size - 1) // self.block_size
-        current_blocks = self.num_valid_blocks[seq_id].item()
+        current_blocks = self.num_valid_blocks[seq_id]
 
         if current_blocks < num_blocks_needed:
             raise RuntimeError(
@@ -286,11 +301,11 @@ class BlockKVCacheManager:
         seq_len = key.shape[0]
         assert seq_len == 1, f"write_decode expects single token, got seq_len={seq_len}"
 
-        total_tokens = self._get_seq_position(seq_id)
+        total_tokens = self.token_positions[seq_id]
         logical_block_idx = total_tokens // self.block_size
 
         # Allocate new block if current position exceeds allocated blocks
-        if layer_idx == 0 and logical_block_idx >= self.num_valid_blocks[seq_id].item():
+        if layer_idx == 0 and logical_block_idx >= self.num_valid_blocks[seq_id]:
             self.allocate_blocks(seq_id, 1)
 
         self._write_kv_to_blocks(layer_idx, seq_id, key, value)
@@ -298,17 +313,16 @@ class BlockKVCacheManager:
     def advance_position(self, seq_id: int, tokens: int):
         if not self.is_initialized:
             return
-        self.token_positions[seq_id] = self.token_positions[seq_id].item() + tokens
+        self.token_positions[seq_id] += tokens
 
-    def advance_positions_batched(self, seq_ids: list[int], tokens: int):
+    def advance_positions_batched(self, seq_ids: list[int] | torch.Tensor, tokens: int):
         """Advance token positions for multiple sequences."""
         if not self.is_initialized:
             return
         if isinstance(seq_ids, torch.Tensor):
             self.token_positions[seq_ids] += tokens
         else:
-            for sid in seq_ids:
-                self.token_positions[sid] = self.token_positions[sid].item() + tokens
+            self.token_positions[seq_ids] += tokens
 
     def write_decode_batched(
         self,
@@ -381,10 +395,16 @@ class BlockKVCacheManager:
         num_valid_list = [self.num_valid_blocks[sid].item() for sid in seq_ids]
         token_pos_list = [self.token_positions[sid].item() for sid in seq_ids]
 
-        # Fallback: when blocks are written but positions not yet advanced
+        # Use tokens_written (updated atomically by _write_kv_to_blocks on
+        # layer_idx==0) as the true count. Fall back to token_positions if
+        # tokens_written is somehow 0 (shouldn't happen post-initialize).
         token_pos_list = [
-            (tp if tp > 0 else nv * self.block_size)
-            for tp, nv in zip(token_pos_list, num_valid_list, strict=True)
+            tw if tw > 0 else tp
+            for tw, tp in zip(
+                [self.tokens_written[sid].item() for sid in seq_ids],
+                token_pos_list,
+                strict=True,
+            )
         ]
 
         key = gather_kv_blocks_batched(
@@ -421,9 +441,9 @@ class BlockKVCacheManager:
         key_cache = self.physical_key_caches[layer_idx]
         value_cache = self.physical_value_caches[layer_idx]
 
-        start_token = self.token_positions[seq_id].item()
+        start_token = self.token_positions[seq_id]
         total_new_tokens = key.shape[0]
-        num_valid = self.num_valid_blocks[seq_id].item()
+        num_valid = self.num_valid_blocks[seq_id]
 
         token_offset = 0
         while token_offset < total_new_tokens:
@@ -436,7 +456,7 @@ class BlockKVCacheManager:
                     f"but only {num_valid} blocks allocated for seq {seq_id}"
                 )
 
-            physical_block_idx = self.block_tables[seq_id, logical_block_idx].item()
+            physical_block_idx = self.block_tables[seq_id, logical_block_idx]
 
             remaining_in_block = self.block_size - pos_in_block
             tokens_to_write = min(remaining_in_block, total_new_tokens - token_offset)
@@ -450,6 +470,10 @@ class BlockKVCacheManager:
             ]
 
             token_offset = key_end
+
+        # Track actual tokens written (only on layer 0 to avoid double-counting)
+        if layer_idx == 0:
+            self.tokens_written[seq_id] = start_token + total_new_tokens
 
     def share_prefix(self, src_seq_id: int, dst_seq_ids: list[int]):
         """Share prefix blocks from source to destinations via reference counting.
@@ -481,6 +505,7 @@ class BlockKVCacheManager:
             ]
             self.num_valid_blocks[dst_id] = src_num_blocks
             self.token_positions[dst_id] = self.token_positions[src_seq_id]
+            self.tokens_written[dst_id] = self.tokens_written[src_seq_id]
 
         # Increment reference counts for shared blocks (one per destination)
         src_block_indices = self.block_tables[src_seq_id, :src_num_blocks]
@@ -507,6 +532,16 @@ class BlockKVCacheManager:
         # Decrement reference counts
         self.ref_counts.index_add_(0, block_indices, -torch.ones_like(block_indices))
 
+        # Guard: ref counts must never go negative (indicates double-free or ref bug)
+        neg_mask = self.ref_counts[block_indices] < 0
+        if neg_mask.any():
+            bad = block_indices[neg_mask].tolist()
+            self.ref_counts.clamp_min_(0)
+            raise RuntimeError(
+                f"ref_counts went negative for blocks {bad} on free_sequence({seq_id}). "
+                f"This indicates a reference counting bug."
+            )
+
         # Collect blocks whose ref count dropped to 0
         zero_mask = self.ref_counts[block_indices] == 0
         freed_indices = block_indices[zero_mask]
@@ -519,6 +554,7 @@ class BlockKVCacheManager:
         self.block_tables[seq_id, :num_valid] = -1
         self.num_valid_blocks[seq_id] = 0
         self.token_positions[seq_id] = 0
+        self.tokens_written[seq_id] = 0
 
     def get_layer_kv_gathered(
         self, layer_idx: int, seq_id: int
@@ -538,13 +574,11 @@ class BlockKVCacheManager:
         if not self.is_initialized:
             raise RuntimeError("Cache not initialized")
 
-        num_valid = self.num_valid_blocks[seq_id].item()
-        total_tokens = self.token_positions[seq_id].item()
+        total_tokens = self.tokens_written[seq_id].item()
 
-        # When blocks are written (e.g., during multi-layer prefill) but
-        # token_positions hasn't been advanced yet, use block count as fallback
-        if total_tokens == 0 and num_valid > 0:
-            total_tokens = num_valid * self.block_size
+        # Fall back to token_positions if tokens_written not yet set
+        if total_tokens == 0:
+            total_tokens = self.token_positions[seq_id].item()
 
         if total_tokens == 0:
             ng, hd = self.num_local_kv_groups, self.head_dim

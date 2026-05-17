@@ -258,6 +258,11 @@ class LanguageModel(BaseModule):
                 )
                 logits, _ = out
             elif use_paged:
+                if batch_size > 1:
+                    raise ValueError(
+                        "Paged KV cache generate() only supports batch_size=1. "
+                        "For batched generation, use generate_rollouts_paged()."
+                    )
                 out = self.forward(
                     cur_input,
                     labels=None,

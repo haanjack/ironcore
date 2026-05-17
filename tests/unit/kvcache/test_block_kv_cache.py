@@ -372,9 +372,13 @@ class TestPoolExhaustion:
 
         original_compute = BlockKVCacheManager._compute_pool_size
         BlockKVCacheManager._compute_pool_size = lambda self, *a, **kw: 8
-        mgr = BlockKVCacheManager(config)
-        mgr.initialize(batch_size=4, num_layers=1, device=torch.device("cpu"), dtype=torch.float32)
-        BlockKVCacheManager._compute_pool_size = original_compute
+        try:
+            mgr = BlockKVCacheManager(config)
+            mgr.initialize(
+                batch_size=4, num_layers=1, device=torch.device("cpu"), dtype=torch.float32
+            )
+        finally:
+            BlockKVCacheManager._compute_pool_size = original_compute
 
         mgr.allocate_blocks(seq_id=0, count=8)
 

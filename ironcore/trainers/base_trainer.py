@@ -101,6 +101,10 @@ class BaseTrainer(ABC):
         self.logger = get_logger()
         self.control = TrainingControl(config)
 
+    def _setup_data_iterators(self):
+        """Initialize data iterators. Override in subclasses for custom data loading."""
+        self.data_iterator = get_data_iterator(self.config)
+
     def _initialize(self):
         """Acquire heavy resources needed for training.
 
