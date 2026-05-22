@@ -167,7 +167,6 @@ class TestActivationSpillManager:
         engine = MemoryTransferEngine(device=device)
 
         manager = ActivationSpillManager.from_config(
-            config=config,
             pool=pool,
             engine=engine,
             num_layers=4,

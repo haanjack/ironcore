@@ -76,12 +76,10 @@ def _adamw_offloaded_step_cpu_compute(
 
     VRAM cost: one param-sized buffer for the delta (in p.dtype), instead of
     2x param-sized buffers for exp_avg + exp_avg_sq (in fp32).
+
+    Called only from _adamw_offloaded_step which has already initialized state
+    and incremented state["step"]. Do not re-initialize or re-increment here.
     """
-    if len(state) == 0:
-        _create_offloaded_state(p, state, state_dtype, amsgrad)
-
-    state["step"] += 1
-
     # Transfer gradient GPU -> CPU (single D2H transfer)
     grad_cpu_f32 = grad.to(device="cpu", dtype=torch.float32, non_blocking=False)
 
@@ -198,7 +196,7 @@ def _adamw_offloaded_step(
         p.data.addcdiv_(exp_avg.to(p.dtype), denom.to(p.dtype), value=-step_size)
 
     finally:
-        # D2H: write states back to host in storage dtype
+        # States never left CPU; cast back to storage dtype
         state["exp_avg"] = exp_avg.to(device="cpu", dtype=state_dtype, non_blocking=False)
         state["exp_avg_sq"] = exp_avg_sq.to(device="cpu", dtype=state_dtype, non_blocking=False)
         if amsgrad and max_exp_avg_sq is not None:

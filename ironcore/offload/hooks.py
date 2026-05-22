@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING
 import torch
 
 if TYPE_CHECKING:
-    from ironcore.config import OffloadConfig
     from ironcore.offload.memory_pool import PinnedMemoryPool
     from ironcore.offload.transfer_engine import MemoryTransferEngine
 
@@ -109,7 +108,12 @@ class _SpillCheckpointFn(torch.autograd.Function):
         # Recompute forward with grad enabled, using saved RNG state for
         # consistent dropout masks
         if ctx.had_cuda_rng:
-            with torch.random.fork_rng(devices=[ctx.activation_device.index]):
+            _dev_idx = (
+                ctx.activation_device.index
+                if ctx.activation_device.index is not None
+                else torch.cuda.current_device()
+            )
+            with torch.random.fork_rng(devices=[_dev_idx]):
                 torch.cuda.set_rng_state(ctx.fwd_rng_state, device=ctx.activation_device)
                 with torch.enable_grad():
                     output = ctx.block_fn(activation, *aux_args)
@@ -137,9 +141,7 @@ class _SpillCheckpointFn(torch.autograd.Function):
         # for the same layer. The autograd engine will call backward for sub_layer=0
         # next, so overlapping this H2D with gradient computation reduces wait time.
         if ctx.scheduler is not None and ctx.sub_layer == 1:
-            ctx.scheduler.prefetch_sublayer_activation(
-                ctx.layer_idx, 0, ctx.activation_device
-            )
+            ctx.scheduler.prefetch_sublayer_activation(ctx.layer_idx, 0, ctx.activation_device)
 
         # None for block_fn, scheduler, layer_idx, sub_layer
         # activation.grad for the spilled input
@@ -221,13 +223,12 @@ class ActivationSpillManager:
     @classmethod
     def from_config(
         cls,
-        config: OffloadConfig,
         pool: PinnedMemoryPool,
         engine: MemoryTransferEngine,
         num_layers: int,
         gradient_accumulation_steps: int = 1,
     ) -> ActivationSpillManager:
-        """Create an ActivationSpillManager from OffloadConfig."""
+        """Create an ActivationSpillManager."""
         return cls(
             pool=pool,
             engine=engine,

@@ -26,6 +26,8 @@ import torch
 if TYPE_CHECKING:
     from ironcore.config import OffloadConfig
 
+from ironcore.offload._utils import _coalesce_free_list, _element_size
+
 # Lazy import for system_info to avoid hard dependency when pool is not used
 _AVAILABLE_HOST_MEMORY_GB = None
 _TOTAL_HOST_MEMORY_GB = None
@@ -47,20 +49,6 @@ def _total_host_memory_gb() -> float:
 
         _TOTAL_HOST_MEMORY_GB = _fn()
     return _TOTAL_HOST_MEMORY_GB
-
-
-_ELEMENT_SIZES: dict[torch.dtype, int] = {
-    torch.float32: 4,
-    torch.float16: 2,
-    torch.bfloat16: 2,
-    torch.int64: 8,
-    torch.int32: 4,
-    torch.uint8: 1,
-}
-
-
-def _element_size(dtype: torch.dtype) -> int:
-    return _ELEMENT_SIZES.get(dtype) or torch.tensor([], dtype=dtype).element_size()
 
 
 class PinnedMemoryPool:
@@ -303,29 +291,5 @@ class _PinnedChunk:
             return None
 
         offset, num_bytes = self._live_allocations.pop(ptr)
-
-        # Coalesce with adjacent free regions. The freed region may bridge
-        # multiple existing free entries, so we iterate until no more merges
-        # are possible (fixed-point) rather than single-pass, which can miss
-        # regions that become adjacent only after the merged span grows.
-        merged_start = offset
-        merged_end = offset + num_bytes
-
-        changed = True
-        while changed:
-            changed = False
-            remaining = []
-            for region_start, region_numel in self._free_list:
-                region_end = region_start + region_numel
-                if region_end == merged_start:
-                    merged_start = region_start
-                    changed = True
-                elif region_start == merged_end:
-                    merged_end = region_end
-                    changed = True
-                else:
-                    remaining.append((region_start, region_numel))
-            self._free_list = remaining
-
-        self._free_list.append((merged_start, merged_end - merged_start))
+        self._free_list = _coalesce_free_list(self._free_list, offset, num_bytes)
         return num_bytes

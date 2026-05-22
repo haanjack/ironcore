@@ -197,7 +197,6 @@ class ExecutionScheduler:
 
             num_layers = len(model.layers) if isinstance(model, TransformerModel) else 0
             spill_manager = ActivationSpillManager.from_config(
-                config=config,
                 pool=pool,
                 engine=engine,
                 num_layers=num_layers,
@@ -472,9 +471,7 @@ class ExecutionScheduler:
             # Backward order: layer N sub=0 → layer N-1 sub=1, so after
             # finishing layer N, the next activation needed is N-1 sub=1.
             if layer_idx > 0:
-                self._spill_manager.prefetch_activation(
-                    layer_idx - 1, 1, self._device
-                )
+                self._spill_manager.prefetch_activation(layer_idx - 1, 1, self._device)
         # Weight streaming only: don't evict or discard — weights stay on GPU
         # for the next micro-batch. Eviction happens in on_backward_pass_end().
 

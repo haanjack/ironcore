@@ -25,19 +25,7 @@ import torch
 if TYPE_CHECKING:
     from ironcore.offload.config import OffloadConfig
 
-
-_ELEMENT_SIZES: dict[torch.dtype, int] = {
-    torch.float32: 4,
-    torch.float16: 2,
-    torch.bfloat16: 2,
-    torch.int64: 8,
-    torch.int32: 4,
-    torch.uint8: 1,
-}
-
-
-def _element_size(dtype: torch.dtype) -> int:
-    return _ELEMENT_SIZES.get(dtype) or torch.tensor([], dtype=dtype).element_size()
+from ironcore.offload._utils import _coalesce_free_list, _element_size
 
 
 class _GPUChunk:
@@ -119,28 +107,7 @@ class _GPUChunk:
             return None
 
         offset, num_bytes = self._live_allocations.pop(ptr)
-
-        # Coalesce with adjacent free regions (fixed-point to handle bridges)
-        merged_start = offset
-        merged_end = offset + num_bytes
-
-        changed = True
-        while changed:
-            changed = False
-            remaining = []
-            for region_start, region_numel in self._free_list:
-                region_end = region_start + region_numel
-                if region_end == merged_start:
-                    merged_start = region_start
-                    changed = True
-                elif region_start == merged_end:
-                    merged_end = region_end
-                    changed = True
-                else:
-                    remaining.append((region_start, region_numel))
-            self._free_list = remaining
-
-        self._free_list.append((merged_start, merged_end - merged_start))
+        self._free_list = _coalesce_free_list(self._free_list, offset, num_bytes)
         return num_bytes
 
 
