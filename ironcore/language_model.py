@@ -108,9 +108,12 @@ class LanguageModel(BaseModule):
         # Determine cache position
         # For batched paged decode, use per-sequence positions from block cache
         if cache_position is None:
-            if bkv is not None and seq_id is not None and isinstance(seq_id, list):
-                seq_id_t = torch.tensor(seq_id, dtype=torch.long, device=input_ids.device)
-                cache_position = bkv.token_positions[seq_id_t]
+            if bkv is not None and seq_id is not None:
+                if isinstance(seq_id, list):
+                    seq_id_t = torch.tensor(seq_id, dtype=torch.long, device=input_ids.device)
+                    cache_position = bkv.token_positions[seq_id_t]
+                else:
+                    cache_position = int(bkv.token_positions[seq_id].item())
             else:
                 cache_position = 0
             if use_cache and past_key_values is not None and len(past_key_values) > 0:
@@ -241,6 +244,12 @@ class LanguageModel(BaseModule):
             self.initialize_cache(batch_size, input_ids.device)
         elif use_paged:
             self.initialize_cache(batch_size, input_ids.device)
+            assert self.block_kv_cache_manager is not None
+            prompt_len = input_ids.size(1)
+            blocks_needed = (
+                prompt_len + self.block_kv_cache_manager.block_size - 1
+            ) // self.block_kv_cache_manager.block_size
+            self.block_kv_cache_manager.allocate_blocks(0, blocks_needed)
 
         for step in range(max_new_tokens):
             cur_input = input_ids if step == 0 else next_token

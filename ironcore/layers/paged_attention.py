@@ -50,8 +50,10 @@ def gather_kv_blocks(
         idx = valid_indices[0]
         gathered = physical_cache[idx, :remainder].unsqueeze(0)
     elif remainder == 0:
-        # All blocks fully filled
-        gathered = physical_cache[valid_indices].reshape(
+        # All blocks fully filled — index by num_full_blocks, not num_valid_blocks,
+        # to avoid over-gathering pre-allocated-but-not-yet-written blocks.
+        full_indices = block_table_row[:num_full_blocks].long()
+        gathered = physical_cache[full_indices].reshape(
             1, total_tokens, -1, physical_cache.shape[3]
         )
     else:
