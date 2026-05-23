@@ -78,3 +78,18 @@ def get_dataset_base_dir() -> Path:
     """Get dataset path."""
     load_dotenv()
     return Path(os.getenv("DATASET_DIR", "./"))
+
+
+def sanitize_path_component(path_component: str) -> str:
+    """Sanitize a path component to prevent directory traversal attacks."""
+    return os.path.basename(path_component)
+
+
+def validate_path_within_dir(path: Path, base_dir: Path) -> bool:
+    """Validate that a path resolves within the base directory."""
+    try:
+        resolved_path = path.resolve()
+        resolved_base = base_dir.resolve()
+        return str(resolved_path).startswith(str(resolved_base))
+    except (OSError, ValueError):
+        return False

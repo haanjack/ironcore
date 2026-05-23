@@ -1,4 +1,4 @@
-# Copyright (c) 2025-2026 Jaegeun Han
+# Copyright (c) 2025-2026 Jaegean Han
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -8,10 +8,9 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Optional, Union, get_args, get_origin
 
-import torch
-from dotenv import load_dotenv
-
 from ironcore.utils import load_yaml_config
+from ironcore.utils.config import sanitize_path_component as _sanitize_path_component
+from ironcore.utils.config import validate_path_within_dir as _validate_path_within_dir
 
 from .config import BaseConfig
 from .config_alignment import AlignmentConfig
@@ -25,32 +24,6 @@ from .config_peft import LoRAConfig as LoRAConfig
 from .config_peft import PEFTConfig
 from .config_trainer import InitConfig, OperationConfig, TrainerConfig
 from .config_utils import ProfilerConfig, UtilsConfig
-
-load_dotenv()
-
-
-def _sanitize_path_component(path_component: str) -> str:
-    """
-    Sanitize a path component to prevent directory traversal attacks.
-
-    Removes any directory components and only keeps the base filename.
-    """
-    return os.path.basename(path_component)
-
-
-def _validate_path_within_dir(path: Path, base_dir: Path) -> bool:
-    """
-    Validate that a path resolves to a location within the base directory.
-
-    This prevents path traversal attacks where malicious input like
-    '../../etc/passwd' could be used to access files outside the intended directory.
-    """
-    try:
-        resolved_path = path.resolve()
-        resolved_base = base_dir.resolve()
-        return str(resolved_path).startswith(str(resolved_base))
-    except (OSError, ValueError):
-        return False
 
 
 @dataclass
@@ -145,6 +118,8 @@ def _config_validation(config: MainConfig):
         "none",
     ]:
         raise ValueError("Available positional embedding options are ['absolute', 'rope', 'none'].")
+
+    import torch
 
     if torch.cuda.device_count() == 0 and config.trainer.tensor_model_parallel_size > 1:
         raise ValueError("tensor_model_parallel_size should be 1 in non-CUDA environments")
