@@ -16,8 +16,19 @@ from ironcore.dataloader.dataset import (
 from ironcore.dataloader.dataset import (
     StreamingDataset as WeightedMixingDataset,
 )
+from ironcore.dataloader.random_dataset import (
+    RandomTokenDataset,
+    get_random_data_iterator,
+)
 
-__all__ = ["UniversalCollator", "WeightedMixingDataset", "BinaryDataset", "get_data_iterator"]
+__all__ = [
+    "UniversalCollator",
+    "WeightedMixingDataset",
+    "BinaryDataset",
+    "RandomTokenDataset",
+    "get_data_iterator",
+    "get_random_data_iterator",
+]
 
 # Allowed base directory for data config files
 _DATA_CONFIG_BASE_DIR = Path("configs/data").resolve()
@@ -33,6 +44,14 @@ def get_data_iterator(config):
     Returns:
         dict: Dictionary with 'train', 'eval', 'test' iterators
     """
+    # Check for random data mode (no preprocessing required)
+    if getattr(config.data, "use_random_data", False):
+        return get_random_data_iterator(
+            seq_length=config.model.max_seq_len,
+            vocab_size=getattr(config.model, "padded_vocab_size", 50304),
+            batch_size=config.trainer.micro_batch_size,
+        )
+
     # Load data configuration with path validation
     if hasattr(config.data, "config_path") and config.data.config_path:
         config_path = Path(config.data.config_path)
