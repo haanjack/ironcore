@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import copy
 import os
 import re
 from pathlib import Path
@@ -93,3 +94,17 @@ def validate_path_within_dir(path: Path, base_dir: Path) -> bool:
         return str(resolved_path).startswith(str(resolved_base))
     except (OSError, ValueError):
         return False
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """Deep-merge two dicts. Override values take precedence.
+
+    Returns a new merged dictionary (does not mutate inputs).
+    """
+    result = copy.deepcopy(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result

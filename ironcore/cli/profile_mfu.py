@@ -8,13 +8,9 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from .utils import (
-    deep_merge,
-    estimate_params,
-    launch_training,
-    load_yaml_config,
-    write_temp_config,
-)
+from ironcore.utils import deep_merge, estimate_params, load_yaml_config
+
+from .utils import launch_training, write_temp_config
 
 
 def run_profile_mfu(args: Namespace) -> None:

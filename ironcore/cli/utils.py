@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared CLI utilities for experiment tools."""
 
-import copy
 import os
 import re
 import subprocess
@@ -15,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from ironcore.utils import deep_merge, load_yaml_config
 
 
 def launch_training(
@@ -121,25 +122,6 @@ def parse_metrics_from_stdout(stdout: str) -> dict[str, Any]:
     return metrics
 
 
-def deep_merge(base: dict, override: dict) -> dict:
-    """Deep-merge two dicts. Override values take precedence.
-
-    Args:
-        base: Base dictionary.
-        override: Dictionary with values to override.
-
-    Returns:
-        New merged dictionary (does not mutate inputs).
-    """
-    result = copy.deepcopy(base)
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
 def write_temp_config(
     base_config_dict: dict,
     overrides: dict | None = None,
@@ -187,19 +169,6 @@ def write_temp_config(
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     return output_path
-
-
-def load_yaml_config(config_path: str | Path) -> dict:
-    """Load a YAML config file as a plain dict.
-
-    Args:
-        config_path: Path to the YAML file.
-
-    Returns:
-        Config as a dictionary.
-    """
-    with open(config_path) as f:
-        return yaml.safe_load(f)
 
 
 def print_results_table(results: list[dict], columns: list[str], title: str = "") -> None:
@@ -311,40 +280,6 @@ def _extract_config_metadata(config: dict) -> dict[str, Any]:
             "train_steps": operation.get("train_steps", "?"),
         },
     }
-
-
-def estimate_params(
-    d_model: int,
-    d_ffn: int,
-    layers: int,
-    heads: int,
-    head_dim: int,
-    groups: int,
-    vocab_size: int = 50257,
-    activation_type: str = "gelu",
-) -> int:
-    """Estimate parameter count from model dimensions.
-
-    Args:
-        d_model: Model hidden dimension.
-        d_ffn: FFN intermediate dimension.
-        layers: Number of transformer layers.
-        heads: Number of attention heads.
-        head_dim: Dimension per attention head.
-        groups: Number of KV groups (GQA).
-        vocab_size: Vocabulary size.
-        activation_type: Activation function ("gelu", "silu", "swiglu", etc.).
-
-    Returns:
-        Estimated parameter count.
-    """
-    embed = vocab_size * d_model
-    attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
-    # SwiGLU/GateMLP uses 3 projections (gate, up, down); standard MLP uses 2
-    mlp_multiplier = 3 if activation_type in ("swiglu", "geglu") else 2
-    mlp = mlp_multiplier * d_model * d_ffn
-    ln = 4 * d_model
-    return embed + layers * (attn + mlp + ln) + 2 * d_model
 
 
 def load_full_config(config_path: str | Path) -> "MainConfig":  # noqa: F821

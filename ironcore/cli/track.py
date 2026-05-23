@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from .utils import load_yaml_config
+from ironcore.utils import load_yaml_config
 
 BACKEND_FIELDS = {
     "tensorboard": {"tensorboard_dir": "./runs/tensorboard"},

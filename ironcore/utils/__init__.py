@@ -3,9 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .config import (
+    deep_merge,
     env_var_constructor,
     get_dataset_base_dir,
     load_yaml_config,
+    sanitize_path_component,
+    validate_path_within_dir,
 )
 from .device import (
     get_device,
@@ -21,14 +24,18 @@ from .memory import (
     get_detailed_memory_breakdown,
     get_memory_usage,
 )
+from .mfu import MFUCalculator, MFUResult, compute_tflops, estimate_params
 from .profiling import profile_context, profile_function
 from .timer import Timer
 
 __all__ = [
     # config
+    "deep_merge",
     "env_var_constructor",
     "get_dataset_base_dir",
     "load_yaml_config",
+    "sanitize_path_component",
+    "validate_path_within_dir",
     # device
     "get_device",
     "get_model_dtype",
@@ -36,6 +43,11 @@ __all__ = [
     "is_last_rank",
     "print_last_rank",
     "print_rank_0",
+    # mfu
+    "MFUCalculator",
+    "MFUResult",
+    "compute_tflops",
+    "estimate_params",
     # memory
     "bytes_to_mib",
     "format_memory_report",

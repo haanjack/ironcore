@@ -132,3 +132,25 @@ def compute_tflops(
     """Convenience function to compute TFLOPS/s/GPU from ModelConfig."""
     calc = MFUCalculator.from_config(config, vocab_size)
     return calc.compute_tflops(batch_size, seq_len, step_time_seconds, num_gpus)
+
+
+def estimate_params(
+    d_model: int,
+    d_ffn: int,
+    layers: int,
+    heads: int,
+    head_dim: int,
+    groups: int,
+    vocab_size: int = 50257,
+    activation_type: str = "gelu",
+) -> int:
+    """Estimate parameter count from model dimensions.
+
+    SwiGLU/GateMLP uses 3 projections (gate, up, down); standard MLP uses 2.
+    """
+    embed = vocab_size * d_model
+    attn = d_model * (heads * head_dim + 2 * groups * head_dim) + (heads * head_dim) * d_model
+    mlp_multiplier = 3 if activation_type in ("swiglu", "geglu") else 2
+    mlp = mlp_multiplier * d_model * d_ffn
+    ln = 4 * d_model
+    return embed + layers * (attn + mlp + ln) + 2 * d_model

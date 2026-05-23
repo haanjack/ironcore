@@ -8,14 +8,9 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from .utils import (
-    deep_merge,
-    launch_training,
-    load_yaml_config,
-    parse_losses_from_stdout,
-    print_results_table,
-    write_temp_config,
-)
+from ironcore.utils import deep_merge, load_yaml_config
+
+from .utils import launch_training, parse_losses_from_stdout, print_results_table, write_temp_config
 
 
 def run_verify_parity(args: Namespace) -> None:

@@ -6,7 +6,9 @@
 from pathlib import Path
 from typing import Any
 
-from .utils import estimate_params, gather_metadata, load_yaml_config
+from ironcore.utils import estimate_params, load_yaml_config
+
+from .utils import gather_metadata
 
 REPORT_TEMPLATE = """\
 # Experiment: {name}

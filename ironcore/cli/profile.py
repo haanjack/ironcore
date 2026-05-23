@@ -7,7 +7,9 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from .utils import deep_merge, load_yaml_config, write_temp_config
+from ironcore.utils import deep_merge, load_yaml_config
+
+from .utils import write_temp_config
 
 PROFILE_PRESETS = {
     "quick": {

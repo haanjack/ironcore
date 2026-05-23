@@ -9,15 +9,9 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
-from .utils import (
-    deep_merge,
-    estimate_params,
-    launch_training,
-    load_yaml_config,
-    parse_losses_from_stdout,
-    print_results_table,
-    write_temp_config,
-)
+from ironcore.utils import deep_merge, estimate_params, load_yaml_config
+
+from .utils import launch_training, parse_losses_from_stdout, print_results_table, write_temp_config
 
 
 def run_analyze_scaling(args: Namespace) -> None:
