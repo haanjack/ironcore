@@ -282,49 +282,5 @@ def _extract_config_metadata(config: dict) -> dict[str, Any]:
     }
 
 
-def load_full_config(config_path: str | Path) -> "MainConfig":  # noqa: F821
-    """Load a fully resolved MainConfig from a YAML file.
-
-    Constructs a MainConfig with all sub-config defaults, then loads
-    overrides from the YAML file (including external config references).
-
-    Args:
-        config_path: Path to training config YAML.
-
-    Returns:
-        Fully resolved MainConfig.
-    """
-    from argparse import Namespace
-
-    from ironcore.config import (
-        AlignmentConfig,
-        DataConfig,
-        InitConfig,
-        MainConfig,
-        ModelConfig,
-        OperationConfig,
-        OptimConfig,
-        ParallelConfig,
-        PEFTConfig,
-        ProfilerConfig,
-        TrainerConfig,
-        UtilsConfig,
-        _load_config_from_yaml,
-    )
-
-    config = MainConfig(
-        model=ModelConfig(),
-        init=InitConfig(),
-        optim=OptimConfig(),
-        data=DataConfig(),
-        parallel=ParallelConfig(),
-        trainer=TrainerConfig(),
-        operation=OperationConfig(),
-        utils=UtilsConfig(),
-        profiler=ProfilerConfig(),
-        peft=PEFTConfig(),
-        alignment=AlignmentConfig(),
-    )
-    args = Namespace(config_path=str(config_path))
-    _load_config_from_yaml(config, args)
-    return config
+# Re-export from the canonical location (used by other cli modules)
+from ironcore.train import load_full_config  # noqa: E402, F401
