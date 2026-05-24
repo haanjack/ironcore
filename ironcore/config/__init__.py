@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from argparse import ArgumentParser, Namespace
+from argparse import Namespace
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Optional, Union, get_args, get_origin
+from typing import Any
 
 from ironcore.utils import load_yaml_config
 from ironcore.utils.config import sanitize_path_component as _sanitize_path_component
@@ -142,34 +142,6 @@ def _config_validation(config: MainConfig):
             )
 
 
-# arguments utilities
-def parse_args():
-    """Parse command line arguments."""
-
-    parser = ArgumentParser(prog="trainer configuration", description="LLM trainer")
-
-    # configuration arguments - use prefixed names to avoid collisions
-    for group_field in fields(MainConfig):
-        group_name = group_field.name
-        for field_ in fields(group_field.type):
-            # Prefix argument with group name (e.g., --model.name, --trainer.batch_size)
-            arg_name = f"--{group_name}.{field_.name}"
-            parser.add_argument(arg_name, **field_.metadata)
-
-    parser.add_argument("--config-path", type=str, default=None, help="yaml config file path")
-    parser.add_argument(
-        "--local-rank",
-        dest="local_rank",
-        default=0,
-        type=int,
-        help="local rank for ddp distributed training",
-    )
-
-    # parse argument inputs
-    args = parser.parse_args()
-    return args
-
-
 def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
     """build data config."""
 
@@ -210,59 +182,6 @@ def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
         output_list.append(loaded_config)
 
     return output_list
-
-
-def _update_config_from_args(config: dataclass, args):
-    """update config from command line using recursive dot-notation."""
-
-    arg_dict = vars(args)
-
-    def set_recursive_attr(obj, attr_path, value):
-        parts = attr_path.split(".")
-        for part in parts[:-1]:
-            obj = getattr(obj, part)
-
-        target_attr = parts[-1]
-
-        # Find the field type for casting
-        field_info = [f for f in fields(obj) if f.name == target_attr]
-        if not field_info:
-            raise AttributeError(f"Attribute {target_attr} not found")
-
-        field_type = field_info[0].type
-
-        # Handle Optional/Union types
-        if get_origin(field_type) is Optional:
-            type_ = get_args(field_type)[0]
-        elif get_origin(field_type) is Union:
-            # Simple heuristic for common types
-            for type_cls in [int, float, str, list, bool]:
-                if isinstance(value, type_cls):
-                    type_ = type_cls
-                    break
-        else:
-            type_ = field_type
-
-        # Handle Boolean strings from argparse
-        if type_ is bool and isinstance(value, str):
-            value = value.lower() in ("true", "1", "yes")
-
-        setattr(obj, target_attr, type_(value))
-
-    for arg_name, arg_value in arg_dict.items():
-        if arg_value is None or arg_name in ["config_path", "local_rank"]:
-            continue
-        try:
-            # The attribute path from argparse already contains the group,
-            # so we should start from the top-level `config` object.
-            set_recursive_attr(config, arg_name, arg_value)
-        except (AttributeError, IndexError):
-            # This can happen if an argument from argparse doesn't map to a config path.
-            # We can either warn or ignore. For now, we'll ignore to match the
-            # previous behavior of trying the next group.
-            continue
-        except Exception as e:
-            raise ValueError(f"Error processing argument '{arg_name}': {e}")
 
 
 def _update_config_from_yaml(config: dataclass, config_group_key: str, config_group: dict):
@@ -372,71 +291,6 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
         else:
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config)
-
-
-def load_trainer_config() -> MainConfig:
-    """config trainer's arguments from command line and config file."""
-
-    config = MainConfig(
-        model=ModelConfig(),
-        init=InitConfig(),
-        optim=OptimConfig(),
-        data=DataConfig(),
-        parallel=ParallelConfig(),
-        trainer=TrainerConfig(),
-        operation=OperationConfig(),
-        utils=UtilsConfig(),
-        profiler=ProfilerConfig(),
-        peft=PEFTConfig(),
-        alignment=AlignmentConfig(),
-    )
-
-    # get config from command line
-    args = parse_args()
-
-    # get config from yaml config file
-    if hasattr(args, "config_path") and args.config_path is not None:
-        _load_config_from_yaml(config, args)
-
-    # update config from command line arguments
-    _update_config_from_args(config, args)
-
-    # Args from environment
-    config.parallel.rank = int(os.getenv("RANK", "0"))
-    config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
-    config.parallel.world_size = int(os.getenv("WORLD_SIZE", "1"))
-
-    # load special tokens
-    if config.trainer.special_tokens_config_path:
-        base_dir = (
-            config.model.vocab_name_or_path
-            if config.model.vocab_name_or_path
-            else config.trainer.model_path
-        )
-        base_dir_path = Path(base_dir)
-
-        # Sanitize path to prevent directory traversal
-        sanitized_path = _sanitize_path_component(config.trainer.special_tokens_config_path)
-        special_token_file_path = base_dir_path / sanitized_path
-
-        # Validate path is within base directory
-        if not _validate_path_within_dir(special_token_file_path, base_dir_path):
-            raise ValueError("Invalid special tokens path: resolves outside the base directory")
-
-        if special_token_file_path.exists():
-            with open(special_token_file_path, encoding="utf-8") as f:
-                import json
-
-                config.trainer.special_tokens_config = json.load(f)
-        else:
-            raise FileNotFoundError(
-                f"Could not find special token config file: {special_token_file_path}"
-            )
-    delattr(config.trainer, "special_tokens_config_path")
-
-    _config_validation(config)
-
-    return config
 
 
 def print_args(config):

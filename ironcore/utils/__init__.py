@@ -26,6 +26,12 @@ from .memory import (
 )
 from .mfu import MFUCalculator, MFUResult, compute_tflops, estimate_params
 from .profiling import profile_context, profile_function
+from .subprocess import (
+    launch_training,
+    parse_losses_from_stdout,
+    parse_metrics_from_stdout,
+    write_temp_config,
+)
 from .timer import Timer
 
 __all__ = [
@@ -56,6 +62,11 @@ __all__ = [
     # profiling
     "profile_context",
     "profile_function",
+    # subprocess
+    "launch_training",
+    "parse_losses_from_stdout",
+    "parse_metrics_from_stdout",
+    "write_temp_config",
     # timer
     "Timer",
 ]

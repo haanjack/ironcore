@@ -14,23 +14,14 @@ Usage as a Python API::
         max_new_tokens=256,
         temperature=0.8,
     )
-
-Usage from the command line::
-
-    python -m ironcore.generate --config configs/small.yaml --prompt "Hello"
 """
 
 from __future__ import annotations
 
-import argparse
-import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ironcore.config import MainConfig
-
-from ironcore.train import load_full_config
 
 
 def generate(
@@ -144,68 +135,3 @@ def generate(
 
     generated_ids = output_ids[0, input_ids.shape[1] :]
     return tokenizer.decode(generated_ids, skip_special_tokens=True)
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point:  python -m ironcore.generate --config ... --prompt "..."
-# ---------------------------------------------------------------------------
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ironcore.generate",
-        description="Generate text from an IronCore checkpoint",
-    )
-    parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=None,
-        help="Checkpoint path (overrides trainer.model_path)",
-    )
-    parser.add_argument("--prompt", type=str, required=True, help="Prompt text")
-    parser.add_argument("--max-new-tokens", type=int, default=128, help="Max tokens to generate")
-    parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
-    parser.add_argument("--top-p", type=float, default=1.0, help="Top-p (nucleus) sampling")
-    parser.add_argument("--top-k", type=int, default=0, help="Top-k sampling (0 = disabled)")
-    parser.add_argument("--no-sample", action="store_true", help="Use greedy decoding")
-    parser.add_argument(
-        "--system-prompt", type=str, default=None, help="System prompt for chat mode"
-    )
-    parser.add_argument("--chat", action="store_true", help="Enable chat template mode")
-    return parser
-
-
-def main() -> None:
-    parser = _build_parser()
-    args = parser.parse_args()
-
-    config_path = Path(args.config)
-    if not config_path.exists():
-        print(f"Error: config not found: {config_path}")
-        sys.exit(1)
-
-    config = load_full_config(config_path)
-    config.parallel.rank = 0
-    config.parallel.local_rank = 0
-    config.parallel.world_size = 1
-    config.trainer.tensor_model_parallel_size = 1
-    config.model.kv_cache.enabled = True
-
-    result = generate(
-        config,
-        args.prompt,
-        checkpoint=args.checkpoint,
-        max_new_tokens=args.max_new_tokens,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        top_k=args.top_k,
-        do_sample=not args.no_sample,
-        chat=args.chat,
-        system_prompt=args.system_prompt,
-    )
-    print(result)
-
-
-if __name__ == "__main__":
-    main()

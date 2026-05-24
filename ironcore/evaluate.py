@@ -1,29 +1,11 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Programmatic evaluation entrypoint — run benchmarks against trained checkpoints.
-
-Usage as a Python API::
-
-    from ironcore.evaluate import evaluate
-
-    results = evaluate(
-        "configs/example.yaml",
-        task="hellaswag",
-        checkpoint="checkpoints/step_1000",
-    )
-
-Usage from the command line::
-
-    python -m ironcore.evaluate --config configs/small.yaml --task hellaswag
-"""
+"""Programmatic evaluation entrypoint — run benchmarks against trained checkpoints."""
 
 from __future__ import annotations
 
-import argparse
-import json
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +41,7 @@ def evaluate(
         Dict with keys: ``task``, ``config``, ``checkpoint``, ``results``,
         ``status``.
     """
-    from ironcore.cli.utils import launch_training, write_temp_config
+    from ironcore.utils.subprocess import launch_training, write_temp_config
 
     config_path = Path(config_path)
     if not config_path.exists():
@@ -143,70 +125,3 @@ def evaluate(
         "results": metrics,
         "status": "ok",
     }
-
-
-# ---------------------------------------------------------------------------
-# CLI: ``python -m ironcore.evaluate --config ... --task hellaswag``
-# ---------------------------------------------------------------------------
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="ironcore.evaluate",
-        description="Run evaluation benchmarks against a trained checkpoint",
-    )
-    parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
-    parser.add_argument(
-        "--task", type=str, default="hellaswag", help="Evaluation task name (default: hellaswag)"
-    )
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=None,
-        help="Checkpoint path (overrides trainer.model_path)",
-    )
-    parser.add_argument(
-        "--num-samples", type=int, default=None, help="Number of evaluation samples"
-    )
-    parser.add_argument("--batch-size", type=int, default=None, help="Eval batch size")
-    parser.add_argument("--output", type=str, default=None, help="Output file for results JSON")
-    return parser
-
-
-def main() -> None:
-    """CLI entry-point invoked via ``python -m ironcore.evaluate``."""
-    parser = _build_parser()
-    args = parser.parse_args()
-
-    result = evaluate(
-        args.config,
-        task=args.task,
-        checkpoint=args.checkpoint,
-        num_samples=args.num_samples,
-        batch_size=args.batch_size,
-    )
-
-    print()
-    print("=" * 50)
-    print("Evaluation Results")
-    print("=" * 50)
-
-    if result["results"]:
-        for metric, value in result["results"].items():
-            print(f"  {metric}: {value}")
-    else:
-        print("  No eval metrics found in output.")
-
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(result, f, indent=2)
-        print(f"\nResults written to: {output_path}")
-
-    if result["status"] != "ok":
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
