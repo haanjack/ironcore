@@ -19,6 +19,7 @@ from ironcore.checkpointing.hf_interop import (
     load_from_huggingface,
     load_hf_config,
 )
+from ironcore.checkpointing.inspect import inspect_checkpoint
 from ironcore.checkpointing.native import (
     HFConfigManager,
     load_checkpoint,
@@ -47,4 +48,6 @@ __all__ = [
     "WeightMapper",
     "Architecture",
     "get_architecture",
+    # Inspection
+    "inspect_checkpoint",
 ]

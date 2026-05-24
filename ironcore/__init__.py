@@ -14,4 +14,29 @@ __all__ = [
     "MFUCalculator",
     "MFUResult",
     "compute_tflops",
+    # Entrypoints
+    "load_full_config",
+    "train",
+    "generate",
+    "export",
+    "preprocess",
+    "evaluate",
 ]
+
+_ENTRYPOINTS = {
+    "load_full_config": (".train", "load_full_config"),
+    "train": (".train", "train"),
+    "generate": (".generate", "generate"),
+    "export": (".export", "export"),
+    "preprocess": (".preprocess", "preprocess"),
+    "evaluate": (".evaluate", "evaluate"),
+}
+
+
+def __getattr__(name):
+    if name in _ENTRYPOINTS:
+        import importlib
+
+        module_path, attr = _ENTRYPOINTS[name]
+        return getattr(importlib.import_module(module_path, __name__), attr)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
