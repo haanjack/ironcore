@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from ironcore.config import ModelConfig
+if TYPE_CHECKING:
+    from ironcore.config import ModelConfig
 
 
 @dataclass
