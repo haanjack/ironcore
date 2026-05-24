@@ -54,8 +54,12 @@ def launch_training(
     deadline = time.monotonic() + timeout if timeout else None
     for line in proc.stdout:
         if deadline and time.monotonic() > deadline:
-            proc.kill()
-            raise subprocess.TimeoutExpired(cmd, timeout)
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            raise subprocess.TimeoutExpired(cmd, timeout, output="".join(output_lines))
         print(line, end="")
         output_lines.append(line)
     proc.wait()

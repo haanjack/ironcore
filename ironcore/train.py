@@ -67,7 +67,10 @@ def load_full_config(
 
     if overrides:
         for key, value in overrides.items():
-            _set_nested_attr(config, key, value)
+            try:
+                _set_nested_attr(config, key, value)
+            except AttributeError:
+                raise ValueError(f"Invalid config override: '{key}' is not a valid config path") from None
 
     config.parallel.rank = int(os.getenv("RANK", "0"))
     config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -82,7 +85,16 @@ def _set_nested_attr(obj, path: str, value) -> None:
     parts = path.split(".")
     for part in parts[:-1]:
         obj = getattr(obj, part)
-    setattr(obj, parts[-1], value)
+    attr_name = parts[-1]
+    current = getattr(obj, attr_name)
+    if isinstance(current, bool) and isinstance(value, str):
+        value = value.lower() in ("true", "yes", "1")
+    elif not isinstance(value, type(current)) and current is not None:
+        try:
+            value = type(current)(value)
+        except (ValueError, TypeError):
+            pass
+    setattr(obj, attr_name, value)
 
 
 def train(config: MainConfig) -> None:

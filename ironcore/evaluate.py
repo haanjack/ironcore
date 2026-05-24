@@ -94,6 +94,8 @@ def evaluate(
             "status": "error",
             "error": str(e),
         }
+    finally:
+        temp_path.unlink(missing_ok=True)
 
     stdout = result.stdout or ""
     stderr = result.stderr or ""

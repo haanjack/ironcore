@@ -91,7 +91,7 @@ def validate_path_within_dir(path: Path, base_dir: Path) -> bool:
     try:
         resolved_path = path.resolve()
         resolved_base = base_dir.resolve()
-        return str(resolved_path).startswith(str(resolved_base))
+        return resolved_path.is_relative_to(resolved_base)
     except (OSError, ValueError):
         return False
 

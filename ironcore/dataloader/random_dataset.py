@@ -35,27 +35,24 @@ class RandomTokenDataset(IterableDataset):
     def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
         worker_info = torch.utils.data.get_worker_info()
         rank = 0
-        world_size = 1
         if torch.distributed.is_initialized():
             try:
                 from ironcore.parallel import parallel_states
 
                 rank = parallel_states.get_data_parallel_group_rank()
-                world_size = parallel_states.get_data_parallel_world_size()
             except (AssertionError, AttributeError):
                 rank = torch.distributed.get_rank()
-                world_size = torch.distributed.get_world_size()
 
         if worker_info is not None:
             rank = rank * worker_info.num_workers + worker_info.id
-            world_size = world_size * worker_info.num_workers
 
         rng = torch.Generator()
         rng.manual_seed(self.seed + rank)
 
         while True:
-            input_ids = torch.randint(0, self.vocab_size, (self.seq_length,), generator=rng)
-            labels = input_ids.clone()
+            tokens = torch.randint(0, self.vocab_size, (self.seq_length + 1,), generator=rng)
+            input_ids = tokens[:-1]
+            labels = tokens[1:]
             yield {"input_ids": input_ids, "labels": labels}
 
 
@@ -69,12 +66,13 @@ def get_random_data_iterator(
 
     Returns the same dict format as ``get_data_iterator``: ``{"train": ..., "eval": ..., "test": ...}``.
     """
+    split_offsets = {"train": 0, "eval": 1, "test": 2}
     iterators = {}
     for split in ("train", "eval", "test"):
         dataset = RandomTokenDataset(
             seq_length=seq_length,
             vocab_size=vocab_size,
-            seed=seed + hash(split) % (2**31),
+            seed=seed + split_offsets[split],
         )
         dataloader = DataLoader(
             dataset,
