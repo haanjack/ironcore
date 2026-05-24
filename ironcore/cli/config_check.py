@@ -10,7 +10,16 @@ from pathlib import Path
 
 import yaml
 
-from .utils import load_full_config
+from ironcore.train import load_full_config
+
+
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("config-check", help="Validate and inspect training configs")
+    parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
+    parser.add_argument("--diff", type=str, default=None, help="Second config to compare against")
+    parser.add_argument("--show", action="store_true", help="Print resolved config as YAML")
+    parser.add_argument("--validate-only", action="store_true", help="Only validate, no output")
 
 
 def run_config_check(args: Namespace) -> None:

@@ -14,6 +14,37 @@ from .reports import (
 )
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("gen-report", help="Generate experiment reports")
+    parser.add_argument("--name", type=str, required=True, help="Experiment name")
+    parser.add_argument(
+        "--category",
+        type=str,
+        required=True,
+        choices=["pretrain", "sft", "dpo", "grpo", "scaling", "parallelism", "mfu", "profile"],
+        help="Experiment category",
+    )
+    parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--checkpoint-dir", type=str, default=None)
+    parser.add_argument("--log-dir", type=str, default=None)
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="experiments/",
+        help="Output directory for reports",
+    )
+    parser.add_argument("--status", type=str, default="PENDING")
+    parser.add_argument("--objective", type=str, default=None)
+    parser.add_argument("--analysis", type=str, default=None)
+    parser.add_argument("--conclusion", type=str, default=None)
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Prompt for all fields interactively",
+    )
+
+
 def run_gen_report(args: Namespace) -> None:
     """Generate a markdown experiment report.
 

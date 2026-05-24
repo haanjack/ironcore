@@ -70,6 +70,12 @@ class DataConfig(BaseConfig):
         default="pretrain", metadata={"help": "Task type: pretrain, sft, dpo, or grpo"}
     )
 
+    # Random data mode — skip preprocessing, generate random token IDs on the fly
+    use_random_data: bool = field(
+        default=False,
+        metadata={"help": "Use random token IDs instead of real data (no preprocessing)"},
+    )
+
     # Dataset Configuration
     datasets: list[DatasetConfig] = field(
         default_factory=list, metadata={"help": "List of training datasets"}

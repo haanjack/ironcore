@@ -8,14 +8,36 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from .utils import (
-    deep_merge,
-    launch_training,
-    load_yaml_config,
-    parse_losses_from_stdout,
-    print_results_table,
-    write_temp_config,
-)
+from ironcore.utils import deep_merge, load_yaml_config
+from ironcore.utils.subprocess import launch_training, parse_losses_from_stdout, write_temp_config
+
+from .utils import print_results_table
+
+
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser(
+        "verify-parity", help="Verify parallelism correctness across configurations"
+    )
+    parser.add_argument(
+        "--config", type=str, required=True, help="Base training configuration YAML file"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="tp",
+        choices=["tp", "dp", "fsdp"],
+    )
+    parser.add_argument("--tp-sizes", type=str, default="1,2")
+    parser.add_argument("--num-steps", type=int, default=10)
+    parser.add_argument("--tolerance", type=float, default=1e-5)
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for results JSON",
+    )
+    parser.add_argument("--seed", type=int, default=42)
 
 
 def run_verify_parity(args: Namespace) -> None:

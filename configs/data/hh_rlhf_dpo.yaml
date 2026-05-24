@@ -1,8 +1,9 @@
 # Data config for DPO on Anthropic HH-RLHF (local processed version)
+# Requires: prepare_hh_rlhf.py to generate data/local/hh_rlhf/*.jsonl
 
 train_datasets:
   - name: hh_rlhf_dpo_train
-    source: data/local/hh_rlhf/dpo_train.jsonl
+    source: data/local/hh_rlhf/dpo_train.jsonl  # Run: python scripts/data/prepare_hh_rlhf.py
     task_type: dpo
     ratio: 1.0
     split: train
@@ -12,7 +13,7 @@ train_datasets:
 
 eval_datasets:
   - name: hh_rlhf_dpo_test
-    source: data/local/hh_rlhf/dpo_test.jsonl
+    source: data/local/hh_rlhf/dpo_test.jsonl  # Run: python scripts/data/prepare_hh_rlhf.py
     task_type: dpo
     ratio: 1.0
     split: train

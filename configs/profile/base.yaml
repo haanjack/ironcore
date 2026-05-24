@@ -15,8 +15,8 @@ trainer:
 model: gpt2-small
 
 data:
-  config_path: configs/data/full_owt_pretrain.yaml
   task_type: pretrain
+  use_random_data: true
 
 operation:
   train_steps: 4

@@ -8,13 +8,36 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from .utils import (
-    deep_merge,
-    estimate_params,
-    launch_training,
-    load_yaml_config,
-    write_temp_config,
-)
+from ironcore.utils import deep_merge, estimate_params, load_yaml_config
+from ironcore.utils.subprocess import launch_training, write_temp_config
+
+
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("profile-mfu", help="Profile Model FLOP Utilization")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to training configuration YAML file"
+    )
+    parser.add_argument("--warmup-steps", type=int, default=3)
+    parser.add_argument("--measure-steps", type=int, default=5)
+    parser.add_argument(
+        "--hardware-peak",
+        type=float,
+        default=35.6,
+        help="Hardware peak TFLOPS/s (default: 35.6 for RTX 3090 bf16)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for MFU results JSON",
+    )
+    parser.add_argument(
+        "--compare",
+        type=str,
+        default=None,
+        help="Path to previous MFU results JSON for comparison",
+    )
 
 
 def run_profile_mfu(args: Namespace) -> None:
