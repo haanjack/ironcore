@@ -70,7 +70,9 @@ def load_full_config(
             try:
                 _set_nested_attr(config, key, value)
             except AttributeError:
-                raise ValueError(f"Invalid config override: '{key}' is not a valid config path") from None
+                raise ValueError(
+                    f"Invalid config override: '{key}' is not a valid config path"
+                ) from None
 
     config.parallel.rank = int(os.getenv("RANK", "0"))
     config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
