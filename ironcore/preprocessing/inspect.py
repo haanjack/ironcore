@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from ironcore.dataloader.data_config import DataConfig
+from ironcore.config.config_data import DataConfig
 
 _ANSI_RED = "\033[91m"
 _ANSI_GREEN = "\033[92m"

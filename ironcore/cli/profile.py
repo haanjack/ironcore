@@ -8,8 +8,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from ironcore.utils import deep_merge, load_yaml_config
-
-from .utils import write_temp_config
+from ironcore.utils.subprocess import launch_training, write_temp_config
 
 
 def register_parser(subparsers) -> None:
@@ -139,8 +138,6 @@ def run_profile(args: Namespace) -> None:
     print()
 
     # Write patched config and run
-    from .utils import launch_training
-
     temp_path = write_temp_config(patched, original_config_path=config_path)
     print("Starting profiled training...")
 

@@ -10,14 +10,6 @@ from typing import Any
 
 from ironcore.utils import load_yaml_config
 
-# Re-export from the canonical location (used by other cli modules)
-from ironcore.utils.subprocess import (  # noqa: F401
-    launch_training,
-    parse_losses_from_stdout,
-    parse_metrics_from_stdout,
-    write_temp_config,
-)
-
 
 def print_results_table(results: list[dict], columns: list[str], title: str = "") -> None:
     """Pretty-print a table of results."""

@@ -9,8 +9,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from ironcore.utils import deep_merge, estimate_params, load_yaml_config
-
-from .utils import launch_training, write_temp_config
+from ironcore.utils.subprocess import launch_training, write_temp_config
 
 
 def register_parser(subparsers) -> None:
