@@ -8,6 +8,19 @@ import sys
 from argparse import Namespace
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser(
+        "inspect-checkpoint", help="Inspect checkpoint contents and metadata"
+    )
+    parser.add_argument("--path", type=str, required=True, help="Path to checkpoint directory")
+    parser.add_argument(
+        "--compare", type=str, default=None, help="Second checkpoint for weight diff comparison"
+    )
+    parser.add_argument("--verbose", action="store_true", help="Show per-layer weight stats")
+    parser.add_argument("--json", action="store_true", help="Machine-readable JSON output")
+
+
 def run_inspect_checkpoint(args: Namespace) -> None:
     """Inspect checkpoint contents via :func:`ironcore.checkpointing.inspect.inspect_checkpoint`."""
     from ironcore.checkpointing.inspect import inspect_checkpoint

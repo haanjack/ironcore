@@ -10,6 +10,15 @@ from pathlib import Path
 from .utils import load_full_config
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("tokenize", help="Tokenize input and show statistics")
+    parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
+    parser.add_argument("--input", type=str, required=True, help="Text file path or literal string")
+    parser.add_argument("--show-tokens", action="store_true", help="Display per-token breakdown")
+    parser.add_argument("--histogram", action="store_true", help="Show sequence length histogram")
+
+
 def run_tokenize(args: Namespace) -> None:
     """Tokenize input text or file and show statistics.
 

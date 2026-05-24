@@ -7,6 +7,30 @@ import sys
 from pathlib import Path
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("preprocess", help="Preprocess and/or inspect datasets")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to data configuration YAML file"
+    )
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="Run inspection (integrity checks, statistics, packing efficiency) after preprocessing",
+    )
+    parser.add_argument(
+        "--only-inspect",
+        action="store_true",
+        help="Skip preprocessing and only run inspection on existing files",
+    )
+    parser.add_argument(
+        "--preview",
+        type=int,
+        default=0,
+        help="Number of random samples to preview during inspection (implies --inspect)",
+    )
+
+
 def run_preprocess(args):
     """Run data preprocessing command.
 

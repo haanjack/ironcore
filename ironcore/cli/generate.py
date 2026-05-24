@@ -14,6 +14,30 @@ from pathlib import Path
 from .utils import load_full_config
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("generate", help="Generate text from a checkpoint")
+    parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path (overrides trainer.model_path)",
+    )
+    parser.add_argument(
+        "--prompt", type=str, default=None, help="Prompt text (omit for interactive REPL)"
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=128, help="Max tokens to generate")
+    parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
+    parser.add_argument("--top-p", type=float, default=1.0, help="Top-p (nucleus) sampling")
+    parser.add_argument("--top-k", type=int, default=0, help="Top-k sampling (0 = disabled)")
+    parser.add_argument("--no-sample", action="store_true", help="Use greedy decoding")
+    parser.add_argument(
+        "--system-prompt", type=str, default=None, help="System prompt for chat mode"
+    )
+    parser.add_argument("--chat", action="store_true", help="Enable chat template mode")
+
+
 def run_generate(args: Namespace) -> None:
     """Generate text from a loaded model checkpoint.
 

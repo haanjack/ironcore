@@ -11,6 +11,31 @@ from ironcore.utils import deep_merge, load_yaml_config
 
 from .utils import write_temp_config
 
+
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("profile", help="Profile training runs")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to training configuration YAML file"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="quick",
+        choices=["quick", "full", "comm", "memory"],
+        help="Profile mode (default: quick)",
+    )
+    parser.add_argument("--start-step", type=int, default=5)
+    parser.add_argument("--end-step", type=int, default=7)
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./logs/profile/",
+    )
+    parser.add_argument("--ranks", type=str, default="0", help="Comma-separated ranks")
+    parser.add_argument("--train-steps", type=int, default=None)
+
+
 PROFILE_PRESETS = {
     "quick": {
         "layer_timing": True,

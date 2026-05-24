@@ -8,6 +8,37 @@ from argparse import Namespace
 from pathlib import Path
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("export", help="Export checkpoint to HuggingFace format")
+    parser.add_argument("--config", type=str, required=True, help="Path to training config YAML")
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint path (overrides trainer.model_path)",
+    )
+    parser.add_argument(
+        "--output-dir", type=str, required=True, help="Output directory for HF checkpoint"
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="safetensors",
+        choices=["safetensors", "pytorch"],
+        help="Output format (default: safetensors)",
+    )
+    parser.add_argument(
+        "--shard-size", type=int, default=None, help="Shard size in MB (no sharding if omitted)"
+    )
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default=None,
+        help="Target architecture (auto-detect if omitted)",
+    )
+
+
 def run_export(args: Namespace) -> None:
     """Export an IronCore checkpoint to HuggingFace format.
 

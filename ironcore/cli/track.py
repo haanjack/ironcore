@@ -11,6 +11,36 @@ import yaml
 
 from ironcore.utils import load_yaml_config
 
+
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser(
+        "track", help="Configure logging backends (tensorboard, mlflow, wandb)"
+    )
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to training configuration YAML file"
+    )
+    parser.add_argument(
+        "--backends",
+        type=str,
+        default=None,
+        help="Comma-separated backends to enable (tensorboard,mlflow,wandb). "
+        "If omitted, enters interactive mode.",
+    )
+    parser.add_argument("--wandb-project", type=str, default=None)
+    parser.add_argument("--wandb-entity", type=str, default=None)
+    parser.add_argument("--wandb-name", type=str, default=None)
+    parser.add_argument("--mlflow-uri", type=str, default=None)
+    parser.add_argument("--mlflow-experiment", type=str, default=None)
+    parser.add_argument("--tensorboard-dir", type=str, default=None)
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output path for patched config (default: print utils snippet to stdout)",
+    )
+
+
 BACKEND_FIELDS = {
     "tensorboard": {"tensorboard_dir": "./runs/tensorboard"},
     "mlflow": {

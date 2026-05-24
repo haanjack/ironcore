@@ -13,6 +13,34 @@ from ironcore.utils import deep_merge, load_yaml_config
 from .utils import launch_training, parse_metrics_from_stdout, write_temp_config
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser(
+        "verify-step", help="Run single training step for loss verification"
+    )
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to training configuration YAML file"
+    )
+    parser.add_argument(
+        "--reference-loss",
+        type=float,
+        default=None,
+        help="Expected reference loss value",
+    )
+    parser.add_argument("--tolerance", type=float, default=0.01)
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for results JSON",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print detailed step information",
+    )
+
+
 def run_verify_step(args: Namespace) -> None:
     """Run exactly 1 training step and report loss.
 

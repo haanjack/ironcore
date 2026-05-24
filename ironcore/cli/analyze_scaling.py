@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Scaling analysis — run training at multiple scales and fit scaling laws."""
 
+import argparse
 import json
 import sys
 from argparse import Namespace
@@ -12,6 +13,51 @@ from typing import Any
 from ironcore.utils import deep_merge, estimate_params, load_yaml_config
 
 from .utils import launch_training, parse_losses_from_stdout, print_results_table, write_temp_config
+
+
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser(
+        "analyze-scaling", help="Run scaling analysis across model/batch sizes"
+    )
+    parser.add_argument(
+        "--config", type=str, required=True, help="Base training configuration YAML file"
+    )
+    parser.add_argument(
+        "--scale-dimension",
+        type=str,
+        default="model",
+        choices=["model", "batch", "compute"],
+    )
+    parser.add_argument(
+        "--model-sizes",
+        type=str,
+        default=None,
+        help="Comma-separated model config names (for model scaling)",
+    )
+    parser.add_argument(
+        "--batch-sizes",
+        type=str,
+        default=None,
+        help="Comma-separated batch sizes (for batch scaling)",
+    )
+    parser.add_argument("--num-steps", type=int, default=100)
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="experiments/scaling/",
+    )
+    parser.add_argument(
+        "--fit-law",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fit Chinchilla-style scaling law (requires scipy)",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Generate scaling law plots (requires matplotlib)",
+    )
 
 
 def run_analyze_scaling(args: Namespace) -> None:

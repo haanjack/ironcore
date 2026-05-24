@@ -8,6 +8,14 @@ import sys
 from ironcore.train import load_full_config, train
 
 
+def register_parser(subparsers) -> None:
+    """Register the CLI subcommand arguments."""
+    parser = subparsers.add_parser("train", help="Run training")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to training configuration YAML file"
+    )
+
+
 def run_train(args):
     """Run training command.
 
