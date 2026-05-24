@@ -11,7 +11,7 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from .utils import load_full_config
+from ironcore.train import load_full_config
 
 
 def register_parser(subparsers) -> None:

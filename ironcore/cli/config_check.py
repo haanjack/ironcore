@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from .utils import load_full_config
+from ironcore.train import load_full_config
 
 
 def register_parser(subparsers) -> None:
