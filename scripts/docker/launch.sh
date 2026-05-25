@@ -3,7 +3,7 @@
 # Load .env if present (non-fatal — defaults are set below)
 [[ -f .env ]] && source .env
 
-COMMAND="${@:-bash}"
+COMMAND=("${@:-bash}")
 
 # Defaults for optional mount paths
 DATASET_DIR=${DATASET_DIR:-""}
@@ -58,4 +58,4 @@ exec docker run --rm -ti -u $(id -u):$(id -g) \
     -v $(pwd):/workspace \
     -v /etc/passwd:/etc/passwd:ro \
     $VOLUME_MOUNTS \
-    $IMAGE "$COMMAND"
+    $IMAGE "${COMMAND[@]}"
