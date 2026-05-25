@@ -165,8 +165,10 @@ def load_data_config(config, datasets: dict[str, Any]) -> list[dict[str, Any]]:
             # if dataset_name_or_path is a name
             if os.environ.get("PROCESSED_DATA_PATH"):
                 base_dir = os.environ.get("PROCESSED_DATA_PATH")
+            elif hasattr(config.data, "preprocessed_dir") and config.data.preprocessed_dir:
+                base_dir = Path(config.data.preprocessed_dir)
             else:
-                base_dir = Path(os.environ["DATASET_DIR"]) / "preprocssed_corpus"
+                base_dir = Path("data/preprocessed_corpus")
 
             dataset_name = dataset_name_or_path
             if dataset_config.get("subgroup", None):

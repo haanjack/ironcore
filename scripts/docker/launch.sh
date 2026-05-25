@@ -1,8 +1,13 @@
 #!/bin/bash
 
-source .env
+# Load .env if present (non-fatal — defaults are set below)
+[[ -f .env ]] && source .env
 
 COMMAND="$@"
+
+# Defaults for optional mount paths
+DATASET_DIR=${DATASET_DIR:-""}
+MODEL_DIR=${MODEL_DIR:-""}
 
 # Default to cuda if not set
 ARCH=${ARCH:-"cuda"}
@@ -30,15 +35,19 @@ case "$ARCH" in
         ;;
 esac
 
+# Build optional volume mounts (skip when empty)
+VOLUME_MOUNTS=""
+[[ -n "$DATASET_DIR" ]] && VOLUME_MOUNTS="$VOLUME_MOUNTS -v $DATASET_DIR:$DATASET_DIR"
+[[ -n "$MODEL_DIR" ]] && VOLUME_MOUNTS="$VOLUME_MOUNTS -v $MODEL_DIR:$MODEL_DIR"
+
 echo "Launching $ARCH container ($IMAGE)..."
 
-docker run --rm -ti -u $(id -u):$(id -g) \
+exec docker run --rm -ti -u $(id -u):$(id -g) \
     --name=ironcore \
     $GPU_FLAGS --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
     -e HOME=/workspace \
     -p 6006:6006 \
     -v $(pwd):/workspace \
     -v /etc/passwd:/etc/passwd:ro \
-    -v $DATASET_DIR:$DATASET_DIR \
-    -v $MODEL_DIR:$MODEL_DIR \
+    $VOLUME_MOUNTS \
     $IMAGE "$COMMAND"

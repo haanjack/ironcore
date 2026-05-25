@@ -70,10 +70,12 @@ class DataConfig(BaseConfig):
         default="pretrain", metadata={"help": "Task type: pretrain, sft, dpo, or grpo"}
     )
 
-    # Random data mode — skip preprocessing, generate random token IDs on the fly
-    use_random_data: bool = field(
+    # Mock data mode — skip preprocessing, generate random token IDs on the fly
+    use_mock_data: bool = field(
         default=False,
-        metadata={"help": "Use random token IDs instead of real data (no preprocessing)"},
+        metadata={
+            "help": "Use mock data (random token IDs) instead of real data (no preprocessing required)"
+        },
     )
 
     # Dataset Configuration

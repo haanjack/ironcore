@@ -27,7 +27,7 @@ model: gpt2-small
 
 data:
   task_type: pretrain
-  use_random_data: true
+  use_mock_data: true
 
 optim:
   optimizer: adam

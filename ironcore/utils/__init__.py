@@ -5,7 +5,6 @@
 from .config import (
     deep_merge,
     env_var_constructor,
-    get_dataset_base_dir,
     load_yaml_config,
     sanitize_path_component,
     validate_path_within_dir,
@@ -38,7 +37,6 @@ __all__ = [
     # config
     "deep_merge",
     "env_var_constructor",
-    "get_dataset_base_dir",
     "load_yaml_config",
     "sanitize_path_component",
     "validate_path_within_dir",
