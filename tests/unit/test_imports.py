@@ -22,7 +22,6 @@ class TestMFUImports:
             Timer,
             bytes_to_mib,
             format_memory_report,
-            get_dataset_base_dir,
             get_detailed_memory_breakdown,
             get_device,
             get_memory_usage,
