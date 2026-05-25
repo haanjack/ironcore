@@ -233,22 +233,26 @@ def _inspect_single_dataset(
 
 
 def _calculate_packing_efficiency(metadata: np.ndarray, max_seq_len: int) -> float:
-    """Estimate packing efficiency using First-Fit Decreasing."""
+    """Estimate packing efficiency using First-Fit Decreasing.
+
+    Caches per-bin running totals to avoid recomputing ``sum()`` each
+    iteration, reducing the constant factor of the O(n²) algorithm.
+    """
     lengths = metadata["length"]
     sorted_lengths = sorted(lengths, reverse=True)
 
-    bins: list[list[int]] = []
+    bins: list[int] = []  # current sum per bin
     for length in sorted_lengths:
         placed = False
-        for bin_items in bins:
-            if sum(bin_items) + length <= max_seq_len:
-                bin_items.append(length)
+        for i, bin_sum in enumerate(bins):
+            if bin_sum + length <= max_seq_len:
+                bins[i] = bin_sum + length
                 placed = True
                 break
         if not placed:
-            bins.append([length])
+            bins.append(length)
 
-    total_tokens = sum(lengths)
+    total_tokens = int(lengths.sum()) if hasattr(lengths, "sum") else sum(lengths)
     total_capacity = len(bins) * max_seq_len
     return total_tokens / total_capacity if total_capacity > 0 else 0.0
 
