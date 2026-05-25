@@ -60,11 +60,18 @@ def inspect_checkpoint(
     if compare is not None:
         info["diffs"] = _compare_checkpoints(state_dict, Path(compare))
 
+    # Free state_dict early to reduce peak memory for large models
+    del state_dict
+
     return info
 
 
 def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
-    """Load state dict from HF or native checkpoint, populating *info*."""
+    """Load state dict from HF or native checkpoint, populating *info*.
+
+    For native distributed checkpoints (tp0, tp1, ...), loads and merges
+    all TP shards for an accurate parameter count.
+    """
     # Try HuggingFace format first
     try:
         from ironcore.checkpointing.hf_interop import (
@@ -101,9 +108,14 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
         with open(latest_file) as f:
             step = f.read().strip()
         step_dir = checkpoint_path / f"step_{step}"
+
+        # Check for distributed TP shards (tp0, tp1, ...)
+        tp_shards = sorted(step_dir.glob("tp*/pytorch_model.bin"))
+        if tp_shards:
+            return _load_distributed_shards(tp_shards, info)
+
+        # Fall back to universal checkpoint
         ckpt_file = step_dir / "pytorch_model.bin"
-        if not ckpt_file.exists():
-            ckpt_file = step_dir / "tp0" / "pytorch_model.bin"
         if not ckpt_file.exists():
             raise FileNotFoundError(f"No checkpoint file found at {checkpoint_path}")
 
@@ -112,9 +124,34 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
         info["training_loss"] = checkpoint.get("loss", "unknown")
         if "model_state_dict" not in checkpoint:
             raise KeyError(f"Checkpoint at {ckpt_file} is missing 'model_state_dict' key.")
+        info["tp_shards"] = 1
         return checkpoint["model_state_dict"]
 
     raise ValueError(f"No recognizable checkpoint at {checkpoint_path}")
+
+
+def _load_distributed_shards(tp_shards: list[Path], info: dict) -> dict:
+    """Load and merge all TP shards for accurate parameter counting."""
+    import torch
+
+    info["tp_shards"] = len(tp_shards)
+    merged: dict = {}
+
+    for shard_path in tp_shards:
+        checkpoint = torch.load(shard_path, map_location="cpu", weights_only=True)
+        if "model_state_dict" not in checkpoint:
+            raise KeyError(f"Checkpoint at {shard_path} is missing 'model_state_dict' key.")
+        # Store metadata from first shard
+        if "training_step" not in info:
+            info["training_step"] = checkpoint.get("step", "unknown")
+            info["training_loss"] = checkpoint.get("loss", "unknown")
+        shard_state = checkpoint["model_state_dict"]
+        for key in shard_state:
+            if key not in merged:
+                merged[key] = shard_state[key]
+        del shard_state, checkpoint
+
+    return merged
 
 
 def _compare_checkpoints(state_dict_a: dict, compare_path: Path) -> dict[str, Any]:
