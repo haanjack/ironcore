@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 
 import yaml
-from dotenv import load_dotenv
 
 
 def _convert_lists_to_dict(data):
@@ -73,12 +72,6 @@ def load_yaml_config(config_path):
         raise ValueError(f"Error loading yaml config: {str(e)}") from e
 
     return config
-
-
-def get_dataset_base_dir() -> Path:
-    """Get dataset path."""
-    load_dotenv()
-    return Path(os.getenv("DATASET_DIR", "./"))
 
 
 def sanitize_path_component(path_component: str) -> str:

@@ -479,6 +479,11 @@ def save_checkpoint(
             logger.info("Skip checkpoint saving since no-save flag is set")
         return
 
+    assert config.trainer.model_path, (
+        "trainer.model_path is not set. "
+        "Specify a checkpoint save directory in config, or set operation.no_save: true."
+    )
+
     # checkpoint file name
     init_ckpt_path = Path(config.trainer.model_path) / f"step_{step}"
     ckpt_path = (

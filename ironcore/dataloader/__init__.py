@@ -44,8 +44,8 @@ def get_data_iterator(config):
     Returns:
         dict: Dictionary with 'train', 'eval', 'test' iterators
     """
-    # Check for random data mode (no preprocessing required)
-    if getattr(config.data, "use_random_data", False):
+    # Mock data mode — skip dataset preparation entirely
+    if getattr(config.data, "use_mock_data", False):
         return get_random_data_iterator(
             seq_length=config.model.max_seq_len,
             vocab_size=getattr(config.model, "padded_vocab_size", 50304),
@@ -70,7 +70,11 @@ def get_data_iterator(config):
         # config.data is already a DataConfig object from inline config
         data_config = config.data
     else:
-        raise ValueError(f"Cannot load data config from: {config.data}")
+        raise ValueError(
+            "No dataset configuration found. "
+            "Either set data.use_mock_data: true for testing, "
+            "or provide a dataset config via data.config_path or data.datasets."
+        )
 
     # Determine task type
     task_type = getattr(config.data, "task_type", "pretrain")

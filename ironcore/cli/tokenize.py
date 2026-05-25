@@ -7,8 +7,6 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from ironcore.train import load_full_config
-
 
 def register_parser(subparsers) -> None:
     """Register the CLI subcommand arguments."""
@@ -31,6 +29,8 @@ def run_tokenize(args: Namespace) -> None:
         sys.exit(1)
 
     # Build tokenizer
+    from ironcore.train import load_full_config
+
     config = load_full_config(config_path)
     from ironcore import global_vars
 

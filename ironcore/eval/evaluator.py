@@ -8,7 +8,6 @@ from typing import Union
 
 from ironcore import get_logger, get_tokenizer
 from ironcore.eval.tasks.base_task import Task
-from ironcore.utils import get_dataset_base_dir
 
 
 def get_evaluators(
@@ -33,7 +32,7 @@ def get_evaluators(
         logger.info(f" - {task_name}")
 
     if cache_dir is None:
-        cache_dir = get_dataset_base_dir() / "evaluation_cache"
+        cache_dir = Path("data/evaluation_cache")
 
     evaluators = []
     for dataset_config in dataset_configs:
