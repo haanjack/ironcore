@@ -35,16 +35,21 @@ def inspect_checkpoint(
     info: dict[str, Any] = {}
     state_dict = _load_state_dict(checkpoint_path, info)
 
-    total_params = sum(t.numel() for t in state_dict.values())
+    # Use pre-computed shard totals when available (multi-shard TP checkpoints)
+    if "_shard_total_params" in info:
+        total_params = info.pop("_shard_total_params")
+        dtype_params = info.pop("_shard_dtype_params")
+    else:
+        total_params = sum(t.numel() for t in state_dict.values())
+        dtype_params: dict[str, int] = {}
+        for tensor in state_dict.values():
+            dt = str(tensor.dtype)
+            dtype_params[dt] = dtype_params.get(dt, 0) + tensor.numel()
+
     info["total_params"] = total_params
     info["total_params_human"] = (
         f"{total_params / 1e9:.2f}B" if total_params >= 1e9 else f"{total_params / 1e6:.1f}M"
     )
-
-    dtype_params: dict[str, int] = {}
-    for tensor in state_dict.values():
-        dt = str(tensor.dtype)
-        dtype_params[dt] = dtype_params.get(dt, 0) + tensor.numel()
     info["dtype_params"] = dtype_params
 
     if verbose:
@@ -60,17 +65,14 @@ def inspect_checkpoint(
     if compare is not None:
         info["diffs"] = _compare_checkpoints(state_dict, Path(compare))
 
-    # Free state_dict early to reduce peak memory for large models
-    del state_dict
-
     return info
 
 
 def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
     """Load state dict from HF or native checkpoint, populating *info*.
 
-    For native distributed checkpoints (tp0, tp1, ...), loads and merges
-    all TP shards for an accurate parameter count.
+    For native distributed checkpoints (tp0, tp1, ...), loads all TP shards
+    and sums numel across shards for an accurate total parameter count.
     """
     # Try HuggingFace format first
     try:
@@ -131,27 +133,48 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
 
 
 def _load_distributed_shards(tp_shards: list[Path], info: dict) -> dict:
-    """Load and merge all TP shards for accurate parameter counting."""
+    """Load all TP shards and sum numel for accurate parameter counting.
+
+    In TP checkpoints, sharded weights (e.g. ColumnParallelLinear) share
+    the same key across shards but contain different tensor slices.  To get
+    an accurate total parameter count we must sum ``numel()`` of every
+    tensor across every shard, not just keep the first occurrence.
+    """
     import torch
 
     info["tp_shards"] = len(tp_shards)
-    merged: dict = {}
+    total_param_count = 0
+    dtype_param_counts: dict[str, int] = {}
+    training_meta: dict[str, Any] = {}
 
     for shard_path in tp_shards:
         checkpoint = torch.load(shard_path, map_location="cpu", weights_only=True)
         if "model_state_dict" not in checkpoint:
             raise KeyError(f"Checkpoint at {shard_path} is missing 'model_state_dict' key.")
-        # Store metadata from first shard
-        if "training_step" not in info:
-            info["training_step"] = checkpoint.get("step", "unknown")
-            info["training_loss"] = checkpoint.get("loss", "unknown")
-        shard_state = checkpoint["model_state_dict"]
-        for key in shard_state:
-            if key not in merged:
-                merged[key] = shard_state[key]
-        del shard_state, checkpoint
+        if not training_meta:
+            training_meta["training_step"] = checkpoint.get("step", "unknown")
+            training_meta["training_loss"] = checkpoint.get("loss", "unknown")
 
-    return merged
+        for tensor in checkpoint["model_state_dict"].values():
+            total_param_count += tensor.numel()
+            dt = str(tensor.dtype)
+            dtype_param_counts[dt] = dtype_param_counts.get(dt, 0) + tensor.numel()
+
+        del checkpoint
+
+    # Return a representative state dict from shard 0 for verbose/diff use,
+    # but override total_params with the summed count.
+    shard0 = torch.load(tp_shards[0], map_location="cpu", weights_only=True)
+    state_dict = shard0["model_state_dict"]
+    del shard0
+
+    info.update(training_meta)
+    # Store accurate counts — inspect_checkpoint() will use these instead
+    # of recomputing from the single-shard state_dict.
+    info["_shard_total_params"] = total_param_count
+    info["_shard_dtype_params"] = dtype_param_counts
+
+    return state_dict
 
 
 def _compare_checkpoints(state_dict_a: dict, compare_path: Path) -> dict[str, Any]:

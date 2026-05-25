@@ -235,33 +235,25 @@ def _inspect_single_dataset(
 def _calculate_packing_efficiency(metadata: np.ndarray, max_seq_len: int) -> float:
     """Estimate packing efficiency using First-Fit Decreasing.
 
-    Uses negated remainders with bisect for O(n log n) instead of O(n²).
-    Remainders are stored as negative values in a sorted list so that
-    bisect finds the tightest-fitting bin (smallest sufficient remainder).
+    Caches per-bin running totals to avoid recomputing ``sum()`` each
+    iteration, reducing the constant factor of the O(n²) algorithm.
     """
-    import bisect
-
     lengths = metadata["length"]
     sorted_lengths = sorted(lengths, reverse=True)
 
-    # Store negated remainders so the list stays ascending:
-    # [-5, -10, -20] means bins with 5, 10, 20 remaining capacity.
-    # bisect_left(-length) finds the first bin with remainder >= length.
-    neg_remainders: list[int] = []
-
+    bins: list[int] = []  # current sum per bin
     for length in sorted_lengths:
-        target = -length
-        idx = bisect.bisect_left(neg_remainders, target)
-        if idx < len(neg_remainders):
-            old = neg_remainders.pop(idx)
-            new_rem = old + length  # more negative = less remaining
-            bisect.insort(neg_remainders, new_rem)
-        else:
-            bisect.insort(neg_remainders, -(max_seq_len - length))
+        placed = False
+        for i, bin_sum in enumerate(bins):
+            if bin_sum + length <= max_seq_len:
+                bins[i] = bin_sum + length
+                placed = True
+                break
+        if not placed:
+            bins.append(length)
 
-    num_bins = len(neg_remainders)
     total_tokens = int(lengths.sum()) if hasattr(lengths, "sum") else sum(lengths)
-    total_capacity = num_bins * max_seq_len
+    total_capacity = len(bins) * max_seq_len
     return total_tokens / total_capacity if total_capacity > 0 else 0.0
 
 
