@@ -3,7 +3,11 @@
 # Load .env if present (non-fatal — defaults are set below)
 [[ -f .env ]] && source .env
 
-COMMAND=("${@:-bash}")
+if [ $# -eq 0 ]; then
+    COMMAND=(bash)
+else
+    COMMAND=("$@")
+fi
 
 # Defaults for optional mount paths
 DATASET_DIR=${DATASET_DIR:-""}
@@ -50,10 +54,15 @@ VOLUME_MOUNTS=""
 
 echo "Launching $ARCH container ($IMAGE)..."
 
-exec docker run --rm -ti -u $(id -u):$(id -g) \
+# -ti when stdin is a terminal (interactive), -t otherwise
+TTY_FLAGS="-t"
+[ -t 0 ] && TTY_FLAGS="-ti"
+
+exec docker run --rm $TTY_FLAGS -u $(id -u):$(id -g) \
     --name=ironcore \
     $GPU_FLAGS --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
     -e HOME=/workspace \
+    -w /workspace \
     -p 6006:6006 \
     -v $(pwd):/workspace \
     -v /etc/passwd:/etc/passwd:ro \
