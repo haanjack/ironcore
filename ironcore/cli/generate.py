@@ -11,8 +11,6 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
-from ironcore.train import load_full_config
-
 
 def register_parser(subparsers) -> None:
     """Register the CLI subcommand arguments."""
@@ -52,6 +50,8 @@ def run_generate(args: Namespace) -> None:
         sys.exit(1)
 
     # Load config, force single-GPU, enable KV cache
+    from ironcore.train import load_full_config
+
     config = load_full_config(config_path)
     config.parallel.rank = 0
     config.parallel.local_rank = 0

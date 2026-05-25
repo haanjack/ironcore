@@ -10,8 +10,6 @@ from pathlib import Path
 
 import yaml
 
-from ironcore.train import load_full_config
-
 
 def register_parser(subparsers) -> None:
     """Register the CLI subcommand arguments."""
@@ -32,6 +30,8 @@ def run_config_check(args: Namespace) -> None:
     if not config_path.exists():
         print(f"Error: config not found: {config_path}")
         sys.exit(1)
+
+    from ironcore.train import load_full_config
 
     config = load_full_config(config_path)
 
@@ -158,6 +158,8 @@ def _print_config_diff(config_a, diff_path: str) -> None:
     if not diff_config.exists():
         print(f"\nError: diff config not found: {diff_config}")
         return
+
+    from ironcore.train import load_full_config
 
     config_b = load_full_config(diff_config)
     dict_a = asdict(config_a)

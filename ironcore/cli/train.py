@@ -5,8 +5,6 @@
 
 import sys
 
-from ironcore.train import load_full_config, train
-
 
 def register_parser(subparsers) -> None:
     """Register the CLI subcommand arguments."""
@@ -23,6 +21,8 @@ def run_train(args):
         args: Command-line arguments from argparse
             - config: Path to training configuration YAML file
     """
+    from ironcore.train import load_full_config, train
+
     try:
         config = load_full_config(args.config)
         train(config)

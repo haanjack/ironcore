@@ -110,7 +110,9 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
         checkpoint = torch.load(ckpt_file, map_location="cpu", weights_only=True)
         info["training_step"] = checkpoint.get("step", "unknown")
         info["training_loss"] = checkpoint.get("loss", "unknown")
-        return checkpoint.get("model_state_dict", {})
+        if "model_state_dict" not in checkpoint:
+            raise KeyError(f"Checkpoint at {ckpt_file} is missing 'model_state_dict' key.")
+        return checkpoint["model_state_dict"]
 
     raise ValueError(f"No recognizable checkpoint at {checkpoint_path}")
 
@@ -130,10 +132,10 @@ def _compare_checkpoints(state_dict_a: dict, compare_path: Path) -> dict[str, An
             continue
         a = state_dict_a[name].float()
         b = state_dict_b[name].float()
-        a.sub_(b).abs_()
+        diff = (a - b).abs()
         diffs[name] = {
-            "max_abs_diff": a.max().item(),
-            "mean_abs_diff": a.mean().item(),
+            "max_abs_diff": diff.max().item(),
+            "mean_abs_diff": diff.mean().item(),
         }
 
     diffs["_only_a"] = sorted(set(state_dict_a.keys()) - set(state_dict_b.keys()))
