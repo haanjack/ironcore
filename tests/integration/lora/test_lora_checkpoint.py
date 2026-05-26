@@ -167,8 +167,8 @@ class TestLoRACheckpointTP1:
             reset_global_states()
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
+@pytest.mark.mp
+@pytest.mark.checkpointing
 class TestLoRAUniversalCheckpoint:
     """Test universal checkpoint: save with TP=1, load with TP=2."""
 

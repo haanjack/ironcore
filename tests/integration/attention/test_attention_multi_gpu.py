@@ -20,10 +20,13 @@ from ironcore.layers.attention import Attention
 from ironcore.parallel import parallel_states
 
 # Skip if not running under torchrun or fewer than 2 GPUs
-pytestmark = pytest.mark.skipif(
-    "RANK" not in os.environ or not torch.cuda.is_available() or torch.cuda.device_count() < 2,
-    reason="TP=2 tests require torchrun with at least 2 GPUs",
-)
+pytestmark = [
+    pytest.mark.mp,
+    pytest.mark.skipif(
+        "RANK" not in os.environ or not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+        reason="TP=2 tests require torchrun with at least 2 GPUs",
+    ),
+]
 
 
 @pytest.fixture(scope="module")

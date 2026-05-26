@@ -274,8 +274,6 @@ class TestOptimizerTrainerIntegration:
 # =============================================================================
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
 class TestOptimizerTPIntegration:
     """Test optimizer integration with Tensor Parallelism and LanguageModelTrainer."""
 
@@ -326,6 +324,7 @@ class TestOptimizerTPIntegration:
             if tp_size > 1:
                 dist.destroy_process_group()
 
+    @pytest.mark.cuda
     def test_muon_tp1_with_trainer(self):
         """Verify Muon optimizer works with LanguageModelTrainer and TP=1."""
         from ironcore.global_vars import reset_global_states
@@ -373,6 +372,7 @@ class TestOptimizerTPIntegration:
             reset_global_states()
             self._cleanup_tp_distributed(tp_size)
 
+    @pytest.mark.mp
     def test_muon_tp2_with_trainer(self):
         """Verify Muon optimizer works with LanguageModelTrainer and TP=2."""
         from ironcore.global_vars import reset_global_states
@@ -422,6 +422,7 @@ class TestOptimizerTPIntegration:
             reset_global_states()
             self._cleanup_tp_distributed(tp_size)
 
+    @pytest.mark.mp
     def test_muon_tp2_multi_step(self):
         """Verify Muon optimizer state accumulates across steps with TP=2."""
         from ironcore.global_vars import reset_global_states
@@ -479,8 +480,7 @@ class TestOptimizerTPIntegration:
 # =============================================================================
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
+@pytest.mark.mp
 class TestOptimizerFSDPIntegration:
     """Test optimizer integration with FSDP and LanguageModelTrainer."""
 
@@ -666,8 +666,7 @@ class TestOptimizerFSDPIntegration:
 # =============================================================================
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
+@pytest.mark.mp
 class TestDistributedOptimizerIntegration:
     """Test DistributedOptimizer integration with LanguageModelTrainer."""
 

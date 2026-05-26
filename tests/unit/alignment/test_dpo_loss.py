@@ -11,6 +11,8 @@ import math
 import pytest
 import torch
 
+pytestmark = pytest.mark.dpo
+
 from ironcore.alignment.loss.dpo import (
     _compute_log_softmax_tp_safe,
     _extract_logps_from_log_probs,

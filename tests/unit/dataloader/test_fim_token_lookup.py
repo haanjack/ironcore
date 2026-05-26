@@ -14,6 +14,7 @@ from transformers import AutoTokenizer
 from ironcore.preprocessing.serializer import DataSerializer
 
 
+@pytest.mark.hf_hub
 class TestGetTokenIDSuccess:
     """Test successful token ID retrieval."""
 
@@ -52,6 +53,7 @@ class TestGetTokenIDSuccess:
         assert middle_id != unk_id
 
 
+@pytest.mark.hf_hub
 class TestGetTokenIDErrors:
     """Test error handling for missing tokens."""
 
@@ -102,6 +104,7 @@ class TestGetTokenIDErrors:
         assert "save_pretrained" in error_msg
 
 
+@pytest.mark.hf_hub
 class TestGetTokenIDCustomTokens:
     """Test token lookup with custom token names."""
 
@@ -131,6 +134,7 @@ class TestGetTokenIDCustomTokens:
         assert len({prefix_id, suffix_id, middle_id}) == 3
 
 
+@pytest.mark.hf_hub
 class TestGetTokenIDEdgeCases:
     """Test edge cases for token lookup."""
 
@@ -196,6 +200,7 @@ class TestTiktokenLimitation:
         assert "HuggingFace" in error_msg
 
 
+@pytest.mark.hf_hub
 class TestGetTokenIDConsistency:
     """Test consistency of token ID retrieval."""
 

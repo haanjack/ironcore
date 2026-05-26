@@ -8,8 +8,11 @@ returning all-ones loss_mask regardless of label masking. The fix derives
 loss_mask from labels: 0 where labels == -100 (prompt), 1 otherwise.
 """
 
+import pytest
 import torch
 from tests.fixtures.config_fixtures import create_small_test_config
+
+pytestmark = pytest.mark.sft
 
 from ironcore import global_vars
 from ironcore.language_model import LanguageModel

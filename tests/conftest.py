@@ -2,42 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Root pytest configuration for ironcore tests.
-
-Provides:
-- Custom markers for test categorization
-- Fixture discovery from tests/fixtures/
-- Common test utilities
-"""
+"""Root pytest configuration for ironcore tests."""
 
 import pytest
 import torch
-
-# Register custom markers
-markers = [
-    "unit: Fast, isolated unit tests (no GPU required)",
-    "integration: Multi-component integration tests",
-    "performance: Performance and benchmark tests",
-    "property: Property-based tests",
-    "regression: Regression tests for specific bugs",
-    "slow: Tests that take longer to run",
-    "distributed: Tests requiring multiple GPUs or distributed setup",
-    "cuda: Tests requiring CUDA/GPU",
-    "mp: Tests requiring Model Parallel (2+ GPUs: TP, EP, PP, etc.)",
-    "flash_attn: Tests requiring flash-attn package",
-]
-
-
-def pytest_configure(config):
-    """
-    Register custom pytest markers.
-
-    CI/CD note: GitHub Actions runs CPU-only tests (pytest -m "not cuda and not mp").
-    Local development should test all markers before creating PRs.
-    """
-    for marker in markers:
-        config.addinivalue_line("markers", marker)
 
 
 def pytest_collection_modifyitems(config, items):

@@ -90,20 +90,19 @@ pythonpath = ["tests", "."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short -m 'not rlvr' --ignore=tests/unit/profiler/ --ignore=tests/multi_gpu/"
+addopts = "-v --tb=short -m 'not e2e' --strict-markers --ignore=tests/unit/profiler/ --ignore=tests/multi_gpu/"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
 markers = [
-    "unit: Fast, isolated unit tests",
-    "integration: Tests involving multiple components",
-    "performance: Benchmark and stress tests",
-    "slow: Tests that take >1s to run",
-    "tp1: Tensor parallel tests with TP=1",
-    "tp2: Tensor parallel tests with TP=2",
-    "cuda: Tests that require CUDA",
-    "kv_cache: KV cache related tests",
-    "paged_attention: Paged attention tests",
-    "prefix_cache: Prefix cache tests",
-    "rlvr: RLVR training smoke tests: GRPO + verifiable rewards, 2 GPUs, ~10 min",
+    "cuda: Tests requiring CUDA/GPU; conftest auto-skips if no GPU available",
+    "mp: Tests requiring Model Parallel (2+ GPUs, torchrun); conftest auto-skips if <2 GPUs",
+    "hf_hub: Tests that download from HuggingFace Hub (network); excluded from CPU CI",
+    "e2e: Expensive end-to-end tests running full subprocess/torchrun (~10 min); opt-in only",
+    "smoke: Pipeline liveness check — a few steps to confirm nothing crashes",
+    "pretrain: Pre-training LM pipeline",
+    "sft: Supervised fine-tuning pipeline",
+    "dpo: DPO alignment pipeline",
+    "rlvr: RLVR/GRPO online RL pipeline (verifiable rewards)",
+    "checkpointing: Checkpoint save/load — native, HF interop, distributed",
 ]

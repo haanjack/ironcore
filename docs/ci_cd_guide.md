@@ -26,10 +26,10 @@ PR Created → [GitHub] CPU Tests ✅ + [Your Machine] GPU Tests ✅ (if runner 
 
 ```bash
 # CPU-only tests (always do this)
-pytest tests/ -m "not cuda and not mp" -v
+pytest tests/ -m "not cuda and not mp and not e2e and not hf_hub" -v
 
-# If you have 2+ GPUs, also run GPU tests
-pytest tests/ -m "cuda or mp" -v
+# If you have 2+ GPUs, also run single-GPU tests
+pytest tests/ -m "cuda and not mp and not e2e" -v
 ```
 
 ### Create PR
@@ -46,19 +46,29 @@ git push origin feature/xyz
 
 ## GitHub Actions Workflows
 
-### CPU Tests (Automatic)
+### Logic Tests (Every PR + push to main)
 
-**Triggers:** Every PR, push to main
 **Runner:** GitHub-hosted (ubuntu-latest)
-**Command:** `pytest tests/ -m "not cuda and not mp"`
+**Command:** `pytest tests/ -m "not cuda and not mp and not e2e and not hf_hub"`
 **Duration:** ~5-10 min | **Cost:** Free
 
-### GPU Tests (Optional with Self-hosted Runner)
+### GPU Tests (Every PR + push to main)
 
-**Triggers:** Push to main, manual workflow_dispatch
 **Runner:** `[self-hosted, gpu, mp]`
-**Command:** `pytest tests/ -m "cuda or mp"`
-**Duration:** ~10-20 min | **Cost:** Your hardware
+**Command:** `pytest tests/ -m "cuda and not mp and not e2e"`
+**Duration:** ~10-15 min | **Cost:** Your hardware
+
+### Distributed Tests (Push to main + manual dispatch)
+
+**Runner:** `[self-hosted, gpu, mp]`
+**Command:** per-file `torchrun --nproc_per_node=2 -m pytest <file>` for all `mp`-marked files
+**Duration:** ~10 min | **Note:** Not run on PRs to keep feedback fast
+
+### E2E Tests (Manual dispatch only)
+
+**Runner:** `[self-hosted, gpu, mp]`
+**Command:** `pytest tests/ -m "e2e"`
+**Duration:** ~10 min | **Note:** Tests self-spawn `torchrun` internally; triggered via `workflow_dispatch` with `test_mode=e2e`
 
 ---
 
@@ -146,8 +156,8 @@ gh workflow run test.yml -f test_mode=gpu
 git checkout -b feature/attention-opt
 # ... code changes ...
 
-pytest tests/ -m "not cuda and not mp"  # Test locally
-git push origin feature/attention-opt    # Push → Auto PR tests
+pytest tests/ -m "not cuda and not mp and not e2e and not hf_hub"  # Test locally
+git push origin feature/attention-opt    # Push → Auto PR tests (logic + GPU)
 ```
 
 ### Patch B (MP=2 Testing)
@@ -156,7 +166,8 @@ git push origin feature/attention-opt    # Push → Auto PR tests
 git checkout -b patch/tp-stability
 # ... code changes + @pytest.mark.mp tests ...
 
-pytest tests/ -m "mp" -v                # Test if 2+ GPUs available
+pytest tests/ -m "cuda and not mp and not e2e" -v  # Single-GPU tests first
+torchrun --nproc_per_node=2 -m pytest tests/multi_gpu/test_my_change.py -v  # Distributed
 git push origin patch/tp-stability
 ```
 
@@ -231,20 +242,25 @@ Located in `tests/fixtures/configs/`:
 **Usage in E2E Tests:**
 ```python
 # tests/unit/reward/test_reward_manager.py
-@pytest.mark.rlvr  # Requires 2+ GPUs
+@pytest.mark.rlvr
+@pytest.mark.e2e
+@pytest.mark.mp
+@pytest.mark.smoke
 def test_reward_manager_config_trains():
     _run_training("tests/fixtures/configs/grpo_gsm8k_smoke_fsdp.yaml")
 ```
 
-Run GRPO smoke tests:
+Run E2E smoke tests (opt-in):
 ```bash
-pytest -m rlvr tests/unit/reward/test_reward_manager.py -v
+pytest -m e2e tests/unit/reward/test_reward_manager.py -v
 ```
+
+Note: `rlvr` alone also matches cheap GRPO math tests in `tests/unit/alignment/` which run in the default CPU tier. The `e2e` marker is the gate for expensive tests.
 
 ---
 
 ## Files & References
 
 - [CLAUDE.md](../CLAUDE.md): Commands, architecture, test markers (for Claude)
-- [tests/conftest.py](../tests/conftest.py): Marker definitions and auto-skip logic
+- [tests/conftest.py](../tests/conftest.py): Auto-skip logic for cuda/mp markers (no marker registration — single source of truth is pyproject.toml)
 - [.github/workflows/test.yml](../.github/workflows/test.yml): Workflow YAML definition

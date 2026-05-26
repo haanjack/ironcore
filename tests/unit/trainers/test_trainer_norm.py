@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
+pytestmark = pytest.mark.smoke
+
 
 class SimpleModel(torch.nn.Module):
     """Simple test model with a few parameters."""

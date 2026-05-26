@@ -13,6 +13,8 @@ from random import Random
 import pytest
 from tests.fixtures.utils import get_section_lengths, verify_psm_structure
 
+pytestmark = pytest.mark.hf_hub
+
 
 class TestFIMShortSequences:
     """Test FIM behavior with short sequences."""

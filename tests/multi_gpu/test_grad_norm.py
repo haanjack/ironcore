@@ -37,11 +37,14 @@ from ironcore.parallel.expert_parallel import (
 )
 from ironcore.parallel.grad_norm import clip_grad_norm
 from ironcore.parallel.parallel_states import (
+
     destroy_model_parallel,
     get_data_parallel_world_size,
     get_tensor_model_parallel_world_size,
     initialize_model_parallel,
 )
+
+pytestmark = pytest.mark.mp
 
 
 class SimpleModel(torch.nn.Module):

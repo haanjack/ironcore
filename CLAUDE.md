@@ -16,12 +16,12 @@ ruff check ironcore/          # check errors
 ruff format ironcore/         # auto-format
 ruff check --fix ironcore/    # auto-fix fixable errors
 
-# Run tests (rlvr/profiler/integration/multi_gpu excluded by default via pyproject.toml)
+# Run tests (e2e excluded via -m 'not e2e'; profiler/multi_gpu via --ignore in pyproject.toml)
 pytest tests/                                         # default: unit + regression (CPU OK)
 pytest tests/unit/attention/test_attention.py -v      # single file
 pytest tests/unit/attention/test_attention.py::TestAttention::test_forward -v  # single test
-pytest -m "not cuda and not mp" tests/                # CPU-only (GitHub Actions env)
-pytest -m "cuda or mp" tests/                         # GPU tests (single-GPU)
+pytest -m "not cuda and not mp and not e2e and not hf_hub" tests/  # CPU-only (GitHub Actions)
+pytest -m "cuda and not mp and not e2e" tests/                     # 1-GPU tests
 ./scripts/run_tests.sh                                # full suite incl. multi-GPU (torchrun)
 
 # Train
@@ -33,8 +33,8 @@ torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 
 **Quick commands:**
 - `pytest tests/unit/` — unit tests (no GPU)
-- `pytest tests/ -m "not cuda and not mp"` — CPU-only (GitHub Actions)
-- `pytest -m "cuda or mp" tests/` — GPU tests (requires GPU)
+- `pytest tests/ -m "not cuda and not mp and not e2e and not hf_hub"` — CPU-only (GitHub Actions)
+- `pytest -m "(cuda or mp) and not e2e" tests/` — GPU tests (requires GPU)
 
 **For complete guide:**
 - Contribution setup, coding standards, PR workflow: [CONTRIBUTING.md](CONTRIBUTING.md)

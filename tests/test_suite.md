@@ -34,11 +34,13 @@ tests/
 │   ├── alignment/               # GRPO/DPO training
 │   ├── attention/               # Attention variants
 │   ├── dataloader/              # Dataset integration
+│   ├── eval/                    # Evaluator integration
 │   ├── kvcache/                 # KV cache with training
 │   ├── lora/                    # LoRA training
 │   ├── memory/                  # Memory optimization
 │   ├── moe/                     # MoE routing
-│   └── training/                # Full training loops
+│   ├── optimizer/               # Optimizer TP/FSDP integration
+│   └── parallelism/             # Parallel state correctness
 ├── multi_gpu/                   # Multi-GPU tests (2+ GPUs with torchrun)
 │   ├── test_distributed_optimizer.py
 │   ├── test_expert_parallel.py
@@ -50,51 +52,82 @@ tests/
 
 ### Pytest Markers System
 
-When adding tests, use appropriate markers to control execution:
+All 10 markers are the single source of truth — registered in `pyproject.toml` with `--strict-markers` enforced.
+
+**Execution-resource markers** (control CI scheduling):
+
+| Marker | Meaning |
+|--------|---------|
+| `@pytest.mark.cuda` | Requires a CUDA/GPU device; conftest auto-skips if unavailable |
+| `@pytest.mark.mp` | Requires 2+ GPUs and `torchrun`; conftest auto-skips if `<2` GPUs |
+| `@pytest.mark.hf_hub` | Downloads from HuggingFace Hub (network required); excluded from CPU CI |
+| `@pytest.mark.e2e` | Expensive end-to-end test (~10 min, spawns torchrun internally); opt-in only |
+
+**Character / pipeline markers** (describe what is being tested):
+
+| Marker | Meaning |
+|--------|---------|
+| `@pytest.mark.smoke` | Pipeline liveness check — just enough steps to confirm nothing crashes |
+| `@pytest.mark.pretrain` | Pre-training LM pipeline |
+| `@pytest.mark.sft` | Supervised fine-tuning pipeline |
+| `@pytest.mark.dpo` | DPO alignment pipeline |
+| `@pytest.mark.rlvr` | RLVR/GRPO online RL pipeline (verifiable rewards) |
+| `@pytest.mark.checkpointing` | Checkpoint save/load — native, HF interop, distributed |
+
+**Key design points:**
+- `rlvr` marks any test touching the GRPO pipeline (cheap math tests **and** expensive training tests).
+- `e2e` is a separate gate for the expensive ones. Default `addopts` excludes only `e2e`, so cheap `rlvr` math tests run in every CI run.
+- `mp` tests guard themselves with `pytest.skipif("RANK" not in os.environ …)` so they safely skip under plain `pytest` and are exercised by the `distributed-tests` CI job via per-file `torchrun`.
+
+**Marker selection by example:**
 
 ```python
 import pytest
 
-# Logic-only tests (fast, no GPU required)
-@pytest.mark.unit
-def test_attention_shape():
-    ...
+# CPU-only logic test — no marker needed (runs by default)
+def test_advantage_normalization(): ...
 
-# GPU-required tests (single GPU)
+# Single-GPU test
 @pytest.mark.cuda
-def test_attention_forward_cuda():
-    ...
+def test_attention_forward_cuda(): ...
 
-# Multi-GPU tests (2+ GPUs, torchrun --nproc_per_node=2)
-@pytest.mark.mp  # "multi-process"
-def test_tensor_parallel():
-    ...
+# 2-GPU test (must also add RANK skipif guard)
+@pytest.mark.mp
+@pytest.mark.skipif("RANK" not in os.environ or ..., reason="requires torchrun")
+def test_tensor_parallel(): ...
 
-# E2E GRPO training tests (2+ GPUs, expensive, ~10 min)
-@pytest.mark.rlvr  # "Reinforcement Learning Value-based Reward"
-def test_reward_manager_config_trains():
-    ...
+# Expensive E2E test (spawns torchrun internally)
+@pytest.mark.rlvr
+@pytest.mark.e2e
+@pytest.mark.mp
+def test_grpo_full_training(): ...
 
-# Other markers
-@pytest.mark.integration    # Multi-component
-@pytest.mark.slow          # Long-running logic tests
-@pytest.mark.regression    # Bug fix validation
-@pytest.mark.property      # Property-based/invariant tests
+# HuggingFace-dependent test (excluded from CPU CI)
+@pytest.mark.hf_hub
+def test_hf_weight_roundtrip(): ...
+
+# Checkpoint test found across multiple dirs
+@pytest.mark.cuda
+@pytest.mark.checkpointing
+def test_checkpoint_roundtrip(): ...
 ```
 
-**Marker execution:**
+**Common filter commands:**
 ```bash
-# Logic-only (no GPU)
-pytest tests/ -m "not cuda and not mp and not rlvr"
+# CPU-only (no GPU, no network, no e2e)
+pytest tests/ -m "not cuda and not mp and not e2e and not hf_hub"
 
-# GPU tests (single GPU)
-pytest tests/ -m "cuda or mp"
+# Single-GPU tests
+pytest tests/ -m "cuda and not mp and not e2e"
 
-# E2E GRPO (requires 2+ GPUs)
-pytest tests/ -m rlvr
+# Run all DPO tests
+pytest tests/ -m dpo
 
-# All except E2E
-pytest tests/ -m "not rlvr"
+# Run all checkpointing tests
+pytest tests/ -m checkpointing
+
+# E2E tests (opt-in, expensive)
+pytest tests/ -m e2e
 ```
 
 ### Adding New Tests
@@ -104,11 +137,14 @@ pytest tests/ -m "not rlvr"
    - Multi-component → `tests/integration/[feature]/test_*.py`
    - Multi-GPU → `tests/multi_gpu/test_*.py`
 
-2. **Add appropriate markers:**
-   - Unit: `@pytest.mark.unit` (or no marker)
-   - GPU single: `@pytest.mark.cuda`
-   - Multi-GPU: `@pytest.mark.mp`
-   - E2E training: `@pytest.mark.rlvr`
+2. **Add appropriate markers** (see table above for all 10):
+   - CPU logic test → no marker (runs in default `pytest tests/`)
+   - Single GPU → `@pytest.mark.cuda`
+   - 2+ GPU with torchrun → `@pytest.mark.mp` + `skipif("RANK" not in os.environ …)`
+   - Expensive E2E → `@pytest.mark.e2e` (+ pipeline marker: `rlvr`, `dpo`, etc.)
+   - HuggingFace download → `@pytest.mark.hf_hub`
+   - Pipeline feature → `@pytest.mark.pretrain / sft / dpo / rlvr`
+   - Checkpoint path → `@pytest.mark.checkpointing`
 
 3. **Use shared fixtures:**
    ```python
@@ -130,27 +166,14 @@ pytest tests/ -m "not rlvr"
 
 ### CI/CD Integration
 
-All tests are automatically validated:
+Four jobs in `.github/workflows/test.yml`:
 
-- **Every PR:** Logic tests only (CPU, ~5 min)
-  ```bash
-  pytest tests/ -m "not cuda and not mp and not rlvr"
-  ```
-
-- **Main branch + manual:** GPU tests (1 GPU, ~15 min)
-  ```bash
-  pytest tests/ -m "cuda or mp"
-  ```
-
-- **Main branch:** Distributed tests (2 GPUs, ~10 min)
-  ```bash
-  torchrun --nproc_per_node=2 -m pytest tests/multi_gpu/ -v
-  ```
-
-- **Manual workflow:** E2E training smoke tests (2 GPUs, ~10 min)
-  ```bash
-  pytest tests/ -m rlvr
-  ```
+| Job | Trigger | Runner | Filter | Duration |
+|-----|---------|--------|--------|----------|
+| `logic-tests` | Every PR + push to main | ubuntu-latest | `-m "not cuda and not mp and not e2e and not hf_hub"` | ~5 min |
+| `gpu-tests` | Every PR + push to main | self-hosted GPU | `-m "cuda and not mp and not e2e"` | ~15 min |
+| `distributed-tests` | Push to main + manual dispatch | self-hosted GPU | per-file `torchrun` on `mp` files | ~10 min |
+| `e2e-tests` | Manual dispatch only | self-hosted GPU | `-m "e2e"` | ~10 min |
 
 See [docs/ci_cd_guide.md](../docs/ci_cd_guide.md) for workflow configuration and runner setup.
 
@@ -158,32 +181,31 @@ See [docs/ci_cd_guide.md](../docs/ci_cd_guide.md) for workflow configuration and
 
 ## Overview
 
-| Tier | Runner | Tests | GPU | Runtime |
-|------|--------|-------|-----|---------|
-| Unit + Regression | `pytest tests/` | 405 | No | ~5 min |
-| Integration (single GPU) | `torchrun --nproc_per_node=1` | 146 | 1 | ~15 min |
-| Integration (TP=2) | `torchrun --nproc_per_node=2` | 12 | 2 | ~10 min |
-| Multi-GPU | `torchrun --nproc_per_node=2` | 27 | 2 | ~10 min |
-| RLVR Smoke | `torchrun --nproc_per_node=2` | 2 | 2 | ~10 min |
-
-**Total: 592 tests across all tiers.**
+| Tier | Runner | GPU | Runtime |
+|------|--------|-----|---------|
+| Unit + Regression (default) | `pytest tests/` | No | ~5 min |
+| Single-GPU integration | `pytest -m "cuda and not mp and not e2e"` | 1 | ~15 min |
+| Distributed (`mp` tests) | per-file `torchrun --nproc_per_node=2` | 2 | ~10 min |
+| E2E (opt-in) | `pytest -m "e2e"` | 2 | ~10 min |
 
 ### Execution
 
 ```bash
-# Unit + regression (default)
+# Default: unit + regression (CPU OK)
 pytest tests/
 
-# Integration (single GPU)
-torchrun --nproc_per_node=1 -m pytest tests/integration/kvcache/test_kv_cache.py -v
+# Single-GPU integration tests
+pytest tests/ -m "cuda and not mp and not e2e"
 
-# Integration (TP=2)
-torchrun --nproc_per_node=2 -m pytest tests/integration/attention/test_attention_multi_gpu.py -v
+# Specific pipeline filter
+pytest tests/ -m dpo       # all DPO tests
+pytest tests/ -m rlvr      # GRPO pipeline (cheap math + training)
+pytest tests/ -m e2e       # expensive E2E only (opt-in)
 
-# All tiers
+# Full suite including multi-GPU (run inside container)
 ./scripts/run_tests.sh              # full suite
 ./scripts/run_tests.sh --quick      # skip multi-GPU
-./scripts/run_tests.sh --rlvr       # add RLVR smoke tests
+./scripts/run_tests.sh --e2e        # add E2E smoke tests
 ```
 
 ### pytest Configuration
@@ -191,10 +213,10 @@ torchrun --nproc_per_node=2 -m pytest tests/integration/attention/test_attention
 Default `addopts` in `pyproject.toml`:
 
 ```
--v --tb=short -m 'not rlvr' --ignore=tests/unit/profiler/ --ignore=tests/multi_gpu/ --ignore=tests/integration/
+-v --tb=short -m 'not e2e' --strict-markers --ignore=tests/unit/profiler/ --ignore=tests/multi_gpu/
 ```
 
-Integration and multi-GPU tests require `torchrun` and are excluded from `pytest` by default. They are run via `scripts/run_tests.sh` which groups them by GPU requirement.
+`--strict-markers` prevents ghost markers — any unregistered marker usage is an immediate error. `mp` tests in `tests/multi_gpu/` are ignored by default and exercised via per-file `torchrun` in the `distributed-tests` CI job.
 
 ---
 
@@ -459,15 +481,17 @@ Run via `scripts/run_tests.sh` with `torchrun --nproc_per_node=2`.
 
 ---
 
-## RLVR Smoke Tests (2 tests, opt-in)
+## E2E Tests (2 tests, opt-in)
 
-Run via `./scripts/run_tests.sh --rlvr` or `pytest tests/ -m rlvr`.
+Run via `./scripts/run_tests.sh --e2e` or `pytest tests/ -m e2e`.
 
-Excluded from default run by `-m 'not rlvr'` in `pyproject.toml`. Requires 2 GPUs, HuggingFace model cache (~1 GB), and ~10 min.
+Excluded from default run by `-m 'not e2e'` in `pyproject.toml`. Requires 2 GPUs, HuggingFace model cache (~1 GB), and ~10 min. These tests self-spawn `torchrun` internally so they run under plain `pytest`.
 
-| File | Class | Tests | Description |
-|------|-------|-------|-------------|
-| `test_reward_manager.py` | TestRLVRTraining | 2 | GRPO training with reward_manager config, composite math reward |
+| File | Class | Tests | Markers | Description |
+|------|-------|-------|---------|-------------|
+| `test_reward_manager.py` | TestRLVRTraining | 2 | `rlvr e2e mp smoke` | GRPO training with reward_manager config, composite math reward |
+
+Note: `rlvr` also appears on cheap unit tests in `test_grpo_math.py` which run in the default CPU tier. Only the `e2e`-marked subset requires GPUs and opt-in.
 
 ---
 

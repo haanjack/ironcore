@@ -159,25 +159,44 @@ Place new tests in the tier that matches the scope of the change. A change to `i
 
 ### Pytest markers
 
-Use only **registered markers** (defined in `pyproject.toml`):
+Use only the **10 registered markers** (single source of truth in `pyproject.toml`; `--strict-markers` enforced):
+
+**Execution-resource markers:**
 
 | Marker | When to use |
 |---|---|
-| `@pytest.mark.unit` | Fast, CPU-only logic tests |
-| `@pytest.mark.integration` | Multi-component tests |
-| `@pytest.mark.performance` | Benchmark / stress tests |
-| `@pytest.mark.slow` | Long-running logic tests (>1 s, no GPU) |
-| `@pytest.mark.tp1` | Tensor parallel tests with TP=1 |
-| `@pytest.mark.tp2` | Tensor parallel tests with TP=2 |
-| `@pytest.mark.cuda` | Tests requiring a single CUDA GPU |
-| `@pytest.mark.kv_cache` | KV cache related tests |
-| `@pytest.mark.paged_attention` | Paged attention tests |
-| `@pytest.mark.prefix_cache` | Prefix cache tests |
-| `@pytest.mark.rlvr` | E2E GRPO smoke tests (2 GPUs, ~10 min, opt-in) |
+| `@pytest.mark.cuda` | Test requires a single CUDA GPU |
+| `@pytest.mark.mp` | Test requires 2+ GPUs and `torchrun`; add `skipif("RANK" not in os.environ …)` guard |
+| `@pytest.mark.hf_hub` | Test downloads from HuggingFace Hub (network); excluded from CPU CI |
+| `@pytest.mark.e2e` | Expensive end-to-end test (~10 min); self-spawns torchrun; opt-in only |
 
-**Adding a new marker** requires registering it in `pyproject.toml` `[tool.pytest.ini_options] markers` in the same PR.
+**Pipeline / character markers:**
 
-> **Known issue:** `tests/test_suite.md` references an `mp` (multi-process) marker that is not currently registered in `pyproject.toml`. Until this is resolved, use the `tests/multi_gpu/` directory convention rather than an `mp` marker.
+| Marker | When to use |
+|---|---|
+| `@pytest.mark.smoke` | Pipeline liveness check (a few steps, not full validation) |
+| `@pytest.mark.pretrain` | Pre-training LM pipeline |
+| `@pytest.mark.sft` | Supervised fine-tuning pipeline |
+| `@pytest.mark.dpo` | DPO alignment pipeline |
+| `@pytest.mark.rlvr` | RLVR/GRPO online RL pipeline (cheap math tests **and** expensive training tests) |
+| `@pytest.mark.checkpointing` | Checkpoint save/load — native, HF interop, or distributed |
+
+**Adding a new marker** requires registering it in `pyproject.toml` `[tool.pytest.ini_options] markers` in the same PR. Unregistered markers are a hard error (`--strict-markers`).
+
+**One hardware tier per test item.** `cuda` and `mp` are mutually exclusive on a single test: a given invocation runs at one `tp_size`, so it uses either 1 GPU (`cuda`) or 2+ GPUs via `torchrun` (`mp`) — never both. Do **not** put `@pytest.mark.cuda` and `@pytest.mark.mp` on the same test (or on its class). The `gpu-tests` CI job selects `cuda and not mp`, so a double-marked test is excluded from the 1-GPU gate entirely — the opposite of what you'd want.
+
+When the *same* test logic should run at both TP=1 and TP=2, express it as two test **items**, each marked for its own tier — either separate methods (`test_foo_tp1` → `cuda`, `test_foo_tp2` → `mp`) or, when the body is identical, parametrize with per-parameter marks:
+
+```python
+@pytest.mark.parametrize("tp_size", [
+    pytest.param(1, marks=pytest.mark.cuda),   # test_foo[1] → runs in gpu-tests (1 GPU)
+    pytest.param(2, marks=pytest.mark.mp),     # test_foo[2] → runs in distributed-tests (2 GPUs, torchrun)
+])
+def test_foo(tp_size):
+    ...
+```
+
+Both tiers get coverage, yet each item stays single-tier. The TP=2 item still needs the `skipif("RANK" not in os.environ …)` guard so it skips cleanly when collected without `torchrun`.
 
 ### Regression tests for new layers
 
@@ -238,7 +257,7 @@ torchrun --nproc_per_node=2 -m pytest tests/multi_gpu/test_my_change.py -v
 pytest tests/
 
 # Single-GPU tests
-pytest tests/ -m "cuda or tp1"
+pytest tests/ -m "cuda and not mp and not e2e"
 
 # Full suite including multi-GPU (run inside container)
 ./scripts/run_tests.sh
@@ -246,8 +265,8 @@ pytest tests/ -m "cuda or tp1"
 # Skip multi-GPU (faster local loop)
 ./scripts/run_tests.sh --quick
 
-# E2E GRPO smoke tests (opt-in, 2 GPUs, ~10 min)
-./scripts/run_tests.sh --rlvr
+# E2E smoke tests (opt-in, 2 GPUs, ~10 min)
+./scripts/run_tests.sh --e2e
 ```
 
 ---

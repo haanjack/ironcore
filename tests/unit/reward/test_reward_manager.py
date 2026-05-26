@@ -1181,6 +1181,9 @@ class TestRLVRTraining:
     """
 
     @pytest.mark.rlvr
+    @pytest.mark.e2e
+    @pytest.mark.mp
+    @pytest.mark.smoke
     def test_reward_manager_config_trains(self):
         """10-step GRPO training with reward_manager config runs cleanly."""
         result = _run_training(E2E_RM_CONFIG)
@@ -1198,6 +1201,9 @@ class TestRLVRTraining:
         )
 
     @pytest.mark.rlvr
+    @pytest.mark.e2e
+    @pytest.mark.mp
+    @pytest.mark.smoke
     def test_reward_manager_composite_math_trains(self):
         """GRPO training with composite_math reward via RewardManager."""
         result = _run_training(E2E_RM_MATH_CONFIG)
