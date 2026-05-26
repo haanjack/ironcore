@@ -19,6 +19,7 @@ from torch.optim import AdamW
 
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 
+pytestmark = pytest.mark.mp
 
 
 class SimpleModel(nn.Module):
@@ -117,8 +118,6 @@ class TestDistributedOptimizerMultiGPU:
         import torch.distributed as dist
         from torch.distributed import all_reduce
         from torch.nn.parallel import DistributedDataParallel as DDP
-
-pytestmark = pytest.mark.mp
 
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
 

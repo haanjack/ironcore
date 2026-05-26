@@ -33,11 +33,11 @@ from ironcore.parallel.expert_parallel import (
     initialize_expert_parallel,
 )
 from ironcore.parallel.parallel_states import (
-
-pytestmark = pytest.mark.mp
     destroy_model_parallel,
     initialize_model_parallel,
 )
+
+pytestmark = pytest.mark.mp
 
 
 def setup_distributed():

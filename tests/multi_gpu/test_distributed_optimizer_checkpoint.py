@@ -611,8 +611,6 @@ class TestCheckpointEdgeCases:
         if local_rank == 0:
             import shutil
 
-pytestmark = [pytest.mark.mp, pytest.mark.checkpointing]
-
             if tmp_dir.exists():
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
