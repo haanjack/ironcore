@@ -100,6 +100,7 @@ jobs:
 
       - name: Run distributed tests (torchrun per file)
         run: |
+          failed=0
           for f in \
             tests/integration/attention/test_attention_multi_gpu.py \
             tests/integration/kvcache/test_kv_cache.py \
@@ -113,9 +114,14 @@ jobs:
             tests/multi_gpu/test_distributed_optimizer.py \
             tests/multi_gpu/test_distributed_optimizer_checkpoint.py; do
             if [ -f "$f" ]; then
-              torchrun --nproc_per_node=2 -m pytest "$f" -m "mp" -v --tb=short -q
+              echo "=== Running: $f ==="
+              timeout 300 torchrun --nproc_per_node=2 -m pytest "$f" -m "mp" --timeout=120 -v --tb=short -q || {
+                echo "FAILED or TIMED OUT: $f (exit=$?)"
+                failed=1
+              }
             fi
           done
+          exit $failed
 
   # E2E smoke tests — manual dispatch only (~10 min per test, 2 GPUs)
   e2e-tests:
