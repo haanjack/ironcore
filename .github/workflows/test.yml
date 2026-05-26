@@ -113,7 +113,7 @@ jobs:
             tests/multi_gpu/test_distributed_optimizer.py \
             tests/multi_gpu/test_distributed_optimizer_checkpoint.py; do
             if [ -f "$f" ]; then
-              torchrun --nproc_per_node=2 -m pytest "$f" -v --tb=short -q
+              torchrun --nproc_per_node=2 -m pytest "$f" -m "mp" -v --tb=short -q
             fi
           done
 
