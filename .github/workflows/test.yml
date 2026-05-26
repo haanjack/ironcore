@@ -58,18 +58,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: 'pip'
+        run: |
+          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          if [ ! -d .git ]; then
+            git clone https://github.com/${{ github.repository }}.git .
+          fi
+          git fetch origin ${{ github.sha }}
+          git checkout ${{ github.sha }}
+          git clean -fd
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: python3 -m pip install -e ".[dev]" -q
 
       - name: Run single-GPU tests
         run: |
@@ -87,18 +86,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: 'pip'
+        run: |
+          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          if [ ! -d .git ]; then
+            git clone https://github.com/${{ github.repository }}.git .
+          fi
+          git fetch origin ${{ github.sha }}
+          git checkout ${{ github.sha }}
+          git clean -fd
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: python3 -m pip install -e ".[dev]" -q
 
       - name: Run distributed tests (torchrun per file)
         run: |
@@ -128,18 +126,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: 'pip'
+        run: |
+          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          if [ ! -d .git ]; then
+            git clone https://github.com/${{ github.repository }}.git .
+          fi
+          git fetch origin ${{ github.sha }}
+          git checkout ${{ github.sha }}
+          git clean -fd
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: python3 -m pip install -e ".[dev]" -q
 
       - name: Run E2E tests (tests self-spawn torchrun internally)
         run: |
