@@ -13,9 +13,9 @@ Tests:
 import pytest
 import torch
 
-pytestmark = pytest.mark.rlvr
-
 from ironcore.parallel import parallel_states
+
+pytestmark = pytest.mark.rlvr
 
 
 @pytest.fixture(scope="module", autouse=True)

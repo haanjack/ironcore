@@ -26,8 +26,6 @@ from torch.optim import AdamW
 
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 
-import pytest
-
 pytestmark = [pytest.mark.mp, pytest.mark.checkpointing]
 
 
