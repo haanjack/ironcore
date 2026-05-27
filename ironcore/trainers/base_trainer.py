@@ -132,7 +132,7 @@ class BaseTrainer(ABC):
             )
 
         # Initialize data loader
-        self.data_iterator = get_data_iterator(self.config)
+        self.data_iterator = self._get_data_iterator()
 
         self.evaluators = get_evaluators(
             self.config.data.eval_datasets,
@@ -189,6 +189,14 @@ class BaseTrainer(ABC):
             dist.destroy_process_group()
 
         self._initialized = False
+
+    def _get_data_iterator(self):
+        """Return data iterators for train/eval/test splits.
+
+        Subclasses can override this to use task-specific data pipelines
+        (e.g., GRPOTrainer uses get_grpo_data_iterator).
+        """
+        return get_data_iterator(self.config)
 
     def _init_mfu_calculator(self):
         """Initialize MFU calculator for TFLOPS/s/GPU reporting."""

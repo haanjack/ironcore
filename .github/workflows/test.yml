@@ -101,6 +101,9 @@ jobs:
       - name: Run distributed tests (torchrun per file)
         run: |
           failed=0
+          get_free_port() {
+            python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+          }
           for f in \
             tests/integration/attention/test_attention_multi_gpu.py \
             tests/integration/kvcache/test_kv_cache.py \
@@ -115,7 +118,7 @@ jobs:
             tests/multi_gpu/test_distributed_optimizer_checkpoint.py; do
             if [ -f "$f" ]; then
               echo "=== Running: $f ==="
-              timeout 300 torchrun --nproc_per_node=2 -m pytest "$f" -m "mp" --timeout=120 -v --tb=short -q || {
+              timeout 300 torchrun --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$f" -m "mp" --timeout=120 -v --tb=short -q || {
                 echo "FAILED or TIMED OUT: $f (exit=$?)"
                 failed=1
               }

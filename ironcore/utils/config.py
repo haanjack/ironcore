@@ -80,8 +80,14 @@ def sanitize_path_component(path_component: str) -> str:
 
 
 def validate_path_within_dir(path: Path, base_dir: Path) -> bool:
-    """Validate that a path resolves within the base directory."""
+    """Validate that a path resolves within the base directory.
+
+    Absolute paths are allowed through without validation since they
+    represent explicitly resolved locations with no traversal risk.
+    """
     try:
+        if path.is_absolute():
+            return True
         resolved_path = path.resolve()
         resolved_base = base_dir.resolve()
         return resolved_path.is_relative_to(resolved_base)

@@ -32,6 +32,11 @@ PYTHON="python"
 PYTEST="pytest"
 TORCHRUN="torchrun"
 
+# Dynamic port allocation to avoid EADDRINUSE when tests run in parallel
+get_free_port() {
+    python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -193,7 +198,7 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
         if [ -f "$test_file" ]; then
             echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=1)${NC}"
 
-            TEST_OUTPUT=$(torchrun --nproc_per_node=1 -m pytest "$test_file" -v --tb=short 2>&1 || true)
+            TEST_OUTPUT=$(torchrun --nproc_per_node=1 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
 
             T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
             T_PASSED=${T_PASSED:-0}
@@ -222,7 +227,7 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
         if [ -f "$test_file" ]; then
             echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=2)${NC}"
 
-            TEST_OUTPUT=$(torchrun --nproc_per_node=2 -m pytest "$test_file" -v --tb=short 2>&1 || true)
+            TEST_OUTPUT=$(torchrun --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
 
             T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
             T_PASSED=${T_PASSED:-0}
@@ -251,7 +256,7 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
         if [ -f "$test_file" ]; then
             echo -e "\n${YELLOW}Running: $test_file${NC}"
 
-            TEST_OUTPUT=$($TORCHRUN --nproc_per_node=2 -m pytest "$test_file" -v --tb=short 2>&1 || true)
+            TEST_OUTPUT=$($TORCHRUN --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
 
             # Parse results
             T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)

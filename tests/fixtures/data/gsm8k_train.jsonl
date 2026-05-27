@@ -1,0 +1,10 @@
+{"prompt": "What is 2 + 3?", "answer": "5", "type": "math"}
+{"prompt": "What is 7 - 4?", "answer": "3", "type": "math"}
+{"prompt": "What is 6 * 5?", "answer": "30", "type": "math"}
+{"prompt": "What is 15 / 3?", "answer": "5", "type": "math"}
+{"prompt": "What is 8 + 9?", "answer": "17", "type": "math"}
+{"prompt": "What is 12 - 7?", "answer": "5", "type": "math"}
+{"prompt": "What is 4 * 9?", "answer": "36", "type": "math"}
+{"prompt": "What is 20 / 4?", "answer": "5", "type": "math"}
+{"prompt": "What is 11 + 14?", "answer": "25", "type": "math"}
+{"prompt": "What is 100 - 37?", "answer": "63", "type": "math"}

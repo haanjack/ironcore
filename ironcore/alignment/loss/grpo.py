@@ -63,6 +63,10 @@ def compute_advantages(
                 group = get_data_parallel_group()
                 rank = dist.get_rank(group)
 
+                # Ensure any in-flight FSDP internal NCCL ops have completed
+                # before issuing our own all_gather on the same DP group.
+                dist.barrier(group=group)
+
                 # 1. Gather sizes to handle non-uniform batching
                 local_size_t = torch.tensor([rewards.numel()], device=device, dtype=torch.long)
                 all_sizes_t = [

@@ -1,0 +1,27 @@
+num_attention_heads: 14
+num_attention_groups: 2
+attention_head_size: 64
+head_dim: 64
+max_seq_len: 32768
+num_layers: 24
+d_model: 896
+d_ffn: 4864
+untie_embed: false
+reset_position_ids: false
+reset_attention_mask: false
+eod_mask_loss: false
+precision: bf16
+
+vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+tokenizer_type: tiktoken
+
+hf_model_type: qwen2
+hf_architecture: Qwen2ForCausalLM
+
+norm_type: rmsnorm
+norm_eps: 1.0e-6
+attention_type: gqa
+positional_embedding: rope
+rope_theta: 10000.0
+rope_scaling: null
+tie_word_embeddings: true

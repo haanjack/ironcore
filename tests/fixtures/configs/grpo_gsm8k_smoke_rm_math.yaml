@@ -5,7 +5,7 @@
 # Used for E2E test 67: verifies that RewardManager produces equivalent reward
 # signals to the legacy math reward (both configs should have <5% mean_reward difference).
 
-model: ../model/qwen2.5-0.5B
+model: qwen2.5-0.5B
 
 trainer:
   micro_batch_size: 2
@@ -16,7 +16,7 @@ trainer:
   load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
 
 data:
-  config_path: ../data/grpo_gsm8k
+  config_path: data/grpo_gsm8k
   task_type: grpo
 
 optim:
@@ -42,6 +42,7 @@ parallel:
   fsdp_sharding_strategy: "full"
   fsdp_mixed_precision: "bf16"
   fsdp_state_dict_type: "sharded"
+  fsdp_use_orig_params: true
 
 alignment:
   method: grpo

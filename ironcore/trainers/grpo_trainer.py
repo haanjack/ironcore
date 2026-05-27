@@ -144,8 +144,8 @@ class GRPOTrainer(BaseTrainer):
             timeout=reward_manager_cfg.timeout,
         )
 
-        # Setup GRPO-specific data iterators (overrides base trainer's)
-        self._setup_data_iterators()
+        # Data iterators are already set up via _get_data_iterator() override
+
 
         if dist.is_initialized():
             dist.barrier()
@@ -363,14 +363,14 @@ class GRPOTrainer(BaseTrainer):
                 # Use pre-tokenized IDs from batch (handled by caller)
                 return None
 
-    def _setup_data_iterators(self) -> None:
-        """Setup data iterators for training and evaluation."""
-        self.data_iterator = {
+    def _get_data_iterator(self):
+        """Return GRPO-specific data iterators."""
+        iterators = {
             "train": get_grpo_data_iterator(self.config, split="train"),
         }
-
         if hasattr(self.config.data, "eval_file") and self.config.data.eval_file:
-            self.data_iterator["eval"] = get_grpo_data_iterator(self.config, split="eval")
+            iterators["eval"] = get_grpo_data_iterator(self.config, split="eval")
+        return iterators
 
     def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
         """Forward pass for a single micro-batch in GRPO training."""
