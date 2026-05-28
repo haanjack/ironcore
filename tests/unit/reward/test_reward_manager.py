@@ -1057,7 +1057,9 @@ E2E_RM_MATH_CONFIG = str(
     REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_rm_math.yaml"
 )
 E2E_DDP_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_ddp.yaml")
-E2E_DDP_RM_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_ddp_rm.yaml")
+E2E_DDP_RM_CONFIG = str(
+    REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_gsm8k_smoke_ddp_rm.yaml"
+)
 TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=2"]
 
 

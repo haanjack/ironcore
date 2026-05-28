@@ -146,7 +146,6 @@ class GRPOTrainer(BaseTrainer):
 
         # Data iterators are already set up via _get_data_iterator() override
 
-
         if dist.is_initialized():
             dist.barrier()
 
