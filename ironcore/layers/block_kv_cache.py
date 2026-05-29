@@ -90,15 +90,18 @@ class BlockKVCacheManager:
             dtype: Data type for cache (defaults to model dtype).
         """
         if self.is_initialized:
-            # Already initialized — free all sequences and reuse existing pool.
-            for sid in range(self.block_tables.shape[0]):
-                self.free_sequence(sid)
-            # Reset token positions and block tables to clean state
-            self.block_tables.fill_(-1)
-            self.num_valid_blocks.zero_()
-            self.token_positions.zero_()
-            self.tokens_written.zero_()
-            return
+            # Re-initialize if batch_size changed (e.g., different prompt count per step).
+            if batch_size != self.block_tables.shape[0]:
+                self._deallocate()
+            else:
+                # Same size — just reset state.
+                for sid in range(self.block_tables.shape[0]):
+                    self.free_sequence(sid)
+                self.block_tables.fill_(-1)
+                self.num_valid_blocks.zero_()
+                self.token_positions.zero_()
+                self.tokens_written.zero_()
+                return
         if dtype is None:
             dtype = get_model_dtype(self.config)
 
@@ -152,6 +155,20 @@ class BlockKVCacheManager:
 
         self.is_initialized = True
 
+    def _deallocate(self):
+        """Free all tensors and reset to uninitialized state."""
+        if not self.is_initialized:
+            return
+        del self.physical_key_caches
+        del self.physical_value_caches
+        del self.block_tables
+        del self.num_valid_blocks
+        del self.token_positions
+        del self.tokens_written
+        del self.ref_counts
+        self.free_blocks = []
+        self.is_initialized = False
+
     def _compute_pool_size(
         self,
         num_layers: int,
@@ -191,6 +208,11 @@ class BlockKVCacheManager:
         # Cap at max_num_blocks_per_seq * batch_size as a sanity upper bound
         max_blocks = self.max_num_blocks_per_seq * batch_size
         return min(num_blocks, max_blocks)
+
+    def _allocate_single_block(self, seq_id: int) -> int:
+        """Allocate one block and return its physical index."""
+        blocks = self.allocate_blocks(seq_id, 1)
+        return blocks[0]
 
     def allocate_blocks(self, seq_id: int, count: int) -> list[int]:
         """Allocate `count` physical blocks for a sequence.
@@ -493,19 +515,51 @@ class BlockKVCacheManager:
                     f"Free the sequence first."
                 )
 
+        # Check if last prefix block is partial — if so, it needs COW.
+        # When decode writes to a partial block, it would corrupt the shared
+        # physical block for all sequences sharing that prefix.
+        src_tokens = self.tokens_written[src_seq_id].item()
+        last_block_has_room = (src_tokens % self.block_size) != 0
+
         for dst_id in dst_seq_ids:
-            # Copy block table entries and token position
-            self.block_tables[dst_id, :src_num_blocks] = self.block_tables[
-                src_seq_id, :src_num_blocks
-            ]
+            if last_block_has_room:
+                # Allocate a fresh block and copy the partial block's KV data
+                new_block = self._allocate_single_block(dst_id)
+                last_idx = src_num_blocks - 1
+                old_block = self.block_tables[src_seq_id, last_idx].item()
+                # Copy first: block_tables, then KV data
+                self.block_tables[dst_id, : src_num_blocks - 1] = self.block_tables[
+                    src_seq_id, : src_num_blocks - 1
+                ]
+                self.block_tables[dst_id, last_idx] = new_block
+                # Deep-copy KV from old block to new block
+                for layer_k, layer_v in zip(
+                    self.physical_key_caches, self.physical_value_caches, strict=True
+                ):
+                    layer_k[new_block] = layer_k[old_block].clone()
+                    layer_v[new_block] = layer_v[old_block].clone()
+            else:
+                # All blocks full — safe to share directly
+                self.block_tables[dst_id, :src_num_blocks] = self.block_tables[
+                    src_seq_id, :src_num_blocks
+                ]
+
             self.num_valid_blocks[dst_id] = src_num_blocks
             self.token_positions[dst_id] = self.token_positions[src_seq_id]
             self.tokens_written[dst_id] = self.tokens_written[src_seq_id]
 
-        # Increment reference counts for shared blocks (one per destination)
-        src_block_indices = self.block_tables[src_seq_id, :src_num_blocks]
-        increment = torch.full_like(src_block_indices, len(dst_seq_ids))
-        self.ref_counts.index_add_(0, src_block_indices, increment)
+        # Increment reference counts for shared blocks.
+        # With COW, only the full blocks are shared; the partial last block
+        # was deep-copied and is individually owned by each dst.
+        if last_block_has_room:
+            shared_count = src_num_blocks - 1
+        else:
+            shared_count = src_num_blocks
+
+        if shared_count > 0:
+            src_block_indices = self.block_tables[src_seq_id, :shared_count]
+            increment = torch.full_like(src_block_indices, len(dst_seq_ids))
+            self.ref_counts.index_add_(0, src_block_indices, increment)
 
     def free_sequence(self, seq_id: int):
         """Free all blocks owned by a sequence.
