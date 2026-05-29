@@ -1213,9 +1213,9 @@ def _extract_reward_stats(output: str) -> dict:
 class TestRLVRTraining:
     """GRPO smoke tests that run actual distributed training.
 
-    Marked @pytest.mark.rlvr and excluded from default test runs:
-        pytest -m "not rlvr"   # skip RLVR tests (default CI)
-        pytest -m rlvr         # run only RLVR tests
+    Marked @pytest.mark.grpo and excluded from default test runs:
+        pytest -m "not grpo"   # skip GRPO tests (default CI)
+        pytest -m grpo         # run only GRPO tests
 
     Uses rule-based rewards (no API keys). Requires:
         - 2 GPUs (torchrun --nproc_per_node=2)
@@ -1231,7 +1231,7 @@ class TestRLVRTraining:
             f.unlink(missing_ok=True)
 
     @pytest.mark.skip(reason="FSDP NCCL timeout — pending offload integration")
-    @pytest.mark.rlvr
+    @pytest.mark.grpo
     @pytest.mark.e2e
     @pytest.mark.mp
     @pytest.mark.smoke
@@ -1252,7 +1252,7 @@ class TestRLVRTraining:
         )
 
     @pytest.mark.skip(reason="FSDP NCCL timeout — pending offload integration")
-    @pytest.mark.rlvr
+    @pytest.mark.grpo
     @pytest.mark.e2e
     @pytest.mark.mp
     @pytest.mark.smoke
@@ -1270,7 +1270,7 @@ class TestRLVRTraining:
         assert stats["n"] > 0, "No reward values parsed from run"
         assert stats["mean"] > 0.0, f"Composite math mean_reward degenerate: {stats['mean']:.4f}"
 
-    @pytest.mark.rlvr
+    @pytest.mark.grpo
     @pytest.mark.e2e
     @pytest.mark.mp
     @pytest.mark.smoke
@@ -1290,7 +1290,7 @@ class TestRLVRTraining:
             f"STDOUT tail:\n{result.stdout[-2000:]}"
         )
 
-    @pytest.mark.rlvr
+    @pytest.mark.grpo
     @pytest.mark.e2e
     @pytest.mark.mp
     @pytest.mark.smoke

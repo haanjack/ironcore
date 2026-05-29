@@ -9,7 +9,7 @@ pipeline — rollout, reward, advantage computation, policy update — works
 with both baseline (functional KV cache) and paged rollout variants.
 
 Requires: 2 GPUs, flash attention, HuggingFace model cache.
-Marked with @pytest.mark.rlvr (excluded from default pytest runs).
+Marked with @pytest.mark.grpo (excluded from default pytest runs).
 """
 
 import subprocess
@@ -101,13 +101,13 @@ def _assert_training_success(result: subprocess.CompletedProcess, label: str) ->
 
 
 class TestGRPOTraining:
-    @pytest.mark.rlvr
+    @pytest.mark.grpo
     @pytest.mark.cuda
     def test_grpo_baseline_training(self):
         result = _run_training(GRPO_BASELINE_CONFIG)
         _assert_training_success(result, "baseline")
 
-    @pytest.mark.rlvr
+    @pytest.mark.grpo
     @pytest.mark.cuda
     def test_grpo_paged_rollout_training(self):
         result = _run_training(GRPO_PAGED_CONFIG)
