@@ -19,6 +19,7 @@ properties the smoke tests miss:
 
 from typing import cast
 
+import pytest
 import torch
 from torch import nn
 
@@ -302,3 +303,21 @@ class TestPagedVsBatchedEquivalence:
         assert bb.old_log_probs.shape == bp.old_log_probs.shape
         assert bb.response_ids.shape == bp.response_ids.shape
         assert bb.completion_ids.shape == bp.completion_ids.shape
+
+
+class TestDoneSequenceBlockUsage:
+    """Verify done sequences don't waste block pool capacity.
+
+    PR #37 (RAM-host optimizer states / CPU offloading) will implement
+    FSDP-compatible offloading and needs to verify that FSDP-wrapped
+    models correctly handle done sequences during paged rollout.
+    """
+
+    @pytest.mark.skip(reason="Requires FSDP + offloading from PR #37")
+    def test_done_sequences_no_extra_blocks_under_fsdp(self):
+        """Done sequences should not allocate new blocks beyond their last token.
+
+        When FSDP is active, the full batch must still be forwarded for shape
+        consistency, but block allocation should be skipped for done sequences.
+        This test verifies the offloading-aware path in PR #37.
+        """

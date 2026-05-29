@@ -149,7 +149,7 @@ def gather_kv_blocks_batched(
 
         # Write partial last block
         if remainder > 0:
-            partial_block_idx = block_tables[sid, num_full].item()
+            partial_block_idx = block_tables[sid, num_full]
             result[i, num_full * block_size : num_full * block_size + remainder] = physical_cache[
                 partial_block_idx, :remainder
             ]

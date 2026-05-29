@@ -194,9 +194,11 @@ class BlockKVCacheManager:
         # Available memory for cache
         if device.type == "cuda":
             total_mem = torch.cuda.get_device_properties(device).total_memory
-            # Subtract currently allocated memory
+            # Subtract both allocated and reserved memory, plus a 10% safety
+            # margin for fragmentation and other process overhead.
             allocated = torch.cuda.memory_allocated(device)
-            available = (total_mem - allocated) * gpu_util
+            reserved = torch.cuda.memory_reserved(device)
+            available = (total_mem - max(allocated, reserved)) * gpu_util * 0.9
         else:
             available = _CPU_FALLBACK_CACHE_BYTES
 

@@ -521,7 +521,9 @@ def generate_rollouts_paged(
                 # consistent across ranks, but only advance cache for active.
                 logits, _ = model.forward(cur_tokens, labels=None, seq_id=completion_seq_ids)
 
-                active_seq_ids = [completion_seq_ids[i] for i in range(total_samples) if not done_mask[i]]
+                active_seq_ids = [
+                    completion_seq_ids[i] for i in range(total_samples) if not done_mask[i]
+                ]
                 if active_seq_ids:
                     unwrapped_model.advance_cache_position(active_seq_ids, 1)
 
