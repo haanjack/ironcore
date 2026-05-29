@@ -43,9 +43,7 @@ def _build_rollout_output(
     generated = generated[:, :actual_len]
     response_lengths = response_lengths.clamp(max=actual_len)
 
-    expanded_prompts = (
-        prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
-    )
+    expanded_prompts = prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
     completion_ids = torch.cat([expanded_prompts, generated], dim=1)
 
     log_probs_stacked = torch.stack(log_probs_list, dim=1)
@@ -358,8 +356,12 @@ def generate_rollouts_batched(
             generated[:, t] = next_tokens.squeeze(-1)
 
     return _build_rollout_output(
-        prompt_ids, generated, log_probs_list,
-        response_lengths, group_size, metadata,
+        prompt_ids,
+        generated,
+        log_probs_list,
+        response_lengths,
+        group_size,
+        metadata,
     )
 
 
@@ -518,9 +520,7 @@ def generate_rollouts_paged(
                 # Always forward the full batch to keep FSDP shapes consistent
                 # across DP ranks. Done sequences participate but their results
                 # are masked out below.
-                logits, _ = model.forward(
-                    cur_tokens, labels=None, seq_id=completion_seq_ids
-                )
+                logits, _ = model.forward(cur_tokens, labels=None, seq_id=completion_seq_ids)
                 unwrapped_model.advance_cache_position(completion_seq_ids, 1)
 
                 # Mask out logits for done sequences (they attended to stale KV)
@@ -553,8 +553,12 @@ def generate_rollouts_paged(
             unwrapped_model.free_sequence_cache(sid)
 
         return _build_rollout_output(
-            prompt_ids, generated, log_probs_list,
-            response_lengths, group_size, metadata,
+            prompt_ids,
+            generated,
+            log_probs_list,
+            response_lengths,
+            group_size,
+            metadata,
         )
     finally:
         if was_training:

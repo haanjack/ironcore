@@ -9,7 +9,7 @@ splits: [1.0, 0.0, 0.0]
 
 train_datasets:
   - name: grpo_qwen_keyword_toy
-    source: data/grpo_qwen_keyword_toy.jsonl
+    source: data/grpo_keyword_toy.jsonl
     task_type: grpo
     ratio: 1.0
     split: train

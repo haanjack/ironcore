@@ -57,8 +57,12 @@ class BlockKVCacheManager:
         self.physical_value_caches: list[torch.Tensor] = []
         self.block_tables: torch.Tensor | None = None  # [max_batch_size, max_num_blocks_per_seq]
         self.num_valid_blocks: torch.Tensor | None = None  # [max_batch_size]
-        self.token_positions: torch.Tensor | None = None  # [max_batch_size] — externally managed positions
-        self.tokens_written: torch.Tensor | None = None  # [max_batch_size] — actual tokens in cache (updated by _write_kv_to_blocks)
+        self.token_positions: torch.Tensor | None = (
+            None  # [max_batch_size] — externally managed positions
+        )
+        self.tokens_written: torch.Tensor | None = (
+            None  # [max_batch_size] — actual tokens in cache (updated by _write_kv_to_blocks)
+        )
 
         # Pool management
         self.free_blocks: list[int] = []

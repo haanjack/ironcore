@@ -12,6 +12,8 @@ Run:
     pytest tests/integration/kvcache/test_kv_cache.py -v
 """
 
+import os
+
 import pytest
 import torch
 

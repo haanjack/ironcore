@@ -150,9 +150,7 @@ class TestLogProbRange:
 
     def test_old_log_probs_finite(self):
         log_probs = self._run_batched()
-        assert log_probs.isfinite().all(), (
-            f"old_log_probs must be finite; got {log_probs}"
-        )
+        assert log_probs.isfinite().all(), f"old_log_probs must be finite; got {log_probs}"
 
     def test_old_log_probs_not_extreme(self):
         """Sum of log probs must not underflow to -inf territory."""
@@ -183,10 +181,12 @@ class TestResponseLengthsConsistency:
         other_token = (self.TRIGGER_TOKEN + 5) % _MockModel.VOCAB_SIZE
         if other_token == self.EOS_ID:
             other_token = (other_token + 1) % _MockModel.VOCAB_SIZE
-        prompt_ids = torch.tensor([
-            [1, 2, self.TRIGGER_TOKEN],
-            [1, 2, other_token],
-        ])
+        prompt_ids = torch.tensor(
+            [
+                [1, 2, self.TRIGGER_TOKEN],
+                [1, 2, other_token],
+            ]
+        )
         buf = generate_rollouts_batched(
             model,
             prompt_ids,
@@ -225,9 +225,7 @@ class TestResponseLengthsConsistency:
         buf, _ = self._run()
         max_len = buf.response_ids.size(1)
         assert (buf.response_lengths >= 1).all(), "response_lengths must be ≥ 1"
-        assert (buf.response_lengths <= max_len).all(), (
-            f"response_lengths must be ≤ {max_len}"
-        )
+        assert (buf.response_lengths <= max_len).all(), f"response_lengths must be ≤ {max_len}"
 
     def test_no_eos_means_max_length(self):
         """Sequences from the non-triggering prompt should use max_new_tokens."""
@@ -245,7 +243,10 @@ class TestPagedVsBatchedEquivalence:
     under greedy decoding with the same context-free model."""
 
     def _run_both(  # noqa: N803
-        self, B: int = 2, G: int = 2, max_new_tokens: int = 6  # noqa: N803
+        self,
+        B: int = 2,  # noqa: N803
+        G: int = 2,  # noqa: N803
+        max_new_tokens: int = 6,
     ):
         torch.manual_seed(7)
         prompt_ids = torch.randint(1, _MockModel.VOCAB_SIZE, (B, 4))
@@ -254,15 +255,23 @@ class TestPagedVsBatchedEquivalence:
         batched_model = _MockModel()
         batched_model.eval()
         buf_batched = generate_rollouts_batched(
-            batched_model, prompt_ids, G, metadata,
-            max_new_tokens=max_new_tokens, do_sample=False,
+            batched_model,
+            prompt_ids,
+            G,
+            metadata,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
         )
 
         paged_model = _MockModel()  # fresh instance, same seed → same _logit_table
         paged_model.eval()
         buf_paged = generate_rollouts_paged(
-            paged_model, prompt_ids, G, metadata,
-            max_new_tokens=max_new_tokens, do_sample=False,
+            paged_model,
+            prompt_ids,
+            G,
+            metadata,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
         )
 
         return buf_batched, buf_paged
