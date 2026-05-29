@@ -25,6 +25,61 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
+def _build_rollout_output(
+    prompt_ids: torch.Tensor,
+    generated: torch.Tensor,
+    log_probs_list: list[torch.Tensor],
+    response_lengths: torch.Tensor,
+    group_size: int,
+    metadata: list[dict],
+) -> RolloutBuffer:
+    """Build RolloutBuffer from generation outputs (shared by both rollout paths)."""
+    B, prompt_len = prompt_ids.shape
+    G = group_size
+    total_samples = B * G
+    device = prompt_ids.device
+
+    actual_len = len(log_probs_list)
+    generated = generated[:, :actual_len]
+    response_lengths = response_lengths.clamp(max=actual_len)
+
+    expanded_prompts = prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
+    completion_ids = torch.cat([expanded_prompts, generated], dim=1)
+
+    log_probs_stacked = torch.stack(log_probs_list, dim=1)
+    old_log_probs = log_probs_stacked.sum(dim=1)
+
+    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
+
+    expanded_metadata = []
+    for meta in metadata:
+        expanded_metadata.extend([meta.copy() for _ in range(G)])
+
+    return RolloutBuffer(
+        prompt_ids=prompt_ids,
+        prompt_attention_mask=torch.ones_like(prompt_ids),
+        completion_ids=completion_ids,
+        response_ids=generated,
+        old_log_probs=old_log_probs,
+        rewards=torch.zeros(total_samples, device=device),
+        advantages=torch.zeros(total_samples, device=device),
+        group_ids=group_ids,
+        metadata=expanded_metadata,
+        response_lengths=response_lengths,
+    )
+
+
+def _fsdp_done_check(done_mask: torch.Tensor, device: torch.device) -> bool | None:
+    """Check FSDP sync: returns True if should break, False if dummy forward needed, None if not all done."""
+    if not done_mask.all():
+        return None
+    if not dist.is_initialized():
+        return True
+    done_signal = torch.tensor(0, dtype=torch.int8, device=device)
+    dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
+    return done_signal.item() == 0
+
+
 def _expand_kv_cache(
     past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]],
     group_size: int,
@@ -249,9 +304,26 @@ def generate_rollouts_batched(
         done_mask = done_mask | newly_done
 
     with profile_context("grpo_decode_loop"):
+        # When using FSDP with multiple ranks, different prompts can produce
+        # different generation lengths.  Without synchronisation the rank that
+        # finishes early skips FSDP all-gathers, deadlocking the other rank.
+        # We communicate done status via all_reduce on the default process group
+        # (separate from FSDP's PG) before each forward, so both ranks always
+        # call forward the same number of times.
+
         for t in range(1, max_new_tokens):
-            if done_mask.all():
+            done_result = _fsdp_done_check(done_mask, device)
+            if done_result is True:
                 break
+            if done_result is False:
+                # Dummy forward to keep FSDP collective ordering in sync
+                model.forward(
+                    generated[:, t - 1 : t],
+                    labels=None,
+                    use_cache=True,
+                    past_key_values=past_kv,
+                )
+                continue
 
             # Forward with cached KV
             logits, past_kv = model.forward(
@@ -283,44 +355,215 @@ def generate_rollouts_batched(
 
             generated[:, t] = next_tokens.squeeze(-1)
 
-    # Trim to actual length if all sequences reached EOS early
-    actual_len = len(log_probs_list)
-    generated = generated[:, :actual_len]
-    # Clamp response_lengths to actual_len (sequences that never hit EOS)
-    response_lengths = response_lengths.clamp(max=actual_len)
-
-    # === Step 5: Build output ===
-    # Expand prompt_ids to [B×G, prompt_len]
-    expanded_prompts = prompt_ids.unsqueeze(1).expand(B, G, -1).reshape(total_samples, prompt_len)
-
-    # Concatenate prompts + completions
-    completion_ids = torch.cat([expanded_prompts, generated], dim=1)  # [B×G, total_len]
-
-    # Compute total log probs per sequence
-    log_probs_stacked = torch.stack(log_probs_list, dim=1)  # [B×G, gen_len]
-    old_log_probs = log_probs_stacked.sum(dim=1)  # [B×G]
-
-    # Group IDs: [0,0,0,0, 1,1,1,1, ...]
-    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
-
-    # Expand metadata
-    expanded_metadata = []
-    for meta in metadata:
-        expanded_metadata.extend([meta.copy() for _ in range(G)])
-
-    return RolloutBuffer(
-        prompt_ids=prompt_ids,
-        prompt_attention_mask=torch.ones_like(prompt_ids),
-        completion_ids=completion_ids,
-        response_ids=generated,
-        old_log_probs=old_log_probs,
-        rewards=torch.zeros(total_samples, device=device),
-        advantages=torch.zeros(total_samples, device=device),
-        group_ids=group_ids,
-        metadata=expanded_metadata,
-        response_lengths=response_lengths,
+    return _build_rollout_output(
+        prompt_ids,
+        generated,
+        log_probs_list,
+        response_lengths,
+        group_size,
+        metadata,
     )
 
 
 # Alias for backward compatibility
 generate_rollouts_with_prefix_cache = generate_rollouts_batched
+
+
+@torch.no_grad()
+def generate_rollouts_paged(
+    model: torch.nn.Module,
+    prompt_ids: torch.Tensor,
+    group_size: int,
+    metadata: list[dict],
+    max_new_tokens: int = 512,
+    temperature: float = 1.0,
+    top_p: float = 0.9,
+    top_k: int = 0,
+    do_sample: bool = True,
+    eos_token_id: int | None = None,
+) -> RolloutBuffer:
+    """Generate G completions per prompt using block-based paged KV cache.
+
+    Algorithm:
+    1. Prefill each prompt into block cache (seq_id=0..B-1)
+    2. Share prefix blocks: for each prompt, replicate block table to G destinations
+       (O(B * num_prefix_blocks) metadata ops, no tensor copies)
+    3. Autoregressively decode all B×G sequences in parallel
+    4. Free all sequences
+
+    Args:
+        model: Language model with block_kv_cache_manager support
+        prompt_ids: [B, prompt_len] prompt token IDs
+        group_size: Number of completions per prompt (G)
+        metadata: List of metadata dicts for each prompt [B]
+        max_new_tokens: Maximum tokens to generate
+        temperature: Sampling temperature
+        top_p: Nucleus sampling threshold
+        top_k: Top-k cutoff
+        do_sample: If False, use greedy decoding
+        eos_token_id: EOS token ID for early stopping
+
+    Returns:
+        RolloutBuffer with completions, log probs, and metadata
+    """
+    B, prompt_len = prompt_ids.shape
+    G = group_size
+    device = prompt_ids.device
+    total_samples = B * G
+
+    unwrapped_model = model
+    if hasattr(model, "module"):
+        unwrapped_model = model.module
+
+    # Switch to eval mode so block_kv_cache_manager path is active in forward()
+    was_training = model.training
+    if was_training:
+        model.eval()
+
+    try:
+        bkv = unwrapped_model.block_kv_cache_manager
+        if bkv is None or not bkv.is_initialized:
+            raise RuntimeError(
+                "Block KV cache not available. Set kv_cache.use_paged=true in config."
+            )
+
+        # Get TP group if applicable
+        tp_group = None
+        if dist.is_initialized():
+            try:
+                from ironcore.parallel.parallel_states import (
+                    get_tensor_model_parallel_group,
+                    get_tensor_model_parallel_world_size,
+                )
+
+                if get_tensor_model_parallel_world_size() > 1:
+                    tp_group = get_tensor_model_parallel_group()
+            except (AssertionError, ImportError):
+                pass
+
+        block_size = bkv.block_size
+        blocks_per_prompt = (prompt_len + block_size - 1) // block_size
+
+        # === Step 1: Prefill each prompt into block cache ===
+        # No padding — prompts are written at their true length so RoPE positions
+        # match training-time recomputation exactly. Partial last blocks are
+        # handled correctly by tokens_written tracking in gather functions.
+        with profile_context("grpo_paged_prefill"):
+            prefill_logits_list = []
+            for i in range(B):
+                bkv.allocate_blocks(seq_id=i, count=blocks_per_prompt)
+
+                single_prompt = prompt_ids[i : i + 1]
+                logits, _ = model(single_prompt, labels=None, seq_id=i)
+
+                bkv.advance_position(seq_id=i, tokens=prompt_len)
+
+                prefill_logits_list.append(logits[:, -1, :])
+
+            prefill_logits = torch.cat(prefill_logits_list, dim=0)
+
+        # === Step 2: Share prefix blocks ===
+        # Completion seq_ids live at [B, B+total_samples) so they don't collide
+        # with prompt seq_ids [0, B).
+        completion_seq_ids = list(range(B, B + total_samples))
+        with profile_context("grpo_paged_share"):
+            for i in range(B):
+                src = i
+                dsts = list(range(B + i * G, B + i * G + G))
+                unwrapped_model.share_prefix_cache(src, dsts)
+
+        # === Step 3: Sample first tokens (batched) ===
+        with profile_context("grpo_paged_sampling"):
+            expanded_logits = (
+                prefill_logits.unsqueeze(1).expand(B, G, -1).reshape(total_samples, -1)
+            )
+            first_tokens = _sample_tokens_batched(
+                expanded_logits, temperature, top_p, top_k, do_sample, tp_group
+            )
+            first_log_probs = _compute_token_log_probs_batched(
+                expanded_logits, first_tokens.squeeze(-1)
+            )
+
+        # === Step 4: Autoregressive decode (all B×G in parallel) ===
+        generated = torch.zeros((total_samples, max_new_tokens), dtype=torch.long, device=device)
+        generated[:, 0] = first_tokens.squeeze(-1)
+
+        log_probs_list = [first_log_probs]
+        done_mask = torch.zeros(total_samples, dtype=torch.bool, device=device)
+        response_lengths = torch.full(
+            (total_samples,), max_new_tokens, dtype=torch.long, device=device
+        )
+
+        if eos_token_id is not None:
+            newly_done = first_tokens.squeeze(-1) == eos_token_id
+            response_lengths[newly_done] = 1
+            done_mask = done_mask | newly_done
+
+        with profile_context("grpo_paged_decode_loop"):
+            for t in range(1, max_new_tokens):
+                done_result = _fsdp_done_check(done_mask, device)
+                if done_result is True:
+                    break
+                if done_result is False:
+                    # Dummy forward: use full batch with all completion seq_ids
+                    # to keep FSDP param-gather shapes consistent across ranks.
+                    # Done sequences write into cache but results are ignored.
+                    model.forward(
+                        generated[:, t - 1 : t],
+                        labels=None,
+                        seq_id=completion_seq_ids,
+                    )
+                    continue
+
+                cur_tokens = generated[:, t - 1 : t]
+
+                # Forward the full batch to keep FSDP param-gather shapes
+                # consistent across ranks, but only advance cache for active.
+                logits, _ = model.forward(cur_tokens, labels=None, seq_id=completion_seq_ids)
+
+                active_seq_ids = [
+                    completion_seq_ids[i] for i in range(total_samples) if not done_mask[i]
+                ]
+                if active_seq_ids:
+                    unwrapped_model.advance_cache_position(active_seq_ids, 1)
+
+                # Mask out logits for done sequences (they attended to stale KV)
+                active_mask = ~done_mask
+                next_logits = logits[:, 0, :].clone()
+                next_logits[~active_mask] = 0.0
+
+                next_tokens = _sample_tokens_batched(
+                    next_logits, temperature, top_p, top_k, do_sample, tp_group
+                )
+
+                next_log_probs = _compute_token_log_probs_batched(
+                    next_logits, next_tokens.squeeze(-1)
+                )
+
+                # Always mask log probs for done sequences
+                log_probs_list.append(next_log_probs * active_mask.float())
+
+                if eos_token_id is not None:
+                    newly_done = active_mask & (next_tokens.squeeze(-1) == eos_token_id)
+                    response_lengths[newly_done] = t + 1
+                    done_mask = done_mask | newly_done
+
+                generated[:, t] = next_tokens.squeeze(-1)
+
+        # Free all sequences before building output
+        for sid in completion_seq_ids:
+            unwrapped_model.free_sequence_cache(sid)
+        for sid in range(B):
+            unwrapped_model.free_sequence_cache(sid)
+
+        return _build_rollout_output(
+            prompt_ids,
+            generated,
+            log_probs_list,
+            response_lengths,
+            group_size,
+            metadata,
+        )
+    finally:
+        if was_training:
+            model.train()

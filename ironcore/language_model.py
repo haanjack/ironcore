@@ -65,10 +65,17 @@ class LanguageModel(BaseModule):
 
         # Initialize KV cache manager for inference
         self.kv_cache_manager = None
-        if config.model.kv_cache.enabled:
+        if config.model.kv_cache.enabled and not config.model.kv_cache.use_paged:
             from ironcore.layers.kv_cache import KVCacheManager
 
             self.kv_cache_manager = KVCacheManager(config)
+
+        # Initialize block-based paged KV cache (alternative to kv_cache_manager)
+        self.block_kv_cache_manager = None
+        if config.model.kv_cache.enabled and config.model.kv_cache.use_paged:
+            from ironcore.layers.block_kv_cache import BlockKVCacheManager
+
+            self.block_kv_cache_manager = BlockKVCacheManager(config)
 
         self.init_weights()
 
@@ -84,6 +91,8 @@ class LanguageModel(BaseModule):
         use_cache=False,
         past_key_values=None,
         cache_position=None,
+        block_kv_cache_manager=None,
+        seq_id=None,
     ):
         """
         Forward pass through language model.
@@ -92,9 +101,21 @@ class LanguageModel(BaseModule):
         if labels is not None:
             labels = labels.to(self.device, non_blocking=True)
 
+        bkv = block_kv_cache_manager
+        if bkv is None and self.block_kv_cache_manager is not None and not self.training:
+            bkv = self.block_kv_cache_manager
+
         # Determine cache position
+        # For batched paged decode, use per-sequence positions from block cache
         if cache_position is None:
-            cache_position = 0
+            if bkv is not None and seq_id is not None:
+                if isinstance(seq_id, list):
+                    seq_id_t = torch.tensor(seq_id, dtype=torch.long, device=input_ids.device)
+                    cache_position = bkv.token_positions[seq_id_t]
+                else:
+                    cache_position = int(bkv.token_positions[seq_id].item())
+            else:
+                cache_position = 0
             if use_cache and past_key_values is not None and len(past_key_values) > 0:
                 first_layer_kv = past_key_values[0]
                 if (
@@ -124,9 +145,16 @@ class LanguageModel(BaseModule):
             past_key_values=past_key_values,
             kv_cache_manager=self.kv_cache_manager if not self.training else None,
             cache_position=cache_position if not self.training else None,
+            block_kv_cache_manager=bkv,
+            seq_id=seq_id,
         )
 
-        if use_cache or (self.kv_cache_manager is not None and not self.training):
+        has_cache = (
+            use_cache
+            or (self.kv_cache_manager is not None and not self.training)
+            or (bkv is not None)
+        )
+        if has_cache:
             lm_output, new_key_values = model_out
         else:
             lm_output = model_out
@@ -147,7 +175,7 @@ class LanguageModel(BaseModule):
                 logits_parallel,
                 {"column_parallel": True, "concatenated_weights": 1},
             )
-            if use_cache or (self.kv_cache_manager is not None and not self.training):
+            if has_cache:
                 return logits, new_key_values
             return logits
 
@@ -201,6 +229,7 @@ class LanguageModel(BaseModule):
     ) -> torch.Tensor:
         """
         Autoregressive generation with KV cache.
+        Supports legacy KVCacheManager or block-based paged cache.
         """
         batch_size = input_ids.size(0)
         generated = input_ids.clone()
@@ -208,26 +237,55 @@ class LanguageModel(BaseModule):
         done = torch.zeros(batch_size, dtype=torch.bool, device=input_ids.device)
         next_token = input_ids
 
-        # Use stateful cache if enabled
         use_stateful = self.kv_cache_manager is not None
+        use_paged = self.block_kv_cache_manager is not None and not use_stateful
+
         if use_stateful:
             self.initialize_cache(batch_size, input_ids.device)
+        elif use_paged:
+            self.initialize_cache(batch_size, input_ids.device)
+            assert self.block_kv_cache_manager is not None
+            prompt_len = input_ids.size(1)
+            blocks_needed = (
+                prompt_len + self.block_kv_cache_manager.block_size - 1
+            ) // self.block_kv_cache_manager.block_size
+            self.block_kv_cache_manager.allocate_blocks(0, blocks_needed)
 
         for step in range(max_new_tokens):
             cur_input = input_ids if step == 0 else next_token
-            cur_cache_pos = self.kv_cache_manager.get_cache_position() if use_stateful else None
-
-            out = self.forward(
-                cur_input,
-                labels=None,
-                use_cache=not use_stateful,
-                past_key_values=past_key_values,
-                cache_position=cur_cache_pos,
-            )
 
             if use_stateful:
+                cur_cache_pos = self.kv_cache_manager.get_cache_position()
+                out = self.forward(
+                    cur_input,
+                    labels=None,
+                    use_cache=False,
+                    cache_position=cur_cache_pos,
+                )
                 logits, _ = out
+            elif use_paged:
+                if batch_size > 1:
+                    raise ValueError(
+                        "Paged KV cache generate() only supports batch_size=1. "
+                        "For batched generation, use generate_rollouts_paged()."
+                    )
+                out = self.forward(
+                    cur_input,
+                    labels=None,
+                    use_cache=False,
+                    seq_id=0,
+                )
+                logits, _ = out
+                # Advance position after all layers have written
+                tokens_written = cur_input.size(1)
+                self.advance_cache_position(0, tokens_written)
             else:
+                out = self.forward(
+                    cur_input,
+                    labels=None,
+                    use_cache=True,
+                    past_key_values=past_key_values,
+                )
                 logits, past_key_values = out
 
             next_logits = logits[:, -1, :]
@@ -328,12 +386,44 @@ class LanguageModel(BaseModule):
     ):
         if self.kv_cache_manager is not None:
             self.kv_cache_manager.initialize(batch_size, len(self.model.layers), device, dtype)
+        if self.block_kv_cache_manager is not None:
+            self.block_kv_cache_manager.initialize(
+                batch_size, len(self.model.layers), device, dtype
+            )
 
     def reset_cache(self, batch_indices: list[int] | None = None):
         if self.kv_cache_manager is not None:
             self.kv_cache_manager.reset(batch_indices)
+        if self.block_kv_cache_manager is not None:
+            bkv = self.block_kv_cache_manager
+            if batch_indices is None:
+                for sid in range(bkv.block_tables.shape[0]):
+                    bkv.free_sequence(sid)
+            else:
+                for sid in batch_indices:
+                    bkv.free_sequence(sid)
 
     def get_cache_statistics(self) -> dict:
         if self.kv_cache_manager is not None:
             return self.kv_cache_manager.get_statistics()
+        if self.block_kv_cache_manager is not None:
+            return self.block_kv_cache_manager.get_statistics()
         return {"initialized": False}
+
+    def share_prefix_cache(self, src_seq_id: int, dst_seq_ids: list[int]):
+        """Share prefix KV blocks from source to destinations (block cache only)."""
+        if self.block_kv_cache_manager is not None:
+            self.block_kv_cache_manager.share_prefix(src_seq_id, dst_seq_ids)
+
+    def free_sequence_cache(self, seq_id: int):
+        """Free all blocks for a sequence (block cache only)."""
+        if self.block_kv_cache_manager is not None:
+            self.block_kv_cache_manager.free_sequence(seq_id)
+
+    def advance_cache_position(self, seq_id: int | list[int], tokens: int):
+        """Advance token position for sequence(s) (block cache only)."""
+        if self.block_kv_cache_manager is not None:
+            if isinstance(seq_id, list):
+                self.block_kv_cache_manager.advance_positions_batched(seq_id, tokens)
+            else:
+                self.block_kv_cache_manager.advance_position(seq_id, tokens)

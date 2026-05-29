@@ -113,6 +113,8 @@ class TransformerLayer(BaseModule):
         past_key_value=None,
         kv_cache_manager=None,
         cache_position=None,
+        block_kv_cache_manager=None,
+        seq_id=None,
     ):
         # hidden_states: [b, s, h]
         batch_size = hidden_states.size(0)
@@ -138,11 +140,11 @@ class TransformerLayer(BaseModule):
             key = rotary_pos_emb.forward(key, position_ids)
 
         # KV cache handling:
-        # 1. If use_cache=True: return new KV for explicit caching (prefill/generation)
-        # 2. If past_key_value provided: use it for attention
-        # 3. If kv_cache_manager initialized and not using explicit cache: use manager
+        # 1. Explicit cache (use_cache=True / past_key_value)
+        # 2. Stateful KVCacheManager
+        # 3. Block-based paged KV cache
+        # 4. No caching
         if use_cache or past_key_value is not None:
-            # Explicit KV cache path - either generating new KV or using existing
             attn_output = self.self_attention(
                 query, key, value, attention_mask, use_cache=use_cache, past_kv=past_key_value
             )
@@ -151,18 +153,45 @@ class TransformerLayer(BaseModule):
             else:
                 new_kv = None
         elif (
+            block_kv_cache_manager is not None
+            and seq_id is not None
+            and block_kv_cache_manager.is_initialized
+        ):
+            # Paged KV cache path (supports single int or batched list)
+            is_batched = isinstance(seq_id, list)
+            if is_batched:
+                if seq_len > 1:
+                    for i, sid in enumerate(seq_id):
+                        block_kv_cache_manager.write_prefill(
+                            self.layer_idx, sid, key[i : i + 1], value[i : i + 1]
+                        )
+                else:
+                    block_kv_cache_manager.write_decode_batched(self.layer_idx, seq_id, key, value)
+                full_key, full_value = block_kv_cache_manager.get_layer_kv_gathered_batched(
+                    self.layer_idx, seq_id
+                )
+            else:
+                if seq_len > 1:
+                    block_kv_cache_manager.write_prefill(self.layer_idx, seq_id, key, value)
+                else:
+                    block_kv_cache_manager.write_decode(self.layer_idx, seq_id, key, value)
+                full_key, full_value = block_kv_cache_manager.get_layer_kv_gathered(
+                    self.layer_idx, seq_id
+                )
+            attn_output = self.self_attention(query, full_key, full_value, attention_mask)
+            new_kv = None
+        elif (
             kv_cache_manager is not None
             and cache_position is not None
             and kv_cache_manager.is_initialized
         ):
-            # KV cache manager path (for managed inference)
+            # Legacy KV cache manager path
             full_key, full_value = kv_cache_manager.update_layer(
                 self.layer_idx, key, value, position=cache_position
             )
             attn_output = self.self_attention(query, full_key, full_value, attention_mask)
             new_kv = None
         else:
-            # No caching
             attn_output = self.self_attention(
                 query, key, value, attention_mask, use_cache=False, past_kv=None
             )
@@ -180,7 +209,7 @@ class TransformerLayer(BaseModule):
         mlp_output = self.mlp(norm_output)
         output = norm_input + mlp_output
 
-        if use_cache or kv_cache_manager is not None:
+        if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
             return output, new_kv
         return output
 
@@ -194,6 +223,8 @@ class TransformerLayer(BaseModule):
         past_key_value=None,
         kv_cache_manager=None,
         cache_position=None,
+        block_kv_cache_manager=None,
+        seq_id=None,
     ):
         return self.custom_forward(
             hidden_states,
@@ -204,6 +235,8 @@ class TransformerLayer(BaseModule):
             past_key_value=past_key_value,
             kv_cache_manager=kv_cache_manager,
             cache_position=cache_position,
+            block_kv_cache_manager=block_kv_cache_manager,
+            seq_id=seq_id,
         )
 
 
@@ -246,27 +279,25 @@ class TransformerModel(BaseModule):
         past_key_values=None,
         kv_cache_manager=None,
         cache_position=None,
+        block_kv_cache_manager=None,
+        seq_id=None,
     ):
         new_key_values = [] if use_cache else None
 
-        # Determine if we should use activation checkpointing
-        # Note: For DDP, use layer-level checkpointing via torch.utils.checkpoint.
-        # For FSDP, skip here and use apply_activation_checkpointing() in parallel.py
-        # to avoid "tensor data not allocated" errors with FSDP's parameter sharding.
         is_fsdp = self._is_fsdp_enabled()
         use_layer_checkpointing = (
             self.activation_recompute
             and self.training
             and not use_cache
             and kv_cache_manager is None
-            and not is_fsdp  # Skip for FSDP - uses module-level checkpointing instead
+            and block_kv_cache_manager is None
+            and not is_fsdp
         )
 
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
 
             if use_layer_checkpointing:
-                # Layer-level checkpointing for DDP
                 layer_out = checkpoint(
                     layer.custom_forward,
                     hidden_states,
@@ -277,6 +308,8 @@ class TransformerModel(BaseModule):
                     None,  # past_key_value
                     None,  # kv_cache_manager
                     None,  # cache_position
+                    None,  # block_kv_cache_manager
+                    None,  # seq_id
                     use_reentrant=self.use_reentrant,
                 )
             else:
@@ -289,15 +322,17 @@ class TransformerModel(BaseModule):
                     past_key_value=past_kv,
                     kv_cache_manager=kv_cache_manager,
                     cache_position=cache_position,
+                    block_kv_cache_manager=block_kv_cache_manager,
+                    seq_id=seq_id,
                 )
 
-            if use_cache or kv_cache_manager is not None:
+            if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
                 hidden_states, new_kv = layer_out
                 if use_cache:
                     new_key_values.append(new_kv)
             else:
                 hidden_states = layer_out
 
-        if use_cache or kv_cache_manager is not None:
+        if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
             return hidden_states, new_key_values
         return hidden_states

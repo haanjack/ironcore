@@ -71,12 +71,12 @@ All 10 markers are the single source of truth — registered in `pyproject.toml`
 | `@pytest.mark.pretrain` | Pre-training LM pipeline |
 | `@pytest.mark.sft` | Supervised fine-tuning pipeline |
 | `@pytest.mark.dpo` | DPO alignment pipeline |
-| `@pytest.mark.rlvr` | RLVR/GRPO online RL pipeline (verifiable rewards) |
+| `@pytest.mark.grpo` | GRPO online RL pipeline (rollout, reward, advantage, policy update) |
 | `@pytest.mark.checkpointing` | Checkpoint save/load — native, HF interop, distributed |
 
 **Key design points:**
-- `rlvr` marks any test touching the GRPO pipeline (cheap math tests **and** expensive training tests).
-- `e2e` is a separate gate for the expensive ones. Default `addopts` excludes only `e2e`, so cheap `rlvr` math tests run in every CI run.
+- `grpo` marks any test touching the GRPO pipeline (cheap math tests **and** expensive training tests).
+- `e2e` is a separate gate for the expensive ones. Default `addopts` excludes only `e2e`, so cheap `grpo` math tests run in every CI run.
 - `mp` tests guard themselves with `pytest.skipif("RANK" not in os.environ …)` so they safely skip under plain `pytest` and are exercised by the `distributed-tests` CI job via per-file `torchrun`.
 
 **Marker selection by example:**
@@ -97,7 +97,7 @@ def test_attention_forward_cuda(): ...
 def test_tensor_parallel(): ...
 
 # Expensive E2E test (spawns torchrun internally)
-@pytest.mark.rlvr
+@pytest.mark.grpo
 @pytest.mark.e2e
 @pytest.mark.mp
 def test_grpo_full_training(): ...
@@ -141,9 +141,9 @@ pytest tests/ -m e2e
    - CPU logic test → no marker (runs in default `pytest tests/`)
    - Single GPU → `@pytest.mark.cuda`
    - 2+ GPU with torchrun → `@pytest.mark.mp` + `skipif("RANK" not in os.environ …)`
-   - Expensive E2E → `@pytest.mark.e2e` (+ pipeline marker: `rlvr`, `dpo`, etc.)
+   - Expensive E2E → `@pytest.mark.e2e` (+ pipeline marker: `grpo`, `dpo`, etc.)
    - HuggingFace download → `@pytest.mark.hf_hub`
-   - Pipeline feature → `@pytest.mark.pretrain / sft / dpo / rlvr`
+   - Pipeline feature → `@pytest.mark.pretrain / sft / dpo / grpo`
    - Checkpoint path → `@pytest.mark.checkpointing`
 
 3. **Use shared fixtures:**
@@ -199,7 +199,7 @@ pytest tests/ -m "cuda and not mp and not e2e"
 
 # Specific pipeline filter
 pytest tests/ -m dpo       # all DPO tests
-pytest tests/ -m rlvr      # GRPO pipeline (cheap math + training)
+pytest tests/ -m grpo      # GRPO pipeline (cheap math + training)
 pytest tests/ -m e2e       # expensive E2E only (opt-in)
 
 # Full suite including multi-GPU (run inside container)
@@ -489,9 +489,9 @@ Excluded from default run by `-m 'not e2e'` in `pyproject.toml`. Requires 2 GPUs
 
 | File | Class | Tests | Markers | Description |
 |------|-------|-------|---------|-------------|
-| `test_reward_manager.py` | TestRLVRTraining | 2 | `rlvr e2e mp smoke` | GRPO training with reward_manager config, composite math reward |
+| `test_reward_manager.py` | TestRLVRTraining | 2 | `grpo e2e mp smoke` | GRPO training with reward_manager config, composite math reward |
 
-Note: `rlvr` also appears on cheap unit tests in `test_grpo_math.py` which run in the default CPU tier. Only the `e2e`-marked subset requires GPUs and opt-in.
+Note: `grpo` also appears on cheap unit tests in `test_grpo_math.py` which run in the default CPU tier. Only the `e2e`-marked subset requires GPUs and opt-in.
 
 ---
 

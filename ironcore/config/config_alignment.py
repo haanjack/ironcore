@@ -87,6 +87,7 @@ class AlignmentConfig(BaseConfig):
     #   (hardware knob, like micro_batch_size). chunks derived: group_size / micro_group_size
     grpo_group_size: int = 4  # Total completions per prompt
     grpo_rollout_micro_group_size: int = 1  # Per-GPU parallel completions per prompt
+    grpo_use_paged_rollout: bool = False  # Use block-based paged KV cache for rollouts
     grpo_beta: float = 0.1  # KL penalty coefficient
     grpo_eps: float = 1e-8  # Advantage normalization epsilon
     grpo_num_epochs: int = 1  # Gradient steps per rollout batch (>1 = offline/multi-epoch)

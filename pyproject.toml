@@ -103,6 +103,6 @@ markers = [
     "pretrain: Pre-training LM pipeline",
     "sft: Supervised fine-tuning pipeline",
     "dpo: DPO alignment pipeline",
-    "rlvr: RLVR/GRPO online RL pipeline (verifiable rewards)",
+    "grpo: GRPO online RL pipeline (rollout, reward, advantage, policy update)",
     "checkpointing: Checkpoint save/load — native, HF interop, distributed",
 ]

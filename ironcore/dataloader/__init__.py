@@ -55,9 +55,18 @@ def get_data_iterator(config):
     # Load data configuration with path validation
     if hasattr(config.data, "config_path") and config.data.config_path:
         config_path = Path(config.data.config_path)
+        if not config_path.is_absolute():
+            config_path = config_path.resolve()
+        # If not found at resolved path, try configs/data/<basename>.yaml
+        # (inline YAML dicts store short names like 'data/grpo_gsm8k'
+        # which resolve to <cwd>/data/grpo_gsm8k, not configs/data/)
+        if not config_path.exists():
+            fallback = _DATA_CONFIG_BASE_DIR / f"{config_path.name}.yaml"
+            if _validate_path_within_dir(fallback, _DATA_CONFIG_BASE_DIR) and fallback.exists():
+                config_path = fallback
         if not _validate_path_within_dir(config_path, _DATA_CONFIG_BASE_DIR):
             raise ValueError(
-                f"Config path '{config_path}' is outside allowed directory 'configs/data/'"
+                f"Config path '{config.data.config_path}' is outside allowed directory 'configs/data/'"
             )
         data_config = DataConfig.from_yaml(config_path)
     elif hasattr(config.data, "datasets") and len(config.data.datasets) > 0:

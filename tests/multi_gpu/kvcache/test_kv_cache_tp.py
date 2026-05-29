@@ -4,15 +4,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 """
-KV cache tests with tensor_model_parallel_size=1.
+KV cache tests with tensor_model_parallel_size=2.
 
-TP=2 tests live in tests/multi_gpu/kvcache/test_kv_cache_tp2.py.
-
-Run:
-    pytest tests/integration/kvcache/test_kv_cache.py -v
+Requires torchrun with 2 GPUs:
+    torchrun --nproc_per_node=2 -m pytest tests/multi_gpu/kvcache/test_kv_cache_tp2.py -v
 """
 
-import os
+import os  # noqa: F401 — used in pytest.mark.skipif expression
 
 import pytest
 import torch
@@ -38,9 +36,11 @@ from ironcore.language_model import LanguageModel
 from ironcore.parallel import parallel_states
 
 
-def _tp_config(d_model: int = 512, num_layers: int = 2):
-    """Create config for TP=1."""
-    parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+def _tp_config(tp_size: int, d_model: int = 512, num_layers: int = 2):
+    """Create config for the given TP size."""
+    parallel_states.initialize_model_parallel(
+        tensor_model_parallel_size=tp_size, timeout_in_minutes=10.0
+    )
 
     kv_cache_config = KVCacheConfig(enabled=True, max_batch_size=4, max_seq_length=256)
     pos_emb_config = PositionalEmbeddingConfig(type="rope")
@@ -65,7 +65,7 @@ def _tp_config(d_model: int = 512, num_layers: int = 2):
     model_config.name = "GPT"
 
     trainer_config = TrainerConfig(
-        tensor_model_parallel_size=1,
+        tensor_model_parallel_size=tp_size,
         use_flash_attn=False,
     )
 
@@ -91,91 +91,13 @@ def _destroy_parallel():
     parallel_states.destroy_model_parallel()
 
 
-class TestKVCacheTP1:
-    """KV cache tests with tensor_model_parallel_size=1."""
-
-    @pytest.fixture(scope="class")
-    def config(self):
-        cfg = _tp_config()
-        yield cfg
-        _destroy_parallel()
-
-    @pytest.fixture
-    def model(self, config):
-        model = LanguageModel(config)
-        model.eval()
-        yield model
-
-    def test_end_to_end_generation(self, model):
-        """Generate tokens one-by-one with cache, verify first-token logits match."""
-        device = next(model.parameters()).device
-        input_ids = torch.randint(0, 1000, (1, 10), device=device)
-
-        with torch.no_grad():
-            logits_0, _ = model(input_ids[:, :1], use_cache=True)
-            logits_full = model(input_ids, use_cache=False)
-            logits_full = logits_full[0] if isinstance(logits_full, tuple) else logits_full
-        torch.testing.assert_close(logits_0, logits_full[:, :1], rtol=1e-4, atol=1e-5)
-
-    def test_gqa_kv_group_shapes(self, model, config):
-        """With 8 query heads and 2 KV groups, each TP=1 rank stores both groups."""
-        device = next(model.parameters()).device
-        input_ids = torch.randint(0, 1000, (1, 5), device=device)
-
-        with torch.no_grad():
-            _, past_kv = model(input_ids, use_cache=True)
-        for layer_kv in past_kv:
-            key, value = layer_kv
-            expected_groups = (
-                config.model.num_attention_groups // config.trainer.tensor_model_parallel_size
-            )
-            assert key.shape == (1, 5, expected_groups, config.model.head_dim)
-            assert value.shape == (1, 5, expected_groups, config.model.head_dim)
-
-    def test_cached_vs_uncached_equivalence(self, model):
-        """Generate sequence token-by-token with cache, verify against full-sequence output."""
-        device = next(model.parameters()).device
-        input_ids = torch.randint(0, 1000, (1, 5), device=device)
-
-        with torch.no_grad():
-            past_kv = None
-            cached_logits = []
-            for i in range(5):
-                logits, past_kv = model(
-                    input_ids[:, i : i + 1], use_cache=True, past_key_values=past_kv
-                )
-                cached_logits.append(logits)
-            full_logits, _ = model(input_ids, use_cache=False)
-        torch.testing.assert_close(
-            torch.cat(cached_logits, dim=1), full_logits, rtol=1e-4, atol=1e-5
-        )
-
-    def test_cache_reuse_across_passes(self, model):
-        """Process two sequences using cache; verify the second sequence's output matches."""
-        device = next(model.parameters()).device
-        ids_1 = torch.randint(0, 1000, (1, 10), device=device)
-        ids_2 = torch.randint(0, 1000, (1, 10), device=device)
-
-        with torch.no_grad():
-            _, kv_1 = model(ids_1, use_cache=True)
-            logits_2, _ = model(ids_2, use_cache=True, past_key_values=kv_1)
-            full_logits, _ = model(torch.cat([ids_1, ids_2], dim=1), use_cache=False)
-        torch.testing.assert_close(
-            logits_2[:, -10:, :], full_logits[:, -10:, :], rtol=1e-4, atol=1e-5
-        )
-
-
-# ──────────────────────────────────────────────────────────────────────
-# TP=2 Tests (require torchrun --nproc_per_node=2)
-# ──────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.mp
 @pytest.mark.skipif(
     "'RANK' not in os.environ or torch.cuda.device_count() < 2",
     reason="TP=2 tests require torchrun with 2 GPUs",
 )
 class TestKVCacheTP2:
+    """KV cache tests with tensor_model_parallel_size=2."""
+
     @pytest.fixture(scope="class")
     def config(self):
         if int(os.environ.get("WORLD_SIZE", "1")) < 2:
@@ -241,11 +163,9 @@ class TestKVCacheTP2:
         )
         dummy_kv = torch.randn(2, 8, expected_groups, config.model.head_dim, device=device)
 
-        # Update cache for all layers
         for layer_idx in range(config.model.num_layers):
             cache_manager.update_layer(layer_idx, dummy_kv, dummy_kv, position=0)
 
-        # Verify position tracked automatically by update_layer
         assert cache_manager.get_cache_position(0) == 8
         for layer_idx in range(config.model.num_layers):
             key, value = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8)
@@ -270,29 +190,19 @@ class TestKVCacheTP2:
         )
         dummy_kv = torch.randn(2, 8, expected_groups, config.model.head_dim, device=device)
 
-        # Fill cache for both sequences across all layers
         for layer_idx in range(config.model.num_layers):
             cache_manager.update_layer(layer_idx, dummy_kv, dummy_kv, position=0)
 
         assert cache_manager.get_cache_position(0) == 8
         assert cache_manager.get_cache_position(1) == 8
 
-        # Reset only sequence 0 using reset(batch_indices)
         cache_manager.reset(batch_indices=torch.tensor([0], device=device))
 
-        # Sequence 0 should be reset (position=0, cache zeroed)
         assert cache_manager.get_cache_position(0) == 0
-        # Sequence 1 should be unaffected
         assert cache_manager.get_cache_position(1) == 8
 
         for layer_idx in range(config.model.num_layers):
-            # Sequence 0 cache should be zeroed
-            key_0, value_0 = cache_manager.get_layer_kv(
-                layer_idx, start_pos=0, end_pos=8, batch_idx=0
-            )
+            value_0 = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8, batch_idx=0)[1]
             assert torch.all(value_0 == 0), f"Sequence 0 not reset in layer {layer_idx}"
-            # Sequence 1 cache should be non-zero
-            key_1, value_1 = cache_manager.get_layer_kv(
-                layer_idx, start_pos=0, end_pos=8, batch_idx=1
-            )
+            value_1 = cache_manager.get_layer_kv(layer_idx, start_pos=0, end_pos=8, batch_idx=1)[1]
             assert value_1.abs().sum() > 0, f"Sequence 1 unexpectedly reset in layer {layer_idx}"

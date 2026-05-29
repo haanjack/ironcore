@@ -86,6 +86,14 @@ class KVCacheConfig(BaseConfig):
     max_seq_length: int = field(
         default=2048, metadata={"help": "Maximum sequence length for cache"}
     )
+    use_paged: bool = field(default=False, metadata={"help": "Use block-based paged KV cache"})
+    block_size: int = field(
+        default=16, metadata={"help": "Number of tokens per KV block (page size)"}
+    )
+    gpu_memory_utilization: float = field(
+        default=0.9,
+        metadata={"help": "Fraction of GPU memory available for KV cache pool"},
+    )
 
 
 @dataclass

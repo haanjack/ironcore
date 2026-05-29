@@ -15,7 +15,7 @@ import torch
 
 from ironcore.parallel import parallel_states
 
-pytestmark = pytest.mark.rlvr
+pytestmark = pytest.mark.grpo
 
 
 @pytest.fixture(scope="module", autouse=True)
