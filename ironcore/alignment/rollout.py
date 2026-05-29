@@ -517,11 +517,13 @@ def generate_rollouts_paged(
 
                 cur_tokens = generated[:, t - 1 : t]
 
-                # Always forward the full batch to keep FSDP shapes consistent
-                # across DP ranks. Done sequences participate but their results
-                # are masked out below.
+                # Forward the full batch to keep FSDP param-gather shapes
+                # consistent across ranks, but only advance cache for active.
                 logits, _ = model.forward(cur_tokens, labels=None, seq_id=completion_seq_ids)
-                unwrapped_model.advance_cache_position(completion_seq_ids, 1)
+
+                active_seq_ids = [completion_seq_ids[i] for i in range(total_samples) if not done_mask[i]]
+                if active_seq_ids:
+                    unwrapped_model.advance_cache_position(active_seq_ids, 1)
 
                 # Mask out logits for done sequences (they attended to stale KV)
                 active_mask = ~done_mask
