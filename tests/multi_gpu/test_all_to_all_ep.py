@@ -13,6 +13,7 @@ Usage:
 
 import os
 
+import pytest
 import torch
 import torch.distributed as dist
 
@@ -33,6 +34,8 @@ from ironcore.parallel.parallel_states import (
     destroy_model_parallel,
     initialize_model_parallel,
 )
+
+pytestmark = pytest.mark.mp
 
 
 def setup_distributed():

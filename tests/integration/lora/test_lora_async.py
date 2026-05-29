@@ -89,7 +89,6 @@ def _seed_all(seed=42):
     torch.manual_seed(seed)
 
 
-@pytest.mark.cuda
 class TestLoRAAsyncChunking:
     """Test LoRA with chunked vs non-chunked execution."""
 
@@ -186,11 +185,12 @@ class TestLoRAAsyncChunking:
             if tp_size > 1 and dist.is_initialized():
                 dist.destroy_process_group()
 
+    @pytest.mark.cuda
     def test_chunked_vs_non_chunked_tp1(self):
         """Chunked and non-chunked LoRA should produce matching outputs with TP=1."""
         self._run_chunking_test(tp_size=1)
 
-    @pytest.mark.distributed
+    @pytest.mark.mp
     def test_chunked_vs_non_chunked_tp2(self):
         """Chunked and non-chunked LoRA should produce matching outputs with TP=2."""
         self._run_chunking_test(tp_size=2)

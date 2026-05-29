@@ -14,7 +14,7 @@ splits: [1.0, 0.0, 0.0]
 # Datasets to use
 train_datasets:
   - name: gsm8k_train
-    source: data/gsm8k_train.jsonl
+    source: tests/fixtures/data/gsm8k_train.jsonl
     task_type: grpo
     ratio: 1.0
     split: train

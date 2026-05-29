@@ -41,6 +41,7 @@ class TestDefaultInconsistencyRegression:
         assert config_direct.fim_rate == config_from_yaml.fim_rate
 
 
+@pytest.mark.hf_hub
 class TestMissingTokenErrorRegression:
     """Regression tests for missing FIM token errors."""
 
@@ -87,6 +88,7 @@ class TestMissingTokenErrorRegression:
         assert "save_pretrained" in error_msg
 
 
+@pytest.mark.hf_hub
 class TestShortSequenceRegression:
     """Regression tests for short sequence handling."""
 
@@ -134,6 +136,7 @@ class TestShortSequenceRegression:
         )
 
 
+@pytest.mark.hf_hub
 class TestEmptyMiddleRegression:
     """Regression tests for empty middle section handling."""
 
@@ -177,6 +180,7 @@ class TestEmptyMiddleRegression:
             assert len(middle_section) > 0, f"Empty middle with seed {seed}"
 
 
+@pytest.mark.hf_hub
 class TestMetadataTypeRegression:
     """Regression tests for metadata type tracking."""
 
@@ -276,6 +280,7 @@ class TestTiktokenRegression:
         assert "HuggingFace" in error_msg
 
 
+@pytest.mark.hf_hub
 class TestRandomSampleRegression:
     """Regression tests for random.sample() usage."""
 

@@ -17,6 +17,7 @@ Each test only resets model_parallel state; cleanup_distributed() runs once at e
 
 import argparse
 
+import pytest
 import torch
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -42,6 +43,8 @@ from ironcore.parallel.parallel_states import (
     get_tensor_model_parallel_world_size,
     initialize_model_parallel,
 )
+
+pytestmark = pytest.mark.mp
 
 
 class SimpleModel(torch.nn.Module):

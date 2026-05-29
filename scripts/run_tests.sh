@@ -10,6 +10,7 @@
 #   ./run_tests.sh              # Run all tests
 #   ./run_tests.sh --quick      # Skip multi-GPU tests
 #   ./run_tests.sh --gpu-only   # Only run multi-GPU tests
+#   ./run_tests.sh --e2e        # Run expensive e2e/rlvr smoke tests (2 GPUs, ~10 min)
 #   ./run_tests.sh --help       # Show help
 
 set -e
@@ -24,12 +25,17 @@ NC='\033[0m' # No Color
 # Configuration
 QUICK_MODE=false
 GPU_ONLY=false
-RUN_RLVR=false
+RUN_E2E=false
 RUN_PROFILER=false
 NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l || echo 0)
 PYTHON="python"
 PYTEST="pytest"
 TORCHRUN="torchrun"
+
+# Dynamic port allocation to avoid EADDRINUSE when tests run in parallel
+get_free_port() {
+    python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+}
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -42,8 +48,8 @@ while [[ $# -gt 0 ]]; do
             GPU_ONLY=true
             shift
             ;;
-        --rlvr)
-            RUN_RLVR=true
+        --e2e|--rlvr)
+            RUN_E2E=true
             shift
             ;;
         --profiler)
@@ -56,7 +62,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --quick, -q      Skip multi-GPU tests"
             echo "  --gpu-only, -g   Only run multi-GPU tests"
-            echo "  --rlvr           Run RLVR tests (requires API key, local only)"
+            echo "  --e2e, --rlvr    Run expensive e2e smoke tests (rlvr+e2e markers, 2 GPUs, ~10 min)"
             echo "  --profiler       Run profiler tests"
             echo "  --help, -h       Show this help message"
             echo ""
@@ -138,7 +144,7 @@ INTEGRATION_NP1_FILES=(
     "tests/integration/alignment/test_dpo_integration.py"
     "tests/integration/attention/test_chunked_parallel.py"
     "tests/integration/attention/test_flash_attention_cache.py"
-    "tests/integration/dataloader/test_eval_integration.py"
+    "tests/integration/eval/test_eval_integration.py"
     "tests/integration/kvcache/test_kv_cache.py"
     "tests/integration/kvcache/test_kv_cache_stateful.py"
     "tests/integration/lora/test_lora_async.py"
@@ -192,7 +198,7 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
         if [ -f "$test_file" ]; then
             echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=1)${NC}"
 
-            TEST_OUTPUT=$(torchrun --nproc_per_node=1 -m pytest "$test_file" -v --tb=short 2>&1 || true)
+            TEST_OUTPUT=$(torchrun --nproc_per_node=1 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
 
             T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
             T_PASSED=${T_PASSED:-0}
@@ -221,7 +227,7 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
         if [ -f "$test_file" ]; then
             echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=2)${NC}"
 
-            TEST_OUTPUT=$(torchrun --nproc_per_node=2 -m pytest "$test_file" -v --tb=short 2>&1 || true)
+            TEST_OUTPUT=$(torchrun --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
 
             T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
             T_PASSED=${T_PASSED:-0}
@@ -250,7 +256,7 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
         if [ -f "$test_file" ]; then
             echo -e "\n${YELLOW}Running: $test_file${NC}"
 
-            TEST_OUTPUT=$($TORCHRUN --nproc_per_node=2 -m pytest "$test_file" -v --tb=short 2>&1 || true)
+            TEST_OUTPUT=$($TORCHRUN --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
 
             # Parse results
             T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
@@ -286,15 +292,14 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
     print_result "$GPU_PASSED" "$GPU_FAILED" "$GPU_SKIPPED" "${GPU_DURATION}s"
 fi
 
-# RLVR Tests
-if [ "$RUN_RLVR" = true ]; then
-    print_header "Running RLVR Tests (requires API key)"
-    RLVR_START=$(date +%s)
-    
-    # Run only rlvr tests
-    PYTEST_OUTPUT=$($PYTEST tests/ -v -m rlvr --tb=short 2>&1 || true)
-    RLVR_END=$(date +%s)
-    RLVR_DURATION=$((RLVR_END - RLVR_START))
+# E2E / RLVR smoke tests (opt-in, ~10 min, 2 GPUs)
+if [ "$RUN_E2E" = true ]; then
+    print_header "Running E2E Smoke Tests (rlvr+e2e, ~10 min, 2 GPUs)"
+    E2E_START=$(date +%s)
+
+    PYTEST_OUTPUT=$($PYTEST tests/ -v -m "e2e" --tb=short 2>&1 || true)
+    E2E_END=$(date +%s)
+    E2E_DURATION=$((E2E_END - E2E_START))
 
     PASSED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
     PASSED=${PASSED:-0}
@@ -307,10 +312,10 @@ if [ "$RUN_RLVR" = true ]; then
     TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
     TOTAL_SKIPPED=$((TOTAL_SKIPPED + SKIPPED))
 
-    print_result "$PASSED" "$FAILED" "$SKIPPED" "${RLVR_DURATION}s"
-    
+    print_result "$PASSED" "$FAILED" "$SKIPPED" "${E2E_DURATION}s"
+
     if [ "$FAILED" -gt 0 ]; then
-        echo -e "${RED}RLVR tests failed.${NC}"
+        echo -e "${RED}E2E tests failed.${NC}"
         echo "$PYTEST_OUTPUT" | tail -50
     fi
 fi

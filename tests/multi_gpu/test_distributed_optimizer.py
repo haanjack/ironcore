@@ -19,6 +19,8 @@ from torch.optim import AdamW
 
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 
+pytestmark = pytest.mark.mp
+
 
 class SimpleModel(nn.Module):
     """Simple model for testing."""

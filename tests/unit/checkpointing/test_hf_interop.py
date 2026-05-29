@@ -344,6 +344,8 @@ def download_hf_model(model_name: str, cache_dir: Path) -> Path:
     return local_dir
 
 
+@pytest.mark.hf_hub
+@pytest.mark.checkpointing
 class TestGPT2Integration:
     """Integration tests with real GPT-2 model from HuggingFace."""
 
@@ -434,6 +436,8 @@ class TestGPT2Integration:
                 )
 
 
+@pytest.mark.hf_hub
+@pytest.mark.checkpointing
 class TestLLaMAIntegration:
     """Integration tests with real LLaMA-family model from HuggingFace.
 

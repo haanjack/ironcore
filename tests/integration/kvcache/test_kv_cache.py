@@ -179,6 +179,7 @@ class TestKVCacheTP1:
 # ──────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.mp
 @pytest.mark.skipif(
     "'RANK' not in os.environ or torch.cuda.device_count() < 2",
     reason="TP=2 tests require torchrun with 2 GPUs",

@@ -152,10 +152,10 @@ def tiny_transformer(tiny_model_config):
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestDpoLossIntegration:
     """Integration tests for DPO loss with real model forward pass."""
 
-    @pytest.mark.unit
     def test_dpo_loss_with_model_forward(self, tiny_transformer, mock_dpo_batch):
         """Test DPO loss computation with actual model forward pass."""
         from ironcore.alignment.loss import dpo_loss
@@ -189,7 +189,6 @@ class TestDpoLossIntegration:
         assert torch.isfinite(loss), "Loss should be finite"
         assert loss.item() >= 0, "Loss should be non-negative"
 
-    @pytest.mark.unit
     def test_dpo_loss_backward_flow(self, tiny_transformer, mock_dpo_batch):
         """Test that gradients flow correctly through DPO loss."""
         from ironcore.alignment.loss import dpo_loss
@@ -226,7 +225,6 @@ class TestDpoLossIntegration:
                 assert param.grad is not None, f"Parameter {name} has no gradient"
                 assert torch.isfinite(param.grad).all(), f"Parameter {name} has non-finite gradient"
 
-    @pytest.mark.unit
     def test_dpo_with_bin_packed_position_ids(self, tiny_transformer):
         """Test DPO forward pass with non-sequential position_ids (bin-packed sequences)."""
         from ironcore.alignment.loss import dpo_loss
@@ -289,10 +287,10 @@ class TestDpoLossIntegration:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestReferenceModel:
     """Tests for reference model handling in DPO."""
 
-    @pytest.mark.unit
     def test_reference_model_creation(self, tiny_transformer):
         """Test that reference model is a deep copy of policy."""
         # Simulate reference model creation
@@ -310,7 +308,6 @@ class TestReferenceModel:
             assert name1 == name2
             assert torch.allclose(p1, p2), f"Parameters {name1} differ"
 
-    @pytest.mark.unit
     def test_reference_model_not_updated(self, tiny_transformer, mock_dpo_batch):
         """Test that reference model weights are not updated during training."""
         from ironcore.alignment.loss import dpo_loss
@@ -362,10 +359,10 @@ class TestReferenceModel:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestGradientAccumulation:
     """Tests for gradient accumulation in DPO training."""
 
-    @pytest.mark.unit
     def test_gradient_accumulation_correctness(self, tiny_transformer, mock_dpo_batch):
         """Test that gradient accumulation produces correct gradients."""
         from ironcore.alignment.loss import dpo_loss
@@ -447,10 +444,11 @@ class TestGradientAccumulation:
 # =============================================================================
 
 
+@pytest.mark.dpo
+@pytest.mark.checkpointing
 class TestDPOCheckpoint:
     """Tests for DPO checkpoint save/load."""
 
-    @pytest.mark.integration
     def test_checkpoint_save_load_preserves_weights(self, tiny_model_config, tiny_transformer):
         """Test that checkpoint save/load preserves model weights."""
         from torch.optim.lr_scheduler import StepLR
@@ -494,7 +492,6 @@ class TestDPOCheckpoint:
                     f"Weight {name} was not restored correctly from checkpoint"
                 )
 
-    @pytest.mark.integration
     def test_reference_model_recreation_after_load(self, tiny_model_config):
         """Test that reference model is correctly created from loaded checkpoint.
 
@@ -536,11 +533,11 @@ class TestDPOCheckpoint:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestDPOTrainingLoop:
     """Tests for complete DPO training loop."""
 
-    @pytest.mark.integration
-    @pytest.mark.slow
+    @pytest.mark.smoke
     def test_multi_step_training(self, tiny_model_config, mock_dpo_batch):
         """Test multiple training steps with loss decreasing or stable."""
         from ironcore.alignment.loss import dpo_loss
@@ -604,7 +601,6 @@ class TestDPOTrainingLoop:
             parallel_states.destroy_model_parallel()
             reset_global_states()
 
-    @pytest.mark.integration
     def test_training_with_different_betas(self, tiny_model_config, mock_dpo_batch):
         """Test training with different beta values."""
         from ironcore.alignment.loss import dpo_loss
@@ -661,10 +657,10 @@ class TestDPOTrainingLoop:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestConcatForwardPassOptimization:
     """Tests for the concat_forward_passes optimization."""
 
-    @pytest.mark.unit
     def test_concat_vs_separate_equivalence(self, tiny_transformer, mock_dpo_batch):
         """Test that concat and separate forward passes give same results."""
         from ironcore.alignment.loss import dpo_loss
@@ -725,10 +721,10 @@ class TestConcatForwardPassOptimization:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestNaNHandling:
     """Tests for NaN detection and handling."""
 
-    @pytest.mark.unit
     def test_nan_loss_detection(self, tiny_model_config):
         """Test that NaN losses are detected."""
         # Simulate NaN detection (the actual check is in BaseTrainer._check_loss_for_nan)
@@ -755,10 +751,10 @@ class TestNaNHandling:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestDPOMetrics:
     """Tests for DPO metrics computation."""
 
-    @pytest.mark.unit
     def test_metrics_interval_skip(self, tiny_transformer, mock_dpo_batch):
         """Test that metrics are skipped when not on interval."""
         from ironcore.alignment.loss import dpo_loss
@@ -809,10 +805,10 @@ class TestDPOMetrics:
 # =============================================================================
 
 
+@pytest.mark.dpo
 class TestCollatorTruncation:
     """Tests for collator truncation of oversized samples."""
 
-    @pytest.mark.unit
     def test_sft_collator_truncates_oversized_samples(self):
         """Test that SFT collator truncates samples exceeding max_seq_len."""
         from ironcore.dataloader.collator import UniversalCollator
@@ -839,7 +835,6 @@ class TestCollatorTruncation:
         assert result["labels"].shape == (1, max_seq_len)
         assert result["position_ids"].shape == (1, max_seq_len)
 
-    @pytest.mark.unit
     def test_dpo_collator_truncates_oversized_samples(self):
         """Test that DPO collator truncates samples exceeding max_seq_len."""
         from ironcore.dataloader.collator import UniversalCollator

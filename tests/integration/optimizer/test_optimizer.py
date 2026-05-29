@@ -27,13 +27,22 @@ from ironcore.parallel import parallel_states
 # =============================================================================
 
 
+def _get_free_port() -> str:
+    """Find a free TCP port to avoid conflicts between test classes."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return str(s.getsockname()[1])
+
+
 def setup_distributed():
     """Set up single-process distributed environment for testing."""
-    os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "29500")
-    os.environ.setdefault("LOCAL_RANK", "0")
-    os.environ.setdefault("RANK", "0")
-    os.environ.setdefault("WORLD_SIZE", "1")
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = _get_free_port()
+    os.environ["LOCAL_RANK"] = "0"
+    os.environ["RANK"] = "0"
+    os.environ["WORLD_SIZE"] = "1"
     if not dist.is_initialized():
         dist.init_process_group(backend="nccl", rank=0, world_size=1)
 
@@ -48,14 +57,22 @@ def cleanup_distributed():
         dist.destroy_process_group()
 
 
-def create_mock_forward_step_func():
-    """Create a mock forward_step_func that bypasses data loading."""
+def create_mock_forward_step_func(deterministic: bool = False):
+    """Create a mock forward_step_func that bypasses data loading.
+
+    Args:
+        deterministic: If True, seeds RNG before each call so all ranks
+            in a TP group produce identical inputs.
+    """
 
     def mock_forward_step(model, data_iterator):
         batch_size = 2
         seq_len = 16
-        # Get the correct device for the current rank
         device = next(model.parameters()).device
+
+        if deterministic:
+            torch.manual_seed(42)
+
         input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=device)
         labels = input_ids.clone()
 
@@ -67,15 +84,6 @@ def create_mock_forward_step_func():
             shift_logits.view(-1, shift_logits.size(-1)),
             shift_labels.view(-1),
         )
-
-        # Debug: verify loss has gradients
-        if not loss.requires_grad:
-            print(
-                f"WARNING: loss does not require grad! logits.requires_grad={shift_logits.requires_grad}"
-            )
-        elif loss.grad_fn is None:
-            print("WARNING: loss has no grad_fn!")
-
         return loss
 
     return mock_forward_step
@@ -99,6 +107,49 @@ def create_mock_evaluators():
     return []
 
 
+def assert_loss_valid(loss, grad_norm=None):
+    """Assert loss is a positive finite scalar."""
+    assert isinstance(loss, float), f"loss should be float, got {type(loss)}"
+    assert loss > 0, f"loss should be positive, got {loss}"
+    assert math.isfinite(loss), f"loss should be finite, got {loss}"
+    if grad_norm is not None:
+        assert grad_norm > 0, f"grad_norm should be positive, got {grad_norm}"
+
+
+def assert_tp_loss_consistent(loss: float, tp_group=None):
+    """Verify all TP ranks produce the same loss value."""
+    if not dist.is_initialized():
+        return
+    ws = dist.get_world_size()
+    if ws < 2:
+        return
+    tensor = torch.tensor([loss], device="cuda")
+    gathered = [torch.zeros(1, device="cuda") for _ in range(ws)]
+    dist.all_gather(gathered, tensor, group=tp_group)
+    values = [t.item() for t in gathered]
+    for i, v in enumerate(values):
+        assert math.isclose(v, values[0], rel_tol=1e-4), (
+            f"TP rank {i} loss {v} != rank 0 loss {values[0]}"
+        )
+
+
+def assert_params_changed(model, snapshot: dict, label: str = ""):
+    """Assert that at least one parameter has changed since snapshot."""
+    changed = False
+    for name, p in model.named_parameters():
+        if not p.requires_grad or name not in snapshot:
+            continue
+        if not torch.equal(p.data, snapshot[name]):
+            changed = True
+            break
+    assert changed, f"Parameters did not change after training step {label}"
+
+
+def snapshot_params(model) -> dict:
+    """Snapshot model parameters for later comparison."""
+    return {name: p.data.clone() for name, p in model.named_parameters() if p.requires_grad}
+
+
 # =============================================================================
 # Tests
 # =============================================================================
@@ -113,7 +164,6 @@ class TestOptimizerTrainerIntegration:
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
-        # Ensure clean state before starting
         reset_global_states()
         setup_distributed()
         config = create_small_test_config()
@@ -138,11 +188,11 @@ class TestOptimizerTrainerIntegration:
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 loss, grad_norm, param_norm = trainer.train_step(step=0)
 
-                assert loss > 0
-                assert not math.isnan(loss)
-                assert grad_norm > 0
+                assert_loss_valid(loss, grad_norm)
+                assert_params_changed(trainer.model, before, "(AdamW single step)")
         finally:
             reset_global_states()
             cleanup_distributed()
@@ -152,7 +202,6 @@ class TestOptimizerTrainerIntegration:
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
-        # Ensure clean state before starting
         reset_global_states()
         setup_distributed()
         config = create_small_test_config()
@@ -177,14 +226,14 @@ class TestOptimizerTrainerIntegration:
                 )
                 trainer._initialize()
 
-                # Verify optimizer type (Muon creates hybrid optimizer)
                 opt_type = type(trainer.optimizer).__name__
                 assert "Muon" in opt_type or "AdamW" in opt_type
 
+                before = snapshot_params(trainer.model)
                 loss, grad_norm, param_norm = trainer.train_step(step=0)
 
-                assert loss > 0
-                assert not math.isnan(loss)
+                assert_loss_valid(loss, grad_norm)
+                assert_params_changed(trainer.model, before, "(Muon single step)")
         finally:
             reset_global_states()
             cleanup_distributed()
@@ -194,6 +243,7 @@ class TestOptimizerTrainerIntegration:
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
+        reset_global_states()
         setup_distributed()
         config = create_small_test_config()
         config.optim.optimizer = "muon"
@@ -217,13 +267,18 @@ class TestOptimizerTrainerIntegration:
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 losses = []
                 for step in range(5):
-                    loss, _, _ = trainer.train_step(step=step)
+                    loss, grad_norm, _ = trainer.train_step(step=step)
+                    assert_loss_valid(loss, grad_norm)
                     losses.append(loss)
 
-                # Losses should change as model trains
-                assert len(set(round(v, 4) for v in losses)) > 1
+                assert_params_changed(trainer.model, before, "(Muon 5 steps)")
+
+                # Optimizer should have accumulated state
+                state = trainer.optimizer.state_dict()["state"]
+                assert len(state) > 0, "Optimizer state should be non-empty after 5 steps"
         finally:
             reset_global_states()
             cleanup_distributed()
@@ -233,6 +288,7 @@ class TestOptimizerTrainerIntegration:
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
+        reset_global_states()
         setup_distributed()
         config = create_small_test_config()
         config.optim.optimizer = "muon"
@@ -256,12 +312,16 @@ class TestOptimizerTrainerIntegration:
                 )
                 trainer._initialize()
 
-                # Run a step to populate optimizer state
                 trainer.train_step(step=0)
 
-                # Save and load state
                 state_dict = trainer.optimizer.state_dict()
                 assert len(state_dict["state"]) > 0
+
+                # Verify state contains actual tensor values
+                for param_state in state_dict["state"].values():
+                    assert any(isinstance(v, torch.Tensor) for v in param_state.values()), (
+                        "Optimizer state should contain tensors"
+                    )
 
                 trainer.optimizer.load_state_dict(state_dict)
         finally:
@@ -274,8 +334,6 @@ class TestOptimizerTrainerIntegration:
 # =============================================================================
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
 class TestOptimizerTPIntegration:
     """Test optimizer integration with Tensor Parallelism and LanguageModelTrainer."""
 
@@ -286,7 +344,11 @@ class TestOptimizerTPIntegration:
                 dist.init_process_group(backend="nccl")
             rank = dist.get_rank()
             world_size = dist.get_world_size()
-            torch.cuda.set_device(rank)
+            # torchrun sets CUDA_VISIBLE_DEVICES per rank, so only set device
+            # when local_rank doesn't match current device
+            local_rank = int(os.environ.get("LOCAL_RANK", rank))
+            if torch.cuda.current_device() != local_rank:
+                torch.cuda.set_device(local_rank)
             os.environ.setdefault("LOCAL_RANK", str(rank))
 
             parallel_states.initialize_model_parallel(
@@ -297,11 +359,11 @@ class TestOptimizerTPIntegration:
             rank = 0
             world_size = 1
 
-            os.environ.setdefault("MASTER_ADDR", "localhost")
-            os.environ.setdefault("MASTER_PORT", "12358")
-            os.environ.setdefault("LOCAL_RANK", "0")
-            os.environ.setdefault("RANK", "0")
-            os.environ.setdefault("WORLD_SIZE", "1")
+            os.environ["MASTER_ADDR"] = "localhost"
+            os.environ["MASTER_PORT"] = _get_free_port()
+            os.environ["LOCAL_RANK"] = "0"
+            os.environ["RANK"] = "0"
+            os.environ["WORLD_SIZE"] = "1"
             if not dist.is_initialized():
                 dist.init_process_group(backend="nccl", rank=0, world_size=1)
 
@@ -322,10 +384,12 @@ class TestOptimizerTPIntegration:
         except Exception:
             pass
         if dist.is_initialized():
-            dist.barrier()
-            if tp_size > 1:
-                dist.destroy_process_group()
+            try:
+                dist.barrier()
+            except Exception:
+                pass
 
+    @pytest.mark.cuda
     def test_muon_tp1_with_trainer(self):
         """Verify Muon optimizer works with LanguageModelTrainer and TP=1."""
         from ironcore.global_vars import reset_global_states
@@ -361,11 +425,11 @@ class TestOptimizerTPIntegration:
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 loss, grad_norm, param_norm = trainer.train_step(step=0)
 
-                assert loss > 0
-                assert not math.isnan(loss)
-                assert grad_norm > 0
+                assert_loss_valid(loss, grad_norm)
+                assert_params_changed(trainer.model, before, "(TP=1 Muon)")
 
                 if rank == 0:
                     print(f"TP=1 Muon trainer test passed: loss={loss:.6f}")
@@ -373,6 +437,7 @@ class TestOptimizerTPIntegration:
             reset_global_states()
             self._cleanup_tp_distributed(tp_size)
 
+    @pytest.mark.mp
     def test_muon_tp2_with_trainer(self):
         """Verify Muon optimizer works with LanguageModelTrainer and TP=2."""
         from ironcore.global_vars import reset_global_states
@@ -406,15 +471,17 @@ class TestOptimizerTPIntegration:
             ):
                 trainer = LanguageModelTrainer(
                     config,
-                    create_mock_forward_step_func(),
+                    create_mock_forward_step_func(deterministic=True),
                     F.cross_entropy,
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 loss, grad_norm, param_norm = trainer.train_step(step=0)
 
-                assert loss > 0
-                assert not math.isnan(loss)
+                assert_loss_valid(loss, grad_norm)
+                assert_tp_loss_consistent(loss)
+                assert_params_changed(trainer.model, before, "(TP=2 Muon)")
 
                 if rank == 0:
                     print(f"TP=2 Muon trainer test passed: loss={loss:.6f}")
@@ -422,6 +489,7 @@ class TestOptimizerTPIntegration:
             reset_global_states()
             self._cleanup_tp_distributed(tp_size)
 
+    @pytest.mark.mp
     def test_muon_tp2_multi_step(self):
         """Verify Muon optimizer state accumulates across steps with TP=2."""
         from ironcore.global_vars import reset_global_states
@@ -454,18 +522,23 @@ class TestOptimizerTPIntegration:
             ):
                 trainer = LanguageModelTrainer(
                     config,
-                    create_mock_forward_step_func(),
+                    create_mock_forward_step_func(deterministic=True),
                     F.cross_entropy,
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 losses = []
                 for step in range(3):
-                    loss, _, _ = trainer.train_step(step=step)
+                    loss, grad_norm, _ = trainer.train_step(step=step)
+                    assert_loss_valid(loss, grad_norm)
                     losses.append(loss)
 
-                # Losses should change as model trains
-                assert len(set(round(v, 4) for v in losses)) > 1
+                assert_params_changed(trainer.model, before, "(TP=2 3 steps)")
+                assert_tp_loss_consistent(losses[-1])
+
+                state = trainer.optimizer.state_dict()["state"]
+                assert len(state) > 0, "Optimizer state should be non-empty after 3 steps"
 
                 if rank == 0:
                     print(f"TP=2 multi-step test passed: losses={[f'{v:.4f}' for v in losses]}")
@@ -479,8 +552,7 @@ class TestOptimizerTPIntegration:
 # =============================================================================
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
+@pytest.mark.mp
 class TestOptimizerFSDPIntegration:
     """Test optimizer integration with FSDP and LanguageModelTrainer."""
 
@@ -494,15 +566,6 @@ class TestOptimizerFSDPIntegration:
         torch.cuda.set_device(rank)
         os.environ.setdefault("LOCAL_RANK", str(rank))
 
-        # Initialize parallel states for single TP (FSDP handles parallelism)
-        try:
-            parallel_states.initialize_model_parallel(
-                tensor_model_parallel_size=1,
-                timeout_in_minutes=30,
-            )
-        except Exception:
-            pass
-
         return rank, world_size
 
     def _cleanup_fsdp_distributed(self):
@@ -511,11 +574,11 @@ class TestOptimizerFSDPIntegration:
             parallel_states.destroy_model_parallel()
         except Exception:
             pass
-        if dist.is_initialized():
-            dist.barrier()
 
     def test_muon_fsdp_with_trainer(self):
         """Verify Muon optimizer works with LanguageModelTrainer and FSDP."""
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
         from ironcore.global_vars import reset_global_states
         from ironcore.trainers import LanguageModelTrainer
 
@@ -531,6 +594,7 @@ class TestOptimizerFSDPIntegration:
         config.trainer.gradient_accumulation_steps = 1
         config.parallel.use_fsdp = True
         config.parallel.fsdp_sharding_strategy = "full"
+        config.parallel.fsdp_use_orig_params = True
 
         try:
             with (
@@ -550,10 +614,15 @@ class TestOptimizerFSDPIntegration:
                 )
                 trainer._initialize()
 
+                assert isinstance(trainer.model, FSDP), (
+                    "Model should be wrapped in FSDP when use_fsdp=True"
+                )
+
+                before = snapshot_params(trainer.model)
                 loss, grad_norm, param_norm = trainer.train_step(step=0)
 
-                assert loss > 0
-                assert not math.isnan(loss)
+                assert_loss_valid(loss, grad_norm)
+                assert_params_changed(trainer.model, before, "(FSDP Muon)")
 
                 if rank == 0:
                     print(f"FSDP Muon trainer test passed: loss={loss:.6f}")
@@ -577,6 +646,7 @@ class TestOptimizerFSDPIntegration:
         config.trainer.gradient_accumulation_steps = 1
         config.parallel.use_fsdp = True
         config.parallel.fsdp_sharding_strategy = "full"
+        config.parallel.fsdp_use_orig_params = True
 
         try:
             with (
@@ -596,12 +666,17 @@ class TestOptimizerFSDPIntegration:
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 losses = []
                 for step in range(3):
-                    loss, _, _ = trainer.train_step(step=step)
+                    loss, grad_norm, _ = trainer.train_step(step=step)
+                    assert_loss_valid(loss, grad_norm)
                     losses.append(loss)
 
-                assert len(set(round(v, 4) for v in losses)) > 1
+                assert_params_changed(trainer.model, before, "(FSDP 3 steps)")
+
+                state = trainer.optimizer.state_dict()["state"]
+                assert len(state) > 0, "Optimizer state should be non-empty after 3 steps"
 
                 if rank == 0:
                     print(f"FSDP multi-step test passed: losses={[f'{v:.4f}' for v in losses]}")
@@ -625,6 +700,7 @@ class TestOptimizerFSDPIntegration:
         config.trainer.gradient_accumulation_steps = 1
         config.parallel.use_fsdp = True
         config.parallel.fsdp_sharding_strategy = "full"
+        config.parallel.fsdp_use_orig_params = True
 
         try:
             with (
@@ -644,15 +720,17 @@ class TestOptimizerFSDPIntegration:
                 )
                 trainer._initialize()
 
-                # Run a step to populate optimizer state
                 trainer.train_step(step=0)
 
-                # Save state dict
                 state_dict = trainer.optimizer.state_dict()
-                assert (
-                    len(state_dict.get("state", {})) > 0
-                    or len(state_dict.get("param_groups", [])) > 0
-                )
+                assert len(state_dict["state"]) > 0, "Optimizer state should not be empty"
+
+                for param_state in state_dict["state"].values():
+                    assert any(isinstance(v, torch.Tensor) for v in param_state.values()), (
+                        "Optimizer state should contain tensors"
+                    )
+
+                trainer.optimizer.load_state_dict(state_dict)
 
                 if rank == 0:
                     print("FSDP state dict test passed")
@@ -666,8 +744,7 @@ class TestOptimizerFSDPIntegration:
 # =============================================================================
 
 
-@pytest.mark.cuda
-@pytest.mark.distributed
+@pytest.mark.mp
 class TestDistributedOptimizerIntegration:
     """Test DistributedOptimizer integration with LanguageModelTrainer."""
 
@@ -681,14 +758,6 @@ class TestDistributedOptimizerIntegration:
         torch.cuda.set_device(rank)
         os.environ.setdefault("LOCAL_RANK", str(rank))
 
-        try:
-            parallel_states.initialize_model_parallel(
-                tensor_model_parallel_size=1,
-                timeout_in_minutes=30,
-            )
-        except Exception:
-            pass
-
         return rank, world_size
 
     def _cleanup_distributed(self):
@@ -697,8 +766,6 @@ class TestDistributedOptimizerIntegration:
             parallel_states.destroy_model_parallel()
         except Exception:
             pass
-        if dist.is_initialized():
-            dist.barrier()
 
     def test_distributed_optimizer_with_trainer(self):
         """Verify DistributedOptimizer works with LanguageModelTrainer."""
@@ -734,10 +801,11 @@ class TestDistributedOptimizerIntegration:
                 )
                 trainer._initialize()
 
+                before = snapshot_params(trainer.model)
                 loss, grad_norm, param_norm = trainer.train_step(step=0)
 
-                assert loss > 0
-                assert not math.isnan(loss)
+                assert_loss_valid(loss, grad_norm)
+                assert_params_changed(trainer.model, before, "(DistributedOptimizer)")
 
                 if rank == 0:
                     print(f"DistributedOptimizer trainer test passed: loss={loss:.6f}")
@@ -782,7 +850,12 @@ class TestDistributedOptimizerIntegration:
                 trainer.train_step(step=0)
 
                 state_dict = trainer.optimizer.state_dict()
-                assert len(state_dict["state"]) > 0
+                assert len(state_dict["state"]) > 0, "Optimizer state should not be empty"
+
+                for param_state in state_dict["state"].values():
+                    assert any(isinstance(v, torch.Tensor) for v in param_state.values()), (
+                        "Optimizer state should contain tensors"
+                    )
 
                 trainer.optimizer.load_state_dict(state_dict)
 

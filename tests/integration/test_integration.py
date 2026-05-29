@@ -190,6 +190,8 @@ class TestModelInitialization:
 
 
 @pytest.mark.cuda
+@pytest.mark.pretrain
+@pytest.mark.smoke
 class TestTrainingStep:
     """Test complete training step."""
 
@@ -309,6 +311,7 @@ class TestTrainingStep:
 
 
 @pytest.mark.cuda
+@pytest.mark.checkpointing
 class TestCheckpointing:
     """Test checkpoint save and load."""
 

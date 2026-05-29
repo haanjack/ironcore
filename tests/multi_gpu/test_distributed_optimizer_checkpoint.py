@@ -26,6 +26,8 @@ from torch.optim import AdamW
 
 from ironcore.optimizer.distributed_optimizer import DistributedOptimizer
 
+pytestmark = [pytest.mark.mp, pytest.mark.checkpointing]
+
 
 def get_shared_tmp_dir():
     """Get a shared temporary directory for all ranks."""

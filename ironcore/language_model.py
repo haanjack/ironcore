@@ -18,7 +18,10 @@ from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
     vocab_parallel_cross_entropy,
 )
-from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
+from ironcore.parallel.tensor_parallel.comm import (
+    _gather_tensor_along_last_dim,
+    gather_from_model_parallel_workers,
+)
 
 
 class LanguageModel(BaseModule):
@@ -140,7 +143,10 @@ class LanguageModel(BaseModule):
             logits_parallel = F.linear(input_parallel, self.embedding.word_embeddings.weight)
 
         if labels is None:
-            logits = _gather_tensor_along_last_dim(logits_parallel)
+            logits = gather_from_model_parallel_workers(
+                logits_parallel,
+                {"column_parallel": True, "concatenated_weights": 1},
+            )
             if use_cache or (self.kv_cache_manager is not None and not self.training):
                 return logits, new_key_values
             return logits

@@ -19,6 +19,8 @@ from ironcore.alignment.loss.dpo import (
 )
 from ironcore.parallel import parallel_states
 
+pytestmark = pytest.mark.dpo
+
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_parallel_states():
