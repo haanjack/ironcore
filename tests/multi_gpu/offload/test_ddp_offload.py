@@ -144,7 +144,7 @@ def _run_training(config, num_steps):
 class TestDDPOffload:
     """DDP × Offload integration test (requires 2 GPUs)."""
 
-    def test_ddp_m1_m3_converges(self):
+    def test_ddp_optimizer_with_spill(self):
         """DDP + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={

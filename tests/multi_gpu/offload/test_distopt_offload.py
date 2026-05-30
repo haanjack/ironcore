@@ -145,7 +145,7 @@ def _run_training(config, num_steps):
 class TestDistOptOffload:
     """DistributedOptimizer × Offload integration test (requires 2 GPUs)."""
 
-    def test_distopt_m1_m3_converges(self):
+    def test_distopt_optimizer_with_spill(self):
         """DistOpt + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={

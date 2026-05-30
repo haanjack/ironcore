@@ -147,7 +147,7 @@ def _run_training(config, num_steps):
 class TestFSDPFullShardActivationSpill:
     """FSDP FULL_SHARD × Activation Spill integration test (requires 2 GPUs)."""
 
-    def test_fsdp_full_shard_m3_converges(self):
+    def test_fsdp_full_shard_spill(self):
         """FSDP full_shard + activation_spill should converge on both ranks."""
         config = _make_config(
             offload={

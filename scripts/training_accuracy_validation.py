@@ -30,26 +30,26 @@ GEN_PREFIX = "configs/e2e_accuracy_"
 
 MODES = {
     "baseline": {},
-    "m1": {"offload.enabled": True, "offload.optimizer_offload": True},
-    "m2": {"offload.enabled": True, "offload.weight_offload": True},
-    "m3": {
+    "optimizer_offload": {"offload.enabled": True, "offload.optimizer_offload": True},
+    "weight_offload": {"offload.enabled": True, "offload.weight_offload": True},
+    "optimizer_with_spill": {
         "offload.enabled": True,
         "offload.optimizer_offload": True,
         "offload.activation_spill": True,
         "offload.activation_spill_granularity": "sub_layer",
     },
-    "m1m2": {
+    "optimizer_with_weight_offload": {
         "offload.enabled": True,
         "offload.optimizer_offload": True,
         "offload.weight_offload": True,
     },
-    "m1m3": {
+    "optimizer_with_spill_no_weight": {
         "offload.enabled": True,
         "offload.optimizer_offload": True,
         "offload.activation_spill": True,
         "offload.activation_spill_granularity": "sub_layer",
     },
-    "m2m3": {
+    "weight_with_spill": {
         "offload.enabled": True,
         "offload.weight_offload": True,
         "offload.activation_spill": True,

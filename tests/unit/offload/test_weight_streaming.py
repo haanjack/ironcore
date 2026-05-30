@@ -993,7 +993,7 @@ class TestWeightStreamingConfigValidation:
         with pytest.raises(ValueError, match="weight_prefetch_layers must be >= 1"):
             _config_validation(config)
 
-    def test_valid_m2_config(self):
+    def test_valid_weight_offload_config(self):
         from ironcore.config import _config_validation
 
         config = _make_minimal_main_config()

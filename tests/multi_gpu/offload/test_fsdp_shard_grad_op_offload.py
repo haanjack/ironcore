@@ -147,7 +147,7 @@ def _run_training(config, num_steps):
 class TestFSDPShardGradOpOffload:
     """FSDP SHARD_GRAD_OP × Offload integration test (requires 2 GPUs)."""
 
-    def test_fsdp_shard_grad_op_m1_m3_converges(self):
+    def test_fsdp_shard_grad_op_with_spill(self):
         """FSDP shard_grad_op + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={

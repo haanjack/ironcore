@@ -148,7 +148,7 @@ def _run_training(config, num_steps):
 class TestTPOffload:
     """TP × Offload integration test (requires 2 GPUs)."""
 
-    def test_tp_m1_m3_converges(self):
+    def test_tp_optimizer_with_spill(self):
         """TP=2 + optimizer_offload+activation_spill should converge on both ranks."""
         config = _make_config(
             offload={
