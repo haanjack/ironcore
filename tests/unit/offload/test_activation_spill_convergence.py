@@ -15,6 +15,8 @@ import torch
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
+pytestmark = [pytest.mark.cuda]
+
 DTYPE = torch.bfloat16
 DEVICE = torch.device("cuda:0")
 

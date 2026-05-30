@@ -144,6 +144,7 @@ def _run_training(config, num_steps):
 
 
 @skip_no_multi_gpu
+@pytest.mark.cuda
 @pytest.mark.mp
 class TestFSDPShardGradOpOffload:
     """FSDP SHARD_GRAD_OP × Offload integration test (requires 2 GPUs)."""

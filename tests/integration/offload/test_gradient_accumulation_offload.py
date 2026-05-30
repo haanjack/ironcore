@@ -22,6 +22,8 @@ from ironcore.trainers import LanguageModelTrainer
 
 skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
+pytestmark = [pytest.mark.cuda, pytest.mark.mp]
+
 
 def _run_steps(config):
     """Run training with given config, return loss after 1 optimizer step."""

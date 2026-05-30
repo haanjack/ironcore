@@ -29,6 +29,8 @@ from ironcore.optimizer.muon import MuonOptimizer
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
+pytestmark = [pytest.mark.cuda]
+
 
 class TestShouldOffloadParam:
     """Test the _should_offload_param helper."""

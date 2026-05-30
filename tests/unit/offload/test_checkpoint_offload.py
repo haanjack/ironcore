@@ -15,6 +15,8 @@ from torch import nn
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
+pytestmark = [pytest.mark.cuda]
+
 
 def _make_config(no_save=True, model_path=""):
     config = create_small_test_config()

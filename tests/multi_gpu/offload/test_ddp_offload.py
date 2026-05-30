@@ -141,6 +141,7 @@ def _run_training(config, num_steps):
 
 
 @skip_no_multi_gpu
+@pytest.mark.cuda
 @pytest.mark.mp
 class TestDDPOffload:
     """DDP × Offload integration test (requires 2 GPUs)."""
