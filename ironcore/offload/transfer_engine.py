@@ -63,12 +63,17 @@ class MemoryTransferEngine:
     """
 
     def __init__(
-        self, device: torch.device, prefetch_streams: int = 1, enable_telemetry: bool = False
+        self,
+        device: torch.device,
+        prefetch_streams: int = 1,
+        enable_telemetry: bool = False,
+        compute_stream: torch.cuda.Stream | None = None,
     ):
         if not torch.cuda.is_available():
             raise RuntimeError("MemoryTransferEngine requires CUDA")
 
         self._device = device
+        self._compute_stream = compute_stream
         self._streams = [torch.cuda.Stream(device=device) for _ in range(prefetch_streams)]
         self._stream_idx = 0
         self._lock = threading.Lock()
@@ -78,7 +83,12 @@ class MemoryTransferEngine:
         self._enable_telemetry = enable_telemetry
 
     @classmethod
-    def from_config(cls, config: OffloadConfig, device: torch.device) -> MemoryTransferEngine:
+    def from_config(
+        cls,
+        config: OffloadConfig,
+        device: torch.device,
+        compute_stream: torch.cuda.Stream | None = None,
+    ) -> MemoryTransferEngine:
         """Create an engine from OffloadConfig."""
         import os
 
@@ -87,6 +97,7 @@ class MemoryTransferEngine:
             device=device,
             prefetch_streams=config.prefetch_streams,
             enable_telemetry=enable_telemetry,
+            compute_stream=compute_stream,
         )
 
     def submit_h2d(
@@ -117,7 +128,7 @@ class MemoryTransferEngine:
         # been freed from the pool and recycled — without this barrier the
         # H2D write races with the default stream's backward computation
         # still reading from the same memory.
-        stream.wait_stream(torch.cuda.current_stream(self._device))
+        stream.wait_stream(self._get_compute_stream())
 
         with torch.cuda.stream(stream):
             dst.copy_(src, non_blocking=True)
@@ -161,9 +172,9 @@ class MemoryTransferEngine:
         stream = self._get_stream(stream_idx)
         event = torch.cuda.Event(interprocess=False, enable_timing=False)
 
-        # Transfer stream must wait for the default stream to finish
+        # Transfer stream must wait for the compute stream to finish
         # producing the GPU data before we copy it to host.
-        stream.wait_stream(torch.cuda.current_stream(self._device))
+        stream.wait_stream(self._get_compute_stream())
 
         with torch.cuda.stream(stream):
             dst.copy_(src, non_blocking=True)
@@ -212,15 +223,22 @@ class MemoryTransferEngine:
         with self._lock:
             self._pending = [h for h in self._pending if id(h) not in waited_ids]
 
+    def _get_compute_stream(self) -> torch.cuda.Stream:
+        """Return the explicit compute stream, falling back to current stream."""
+        if self._compute_stream is not None:
+            return self._compute_stream
+        return torch.cuda.current_stream(self._device)
+
     def synchronize_with_default_stream(self) -> None:
         """
-        Add a dependency: default stream waits for all transfer streams.
+        Add a dependency: compute stream waits for all transfer streams.
 
-        Call this before using transferred data in a torch.compile region
-        or any computation on the default stream.
+        Uses the explicit compute stream if provided at construction, otherwise
+        falls back to the current stream for the device.
         """
+        compute = self._get_compute_stream()
         for stream in self._streams:
-            torch.cuda.current_stream(self._device).wait_stream(stream)
+            compute.wait_stream(stream)
 
     @property
     def pending_count(self) -> int:
