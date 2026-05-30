@@ -348,7 +348,6 @@ class TestTileManager:
         tm = TileManager.from_config(config, pool, torch.device("cpu"))
         assert tm._storage_dtype == torch.bfloat16
 
-=======
     def test_register_layer_no_gpu_alloc_with_pool(self):
         from ironcore.offload.gpu_staging_pool import GPUStagingPool
 

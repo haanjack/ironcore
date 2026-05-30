@@ -12,8 +12,8 @@ Usage:
 import os
 import shutil
 import sys
-import time
 import threading
+import time
 from pathlib import Path
 
 import torch
@@ -124,6 +124,11 @@ def run_benchmark(grad_accum: int) -> dict:
     """Run benchmark for a single grad_accum value."""
     from unittest.mock import patch
 
+    from tests.integration.offload.conftest import (
+        create_mock_data_iterator,
+        create_mock_evaluators,
+    )
+
     from ironcore.config import (
         AlignmentConfig,
         DataConfig,
@@ -141,10 +146,6 @@ def run_benchmark(grad_accum: int) -> dict:
     )
     from ironcore.global_vars import reset_global_states
     from ironcore.trainers import LanguageModelTrainer
-    from tests.integration.offload.conftest import (
-        create_mock_data_iterator,
-        create_mock_evaluators,
-    )
 
     config = build_config(grad_accum)
 
@@ -330,7 +331,7 @@ def main():
         f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB"
     )
     print(f"  Seq len: {SEQ_LEN}")
-    print(f"  Offload: full (optimizer + weight + activation)")
+    print("  Offload: full (optimizer + weight + activation)")
     print(f"  Grad accum values: {GRAD_ACCUM_VALUES}")
     print(f"  Steps per config: {STEPS_PER_CONFIG} (1 warmup + {STEPS_PER_CONFIG - 1} measured)")
     print()

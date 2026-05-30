@@ -18,11 +18,7 @@ from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
     vocab_parallel_cross_entropy,
 )
-
-from ironcore.parallel.tensor_parallel.comm import (
-    _gather_tensor_along_last_dim,
-    gather_from_model_parallel_workers,
-)
+from ironcore.parallel.tensor_parallel.comm import gather_from_model_parallel_workers
 
 
 class LanguageModel(BaseModule):
