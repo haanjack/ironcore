@@ -197,9 +197,7 @@ def build_config(
     return config
 
 
-def run_validation(
-    config: dict, mode_name: str, steps: int
-) -> ValidationResult:
+def run_validation(config: dict, mode_name: str, steps: int) -> ValidationResult:
     """Run validation and return measured results."""
     from unittest.mock import patch
 
@@ -340,9 +338,7 @@ def run_validation(
 
         def forward_step(model, _data_iterator):
             device = next(model.parameters()).device
-            input_ids = torch.randint(
-                0, 32000, (1, config["data"]["seq_length"]), device=device
-            )
+            input_ids = torch.randint(0, 32000, (1, config["data"]["seq_length"]), device=device)
             labels = input_ids.clone()
             logits = model(input_ids, labels=None)
             shift_logits = logits[:, :-1, :].contiguous()
@@ -476,12 +472,8 @@ def main():
     parser.add_argument(
         "--steps", type=int, default=50, help="Number of training steps (default: 50)"
     )
-    parser.add_argument(
-        "--batch-size", type=int, default=1, help="Micro batch size (default: 1)"
-    )
-    parser.add_argument(
-        "--seq-len", type=int, default=1024, help="Sequence length (default: 1024)"
-    )
+    parser.add_argument("--batch-size", type=int, default=1, help="Micro batch size (default: 1)")
+    parser.add_argument("--seq-len", type=int, default=1024, help="Sequence length (default: 1024)")
     parser.add_argument(
         "--model-path",
         default="/tmp/validate_13b",
@@ -492,9 +484,7 @@ def main():
         default="13b_capability_results.json",
         help="Output JSON file (default: 13b_capability_results.json)",
     )
-    parser.add_argument(
-        "--timeout", type=int, default=7200, help="Per-test timeout in seconds"
-    )
+    parser.add_argument("--timeout", type=int, default=7200, help="Per-test timeout in seconds")
     parser.add_argument(
         "--estimate-only",
         action="store_true",
@@ -529,13 +519,13 @@ def main():
 
     print(f"  Model: ~{params_b:.1f}B parameters (LLaMA-13B style)")
 
-    modes_to_test = (
-        list(OFFLOAD_MODES.keys()) if args.mode == "all" else [args.mode]
-    )
+    modes_to_test = list(OFFLOAD_MODES.keys()) if args.mode == "all" else [args.mode]
 
     if args.estimate_only:
         print_section("VRAM ESTIMATES (NOT MEASURED)")
-        print(f"\n  {'Mode':<12} {'Weights':>10} {'Optimizer':>10} {'Activations':>12} {'Total':>10}")
+        print(
+            f"\n  {'Mode':<12} {'Weights':>10} {'Optimizer':>10} {'Activations':>12} {'Total':>10}"
+        )
         print("  " + "-" * 60)
         for mode in modes_to_test:
             vram = estimate_vram_from_params(params_b, mode)

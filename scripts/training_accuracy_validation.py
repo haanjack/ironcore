@@ -32,11 +32,36 @@ MODES = {
     "baseline": {},
     "m1": {"offload.enabled": True, "offload.optimizer_offload": True},
     "m2": {"offload.enabled": True, "offload.weight_offload": True},
-    "m3": {"offload.enabled": True, "offload.optimizer_offload": True, "offload.activation_spill": True, "offload.activation_spill_granularity": "sub_layer"},
-    "m1m2": {"offload.enabled": True, "offload.optimizer_offload": True, "offload.weight_offload": True},
-    "m1m3": {"offload.enabled": True, "offload.optimizer_offload": True, "offload.activation_spill": True, "offload.activation_spill_granularity": "sub_layer"},
-    "m2m3": {"offload.enabled": True, "offload.weight_offload": True, "offload.activation_spill": True, "offload.activation_spill_granularity": "sub_layer"},
-    "full": {"offload.enabled": True, "offload.optimizer_offload": True, "offload.weight_offload": True, "offload.activation_spill": True, "offload.activation_spill_granularity": "sub_layer"},
+    "m3": {
+        "offload.enabled": True,
+        "offload.optimizer_offload": True,
+        "offload.activation_spill": True,
+        "offload.activation_spill_granularity": "sub_layer",
+    },
+    "m1m2": {
+        "offload.enabled": True,
+        "offload.optimizer_offload": True,
+        "offload.weight_offload": True,
+    },
+    "m1m3": {
+        "offload.enabled": True,
+        "offload.optimizer_offload": True,
+        "offload.activation_spill": True,
+        "offload.activation_spill_granularity": "sub_layer",
+    },
+    "m2m3": {
+        "offload.enabled": True,
+        "offload.weight_offload": True,
+        "offload.activation_spill": True,
+        "offload.activation_spill_granularity": "sub_layer",
+    },
+    "full": {
+        "offload.enabled": True,
+        "offload.optimizer_offload": True,
+        "offload.weight_offload": True,
+        "offload.activation_spill": True,
+        "offload.activation_spill_granularity": "sub_layer",
+    },
 }
 
 
@@ -86,8 +111,17 @@ def run_mode(mode_name, overrides, steps=1000, seq_len=128, timeout=1800):
             elif e in ("latest_step.txt", "config.json"):
                 os.remove(p)
 
-    cmd = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=1",
-           "-m", "ironcore", "train", "--config", cfg_path]
+    cmd = [
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
+        "--nproc_per_node=1",
+        "-m",
+        "ironcore",
+        "train",
+        "--config",
+        cfg_path,
+    ]
     t0 = time.perf_counter()
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
@@ -111,11 +145,14 @@ def run_mode(mode_name, overrides, steps=1000, seq_len=128, timeout=1800):
         return {"mode": mode_name, "status": "FAIL", "error": err[-500:], "wall_s": wall}
 
     return {
-        "mode": mode_name, "status": "PASS",
-        "losses": losses, "final_loss": round(losses[-1], 4),
+        "mode": mode_name,
+        "status": "PASS",
+        "losses": losses,
+        "final_loss": round(losses[-1], 4),
         "min_loss": round(min(losses), 4),
         "vram_peak_mb": round(max(vrams)) if vrams else 0,
-        "wall_s": wall, "steps": len(losses),
+        "wall_s": wall,
+        "steps": len(losses),
     }
 
 
@@ -142,20 +179,24 @@ def main():
         results.append(r)
         fl = r.get("final_loss", "?")
         v = r.get("vram_peak_mb", "?")
-        print(f"  [{r.get('status')}] loss={fl}  vram={v}MB  ({r.get('wall_s','?')}s)")
+        print(f"  [{r.get('status')}] loss={fl}  vram={v}MB  ({r.get('wall_s', '?')}s)")
 
-    baseline_loss = next((r["final_loss"] for r in results if r["mode"] == "baseline" and r.get("final_loss")), None)
+    baseline_loss = next(
+        (r["final_loss"] for r in results if r["mode"] == "baseline" and r.get("final_loss")), None
+    )
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"TRAINING ACCURACY RESULTS ({len(results)} modes, {args.steps} steps)")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     for r in results:
         fl = r.get("final_loss", "N/A")
         delta = ""
         if baseline_loss and r.get("final_loss") and r["mode"] != "baseline":
             d = r["final_loss"] - baseline_loss
             delta = f"  ({d:+.4f} vs baseline)"
-        print(f"  {r['mode']:8s} [{r.get('status','?')}] loss={fl}{delta}  vram={r.get('vram_peak_mb','?')}MB  {r.get('wall_s','?')}s")
+        print(
+            f"  {r['mode']:8s} [{r.get('status', '?')}] loss={fl}{delta}  vram={r.get('vram_peak_mb', '?')}MB  {r.get('wall_s', '?')}s"
+        )
 
     with open(args.output, "w") as f:
         json.dump({"steps": args.steps, "results": results}, f, indent=2)

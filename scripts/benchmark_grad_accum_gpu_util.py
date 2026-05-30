@@ -244,9 +244,7 @@ def run_benchmark(grad_accum: int) -> dict:
         logits = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
-        loss = F.cross_entropy(
-            shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
-        )
+        loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         return loss
 
     with (
@@ -309,9 +307,7 @@ def run_benchmark(grad_accum: int) -> dict:
                     f"loss={loss:.4f}"
                 )
 
-            results["peak_vram_gb"] = round(
-                torch.cuda.max_memory_allocated() / 1024**3, 2
-            )
+            results["peak_vram_gb"] = round(torch.cuda.max_memory_allocated() / 1024**3, 2)
 
         except Exception as e:
             results["error"] = str(e)
@@ -327,9 +323,7 @@ def main():
     print("  13B Grad Accum GPU Utilization Benchmark")
     print("=" * 70)
     print(f"  GPU: {torch.cuda.get_device_name()}")
-    print(
-        f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB"
-    )
+    print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     print(f"  Seq len: {SEQ_LEN}")
     print("  Offload: full (optimizer + weight + activation)")
     print(f"  Grad accum values: {GRAD_ACCUM_VALUES}")

@@ -34,7 +34,14 @@ def _get_tensor_size_mb(numel: int, dtype: torch.dtype) -> float:
     return (numel * dtype.itemsize) / (1024 * 1024)
 
 
-def benchmark_h2d(engine: MemoryTransferEngine, size_mb: float, dtype: torch.dtype, device: torch.device, warmup: int = 3, iters: int = 10) -> dict:
+def benchmark_h2d(
+    engine: MemoryTransferEngine,
+    size_mb: float,
+    dtype: torch.dtype,
+    device: torch.device,
+    warmup: int = 3,
+    iters: int = 10,
+) -> dict:
     """Benchmark H2D (host-to-device) bandwidth."""
     src = torch.randn(int(size_mb * 1024 * 1024 / dtype.itemsize), dtype=dtype, pin_memory=True)
     dst = torch.empty_like(src, device=device)
@@ -65,7 +72,14 @@ def benchmark_h2d(engine: MemoryTransferEngine, size_mb: float, dtype: torch.dty
     }
 
 
-def benchmark_d2h(engine: MemoryTransferEngine, size_mb: float, dtype: torch.dtype, device: torch.device, warmup: int = 3, iters: int = 10) -> dict:
+def benchmark_d2h(
+    engine: MemoryTransferEngine,
+    size_mb: float,
+    dtype: torch.dtype,
+    device: torch.device,
+    warmup: int = 3,
+    iters: int = 10,
+) -> dict:
     """Benchmark D2H (device-to-host) bandwidth."""
     src = torch.randn(int(size_mb * 1024 * 1024 / dtype.itemsize), dtype=dtype, device=device)
     dst = torch.empty_like(src, pin_memory=True)
@@ -154,10 +168,18 @@ def benchmark_concurrent_h2d_allreduce(
 
 def main():
     parser = argparse.ArgumentParser(description="PCIe/NVLink offload benchmark")
-    parser.add_argument("--sizes", type=float, nargs="+", default=[10, 50, 100, 500], help="Transfer sizes in MB")
+    parser.add_argument(
+        "--sizes", type=float, nargs="+", default=[10, 50, 100, 500], help="Transfer sizes in MB"
+    )
     parser.add_argument("--output", type=str, help="Output JSON path")
     parser.add_argument("--device", type=str, default="cuda:0", help="CUDA device")
-    parser.add_argument("--dtype", type=str, default="bfloat16", choices=["float32", "float16", "bfloat16"], help="Tensor dtype")
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="bfloat16",
+        choices=["float32", "float16", "bfloat16"],
+        help="Tensor dtype",
+    )
     args = parser.parse_args()
 
     dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
@@ -195,7 +217,9 @@ def main():
     if dist.is_initialized() and dist.get_world_size() > 1:
         world_size = dist.get_world_size()
         print(f"\nBenchmarking concurrent H2D + all-reduce (world_size={world_size})...")
-        concurrent_result = benchmark_concurrent_h2d_allreduce(args.sizes[0], dtype, device, world_size)
+        concurrent_result = benchmark_concurrent_h2d_allreduce(
+            args.sizes[0], dtype, device, world_size
+        )
         results["benchmarks"]["concurrent"] = concurrent_result
         print(f"  Concurrent: {concurrent_result['bandwidth_gb_s']:.2f} GB/s")
 

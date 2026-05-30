@@ -27,9 +27,7 @@ from ironcore.trainers import LanguageModelTrainer
 
 cuda_available = torch.cuda.is_available()
 has_multi_gpu = (
-    cuda_available
-    and torch.cuda.device_count() >= 2
-    and os.environ.get("RANK") is not None
+    cuda_available and torch.cuda.device_count() >= 2 and os.environ.get("RANK") is not None
 )
 skip_no_multi_gpu = pytest.mark.skipif(
     not has_multi_gpu,

@@ -132,9 +132,9 @@ def _run_training_with_memory(config, num_steps, label=""):
 
 
 def _print_section(title):
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"  {title}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
 
 def main():
@@ -145,11 +145,17 @@ def main():
     configs = [
         {
             "label": "GPT-small (4L, 768d, ~67M params)",
-            "d_model": 768, "d_ffn": 3072, "num_layers": 4, "num_heads": 12,
+            "d_model": 768,
+            "d_ffn": 3072,
+            "num_layers": 4,
+            "num_heads": 12,
         },
         {
             "label": "GPT-medium (8L, 1024d, ~246M params)",
-            "d_model": 1024, "d_ffn": 4096, "num_layers": 8, "num_heads": 16,
+            "d_model": 1024,
+            "d_ffn": 4096,
+            "num_layers": 8,
+            "num_heads": 16,
         },
     ]
 
@@ -178,7 +184,7 @@ def main():
         # Loss report
         print(f"\n  Loss trajectory (first 5 + last 5 of {NUM_STEPS} steps):")
         print(f"  {'Step':<6} {'Baseline':>10} {'optimizer_offload':>18} {'Diff':>10}")
-        print(f"  {'-'*40}")
+        print(f"  {'-' * 40}")
         indices = list(range(5)) + list(range(NUM_STEPS - 5, NUM_STEPS))
         for i in indices:
             if i == 5:
@@ -187,7 +193,9 @@ def main():
             print(f"  {i:<6} {losses_base[i]:>10.4f} {losses_m1[i]:>10.4f} {diff:>+10.4f}")
 
         rel_err = abs(losses_base[-1] - losses_m1[-1]) / (abs(losses_base[-1]) + 1e-8)
-        print(f"\n  Final loss: baseline={losses_base[-1]:.4f}  optimizer_offload={losses_m1[-1]:.4f}  rel_err={rel_err:.4f}")
+        print(
+            f"\n  Final loss: baseline={losses_base[-1]:.4f}  optimizer_offload={losses_m1[-1]:.4f}  rel_err={rel_err:.4f}"
+        )
         verdict = "PASS" if rel_err < 0.01 else "FAIL"
         print(f"  Loss parity: {verdict} (threshold: 1%)")
 
@@ -201,11 +209,15 @@ def main():
         vram_delta = steady_peak_base - steady_peak_m1
         vram_pct = (vram_delta / steady_peak_base) * 100 if steady_peak_base > 0 else 0
 
-        print(f"\n  VRAM (steady-state peak, steps 1-{NUM_STEPS-1}):")
+        print(f"\n  VRAM (steady-state peak, steps 1-{NUM_STEPS - 1}):")
         print(f"  {'Metric':<25} {'Baseline':>10} {'optimizer_offload':>18} {'Delta':>10}")
-        print(f"  {'-'*55}")
-        print(f"  {'Peak VRAM (MB)':<25} {steady_peak_base:>10.1f} {steady_peak_m1:>10.1f} {vram_delta:>+10.1f}")
-        print(f"  {'Allocated VRAM (MB)':<25} {steady_alloc_base:>10.1f} {steady_alloc_m1:>10.1f} {steady_alloc_base - steady_alloc_m1:>+10.1f}")
+        print(f"  {'-' * 55}")
+        print(
+            f"  {'Peak VRAM (MB)':<25} {steady_peak_base:>10.1f} {steady_peak_m1:>10.1f} {vram_delta:>+10.1f}"
+        )
+        print(
+            f"  {'Allocated VRAM (MB)':<25} {steady_alloc_base:>10.1f} {steady_alloc_m1:>10.1f} {steady_alloc_base - steady_alloc_m1:>+10.1f}"
+        )
 
         vram_verdict = "PASS" if vram_delta > 0 else "NEUTRAL"
         print(f"\n  VRAM savings: {vram_pct:+.1f}% ({vram_delta:+.1f} MB) — {vram_verdict}")
@@ -213,7 +225,7 @@ def main():
         # Per-step peak VRAM comparison
         print("\n  Per-step peak VRAM (selected steps):")
         print(f"  {'Step':<6} {'Baseline':>10} {'optimizer_offload':>18} {'Delta':>10}")
-        print(f"  {'-'*40}")
+        print(f"  {'-' * 40}")
         for i in [1, 5, 10, 20, 30, 40, 49]:
             if i < NUM_STEPS:
                 d = peak_base[i] - peak_m1[i]
@@ -221,13 +233,13 @@ def main():
 
         cfg["label"] = label  # restore for next iteration if needed
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("  SUMMARY")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print("  Optimizer offload now uses CPU-compute path when params are on GPU.")
     print("  AdamW math runs on CPU (AVX-512/SIMD via MKL). Only grad (GPU->CPU)")
     print("  and delta (CPU->GPU) are transferred. Optimizer states never leave CPU.")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
 
 if __name__ == "__main__":

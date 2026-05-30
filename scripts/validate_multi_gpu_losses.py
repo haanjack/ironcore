@@ -37,8 +37,10 @@ NUM_STEPS = 50
 BATCH_SIZE = 2
 SEQ_LEN = 256
 
+
 def create_forward_step():
     step_counter = [0]
+
     def forward_step(model, _data_iterator):
         device = next(model.parameters()).device
         torch.manual_seed(42 + step_counter[0])
@@ -55,17 +57,26 @@ def create_forward_step():
             shift_labels.view(-1),
         )
         return loss
+
     return forward_step
+
 
 def run_training(name, config_kwargs=None):
     reset_global_states()
 
     config = create_test_config(
-        d_model=768, d_ffn=3072, num_layers=2,
-        num_attention_heads=12, num_attention_groups=12,
-        head_dim=64, max_seq_len=SEQ_LEN,
-        dropout_attn=0.0, dropout_mlp=0.0, dropout_embd=0.0,
-        precision="bfloat16", seed=42,
+        d_model=768,
+        d_ffn=3072,
+        num_layers=2,
+        num_attention_heads=12,
+        num_attention_groups=12,
+        head_dim=64,
+        max_seq_len=SEQ_LEN,
+        dropout_attn=0.0,
+        dropout_mlp=0.0,
+        dropout_embd=0.0,
+        precision="bfloat16",
+        seed=42,
     )
     config.operation.train_steps = NUM_STEPS + 10
     config.trainer.micro_batch_size = BATCH_SIZE
@@ -88,8 +99,13 @@ def run_training(name, config_kwargs=None):
 
     init_loss, final_loss = None, 0.0
     with (
-        patch("ironcore.trainers.base_trainer.get_data_iterator", return_value=create_mock_data_iterator()),
-        patch("ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()),
+        patch(
+            "ironcore.trainers.base_trainer.get_data_iterator",
+            return_value=create_mock_data_iterator(),
+        ),
+        patch(
+            "ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()
+        ),
     ):
         trainer = LanguageModelTrainer(config, create_forward_step(), F.cross_entropy)
         trainer._initialize()
@@ -102,6 +118,7 @@ def run_training(name, config_kwargs=None):
 
     return init_loss, final_loss
 
+
 if __name__ == "__main__":
     rank = int(os.getenv("RANK", "0"))
     if rank == 0:
@@ -110,67 +127,87 @@ if __name__ == "__main__":
         print("=" * 70)
 
     # DDP + optimizer_offload+activation_spill
-    init_ddp, final_ddp = run_training("DDP+optimizer_offload+activation_spill", {
-        "offload": OffloadConfig(
-            enabled=True,
-            optimizer_offload=True,
-            optimizer_state_precision="bf16",
-            activation_spill=True,
-            activation_spill_granularity="sub_layer",
-            pinned_memory_pool_gb=2.0,
-        )
-    })
+    init_ddp, final_ddp = run_training(
+        "DDP+optimizer_offload+activation_spill",
+        {
+            "offload": OffloadConfig(
+                enabled=True,
+                optimizer_offload=True,
+                optimizer_state_precision="bf16",
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                pinned_memory_pool_gb=2.0,
+            )
+        },
+    )
 
     if rank == 0:
-        print(f"DDP + optimizer_offload+activation_spill:       Init={init_ddp:.4f}, Final={final_ddp:.4f}")
+        print(
+            f"DDP + optimizer_offload+activation_spill:       Init={init_ddp:.4f}, Final={final_ddp:.4f}"
+        )
 
     # DistOpt + optimizer_offload+activation_spill
-    init_dist, final_dist = run_training("DistOpt+optimizer_offload+activation_spill", {
-        "parallel.use_distributed_optimizer": True,
-        "offload": OffloadConfig(
-            enabled=True,
-            optimizer_offload=True,
-            optimizer_state_precision="bf16",
-            activation_spill=True,
-            activation_spill_granularity="sub_layer",
-            pinned_memory_pool_gb=2.0,
-        )
-    })
+    init_dist, final_dist = run_training(
+        "DistOpt+optimizer_offload+activation_spill",
+        {
+            "parallel.use_distributed_optimizer": True,
+            "offload": OffloadConfig(
+                enabled=True,
+                optimizer_offload=True,
+                optimizer_state_precision="bf16",
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                pinned_memory_pool_gb=2.0,
+            ),
+        },
+    )
 
     if rank == 0:
-        print(f"DistOpt + optimizer_offload+activation_spill:   Init={init_dist:.4f}, Final={final_dist:.4f}")
+        print(
+            f"DistOpt + optimizer_offload+activation_spill:   Init={init_dist:.4f}, Final={final_dist:.4f}"
+        )
 
     # FSDP SHARD_GRAD_OP + optimizer_offload+activation_spill
-    init_fsdp, final_fsdp = run_training("FSDP+optimizer_offload+activation_spill", {
-        "parallel.use_fsdp": True,
-        "parallel.fsdp_sharding_strategy": "shard_grad_op",
-        "parallel.fsdp_use_orig_params": True,
-        "offload": OffloadConfig(
-            enabled=True,
-            optimizer_offload=True,
-            optimizer_state_precision="bf16",
-            activation_spill=True,
-            activation_spill_granularity="sub_layer",
-            pinned_memory_pool_gb=2.0,
-        )
-    })
+    init_fsdp, final_fsdp = run_training(
+        "FSDP+optimizer_offload+activation_spill",
+        {
+            "parallel.use_fsdp": True,
+            "parallel.fsdp_sharding_strategy": "shard_grad_op",
+            "parallel.fsdp_use_orig_params": True,
+            "offload": OffloadConfig(
+                enabled=True,
+                optimizer_offload=True,
+                optimizer_state_precision="bf16",
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                pinned_memory_pool_gb=2.0,
+            ),
+        },
+    )
 
     if rank == 0:
-        print(f"FSDP SHARD_GRAD_OP+optimizer_offload+activation_spill: Init={init_fsdp:.4f}, Final={final_fsdp:.4f}")
+        print(
+            f"FSDP SHARD_GRAD_OP+optimizer_offload+activation_spill: Init={init_fsdp:.4f}, Final={final_fsdp:.4f}"
+        )
 
     # FSDP FULL_SHARD + activation_spill
-    init_fsdp_full, final_fsdp_full = run_training("FSDP-FULL+activation_spill", {
-        "parallel.use_fsdp": True,
-        "parallel.fsdp_sharding_strategy": "full",
-        "parallel.fsdp_use_orig_params": True,
-        "offload": OffloadConfig(
-            enabled=True,
-            activation_spill=True,
-            activation_spill_granularity="sub_layer",
-            pinned_memory_pool_gb=2.0,
-        )
-    })
+    init_fsdp_full, final_fsdp_full = run_training(
+        "FSDP-FULL+activation_spill",
+        {
+            "parallel.use_fsdp": True,
+            "parallel.fsdp_sharding_strategy": "full",
+            "parallel.fsdp_use_orig_params": True,
+            "offload": OffloadConfig(
+                enabled=True,
+                activation_spill=True,
+                activation_spill_granularity="sub_layer",
+                pinned_memory_pool_gb=2.0,
+            ),
+        },
+    )
 
     if rank == 0:
-        print(f"FSDP FULL_SHARD+activation_spill:        Init={init_fsdp_full:.4f}, Final={final_fsdp_full:.4f}")
+        print(
+            f"FSDP FULL_SHARD+activation_spill:        Init={init_fsdp_full:.4f}, Final={final_fsdp_full:.4f}"
+        )
         print("=" * 70)
