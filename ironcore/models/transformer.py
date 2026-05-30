@@ -409,13 +409,14 @@ class TransformerModel(BaseModule):
         original_device = hidden_states.device
         weight_streaming = scheduler is not None and scheduler.weight_streaming_enabled
         if weight_streaming:
-            hidden_states = hidden_states.to("cuda")
+            compute_device = scheduler.device
+            hidden_states = hidden_states.to(compute_device)
             if attention_mask is not None:
-                attention_mask = attention_mask.to("cuda")
+                attention_mask = attention_mask.to(compute_device)
             if rotary_pos_emb is not None and isinstance(rotary_pos_emb, torch.Tensor):
-                rotary_pos_emb = rotary_pos_emb.to("cuda")
+                rotary_pos_emb = rotary_pos_emb.to(compute_device)
             if position_ids is not None and isinstance(position_ids, torch.Tensor):
-                position_ids = position_ids.to("cuda")
+                position_ids = position_ids.to(compute_device)
 
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None

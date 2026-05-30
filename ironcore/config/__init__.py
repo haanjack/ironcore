@@ -218,15 +218,20 @@ def _config_validation(config: MainConfig):
                 "Without it, FSDP replaces parameters with FlatParameter, breaking optimizer references."
             )
 
-    # TP offload warning
+    # TP + offload validation
     if config.offload.enabled and config.trainer.tensor_model_parallel_size > 1:
-        import warnings
+        if config.offload.weight_offload and dp_world_size > 1:
+            raise ValueError(
+                f"Weight streaming with tensor_parallel={config.trainer.tensor_model_parallel_size} "
+                f"and data_parallel={dp_world_size} is not supported. "
+                "DDP gradient sync is skipped during weight streaming, so DP > 1 would produce "
+                "incorrect gradients. Use TP-only (DP=1) or reduce world_size."
+            )
+        import logging
 
-        warnings.warn(
-            f"Offload with tensor_model_parallel_size={config.trainer.tensor_model_parallel_size} "
-            "is experimental. Each rank streams its own TP shard independently. "
-            "Report any issues.",
-            stacklevel=2,
+        logging.getLogger("ironcore.config").info(
+            "TP + offload enabled: each rank will stream its own TP shard. "
+            "Embedding and output head stay on GPU for TP communication."
         )
 
     # Auto-detect pinned memory pool size if requested (-1.0)

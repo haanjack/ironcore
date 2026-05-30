@@ -125,6 +125,10 @@ class ExecutionScheduler:
         self._snapshot_time: float = 0.0  # D2H snapshot time
         self._prefetch_wait_time: float = 0.0  # time waiting for prefetch completes
 
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
     @classmethod
     def from_model(
         cls,

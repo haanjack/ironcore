@@ -497,6 +497,18 @@ class TestExecutionScheduler:
         assert scheduler.is_active
         assert scheduler.num_registered_layers > 0
 
+    def test_device_property(self):
+        """Scheduler exposes the device it was created with."""
+        from ironcore.offload.scheduler import ExecutionScheduler
+
+        model, config = self._make_simple_model()
+        scheduler = ExecutionScheduler.from_model(
+            model=model,
+            config=config.offload,
+            device=torch.device("cuda:0"),
+        )
+        assert scheduler.device == torch.device("cuda:0")
+
     def test_from_model_disabled_returns_none(self):
         from ironcore.offload.scheduler import ExecutionScheduler
 

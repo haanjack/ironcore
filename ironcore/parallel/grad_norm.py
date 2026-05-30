@@ -155,6 +155,6 @@ def clip_grad_norm(
     if clip_coef < 1.0:
         # Use a set to avoid double-clipping shared gradients
         for g in {p.grad for p in params_with_grad}:
-            g.detach().mul_(clip_coef)
+            g.detach().mul_(clip_coef.to(g.device))
 
     return total_norm

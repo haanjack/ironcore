@@ -289,12 +289,28 @@ class BaseTrainer(ABC):
             # Weight streaming: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
             # This avoids OOM for models whose weights exceed GPU memory (e.g. 13B on 24GB).
             model = LanguageModel(self.config, self.loss_fn)
+            model = model.to(dtype=get_model_dtype(self.config))
+
+            # With TP > 1, the embedding and output head must stay on GPU because
+            # VocabParallelEmbedding and vocab_parallel_cross_entropy call dist.all_reduce
+            # which requires CUDA tensors when using NCCL backend.
+            tp_size = self.config.trainer.tensor_model_parallel_size
+            if tp_size > 1:
+                gpu = torch.device(device)
+                model.embedding = model.embedding.to(gpu)
+                model.output_layernorm = model.output_layernorm.to(gpu)
+                if hasattr(model, "output_layer"):
+                    model.output_layer = model.output_layer.to(gpu)
+                self.logger.info(
+                    f"TP={tp_size}: embedding + output head on {gpu}, "
+                    "transformer layers on CPU for weight streaming"
+                )
+
             self.logger.info("Created Language Model on CPU (weight streaming mode)")
         else:
             model = LanguageModel(self.config, self.loss_fn).to(device=device)
+            model = model.to(dtype=get_model_dtype(self.config))
             self.logger.info("Created Language Model")
-
-        model = model.to(dtype=get_model_dtype(self.config))
 
         # Load pretrained weights from HuggingFace if specified
         if self.config.trainer.load_from_hf:

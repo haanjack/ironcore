@@ -132,6 +132,46 @@ class TestOffloadConfigValidation:
         _config_validation(config)
 
 
+class TestOffloadWithTP:
+    """Test config validation for TP + offload combinations."""
+
+    def test_weight_offload_tp2_dp1_allowed(self):
+        """weight_offload + TP=2 + DP=1 should pass validation."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.weight_offload = True
+        config.trainer.tensor_model_parallel_size = 2
+        config.parallel.world_size = 2  # TP=2, DP=1
+        # Should not raise
+        _config_validation(config)
+
+    def test_weight_offload_tp2_dp2_raises(self):
+        """weight_offload + TP=2 + DP=2 should raise (DDP not supported)."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.weight_offload = True
+        config.trainer.tensor_model_parallel_size = 2
+        config.parallel.world_size = 4  # TP=2, DP=2
+        with pytest.raises(ValueError, match="Weight streaming.*data_parallel=2"):
+            _config_validation(config)
+
+    def test_optimizer_offload_tp2_dp2_allowed(self):
+        """optimizer_offload (without weight_offload) + TP=2 + DP=2 should pass."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.optimizer_offload = True
+        config.trainer.tensor_model_parallel_size = 2
+        config.parallel.world_size = 4  # TP=2, DP=2
+        # Should not raise — optimizer offload doesn't block DDP
+        _config_validation(config)
+
+
 class TestOffloadConfigAutoDetect:
     """Test pinned memory pool auto-detect feature."""
 
