@@ -889,8 +889,8 @@ prefetch_streams: int = 1  # 비동기 전송용 dedicated CUDA stream 수
 | `test_optimizer_offload_fsdp_full_shard_blocked` | Optimizer state offload + FULL_SHARD 차단 |
 | `test_optimizer_offload_fsdp_cpuoffload_blocked` | Optimizer state offload + CPUOffload 차단 |
 | `test_activation_spill_fsdp_integration` | Activation spilling + FSDP FULL_SHARD, 50 step loss parity |
-| `test_m1_shard_grad_op_fsdp` | Optimizer state offload + SHARD_GRAD_OP + Activation spilling, optimizer state CPU + param shard, loss parity |
-| `test_m1_distributed_optimizer` | Optimizer state offload + DistOpt, rank당 1/N state on CPU |
+| `test_optimizer_offload_shard_grad_op_fsdp` | Optimizer state offload + SHARD_GRAD_OP + Activation spilling, optimizer state CPU + param shard, loss parity |
+| `test_optimizer_offload_distributed_optimizer` | Optimizer state offload + DistOpt, rank당 1/N state on CPU |
 | `test_backward_prefetch_correctness` | prefetch on/off에서 동일 그래디언트 |
 | `test_backward_prefetch_throughput` | step time 향상 측정 |
 

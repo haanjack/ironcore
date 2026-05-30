@@ -4,7 +4,7 @@ Compares baseline (no offload) vs optimizer_offload only across two model sizes.
 Reports: loss trajectory, final loss relative error, peak VRAM, VRAM savings.
 
 Usage:
-    python scripts/validate_m1_memory.py
+    python scripts/validate_optimizer_offload_memory.py
 """
 
 import os
@@ -176,9 +176,9 @@ def main():
         )
 
         # optimizer_offload only (CPU-compute path)
-        config_m1 = _make_config(optimizer_offload=True, enabled=True, **cfg)
-        losses_m1, peak_m1, alloc_m1 = _run_training_with_memory(
-            config_m1, NUM_STEPS, "optimizer_offload"
+        config_offload = _make_config(optimizer_offload=True, enabled=True, **cfg)
+        losses_offload, peak_offload, alloc_offload = _run_training_with_memory(
+            config_offload, NUM_STEPS, "optimizer_offload"
         )
 
         # Loss report
@@ -189,12 +189,12 @@ def main():
         for i in indices:
             if i == 5:
                 print(f"  {'...':<6}")
-            diff = losses_m1[i] - losses_base[i]
-            print(f"  {i:<6} {losses_base[i]:>10.4f} {losses_m1[i]:>10.4f} {diff:>+10.4f}")
+            diff = losses_offload[i] - losses_base[i]
+            print(f"  {i:<6} {losses_base[i]:>10.4f} {losses_offload[i]:>10.4f} {diff:>+10.4f}")
 
-        rel_err = abs(losses_base[-1] - losses_m1[-1]) / (abs(losses_base[-1]) + 1e-8)
+        rel_err = abs(losses_base[-1] - losses_offload[-1]) / (abs(losses_base[-1]) + 1e-8)
         print(
-            f"\n  Final loss: baseline={losses_base[-1]:.4f}  optimizer_offload={losses_m1[-1]:.4f}  rel_err={rel_err:.4f}"
+            f"\n  Final loss: baseline={losses_base[-1]:.4f}  optimizer_offload={losses_offload[-1]:.4f}  rel_err={rel_err:.4f}"
         )
         verdict = "PASS" if rel_err < 0.01 else "FAIL"
         print(f"  Loss parity: {verdict} (threshold: 1%)")
@@ -202,21 +202,21 @@ def main():
         # VRAM report
         # Use steady-state peak (skip step 0 which includes model init)
         steady_peak_base = max(peak_base[1:])
-        steady_peak_m1 = max(peak_m1[1:])
+        steady_peak_offload = max(peak_offload[1:])
         steady_alloc_base = max(alloc_base[1:])
-        steady_alloc_m1 = max(alloc_m1[1:])
+        steady_alloc_offload = max(alloc_offload[1:])
 
-        vram_delta = steady_peak_base - steady_peak_m1
+        vram_delta = steady_peak_base - steady_peak_offload
         vram_pct = (vram_delta / steady_peak_base) * 100 if steady_peak_base > 0 else 0
 
         print(f"\n  VRAM (steady-state peak, steps 1-{NUM_STEPS - 1}):")
         print(f"  {'Metric':<25} {'Baseline':>10} {'optimizer_offload':>18} {'Delta':>10}")
         print(f"  {'-' * 55}")
         print(
-            f"  {'Peak VRAM (MB)':<25} {steady_peak_base:>10.1f} {steady_peak_m1:>10.1f} {vram_delta:>+10.1f}"
+            f"  {'Peak VRAM (MB)':<25} {steady_peak_base:>10.1f} {steady_peak_offload:>10.1f} {vram_delta:>+10.1f}"
         )
         print(
-            f"  {'Allocated VRAM (MB)':<25} {steady_alloc_base:>10.1f} {steady_alloc_m1:>10.1f} {steady_alloc_base - steady_alloc_m1:>+10.1f}"
+            f"  {'Allocated VRAM (MB)':<25} {steady_alloc_base:>10.1f} {steady_alloc_offload:>10.1f} {steady_alloc_base - steady_alloc_offload:>+10.1f}"
         )
 
         vram_verdict = "PASS" if vram_delta > 0 else "NEUTRAL"
@@ -228,8 +228,8 @@ def main():
         print(f"  {'-' * 40}")
         for i in [1, 5, 10, 20, 30, 40, 49]:
             if i < NUM_STEPS:
-                d = peak_base[i] - peak_m1[i]
-                print(f"  {i:<6} {peak_base[i]:>10.1f} {peak_m1[i]:>10.1f} {d:>+10.1f}")
+                d = peak_base[i] - peak_offload[i]
+                print(f"  {i:<6} {peak_base[i]:>10.1f} {peak_offload[i]:>10.1f} {d:>+10.1f}")
 
         cfg["label"] = label  # restore for next iteration if needed
 

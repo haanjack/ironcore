@@ -56,7 +56,7 @@ optimizer_offload saves **54% peak VRAM** and **78% steady-state VRAM**.
 | optimizer_offload only | optimizer offload | 1000 | 5.832 | +0.005 | ✅ PASS |
 | full_offload | all offload | 1000 | 5.842 | +0.015 | ✅ PASS |
 
-Source: `scripts/validate_m1_memory.py`, `tests/unit/offload/test_pairwise_*.py`, `test_13b_full_offload.py`
+Source: `scripts/validate_optimizer_offload_memory.py`, `tests/unit/offload/test_pairwise_*.py`, `test_13b_full_offload.py`
 
 ### Estimated Data
 

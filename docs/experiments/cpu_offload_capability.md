@@ -61,7 +61,7 @@ python test_3b_baseline.py
 
 **Purpose:** Verify 3B trains with optimizer offload only.
 
-**Script:** `test_3b_m1.py`
+**Script:** `test_3b_optimizer_offload.py`
 
 ```yaml
 model:
@@ -82,7 +82,7 @@ offload:
 
 **Command:**
 ```bash
-python test_3b_m1.py
+python test_3b_optimizer_offload.py
 ```
 
 **Result:**
@@ -101,7 +101,7 @@ python test_3b_m1.py
 
 **Purpose:** Verify 7B OOMs with optimizer offload only (weights stay on GPU).
 
-**Script:** `test_7b_m1.py`
+**Script:** `test_7b_optimizer_offload.py`
 
 ```yaml
 model:
@@ -121,7 +121,7 @@ offload:
 
 **Command:**
 ```bash
-python test_7b_m1.py
+python test_7b_optimizer_offload.py
 ```
 
 **Result:**
@@ -398,7 +398,7 @@ The offload system enables prototype-scale training on consumer hardware — ver
 | `ironcore/utils/offload_visualizer.py` | Undefined `SimpleOffloadVisualizer` → `OffloadVisualizer` |
 | `scripts/benchmark_offload_pcie.py` | Removed unused `OffloadConfig` import |
 | `scripts/training_accuracy_validation.py` | Split multi-imports, sorted imports, removed unused `collections.abc` |
-| `scripts/validate_m1_memory.py` | Removed unused `before` variable, removed empty f-string prefix |
+| `scripts/validate_optimizer_offload_memory.py` | Removed unused `before` variable, removed empty f-string prefix |
 | `scripts/validate_multi_gpu_losses.py` | Sorted 3 import blocks |
 | `tests/unit/offload/test_system_info.py` | Removed unused `pytest` import |
 
