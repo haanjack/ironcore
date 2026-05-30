@@ -384,7 +384,9 @@ def load_checkpoint(
                         # as the optimizer step (TP-aware via _should_offload_param).
                         offload_enabled = getattr(optimizer, "offload_enabled", False)
                         offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
-                        is_offloaded = offload_enabled and _should_offload_param(param, offload_min_elements)
+                        is_offloaded = offload_enabled and _should_offload_param(
+                            param, offload_min_elements
+                        )
                         target_device = torch.device("cpu") if is_offloaded else param.device
 
                         if state_tensor.device != target_device:
@@ -444,7 +446,9 @@ def load_checkpoint(
 
                         tensor = loaded_optim_state["state"][param][state_key].reshape(param.shape)
                         # Keep optimizer state on CPU using same per-param criteria as step()
-                        is_offloaded = offload_enabled and _should_offload_param(param, offload_min_elements)
+                        is_offloaded = offload_enabled and _should_offload_param(
+                            param, offload_min_elements
+                        )
                         if is_offloaded and state_key in (
                             "exp_avg",
                             "exp_avg_sq",

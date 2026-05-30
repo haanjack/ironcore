@@ -92,7 +92,11 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
         # Restore activation from host (H2D)
         activation = ctx.scheduler.on_sublayer_backward(
-            ctx.layer_idx, ctx.sub_layer, ctx.activation_shape, ctx.activation_dtype, ctx.activation_device
+            ctx.layer_idx,
+            ctx.sub_layer,
+            ctx.activation_shape,
+            ctx.activation_dtype,
+            ctx.activation_device,
         )
         activation.requires_grad_(True)
 
