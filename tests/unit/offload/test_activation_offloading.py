@@ -68,13 +68,12 @@ class TestActivationSpillManager:
         assert pool.total_used_bytes > 0
 
         # Backward: prefetch
-        dst = torch.empty_like(original)
         manager.on_microbatch_backward_start(0)
-        manager.on_sublayer_backward(0, 0, dst)
+        result = manager.on_sublayer_backward(0, 0, original.shape, original.dtype, original.device)
         manager.on_microbatch_backward_end()
 
         assert manager.pending_count == 0
-        assert torch.allclose(original, dst, atol=1e-6)
+        assert torch.allclose(original, result, atol=1e-6)
 
     def test_two_sublayers_per_layer(self):
         """Spill both sub-layers (layer input + post-attention residual)."""
@@ -93,16 +92,14 @@ class TestActivationSpillManager:
         assert manager.pending_count == 2
 
         # Backward: prefetch in reverse order
-        dst1 = torch.empty_like(norm_input)
-        dst0 = torch.empty_like(hidden)
         manager.on_microbatch_backward_start(0)
-        manager.on_sublayer_backward(0, 1, dst1)
-        manager.on_sublayer_backward(0, 0, dst0)
+        result1 = manager.on_sublayer_backward(0, 1, norm_input.shape, norm_input.dtype, norm_input.device)
+        result0 = manager.on_sublayer_backward(0, 0, hidden.shape, hidden.dtype, hidden.device)
         manager.on_microbatch_backward_end()
 
         assert manager.pending_count == 0
-        assert torch.allclose(hidden, dst0, atol=1e-6)
-        assert torch.allclose(norm_input, dst1, atol=1e-6)
+        assert torch.allclose(hidden, result0, atol=1e-6)
+        assert torch.allclose(norm_input, result1, atol=1e-6)
 
     def test_gradient_accumulation(self):
         """Multiple micro-batches: each has its own set of spilled activations."""
@@ -122,11 +119,11 @@ class TestActivationSpillManager:
 
         # Backward: prefetch each micro-batch
         for mb in range(grad_accum):
-            dst = torch.empty_like(originals[mb])
+            orig = originals[mb]
             manager.on_microbatch_backward_start(mb)
-            manager.on_sublayer_backward(0, 0, dst)
+            result = manager.on_sublayer_backward(0, 0, orig.shape, orig.dtype, orig.device)
             manager.on_microbatch_backward_end()
-            assert torch.allclose(originals[mb], dst, atol=1e-6)
+            assert torch.allclose(orig, result, atol=1e-6)
 
         assert manager.pending_count == 0
 
@@ -148,9 +145,8 @@ class TestActivationSpillManager:
         assert used_after_spill > used_before
 
         # Backward: prefetch + free
-        dst = torch.empty_like(tensor)
         manager.on_microbatch_backward_start(0)
-        manager.on_sublayer_backward(0, 0, dst)
+        result = manager.on_sublayer_backward(0, 0, tensor.shape, tensor.dtype, tensor.device)
         manager.on_microbatch_backward_end()
 
         assert pool.total_used_bytes == used_before
