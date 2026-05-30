@@ -58,9 +58,17 @@ class RotaryPositionalEmbedding(nn.Module):
             self._update_rope_cache(int(max_pos) + 1)
 
         # Ensure buffers are on the same device as x (handles weight streaming
-        # where model params stay on CPU but activations are on GPU)
-        sin_emb = self.sin_emb.to(torch.float32).to(x.device)[position_ids].unsqueeze(2).to(x.dtype)
-        cos_emb = self.cos_emb.to(torch.float32).to(x.device)[position_ids].unsqueeze(2).to(x.dtype)
+        # where model params stay on CPU but activations are on GPU).
+        # Cache device-transferred buffers to avoid redundant H2D copies.
+        if (
+            not hasattr(self, "_sin_emb_cached")
+            or self._sin_emb_cached.device != x.device
+            or self._sin_emb_cached.shape != self.sin_emb.shape
+        ):
+            self._sin_emb_cached = self.sin_emb.to(device=x.device, dtype=torch.float32)
+            self._cos_emb_cached = self.cos_emb.to(device=x.device, dtype=torch.float32)
+        sin_emb = self._sin_emb_cached[position_ids].unsqueeze(2).to(x.dtype)
+        cos_emb = self._cos_emb_cached[position_ids].unsqueeze(2).to(x.dtype)
 
         x = self.apply_rotary_pos_emb(x, sin_emb, cos_emb)
 

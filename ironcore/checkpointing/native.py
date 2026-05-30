@@ -365,6 +365,8 @@ def load_checkpoint(
             loaded_optim_state["state"] = {}
             loaded_optim_state["param_groups"] = loaded_optim_state_dict["param_groups"]
 
+            from ironcore.offload.optimizer_helpers import _should_offload_param
+
             for name, param in model.named_parameters():
                 # Skip frozen parameters (they don't have optimizer state)
                 if not param.requires_grad:
@@ -379,15 +381,10 @@ def load_checkpoint(
                 for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
                     if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
                         # Determine target device using the same per-param criteria
-                        # as the optimizer step: offload_enabled, offloadable attr,
-                        # and min_param_elements threshold.
+                        # as the optimizer step (TP-aware via _should_offload_param).
                         offload_enabled = getattr(optimizer, "offload_enabled", False)
                         offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
-                        is_offloaded = (
-                            offload_enabled
-                            and getattr(param, "offloadable", True)
-                            and param.numel() >= offload_min_elements
-                        )
+                        is_offloaded = offload_enabled and _should_offload_param(param, offload_min_elements)
                         target_device = torch.device("cpu") if is_offloaded else param.device
 
                         if state_tensor.device != target_device:
@@ -447,11 +444,7 @@ def load_checkpoint(
 
                         tensor = loaded_optim_state["state"][param][state_key].reshape(param.shape)
                         # Keep optimizer state on CPU using same per-param criteria as step()
-                        is_offloaded = (
-                            offload_enabled
-                            and getattr(param, "offloadable", True)
-                            and param.numel() >= offload_min_elements
-                        )
+                        is_offloaded = offload_enabled and _should_offload_param(param, offload_min_elements)
                         if is_offloaded and state_key in (
                             "exp_avg",
                             "exp_avg_sq",

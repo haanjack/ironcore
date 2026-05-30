@@ -91,12 +91,9 @@ class _SpillCheckpointFn(torch.autograd.Function):
             ctx.scheduler.on_backward_layer_start(ctx.layer_idx)
 
         # Restore activation from host (H2D)
-        activation = torch.empty(
-            ctx.activation_shape,
-            dtype=ctx.activation_dtype,
-            device=ctx.activation_device,
+        activation = ctx.scheduler.on_sublayer_backward(
+            ctx.layer_idx, ctx.sub_layer, ctx.activation_shape, ctx.activation_dtype, ctx.activation_device
         )
-        ctx.scheduler.on_sublayer_backward(ctx.layer_idx, ctx.sub_layer, activation)
         activation.requires_grad_(True)
 
         # Restore auxiliary args to original device
@@ -121,11 +118,12 @@ class _SpillCheckpointFn(torch.autograd.Function):
             with torch.enable_grad():
                 output = ctx.block_fn(activation, *aux_args)
 
-        # Compute gradients. Synchronize the default stream to ensure all
-        # upstream backward kernels that produced grad_output have completed.
-        # Without this, the nested backward can read grad_output while the
-        # outer autograd engine is still writing it, causing gradient explosion.
-        torch.cuda.default_stream(activation.device).synchronize()
+        # Compute gradients. No stream sync needed here:
+        # - grad_output is produced by the outer autograd engine on the default
+        #   stream, and CUDA guarantees in-order execution within a stream.
+        # - H2D transfers for activation/weight restoration are synchronized with
+        #   the default stream via synchronize_with_default_stream() in the
+        #   transfer engine (GPU-level wait_stream, no CPU blocking).
         torch.autograd.backward(output, grad_output)
 
         # Evict weights after backward recomputation.
@@ -341,19 +339,27 @@ class ActivationSpillManager:
         self,
         layer_idx: int,
         sub_layer: int,
-        gpu_dst: torch.Tensor,
-    ) -> None:
+        activation_shape: torch.Size,
+        activation_dtype: torch.dtype,
+        activation_device: torch.device,
+    ) -> torch.Tensor:
         """
         Prefetch a spilled activation back to GPU (H2D), then free host memory.
 
         If the activation was already prefetched via prefetch_activation(), just
-        waits for the in-flight transfer and copies to the caller's buffer.
-        Otherwise, submits H2D and waits synchronously.
+        waits for the in-flight transfer and returns the GPU tensor directly,
+        avoiding a redundant GPU-to-GPU copy. Otherwise, submits H2D and waits
+        synchronously.
 
         Args:
             layer_idx: Layer index
             sub_layer: 0 for layer input, 1 for post-attention residual
-            gpu_dst: GPU tensor to copy the activation into
+            activation_shape: Expected shape of the activation tensor
+            activation_dtype: Expected dtype of the activation tensor
+            activation_device: Target GPU device
+
+        Returns:
+            GPU tensor with the restored activation data.
         """
         key = (self._backward_microbatch, layer_idx, sub_layer)
         activation = self._activations.get(key)
@@ -368,7 +374,7 @@ class ActivationSpillManager:
             # Transfer was already submitted during prefetch_activation()
             self._engine.wait(activation.h2d_handle)
             self._engine.synchronize_with_default_stream()
-            gpu_dst.copy_(activation.gpu_tensor.view(activation.shape))
+            result = activation.gpu_tensor.view(activation.shape)
             activation.h2d_handle = None
             activation.gpu_tensor = None
         else:
@@ -376,16 +382,16 @@ class ActivationSpillManager:
             if activation.transfer_handle is not None:
                 self._engine.wait(activation.transfer_handle)
                 activation.transfer_handle = None
-            if not gpu_dst.is_contiguous():
-                raise ValueError(
-                    f"on_sublayer_backward expects a contiguous gpu_dst, got strides={gpu_dst.stride()}"
-                )
+            gpu_dst = torch.empty(
+                activation_shape, dtype=activation_dtype, device=activation_device
+            )
             h2d_handle = self._engine.submit_h2d(
                 src=activation.host_tensor,
                 dst=gpu_dst.reshape(-1),
             )
             self._engine.wait(h2d_handle)
             self._engine.synchronize_with_default_stream()
+            result = gpu_dst
 
         self._total_prefetched_bytes += (
             activation.host_tensor.numel() * activation.host_tensor.element_size()
@@ -395,6 +401,8 @@ class ActivationSpillManager:
         self._pool.free(activation.host_tensor)
         activation.consumed = True
         del self._activations[key]
+
+        return result
 
     def on_microbatch_backward_end(self) -> None:
         """All activations for current micro-batch have been consumed and freed."""

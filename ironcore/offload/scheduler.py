@@ -329,6 +329,10 @@ class ExecutionScheduler:
         for host_buf in getattr(self, "_pinned_grad_buffers", []):
             self._pool.free(host_buf)
         self._pinned_grad_buffers = []
+        # Clear param.grad to prevent dangling pointers to freed pinned memory
+        for group in self._weight_groups.values():
+            for param, _, _ in group.param_refs:
+                param.grad = None
 
         # Snapshot updated params (after optimizer step) back to host
         t0 = time.monotonic()
@@ -549,14 +553,25 @@ class ExecutionScheduler:
         if self._spill_manager is not None:
             self._spill_manager.on_microbatch_backward_start(microbatch_idx)
 
-    def on_sublayer_backward(self, layer_idx: int, sub_layer: int, gpu_dst: torch.Tensor) -> None:
+    def on_sublayer_backward(
+        self,
+        layer_idx: int,
+        sub_layer: int,
+        activation_shape: torch.Size,
+        activation_dtype: torch.dtype,
+        activation_device: torch.device,
+    ) -> torch.Tensor:
         """
         Prefetch a spilled activation from host during backward.
 
         Called from TransformerLayer backward hooks at sub-layer boundaries.
+        Returns the GPU tensor with restored activation data.
         """
         if self._spill_manager is not None:
-            self._spill_manager.on_sublayer_backward(layer_idx, sub_layer, gpu_dst)
+            return self._spill_manager.on_sublayer_backward(
+                layer_idx, sub_layer, activation_shape, activation_dtype, activation_device
+            )
+        raise RuntimeError("on_sublayer_backward called without spill manager")
 
     def on_microbatch_backward_end(self) -> None:
         """Called after a micro-batch backward pass completes."""

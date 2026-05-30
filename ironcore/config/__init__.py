@@ -236,9 +236,9 @@ def _config_validation(config: MainConfig):
 
         from ironcore.utils import available_host_memory_gb, total_host_memory_gb
 
-        # Simple auto-detection: 40% of available RAM, capped at 32GB, min 8GB
+        # Simple auto-detection: 40% of available RAM, min 8GB
         avail = available_host_memory_gb()
-        auto_size = min(avail * 0.40, 32.0)
+        auto_size = avail * 0.40
         auto_size = max(8.0, auto_size)
         config.offload.pinned_memory_pool_gb = auto_size
 
