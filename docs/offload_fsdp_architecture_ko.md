@@ -785,8 +785,8 @@ python scripts/benchmark_offload_pcie.py --sizes 100 500 1000 --output bandwidth
 | D | TP × Offload 지원 | ✅ 완료 | `ironcore/language_model.py` |
 | E | 멀티 GPU 설정 가드 | ✅ 완료 | `ironcore/config/__init__.py` |
 | E | DDP + Optimizer state offload/Activation spilling 테스트 | ✅ 완료 | `tests/integration/offload/test_ddp_offload.py` |
-| E | FSDP SHARD_GRAD_OP + Optimizer state offload | ✅ 완료 | `tests/integration/offload/test_fsdp_shard_grad_op_m1_m3.py` |
-| E | FSDP FULL_SHARD + Activation spilling | ✅ 완료 | `tests/integration/offload/test_fsdp_full_shard_m3.py` |
+| E | FSDP SHARD_GRAD_OP + Optimizer state offload | ✅ 완료 | `tests/integration/offload/test_fsdp_shard_grad_op_offload.py` |
+| E | FSDP FULL_SHARD + Activation spilling | ✅ 완료 | `tests/integration/offload/test_fsdp_full_shard_activation_spill.py` |
 | E | Backward weight prefetch | ✅ 완료 | `ironcore/offload/scheduler.py` |
 | F | Telemetry 시스템 | ✅ 완료 | `ironcore/utils/offload_metrics.py` |
 | F | Transfer engine 타이밍 | ✅ 완료 | `ironcore/offload/transfer_engine.py` |
@@ -886,9 +886,9 @@ prefetch_streams: int = 1  # 비동기 전송용 dedicated CUDA stream 수
 
 | 테스트 | 검증 내용 |
 |--------|----------|
-| `test_m1_fsdp_full_shard_blocked` | Optimizer state offload + FULL_SHARD 차단 |
-| `test_m1_fsdp_cpuoffload_blocked` | Optimizer state offload + CPUOffload 차단 |
-| `test_m3_fsdp_integration` | Activation spilling + FSDP FULL_SHARD, 50 step loss parity |
+| `test_optimizer_offload_fsdp_full_shard_blocked` | Optimizer state offload + FULL_SHARD 차단 |
+| `test_optimizer_offload_fsdp_cpuoffload_blocked` | Optimizer state offload + CPUOffload 차단 |
+| `test_activation_spill_fsdp_integration` | Activation spilling + FSDP FULL_SHARD, 50 step loss parity |
 | `test_m1_shard_grad_op_fsdp` | Optimizer state offload + SHARD_GRAD_OP + Activation spilling, optimizer state CPU + param shard, loss parity |
 | `test_m1_distributed_optimizer` | Optimizer state offload + DistOpt, rank당 1/N state on CPU |
 | `test_backward_prefetch_correctness` | prefetch on/off에서 동일 그래디언트 |

@@ -190,9 +190,9 @@ All offload modes produce numerically identical results to baseline training:
 | Configuration | World Size | Test | Status |
 |---------------|------------|------|--------|
 | DDP + optimizer_offload+activation_spill | 2 | `test_ddp_offload.py` | ✅ PASS |
-| DistOpt + optimizer_offload | 2 | `test_distopt_m1.py` | ✅ PASS |
-| FSDP (shard_grad_op) + optimizer_offload+activation_spill | 2 | `test_fsdp_shard_grad_op_m1_m3.py` | ✅ PASS |
-| FSDP (full_shard) + activation_spill | 2 | `test_fsdp_full_shard_m3.py` | ✅ PASS |
+| DistOpt + optimizer_offload | 2 | `test_distopt_offload.py` | ✅ PASS |
+| FSDP (shard_grad_op) + optimizer_offload+activation_spill | 2 | `test_fsdp_shard_grad_op_offload.py` | ✅ PASS |
+| FSDP (full_shard) + activation_spill | 2 | `test_fsdp_full_shard_activation_spill.py` | ✅ PASS |
 | TP (2) + full_offload | 1 | `test_tp_offload.py` | ✅ PASS |
 
 ## Configuration Examples

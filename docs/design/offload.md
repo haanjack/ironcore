@@ -408,7 +408,7 @@ All offload modes produce numerically identical training results (1000-step conv
 
 Delta < 0.015 across all modes — within bf16 floating-point tolerance. Offloading does not affect convergence behavior.
 
-Source: `tests/unit/offload/test_pairwise_*.py`, `tests/unit/offload/test_m3_convergence.py`
+Source: `tests/unit/offload/test_pairwise_*.py`, `tests/unit/offload/test_activation_spill_convergence.py`
 
 ### Multi-GPU parity
 

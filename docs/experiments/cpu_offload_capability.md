@@ -406,9 +406,9 @@ The offload system enables prototype-scale training on consumer hardware — ver
 
 Moved from `tests/integration/offload/` to `tests/multi_gpu/offload/`:
 - `test_ddp_offload.py`
-- `test_distopt_m1.py`
-- `test_fsdp_full_shard_m3.py`
-- `test_fsdp_shard_grad_op_m1_m3.py`
+- `test_distopt_offload.py`
+- `test_fsdp_full_shard_activation_spill.py`
+- `test_fsdp_shard_grad_op_offload.py`
 - `test_tp_offload.py`
 
 Skip guard added: `torch.cuda.device_count() >= 2 AND os.environ.get("RANK") is not None`

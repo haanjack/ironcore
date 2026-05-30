@@ -1151,9 +1151,9 @@ Change `from_config()` to read the config value instead of hardcoding `prefetch_
 
 | Test | What it verifies |
 |------|-----------------|
-| `test_m1_fsdp_full_shard_blocked` | Config validation blocks Optimizer state offload + FULL_SHARD |
-| `test_m1_fsdp_cpuoffload_blocked` | Config validation blocks Optimizer state offload + CPUOffload |
-| `test_m3_fsdp_integration` | Activation spilling activation spill works with FSDP FULL_SHARD. Loss parity over 50 steps. |
+| `test_optimizer_offload_fsdp_full_shard_blocked` | Config validation blocks Optimizer state offload + FULL_SHARD |
+| `test_optimizer_offload_fsdp_cpuoffload_blocked` | Config validation blocks Optimizer state offload + CPUOffload |
+| `test_activation_spill_fsdp_integration` | Activation spilling activation spill works with FSDP FULL_SHARD. Loss parity over 50 steps. |
 | `test_m1_shard_grad_op_fsdp` | Optimizer state offload + SHARD_GRAD_OP + Activation spilling with FSDP. Optimizer states on CPU, params sharded. Loss parity. |
 | `test_m1_distributed_optimizer` | Optimizer state offload + DistributedOptimizer. Each rank holds 1/N optimizer states on CPU. |
 | `test_backward_prefetch_correctness` | Backward produces identical gradients with and without activation prefetch. |
