@@ -190,10 +190,18 @@ class BaseTrainer(ABC):
             if hasattr(inner_model, "model") and hasattr(inner_model.model, "layers"):
                 inner_model = inner_model.model
 
+            # Get DP group for ZeRO-3 parameter sharding
+            dp_group = None
+            if self.config.offload.weight_offload and dist.is_initialized():
+                dp_world_size = get_data_parallel_world_size()
+                if dp_world_size > 1:
+                    dp_group = get_data_parallel_group()
+
             self._offload_scheduler = ExecutionScheduler.from_model(
                 model=inner_model,
                 config=self.config.offload,
                 device=torch.device(get_device()),
+                dp_group=dp_group,
             )
             if self._offload_scheduler is not None and self._offload_scheduler.is_active:
                 # Attach scheduler to model so forward pass can call per-layer hooks
@@ -213,6 +221,15 @@ class BaseTrainer(ABC):
             if self._offload_scheduler is not None:
                 self._offload_scheduler.set_gradient_accumulation_steps(
                     self.config.trainer.gradient_accumulation_steps
+                )
+
+            # Configure CPU thread count for optimizer offload compute
+            if self.config.offload.optimizer_cpu_threads > 0:
+                from ironcore.offload.optimizer_helpers import configure_cpu_threads
+
+                configure_cpu_threads(self.config.offload.optimizer_cpu_threads)
+                self.logger.info(
+                    f"Optimizer CPU threads set to {self.config.offload.optimizer_cpu_threads}"
                 )
 
         self._initialized = True

@@ -46,6 +46,7 @@ class OffloadConfig(BaseConfig):
     optimizer_offload: bool = False
     optimizer_state_precision: str = "fp32"
     optimizer_min_param_elements: int = 65536  # skip offload for tiny params
+    optimizer_cpu_threads: int = -1  # -1 = auto (80% of available cores)
 
     # Weight streaming
     weight_offload: bool = False

@@ -28,6 +28,18 @@ import torch
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
+# CPU thread count for optimizer math (set once from OffloadConfig).
+# Default: PyTorch's default (all cores). Updated via configure_cpu_threads().
+_cpu_threads_configured = False
+
+
+def configure_cpu_threads(num_threads: int) -> None:
+    """Set the number of CPU threads for optimizer compute during offload."""
+    global _cpu_threads_configured
+    if num_threads > 0 and not _cpu_threads_configured:
+        torch.set_num_threads(num_threads)
+        _cpu_threads_configured = True
+
 
 def _should_offload_param(p: torch.nn.Parameter, min_param_elements: int) -> bool:
     """Check if a parameter should have its optimizer states offloaded to host."""

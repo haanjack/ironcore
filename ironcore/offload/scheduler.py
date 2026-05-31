@@ -97,6 +97,7 @@ class ExecutionScheduler:
         device: torch.device | None = None,
         spill_manager: ActivationSpillManager | None = None,
         gpu_pool: GPUStagingPool | None = None,
+        dp_group: object | None = None,
     ):
         self._model = model
         self._pool = pool
@@ -108,6 +109,17 @@ class ExecutionScheduler:
         self._spill_manager = spill_manager
         self._activation_spill_granularity: str = "sub_layer"
         self._gpu_pool = gpu_pool
+
+        # ZeRO-3 DP sharding state
+        self._dp_group = dp_group
+        if dp_group is not None:
+            from torch import distributed as dist
+
+            self._dp_size = dist.get_world_size(group=dp_group)
+            self._dp_rank = dist.get_rank(group=dp_group)
+        else:
+            self._dp_size = 1
+            self._dp_rank = 0
 
         # Populated during init
         self._num_layers = 0
@@ -135,6 +147,7 @@ class ExecutionScheduler:
         model: nn.Module,
         config: object,
         device: torch.device | None = None,
+        dp_group: object | None = None,
     ) -> ExecutionScheduler | None:
         """
         Create and initialize a scheduler from a model and OffloadConfig.
@@ -192,7 +205,17 @@ class ExecutionScheduler:
         tile_manager = None
         if config.weight_offload:
             gpu_pool = GPUStagingPool.from_config(config, device)
-            tile_manager = TileManager.from_config(config, pool, device, gpu_pool=gpu_pool)
+            # Pass DP info for ZeRO-3 parameter sharding
+            dp_size = 1
+            dp_rank = 0
+            if dp_group is not None:
+                from torch import distributed as dist
+
+                dp_size = dist.get_world_size(group=dp_group)
+                dp_rank = dist.get_rank(group=dp_group)
+            tile_manager = TileManager.from_config(
+                config, pool, device, gpu_pool=gpu_pool, dp_size=dp_size, dp_rank=dp_rank
+            )
 
         # Create activation spill manager if enabled
         spill_manager = None
@@ -217,6 +240,7 @@ class ExecutionScheduler:
             device=device,
             spill_manager=spill_manager,
             gpu_pool=gpu_pool,
+            dp_group=dp_group,
         )
         if config.weight_offload:
             scheduler._register_all_layers()
@@ -339,6 +363,7 @@ class ExecutionScheduler:
                 param.grad = None
 
         # Snapshot updated params (after optimizer step) back to host
+        # With ZeRO-3, param.data is shard-size and already matches host_tensor
         t0 = time.monotonic()
         for group in self._weight_groups.values():
             self._tile_manager.snapshot_params_to_host(group)
@@ -388,6 +413,10 @@ class ExecutionScheduler:
         # with CPU-resident params).
         # After apply, param.data is on GPU so we can't check afterwards.
         params_were_on_cpu = bool(group.param_refs) and group.param_refs[0][0].device.type == "cpu"
+
+        # ZeRO-3: all-gather shards to reconstruct full parameters on GPU
+        if self._dp_size > 1 and params_were_on_cpu:
+            self._allgather_layer(group)
 
         # Apply weights to parameters (swaps CPU param.data for GPU staging
         # buffer when params are on CPU, or copies in-place when on GPU)
@@ -447,6 +476,9 @@ class ExecutionScheduler:
                     self._engine.wait(tile.transfer_handle)
                     tile.transfer_handle = None
             self._engine.synchronize_with_default_stream()
+            # ZeRO-3: all-gather shards
+            if self._dp_size > 1:
+                self._allgather_layer(group)
             self._tile_manager.apply_tiles_to_params(group)
             self._layer_on_gpu.add(layer_idx)
 
@@ -488,10 +520,22 @@ class ExecutionScheduler:
         Called after the entire backward pass completes (all layers).
         Moves param.grad to CPU for optimizer step and clears GPU tracking.
 
+        With ZeRO-3, performs reduce-scatter on GPU gradients before D2H transfer.
+
         Weight streaming only (no activation spill): also evicts all layers' weights from GPU back
         to CPU so the optimizer can update them.
         """
         self._engine.synchronize()
+
+        # Ensure _pinned_grad_buffers is a fresh list for this step
+        # (freed in on_training_step_end after optimizer runs)
+        self._pinned_grad_buffers = getattr(self, "_pinned_grad_buffers", [])
+        self._pinned_grad_buffers.clear()
+
+        # ZeRO-3: reduce-scatter gradients on GPU before D2H transfer
+        if self._dp_size > 1:
+            self._reduce_scatter_gradients()
+
         # Move gradients to CPU so the optimizer (which runs on CPU params in
         # weight streaming mode) can access them. This must happen after ALL micro-batches'
         # backwards complete, not between micro-batches, because subsequent
@@ -518,7 +562,7 @@ class ExecutionScheduler:
             self._engine.synchronize()
             for param, host_buf, numel, shape in _grad_transfers:
                 param.grad = host_buf[:numel].view(shape)
-            self._pinned_grad_buffers = [host_buf for _, host_buf, _, _ in _grad_transfers]
+            self._pinned_grad_buffers.extend(host_buf for _, host_buf, _, _ in _grad_transfers)
 
         self._layer_on_gpu.clear()
 
@@ -601,34 +645,130 @@ class ExecutionScheduler:
 
     # --- Internal methods ---
 
+    def _allgather_layer(self, group: WeightGroup) -> None:
+        """ZeRO-3: all-gather parameter shards from all DP ranks on GPU.
+
+        Called after H2D transfer of the local shard completes. Allocates
+        full-size GPU buffers, performs all-gather via NCCL, then frees
+        the shard-size H2D buffers.
+        """
+        from torch import distributed as dist
+
+        self._tile_manager.borrow_allgather_buffers(group)
+        for tile in group.tiles:
+            if tile.allgather_gpu is None or tile.gpu_tensor is None:
+                continue
+            dist.all_gather_into_tensor(tile.allgather_gpu, tile.gpu_tensor, group=self._dp_group)
+        # Free shard buffers — all-gather output is now the authoritative GPU data
+        if self._gpu_pool is not None:
+            for tile in group.tiles:
+                if tile.gpu_tensor is not None:
+                    self._gpu_pool.free(tile.gpu_tensor)
+                    tile.gpu_tensor = None
+
+    def _reduce_scatter_gradients(self) -> None:
+        """ZeRO-3: reduce-scatter gradients on GPU, then D2H to CPU.
+
+        Each DP rank ends up with 1/dp_size of the summed gradients,
+        reducing both the D2H transfer volume and CPU-side memory.
+
+        Because params may already be evicted to CPU (activation spill path),
+        we cannot assign CUDA grads to param.grad. Instead, we D2H the shard
+        grads immediately and assign the CPU result.
+        """
+        import math
+
+        from torch import distributed as dist
+
+        _d2h_transfers = []
+        for group in self._weight_groups.values():
+            for tile, (param, _, _) in zip(group.tiles, group.param_refs, strict=True):
+                if param.grad is None or param.grad.device.type != "cuda":
+                    continue
+
+                flat_grad = param.grad.reshape(-1)
+                if not flat_grad.is_contiguous():
+                    flat_grad = flat_grad.contiguous()
+
+                shard_numel = math.ceil(tile.full_numel / tile.dp_size)
+
+                # Pad gradient if not evenly divisible
+                padded_numel = shard_numel * tile.dp_size
+                if flat_grad.numel() < padded_numel:
+                    padded = torch.zeros(
+                        padded_numel, dtype=flat_grad.dtype, device=flat_grad.device
+                    )
+                    padded[: flat_grad.numel()] = flat_grad
+                    flat_grad = padded
+
+                # Use torch.empty directly — short-lived, freed after D2H
+                shard_grad = torch.empty(shard_numel, dtype=flat_grad.dtype, device=self._device)
+                dist.reduce_scatter_tensor(shard_grad, flat_grad, group=self._dp_group)
+
+                # Strip padding for the last rank
+                actual_shard_numel = min(shard_numel, tile.full_numel - tile.dp_rank * shard_numel)
+                shard_slice = shard_grad[:actual_shard_numel]
+
+                # D2H transfer the shard immediately (param.data may be on CPU)
+                host_buf = self._pool.allocate(actual_shard_numel, param.grad.dtype)
+                self._engine.submit_d2h(src=shard_slice.contiguous(), dst=host_buf)
+                _d2h_transfers.append((param, host_buf, actual_shard_numel))
+                # Clear param.grad so the main D2H loop in on_backward_pass_end skips it
+                param.grad = None
+
+        if _d2h_transfers:
+            self._engine.synchronize()
+            for param, host_buf, numel in _d2h_transfers:
+                param.grad = host_buf[:numel]
+            # Track host buffers for freeing in on_training_step_end
+            self._pinned_grad_buffers.extend(host_buf for _, host_buf, _ in _d2h_transfers)
+
     def _evict_layer_weights(self, group: WeightGroup, *, snapshot: bool = False) -> None:
         """Evict a layer's weights from GPU back to host pinned memory.
 
         Replaces param.data with host tile values and returns GPU staging buffers
         to the pool. When *snapshot* is True, also copies the current GPU param
         values back to host tiles (only needed after optimizer step).
+
+        With ZeRO-3, copies only the owned shard back to the host tile.
         """
         for tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
             if param.device.type == "cuda":
                 flat_param = param.data.flatten()
                 if not flat_param.is_contiguous():
                     flat_param = flat_param.contiguous()
-                if snapshot:
-                    if tile.storage_dtype == param.dtype:
-                        tile.host_tensor[: flat_param.numel()].copy_(flat_param)
-                    else:
-                        tile.host_tensor[: flat_param.numel()].copy_(
-                            flat_param.to(tile.storage_dtype)
-                        )
-                # Replace param.data with a view into the host tile. The optimizer
-                # updates param.data in-place, then snapshot_params_to_host reads
-                # the updated values. No clone needed: host_tensor is never freed
-                # during normal operation (only on scheduler shutdown).
-                host_view = tile.host_tensor[: flat_param.numel()]
-                if tile.storage_dtype == param.dtype:
-                    param.data = host_view.view(param.shape)
+                if tile.dp_size > 1:
+                    # ZeRO-3: copy only the owned shard
+                    shard_start = tile.dp_rank * tile.shard_numel
+                    shard_end = min(shard_start + tile.shard_numel, tile.full_numel)
+                    shard_data = flat_param[shard_start:shard_end]
+                    if snapshot or True:  # Always snapshot during eviction
+                        if tile.storage_dtype == param.dtype:
+                            tile.host_tensor[: len(shard_data)].copy_(shard_data)
+                        else:
+                            tile.host_tensor[: len(shard_data)].copy_(
+                                shard_data.to(tile.storage_dtype)
+                            )
+                    # Swap param.data to host tile view (shard-size)
+                    host_view = tile.host_tensor[: len(shard_data)]
+                    param.data = host_view
                 else:
-                    param.data = host_view.to(param.dtype).view(param.shape)
+                    if snapshot:
+                        if tile.storage_dtype == param.dtype:
+                            tile.host_tensor[: flat_param.numel()].copy_(flat_param)
+                        else:
+                            tile.host_tensor[: flat_param.numel()].copy_(
+                                flat_param.to(tile.storage_dtype)
+                            )
+                    # Replace param.data with a view into the host tile. The optimizer
+                    # updates param.data in-place, then snapshot_params_to_host reads
+                    # the updated values. No clone needed: host_tensor is never freed
+                    # during normal operation (only on scheduler shutdown).
+                    host_view = tile.host_tensor[: flat_param.numel()]
+                    if tile.storage_dtype == param.dtype:
+                        param.data = host_view.view(param.shape)
+                    else:
+                        param.data = host_view.to(param.dtype).view(param.shape)
                 # Note: param.grad is NOT moved to CPU here. During gradient
                 # accumulation, subsequent micro-batches accumulate into the
                 # existing grad tensor. Moving grad to CPU between micro-batches
@@ -636,6 +776,9 @@ class ExecutionScheduler:
                 # accumulate GPU gradients into a CPU grad. Grads are moved to
                 # CPU in on_backward_pass_end() after all micro-batches complete.
             # Return GPU staging buffer to pool
+            if tile.allgather_gpu is not None and self._gpu_pool is not None:
+                self._gpu_pool.free(tile.allgather_gpu)
+                tile.allgather_gpu = None
             if tile.gpu_tensor is not None and self._gpu_pool is not None:
                 self._gpu_pool.free(tile.gpu_tensor)
                 tile.gpu_tensor = None

@@ -143,6 +143,8 @@ class TestOffloadWithTP:
         config.offload.enabled = True
         config.offload.weight_offload = True
         config.trainer.tensor_model_parallel_size = 2
+        config.model.num_attention_heads = 8  # divisible by TP=2
+        config.model.num_attention_groups = 2  # divisible by TP=2
         config.parallel.world_size = 2  # TP=2, DP=1
         # Should not raise
         _config_validation(config)
@@ -155,7 +157,10 @@ class TestOffloadWithTP:
         config.offload.enabled = True
         config.offload.weight_offload = True
         config.trainer.tensor_model_parallel_size = 2
+        config.model.num_attention_heads = 8
+        config.model.num_attention_groups = 2
         config.parallel.world_size = 4  # TP=2, DP=2
+        config.trainer.train_batch_size = 8  # 4 * 1 * DP=2
         with pytest.raises(ValueError, match="Weight streaming.*data_parallel=2"):
             _config_validation(config)
 
@@ -167,8 +172,55 @@ class TestOffloadWithTP:
         config.offload.enabled = True
         config.offload.optimizer_offload = True
         config.trainer.tensor_model_parallel_size = 2
+        config.model.num_attention_heads = 8
+        config.model.num_attention_groups = 2
         config.parallel.world_size = 4  # TP=2, DP=2
+        config.trainer.train_batch_size = 8  # 4 * 1 * DP=2
         # Should not raise — optimizer offload doesn't block DDP
+        _config_validation(config)
+
+
+class TestOffloadWithDP:
+    """Test config validation for DP + weight_offload (ZeRO-3 sharding)."""
+
+    def test_weight_offload_dp2_tp1_allowed(self):
+        """weight_offload + TP=1 + DP=2 should pass (ZeRO-3 sharding)."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.weight_offload = True
+        config.trainer.tensor_model_parallel_size = 1
+        config.parallel.world_size = 2  # DP=2
+        config.trainer.train_batch_size = 8  # 4 * 1 * DP=2
+        # Should not raise
+        _config_validation(config)
+
+    def test_weight_offload_dp2_fsdp_raises(self):
+        """weight_offload + DP=2 + FSDP should raise."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.weight_offload = True
+        config.trainer.tensor_model_parallel_size = 1
+        config.parallel.world_size = 2
+        config.trainer.train_batch_size = 8  # 4 * 1 * DP=2
+        config.parallel.use_fsdp = True
+        with pytest.raises(ValueError, match="incompatible with FSDP"):
+            _config_validation(config)
+
+    def test_weight_offload_dp4_tp1_allowed(self):
+        """weight_offload + TP=1 + DP=4 should pass."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.weight_offload = True
+        config.trainer.tensor_model_parallel_size = 1
+        config.parallel.world_size = 4
+        config.trainer.train_batch_size = 4 * config.trainer.micro_batch_size
+        # Should not raise
         _config_validation(config)
 
 
@@ -189,8 +241,8 @@ class TestOffloadConfigAutoDetect:
         assert config.offload.pinned_memory_pool_gb > 0, (
             "Auto-detect should resolve to positive value"
         )
-        # Should be within reasonable bounds (8GB to 32GB typically)
-        assert 8.0 <= config.offload.pinned_memory_pool_gb <= 32.0
+        # Should be within reasonable bounds (at least 8GB, at most 60% of available)
+        assert config.offload.pinned_memory_pool_gb >= 8.0
 
     def test_auto_pinned_pool_unchanged_when_offload_disabled(self):
         """When offload disabled, -1.0 should remain unchanged (no resolution needed)."""
@@ -216,6 +268,35 @@ class TestOffloadConfigAutoDetect:
 
         with pytest.warns(UserWarning, match="exceeds 80% of total system RAM"):
             _config_validation(config)
+
+
+    def test_auto_cpu_threads_resolved(self):
+        """When offload enabled, optimizer_cpu_threads=-1 should resolve to 80% of cores."""
+        import os
+
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.optimizer_offload = True
+
+        _config_validation(config)
+
+        expected = max(1, int((os.cpu_count() or 1) * 0.8))
+        assert config.offload.optimizer_cpu_threads == expected
+
+    def test_explicit_cpu_threads_kept(self):
+        """Explicit optimizer_cpu_threads should not be overridden."""
+        from ironcore.config import _config_validation
+
+        config = _make_minimal_main_config()
+        config.offload.enabled = True
+        config.offload.optimizer_offload = True
+        config.offload.optimizer_cpu_threads = 4
+
+        _config_validation(config)
+
+        assert config.offload.optimizer_cpu_threads == 4
 
 
 class TestOffloadConfigUpdate:

@@ -219,20 +219,33 @@ def _config_validation(config: MainConfig):
             )
 
     # TP + offload validation
-    if config.offload.enabled and config.trainer.tensor_model_parallel_size > 1:
-        if config.offload.weight_offload and dp_world_size > 1:
+    if config.offload.enabled and config.offload.weight_offload:
+        if config.trainer.tensor_model_parallel_size > 1 and dp_world_size > 1:
             raise ValueError(
                 f"Weight streaming with tensor_parallel={config.trainer.tensor_model_parallel_size} "
                 f"and data_parallel={dp_world_size} is not supported. "
-                "DDP gradient sync is skipped during weight streaming, so DP > 1 would produce "
-                "incorrect gradients. Use TP-only (DP=1) or reduce world_size."
+                "ZeRO-3 sharding only works with TP=1 + DP>1 or TP>1 + DP=1. "
+                "Use TP-only (DP=1) or TP=1 + DP>1."
             )
-        import logging
+        if dp_world_size > 1 and config.parallel.use_fsdp:
+            raise ValueError(
+                "weight_offload + DP>1 is incompatible with FSDP. "
+                "Remove use_fsdp to use ZeRO-3 offload sharding."
+            )
+        if config.trainer.tensor_model_parallel_size > 1:
+            import logging
 
-        logging.getLogger("ironcore.config").info(
-            "TP + offload enabled: each rank will stream its own TP shard. "
-            "Embedding and output head stay on GPU for TP communication."
-        )
+            logging.getLogger("ironcore.config").info(
+                "TP + offload enabled: each rank will stream its own TP shard. "
+                "Embedding and output head stay on GPU for TP communication."
+            )
+        if dp_world_size > 1:
+            import logging
+
+            logging.getLogger("ironcore.config").info(
+                f"ZeRO-3 parameter sharding enabled: weight_offload + DP={dp_world_size}. "
+                "Parameters sharded across DP ranks, all-gather on GPU via NCCL."
+            )
 
     # Auto-detect pinned memory pool size if requested (-1.0)
     if config.offload.enabled and config.offload.pinned_memory_pool_gb == -1.0:
@@ -251,6 +264,17 @@ def _config_validation(config: MainConfig):
             f"Auto-detected pinned memory pool: {auto_size:.1f}GB "
             f"(from {avail:.1f}GB available / {total_host_memory_gb():.1f}GB total)"
         )
+
+    # Resolve optimizer CPU thread count
+    if config.offload.enabled and (
+        config.offload.optimizer_offload or config.offload.weight_offload
+    ):
+        if config.offload.optimizer_cpu_threads == -1:
+            import os
+
+            total_cores = os.cpu_count() or 1
+            auto_threads = max(1, int(total_cores * 0.8))
+            config.offload.optimizer_cpu_threads = auto_threads
 
     # Warn if pinned pool size exceeds 80% of total RAM
     if config.offload.enabled and config.offload.pinned_memory_pool_gb > 0:

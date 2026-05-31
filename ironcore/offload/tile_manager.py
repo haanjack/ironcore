@@ -47,6 +47,15 @@ class WeightTile:
     numel: int
     # Handle from TransferEngine (set during transfer)
     transfer_handle: object | None = None
+    # ZeRO-3 sharding fields (set when dp_size > 1)
+    shard_numel: int = 0
+    full_numel: int = 0
+    dp_rank: int = 0
+    dp_size: int = 1
+    # Full-size GPU buffer for all-gather output (ZeRO-3 only)
+    allgather_gpu: torch.Tensor | None = None
+    # Original parameter shape (before eviction swaps param.data to a shard)
+    original_shape: tuple[int, ...] | None = None
 
     @property
     def nbytes_host(self) -> int:
@@ -54,6 +63,8 @@ class WeightTile:
 
     @property
     def nbytes_gpu(self) -> int:
+        if self.allgather_gpu is not None:
+            return self.allgather_gpu.numel() * self.allgather_gpu.element_size()
         if self.gpu_tensor is not None:
             return self.gpu_tensor.numel() * self.gpu_tensor.element_size()
         return self.numel * _element_size(self.original_dtype)
@@ -101,11 +112,15 @@ class TileManager:
         device: torch.device,
         precision: str = "fp32",
         gpu_pool: GPUStagingPool | None = None,
+        dp_size: int = 1,
+        dp_rank: int = 0,
     ):
         self._pool = pool
         self._device = device
         self._storage_dtype = self._precision_to_dtype(precision)
         self._gpu_pool = gpu_pool
+        self._dp_size = dp_size
+        self._dp_rank = dp_rank
         self._groups: dict[int, WeightGroup] = {}
 
     @classmethod
@@ -115,6 +130,8 @@ class TileManager:
         pool: PinnedMemoryPool,
         device: torch.device,
         gpu_pool: GPUStagingPool | None = None,
+        dp_size: int = 1,
+        dp_rank: int = 0,
     ) -> TileManager:
         """Create a TileManager from OffloadConfig."""
         return cls(
@@ -122,6 +139,8 @@ class TileManager:
             device=device,
             precision=config.weight_storage_precision,
             gpu_pool=gpu_pool,
+            dp_size=dp_size,
+            dp_rank=dp_rank,
         )
 
     @staticmethod
@@ -148,6 +167,9 @@ class TileManager:
         Allocates pinned host memory and GPU staging buffers for each parameter.
         Copies initial weights to host memory.
 
+        With ZeRO-3 sharding (dp_size > 1), each rank stores only its owned
+        shard (1/dp_size) of each parameter in pinned memory.
+
         Args:
             layer_idx: Layer index in the model
             params: List of nn.Parameter objects to stream
@@ -155,24 +177,41 @@ class TileManager:
         Returns:
             WeightGroup with allocated tiles
         """
+        import math
+
         tiles = []
         param_refs = []
 
         for param in params:
-            numel = param.numel()
+            full_numel = param.numel()
             original_dtype = param.dtype
 
-            # Allocate pinned host buffer in storage dtype
-            storage_numel = numel  # same numel, different dtype
+            if self._dp_size > 1:
+                # ZeRO-3: each rank stores only its shard
+                shard_numel = math.ceil(full_numel / self._dp_size)
+                storage_numel = shard_numel
+            else:
+                shard_numel = full_numel
+                storage_numel = full_numel
+
             host_tensor = self._pool.allocate(storage_numel, self._storage_dtype)
 
-            # Copy initial weight to host (with precision conversion if needed)
-            if self._storage_dtype == original_dtype:
-                host_tensor.copy_(param.data.flatten())
+            if self._dp_size > 1:
+                # Copy only the owned shard to pinned memory
+                start = self._dp_rank * shard_numel
+                end = min(start + shard_numel, full_numel)
+                shard_data = param.data.flatten()[start:end]
+                if self._storage_dtype == original_dtype:
+                    host_tensor[: end - start].copy_(shard_data)
+                else:
+                    host_tensor[: end - start].copy_(shard_data.to(self._storage_dtype))
             else:
-                host_tensor.copy_(param.data.flatten().to(self._storage_dtype))
+                # Copy full parameter to host
+                if self._storage_dtype == original_dtype:
+                    host_tensor.copy_(param.data.flatten())
+                else:
+                    host_tensor.copy_(param.data.flatten().to(self._storage_dtype))
 
-            # GPU staging: borrow from pool at prefetch time
             gpu_tensor = None
 
             tile = WeightTile(
@@ -181,11 +220,16 @@ class TileManager:
                 original_dtype=original_dtype,
                 storage_dtype=self._storage_dtype,
                 slice_start=0,
-                slice_end=numel,
-                numel=numel,
+                slice_end=full_numel,
+                numel=full_numel,
+                shard_numel=shard_numel,
+                full_numel=full_numel,
+                dp_rank=self._dp_rank,
+                dp_size=self._dp_size,
+                original_shape=param.shape,
             )
             tiles.append(tile)
-            param_refs.append((param, 0, numel))
+            param_refs.append((param, 0, full_numel))
 
         group = WeightGroup(
             layer_idx=layer_idx,
@@ -200,17 +244,34 @@ class TileManager:
         return self._groups.get(layer_idx)
 
     def borrow_gpu_buffers(self, group: WeightGroup) -> None:
-        """Allocate GPU staging buffers from the pool for a layer's tiles."""
+        """Allocate GPU staging buffers from the pool for a layer's tiles.
+
+        With ZeRO-3, allocates shard-size buffers for H2D transfer.
+        """
         if self._gpu_pool is None:
             return
         for tile in group.tiles:
-            tile.gpu_tensor = self._gpu_pool.allocate(tile.numel, tile.original_dtype)
+            numel = tile.shard_numel if tile.dp_size > 1 else tile.numel
+            tile.gpu_tensor = self._gpu_pool.allocate(numel, tile.original_dtype)
+
+    def borrow_allgather_buffers(self, group: WeightGroup) -> None:
+        """Allocate full-size GPU buffers for all-gather output (ZeRO-3 only)."""
+        if self._gpu_pool is None:
+            return
+        for tile in group.tiles:
+            if tile.dp_size > 1:
+                tile.allgather_gpu = self._gpu_pool.allocate(
+                    tile.shard_numel * tile.dp_size, tile.original_dtype
+                )
 
     def return_gpu_buffers(self, group: WeightGroup) -> None:
         """Return GPU staging buffers to the pool for a layer's tiles."""
         if self._gpu_pool is None:
             return
         for tile in group.tiles:
+            if tile.allgather_gpu is not None:
+                self._gpu_pool.free(tile.allgather_gpu)
+                tile.allgather_gpu = None
             if tile.gpu_tensor is not None:
                 self._gpu_pool.free(tile.gpu_tensor)
                 tile.gpu_tensor = None
@@ -222,29 +283,46 @@ class TileManager:
         For CPU-resident params (weight streaming): replaces param.data with the GPU
         staging tensor, preserving nn.Parameter identity.
         For GPU-resident params: copies in-place into param.data.
+
+        With ZeRO-3, uses allgather_gpu (full tensor) instead of gpu_tensor (shard).
         """
         for tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
-            if tile.gpu_tensor is None:
+            # Use all-gather output if available (ZeRO-3), else shard buffer
+            gpu_src = tile.allgather_gpu if tile.allgather_gpu is not None else tile.gpu_tensor
+            if gpu_src is None:
                 continue
-            reshaped = tile.gpu_tensor.view(param.shape)
+            # Use stored original shape (param.shape may be shard-size after eviction)
+            target_shape = tile.original_shape if tile.original_shape is not None else param.shape
+            # Strip padding from all-gather output
+            reshaped = gpu_src[: tile.full_numel].view(target_shape)
             if param.device.type == "cpu":
-                # Swap CPU param.data for GPU staging buffer
                 param.data = reshaped
             else:
                 param.data.copy_(reshaped)
 
     def snapshot_params_to_host(self, group: WeightGroup) -> None:
         """
-        Copy current GPU parameter values back to host tiles.
+        Copy current parameter values back to host tiles.
 
-        Used after optimizer step to update the host-side copies before eviction.
+        With ZeRO-3, copies only the owned shard from param.data.
+        Without sharding, copies the full parameter.
         """
         for tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
             flat_param = param.data.flatten()
-            if self._storage_dtype == param.dtype:
-                tile.host_tensor.copy_(flat_param)
+            if tile.dp_size > 1:
+                # Copy only the owned shard
+                start = tile.dp_rank * tile.shard_numel
+                end = min(start + tile.shard_numel, tile.full_numel)
+                shard = flat_param[start:end]
+                if self._storage_dtype == param.dtype:
+                    tile.host_tensor[: len(shard)].copy_(shard)
+                else:
+                    tile.host_tensor[: len(shard)].copy_(shard.to(self._storage_dtype))
             else:
-                tile.host_tensor.copy_(flat_param.to(self._storage_dtype))
+                if self._storage_dtype == param.dtype:
+                    tile.host_tensor.copy_(flat_param)
+                else:
+                    tile.host_tensor.copy_(flat_param.to(self._storage_dtype))
 
     @property
     def num_groups(self) -> int:
