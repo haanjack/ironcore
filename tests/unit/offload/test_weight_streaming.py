@@ -776,9 +776,7 @@ class TestWeightStreamingCPUResidentParams:
         scheduler.on_layer_end(0)
 
         # Host tile should NOT reflect the GPU modification (snapshot skipped)
-        assert not torch.allclose(tile.host_tensor, original_host) or torch.all(
-            tile.host_tensor == original_host
-        )
+        assert torch.allclose(tile.host_tensor, original_host)
 
     def test_full_lifecycle_roundtrip(self):
         """Full step: load → evict → snapshot → verify host tiles updated."""

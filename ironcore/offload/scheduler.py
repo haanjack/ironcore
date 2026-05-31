@@ -742,7 +742,7 @@ class ExecutionScheduler:
                     shard_start = tile.dp_rank * tile.shard_numel
                     shard_end = min(shard_start + tile.shard_numel, tile.full_numel)
                     shard_data = flat_param[shard_start:shard_end]
-                    if snapshot or True:  # Always snapshot during eviction
+                    if snapshot:
                         if tile.storage_dtype == param.dtype:
                             tile.host_tensor[: len(shard_data)].copy_(shard_data)
                         else:
@@ -751,7 +751,10 @@ class ExecutionScheduler:
                             )
                     # Swap param.data to host tile view (shard-size)
                     host_view = tile.host_tensor[: len(shard_data)]
-                    param.data = host_view
+                    if tile.storage_dtype == param.dtype:
+                        param.data = host_view.view(param.shape)
+                    else:
+                        param.data = host_view.to(param.dtype).view(param.shape)
                 else:
                     if snapshot:
                         if tile.storage_dtype == param.dtype:
