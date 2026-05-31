@@ -18,7 +18,9 @@ for f in \
     tests/multi_gpu/test_grad_norm.py \
     tests/multi_gpu/test_all_to_all_ep.py \
     tests/multi_gpu/test_distributed_optimizer.py \
-    tests/multi_gpu/test_distributed_optimizer_checkpoint.py; do
+    tests/multi_gpu/test_distributed_optimizer_checkpoint.py \
+    tests/integration/offload/test_weight_streaming_mp.py \
+    tests/integration/offload/test_weight_streaming_dp2.py; do
     if [ -f "$f" ]; then
         echo "=== Running: $f ==="
         timeout 300 torchrun --nproc_per_node=2 --master_port=$(get_free_port) \
