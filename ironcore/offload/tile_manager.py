@@ -310,10 +310,14 @@ class TileManager:
         for tile, (param, _start, _end) in zip(group.tiles, group.param_refs, strict=True):
             flat_param = param.data.flatten()
             if tile.dp_size > 1:
-                # Copy only the owned shard
-                start = tile.dp_rank * tile.shard_numel
-                end = min(start + tile.shard_numel, tile.full_numel)
-                shard = flat_param[start:end]
+                # After eviction, param.data is already the shard (shard_numel elements).
+                # Before eviction (full param on GPU), slice the owned shard.
+                if flat_param.numel() == tile.shard_numel:
+                    shard = flat_param
+                else:
+                    start = tile.dp_rank * tile.shard_numel
+                    end = min(start + tile.shard_numel, tile.full_numel)
+                    shard = flat_param[start:end]
                 if self._storage_dtype == param.dtype:
                     tile.host_tensor[: len(shard)].copy_(shard)
                 else:

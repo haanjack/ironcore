@@ -749,12 +749,12 @@ class ExecutionScheduler:
                             tile.host_tensor[: len(shard_data)].copy_(
                                 shard_data.to(tile.storage_dtype)
                             )
-                    # Swap param.data to host tile view (shard-size)
+                    # Swap param.data to host tile view (shard-size, flat)
                     host_view = tile.host_tensor[: len(shard_data)]
                     if tile.storage_dtype == param.dtype:
-                        param.data = host_view.view(param.shape)
+                        param.data = host_view
                     else:
-                        param.data = host_view.to(param.dtype).view(param.shape)
+                        param.data = host_view.to(param.dtype)
                 else:
                     if snapshot:
                         if tile.storage_dtype == param.dtype:
