@@ -20,7 +20,7 @@ for f in \
     tests/multi_gpu/test_distributed_optimizer.py \
     tests/multi_gpu/test_distributed_optimizer_checkpoint.py \
     tests/integration/offload/test_weight_streaming_mp.py \
-    tests/integration/offload/test_weight_streaming_dp2.py; do
+    tests/integration/offload/test_weight_streaming_dp.py; do
     if [ -f "$f" ]; then
         echo "=== Running: $f ==="
         timeout 300 torchrun --nproc_per_node=2 --master_port=$(get_free_port) \
