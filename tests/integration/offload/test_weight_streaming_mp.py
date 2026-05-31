@@ -57,14 +57,17 @@ class TestWeightStreamingTP2:
 
     def test_tp2_weight_streaming_forward_pass(self):
         """Forward pass with TP=2 + weight streaming produces valid output."""
-        from ironcore.parallel import initialize_model_parallel, initialize_process
+        from ironcore.global_vars import initialize_global_states
+        from ironcore.parallel import initialize_process, parallel_states
 
         reset_global_states()
         _setup_tp2()
 
         config = _make_tp2_offload_config()
+        initialize_global_states(config)
         initialize_process(config)
-        initialize_model_parallel(config.trainer.tensor_model_parallel_size)
+        if not parallel_states.is_model_parallel_initialized():
+            parallel_states.initialize_model_parallel(config.trainer.tensor_model_parallel_size)
 
         from ironcore.language_model import LanguageModel
         from ironcore.utils.device import get_device
@@ -96,6 +99,7 @@ class TestWeightStreamingTP2:
         assert not math.isnan(loss), "Loss is NaN"
         assert loss > 0, f"Loss should be positive, got {loss}"
 
+        parallel_states.destroy_model_parallel()
+        reset_global_states()
         if dist.is_initialized():
             dist.destroy_process_group()
-        reset_global_states()
