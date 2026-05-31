@@ -1,105 +1,169 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Integration test: weight streaming with TP=2.
+"""
+TP × Weight Offload integration test.
 
-Requires 2 GPUs via torchrun:
-    torchrun --nproc_per_node 2 -m pytest tests/integration/offload/test_weight_streaming_tp2.py -v
+Verifies weight_offload works correctly with TP=2 tensor parallelism.
+Each rank streams its own TP shard independently.
 """
 
 import math
 import os
+from unittest.mock import patch
 
 import pytest
 import torch
-import torch.distributed as dist
-
-from ironcore.global_vars import reset_global_states
-
-skip_no_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
-    reason="2 CUDA GPUs required",
+import torch.nn.functional as F
+from tests.fixtures.config_fixtures import create_test_config
+from tests.integration.offload.conftest import (
+    create_mock_data_iterator,
+    create_mock_evaluators,
 )
 
-pytestmark = [pytest.mark.cuda, pytest.mark.mp]
+from ironcore.global_vars import reset_global_states
+from ironcore.trainers import LanguageModelTrainer
+
+cuda_available = torch.cuda.is_available()
+has_multi_gpu = (
+    cuda_available and torch.cuda.device_count() >= 2 and os.environ.get("RANK") is not None
+)
+skip_no_multi_gpu = pytest.mark.skipif(
+    not has_multi_gpu,
+    reason="Requires torchrun with 2+ GPUs",
+)
+
+NUM_STEPS = 50
+BATCH_SIZE = 2
+SEQ_LEN = 256
+
+torch.manual_seed(42)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
-def _setup_tp2():
-    """Initialize TP=2 distributed environment."""
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    rank = int(os.environ.get("RANK", "0"))
-    world_size = int(os.environ.get("WORLD_SIZE", "2"))
-
-    torch.cuda.set_device(local_rank)
-    if not dist.is_initialized():
-        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
-
-
-def _make_tp2_offload_config():
-    """Create a small config for TP=2 + weight streaming."""
-    from tests.fixtures.config_fixtures import create_small_test_config
-
-    config = create_small_test_config()
-    config.offload.enabled = True
-    config.offload.weight_offload = True
+def _make_config(**overrides):
+    """GPT-small config with TP=2 + weight_offload."""
+    config = create_test_config(
+        d_model=768,
+        d_ffn=3072,
+        num_layers=2,
+        num_attention_heads=12,
+        num_attention_groups=12,
+        head_dim=64,
+        max_seq_len=SEQ_LEN,
+        dropout_attn=0.0,
+        dropout_mlp=0.0,
+        dropout_embd=0.0,
+        precision="bfloat16",
+        seed=42,
+    )
+    config.operation.train_steps = NUM_STEPS + 10
+    config.trainer.micro_batch_size = BATCH_SIZE
+    config.trainer.train_batch_size = BATCH_SIZE
+    config.trainer.gradient_accumulation_steps = 1
     config.trainer.tensor_model_parallel_size = 2
     config.parallel.world_size = 2
-    config.trainer.micro_batch_size = 1
-    config.trainer.train_batch_size = 1
-    config.trainer.gradient_accumulation_steps = 1
-    config.init.seed = 42
+
+    from ironcore.config import OffloadConfig
+
+    offload = OffloadConfig(enabled=True, **overrides.get("offload", {}))
+    config.offload = offload
+
     return config
 
 
-@skip_no_cuda
-class TestWeightStreamingTP2:
-    """Weight streaming with tensor parallelism (TP=2, DP=1)."""
+def _create_forward_step_func():
+    step_counter = [0]
 
-    def test_tp2_weight_streaming_forward_pass(self):
-        """Forward pass with TP=2 + weight streaming produces valid output."""
-        from ironcore.global_vars import initialize_global_states
-        from ironcore.parallel import initialize_process, parallel_states
-
-        reset_global_states()
-        _setup_tp2()
-
-        config = _make_tp2_offload_config()
-        initialize_global_states(config)
-        initialize_process(config)
-        if not parallel_states.is_model_parallel_initialized():
-            parallel_states.initialize_model_parallel(config.trainer.tensor_model_parallel_size)
-
-        from ironcore.language_model import LanguageModel
-        from ironcore.utils.device import get_device
-
-        # Create model on CPU, then move embedding to GPU
-        model = LanguageModel(config, torch.nn.functional.cross_entropy)
-        model = model.to(dtype=torch.bfloat16)
-        gpu = torch.device(get_device())
-        model.embedding = model.embedding.to(gpu)
-        model.output_layernorm = model.output_layernorm.to(gpu)
-
-        # Verify transformer layers are on CPU
-        first_layer = model.model.layers[0]
-        param_device = next(first_layer.parameters()).device
-        assert param_device.type == "cpu", f"Layer params should be on CPU, got {param_device}"
-
-        # Verify embedding is on GPU
-        emb_device = next(model.embedding.parameters()).device
-        assert emb_device.type == "cuda", f"Embedding should be on CUDA, got {emb_device}"
-
-        # Forward pass
-        batch_size, seq_len = 1, 8
-        input_ids = torch.randint(0, 100, (batch_size, seq_len), device=gpu)
+    def forward_step(model, _data_iterator):
+        device = next(model.parameters()).device
+        torch.manual_seed(42 + step_counter[0])
+        step_counter[0] += 1
+        input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN))
         labels = input_ids.clone()
+        input_ids = input_ids.to(device)
+        labels = labels.to(device)
+        logits = model(input_ids, labels=None)
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        loss = F.cross_entropy(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+        )
+        return loss
 
-        with torch.no_grad():
-            loss = model(input_ids, labels=labels)
+    return forward_step
 
-        assert not math.isnan(loss), "Loss is NaN"
-        assert loss > 0, f"Loss should be positive, got {loss}"
 
-        parallel_states.destroy_model_parallel()
-        reset_global_states()
-        if dist.is_initialized():
-            dist.destroy_process_group()
+def _run_training(config, num_steps):
+    reset_global_states()
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    os.environ.setdefault("WORLD_SIZE", "2")
+
+    config.parallel.rank = int(os.getenv("RANK", "0"))
+    config.parallel.local_rank = int(os.getenv("LOCAL_RANK", "0"))
+
+    initial_loss = None
+    final_loss = 0.0
+
+    with (
+        patch(
+            "ironcore.trainers.base_trainer.get_data_iterator",
+            return_value=create_mock_data_iterator(),
+        ),
+        patch(
+            "ironcore.trainers.base_trainer.get_evaluators",
+            return_value=create_mock_evaluators(),
+        ),
+    ):
+        trainer = LanguageModelTrainer(config, _create_forward_step_func(), F.cross_entropy)
+        trainer._initialize()
+
+        for step in range(num_steps):
+            loss, _, _ = trainer.train_step(step=step)
+            if step == 0:
+                initial_loss = loss
+            final_loss = loss
+
+        trainer._finalize_process()
+
+    return initial_loss, final_loss
+
+
+@skip_no_multi_gpu
+@pytest.mark.cuda
+@pytest.mark.mp
+class TestTPWeightOffload:
+    """TP=2 + weight_offload integration test (requires 2 GPUs)."""
+
+    def test_tp2_weight_offload_converges(self):
+        """TP=2 + weight_offload should converge on both ranks."""
+        config = _make_config(
+            offload={
+                "weight_offload": True,
+                "activation_spill": True,
+                "activation_spill_granularity": "sub_layer",
+                "pinned_memory_pool_gb": 2.0,
+            }
+        )
+
+        init_loss, final_loss = _run_training(config, NUM_STEPS)
+
+        rank = int(os.getenv("RANK", "0"))
+        if rank == 0:
+            print(
+                f"\n[TP2+weight_offload] Init loss: {init_loss:.4f}, "
+                f"Final loss: {final_loss:.4f}, "
+                f"Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+            )
+
+        assert init_loss is not None
+        assert not math.isnan(final_loss) and not math.isinf(final_loss)
+        assert final_loss < init_loss, (
+            f"TP2+weight_offload did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        )
+        assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
