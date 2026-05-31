@@ -93,7 +93,9 @@ class TestActivationSpillManager:
 
         # Backward: prefetch in reverse order
         manager.on_microbatch_backward_start(0)
-        result1 = manager.on_sublayer_backward(0, 1, norm_input.shape, norm_input.dtype, norm_input.device)
+        result1 = manager.on_sublayer_backward(
+            0, 1, norm_input.shape, norm_input.dtype, norm_input.device
+        )
         result0 = manager.on_sublayer_backward(0, 0, hidden.shape, hidden.dtype, hidden.device)
         manager.on_microbatch_backward_end()
 
@@ -146,7 +148,7 @@ class TestActivationSpillManager:
 
         # Backward: prefetch + free
         manager.on_microbatch_backward_start(0)
-        result = manager.on_sublayer_backward(0, 0, tensor.shape, tensor.dtype, tensor.device)
+        manager.on_sublayer_backward(0, 0, tensor.shape, tensor.dtype, tensor.device)
         manager.on_microbatch_backward_end()
 
         assert pool.total_used_bytes == used_before
