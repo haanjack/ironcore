@@ -132,6 +132,7 @@ class TestOffloadConfigValidation:
         _config_validation(config)
 
 
+@pytest.mark.cuda
 class TestOffloadWithTP:
     """Test config validation for TP + offload combinations."""
 
@@ -268,7 +269,6 @@ class TestOffloadConfigAutoDetect:
 
         with pytest.warns(UserWarning, match="exceeds 80% of total system RAM"):
             _config_validation(config)
-
 
     def test_auto_cpu_threads_resolved(self):
         """When offload enabled, optimizer_cpu_threads=-1 should resolve to 80% of cores."""
