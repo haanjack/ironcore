@@ -227,6 +227,13 @@ def _config_validation(config: MainConfig):
                 "ZeRO-3 sharding only works with TP=1 + DP>1 or TP>1 + DP=1. "
                 "Use TP-only (DP=1) or TP=1 + DP>1."
             )
+        if config.parallel.use_distributed_optimizer:
+            raise ValueError(
+                "weight_offload is incompatible with use_distributed_optimizer. "
+                "DistributedOptimizer broadcasts parameters via NCCL, which requires GPU tensors. "
+                "With weight_offload, parameters live on CPU. "
+                "Disable use_distributed_optimizer or disable weight_offload."
+            )
         if dp_world_size > 1 and config.parallel.use_fsdp:
             raise ValueError(
                 "weight_offload + DP>1 is incompatible with FSDP. "

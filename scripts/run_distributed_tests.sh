@@ -20,7 +20,12 @@ for f in \
     tests/multi_gpu/test_distributed_optimizer.py \
     tests/multi_gpu/test_distributed_optimizer_checkpoint.py \
     tests/integration/offload/test_weight_streaming_mp.py \
-    tests/integration/offload/test_weight_streaming_dp.py; do
+    tests/integration/offload/test_weight_streaming_dp.py \
+    tests/multi_gpu/offload/test_tp_offload.py \
+    tests/multi_gpu/offload/test_ddp_offload.py \
+    tests/multi_gpu/offload/test_fsdp_full_shard_activation_spill.py \
+    tests/multi_gpu/offload/test_fsdp_shard_grad_op_offload.py \
+    tests/multi_gpu/offload/test_distopt_offload.py; do
     if [ -f "$f" ]; then
         echo "=== Running: $f ==="
         timeout 300 torchrun --nproc_per_node=2 --master_port=$(get_free_port) \

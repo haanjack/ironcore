@@ -6,6 +6,7 @@ TP × Weight Offload integration test.
 
 Verifies weight_offload works correctly with TP=2 tensor parallelism.
 Each rank streams its own TP shard independently.
+Also tests triple-offload: weight_offload + optimizer_offload + activation_spill under TP=2.
 """
 
 import math
@@ -165,5 +166,35 @@ class TestTPWeightOffload:
         assert not math.isnan(final_loss) and not math.isinf(final_loss)
         assert final_loss < init_loss, (
             f"TP2+weight_offload did not converge: {init_loss:.4f} -> {final_loss:.4f}"
+        )
+        assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
+
+    def test_tp2_weight_offload_with_optimizer(self):
+        """TP=2 + weight_offload + optimizer_offload (triple-offload) should converge."""
+        config = _make_config(
+            offload={
+                "weight_offload": True,
+                "optimizer_offload": True,
+                "activation_spill": True,
+                "activation_spill_granularity": "sub_layer",
+                "optimizer_state_precision": "bf16",
+                "pinned_memory_pool_gb": 2.0,
+            }
+        )
+
+        init_loss, final_loss = _run_training(config, NUM_STEPS)
+
+        rank = int(os.getenv("RANK", "0"))
+        if rank == 0:
+            print(
+                f"\n[TP2+weight_offload+optimizer_offload] Init loss: {init_loss:.4f}, "
+                f"Final loss: {final_loss:.4f}, "
+                f"Reduction: {(init_loss - final_loss) / init_loss * 100:.1f}%"
+            )
+
+        assert init_loss is not None
+        assert not math.isnan(final_loss) and not math.isinf(final_loss)
+        assert final_loss < init_loss, (
+            f"TP2 triple-offload did not converge: {init_loss:.4f} -> {final_loss:.4f}"
         )
         assert final_loss > 0, f"Final loss is invalid: {final_loss:.4f}"
