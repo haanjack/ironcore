@@ -2,7 +2,50 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import sys
+
+try:
+    import resource
+except ImportError:
+    resource = None
+
 import torch
+
+
+def get_host_memory_usage() -> dict:
+    """
+    Get host (CPU) RAM usage for the current process.
+
+    Uses resource module (stdlib, no external deps). On Linux,
+    ru_maxrss is in kilobytes.
+
+    Returns:
+        Dict with 'rss_mb' (current RSS) and 'peak_rss_mb' (peak RSS).
+    """
+    if resource is None:
+        return {"rss_mb": 0.0, "peak_rss_mb": 0.0}
+
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    # Linux: ru_maxrss is KB. macOS: bytes.
+    if sys.platform == "linux":
+        peak_kb = usage.ru_maxrss
+    else:
+        peak_kb = usage.ru_maxrss // 1024
+
+    peak_mb = peak_kb / 1024
+
+    # Current RSS from /proc/self/status (Linux-only, zero-dependency)
+    current_mb = peak_mb  # fallback
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    current_mb = int(line.split()[1]) / 1024  # kB -> MB
+                    break
+    except (FileNotFoundError, ValueError, IndexError):
+        pass
+
+    return {"rss_mb": current_mb, "peak_rss_mb": peak_mb}
 
 
 def bytes_to_mib(bytes_value: int):

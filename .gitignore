@@ -209,3 +209,4 @@ outputs/
 # Excalidraw diagrams (keep local only)
 *.excalidraw
 *.excalidraw.png
+.local/

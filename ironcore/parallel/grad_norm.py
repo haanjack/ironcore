@@ -142,10 +142,24 @@ def clip_grad_norm(
         dp_size = parallel_states.get_data_parallel_world_size()
         if dist.is_initialized() and dp_size > 1:
             dp_group = parallel_states.get_data_parallel_group()
-            # Combine for single all-reduce
             combined = torch.stack([local_expert_pow, local_non_expert_pow])
+            # NCCL requires CUDA tensors; move to GPU temporarily if needed
+            combined_device = combined.device
+            if combined_device.type == "cpu":
+                combined = combined.cuda()
             dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=dp_group)
-            local_expert_pow, local_non_expert_pow = combined / dp_size
+            if combined_device.type == "cpu":
+                combined = combined.to("cpu")
+            # With ZeRO-3, gradients are already partitioned (distinct across ranks),
+            # so SUM gives the correct total without dividing by dp_size.
+            # With standard DDP, gradients are replicated, so divide by dp_size.
+            grads_are_sharded = any(
+                p.grad.numel() < p.numel() for p in params_with_grad if p.grad is not None
+            )
+            if not grads_are_sharded:
+                local_expert_pow, local_non_expert_pow = combined / dp_size
+            else:
+                local_expert_pow, local_non_expert_pow = combined[0], combined[1]
 
         total_norm_pow = local_expert_pow + local_non_expert_pow
         total_norm = total_norm_pow ** (1.0 / norm_type)
@@ -155,6 +169,6 @@ def clip_grad_norm(
     if clip_coef < 1.0:
         # Use a set to avoid double-clipping shared gradients
         for g in {p.grad for p in params_with_grad}:
-            g.detach().mul_(clip_coef)
+            g.detach().mul_(clip_coef.to(g.device))
 
     return total_norm

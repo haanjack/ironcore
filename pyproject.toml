@@ -13,6 +13,7 @@ dependencies = [
     "huggingface_hub",
     "numpy",
     "pandas",
+    "psutil>=5.9",
     "pyarrow",
     "python-dotenv",
     "safetensors",

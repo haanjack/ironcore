@@ -365,6 +365,8 @@ def load_checkpoint(
             loaded_optim_state["state"] = {}
             loaded_optim_state["param_groups"] = loaded_optim_state_dict["param_groups"]
 
+            from ironcore.offload.optimizer_helpers import _should_offload_param
+
             for name, param in model.named_parameters():
                 # Skip frozen parameters (they don't have optimizer state)
                 if not param.requires_grad:
@@ -377,10 +379,18 @@ def load_checkpoint(
 
                 processed_state = {}
                 for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
-                    if state_key in ["exp_avg", "exp_avg_sq"]:
-                        # ensure device matches
-                        if state_tensor.device != param.device:
-                            state_tensor = state_tensor.to(param.device)
+                    if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
+                        # Determine target device using the same per-param criteria
+                        # as the optimizer step (TP-aware via _should_offload_param).
+                        offload_enabled = getattr(optimizer, "offload_enabled", False)
+                        offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
+                        is_offloaded = offload_enabled and _should_offload_param(
+                            param, offload_min_elements
+                        )
+                        target_device = torch.device("cpu") if is_offloaded else param.device
+
+                        if state_tensor.device != target_device:
+                            state_tensor = state_tensor.to(target_device)
 
                         # ensure param shape
                         if state_tensor.shape != param.shape:
@@ -402,6 +412,9 @@ def load_checkpoint(
 
             # split optimizer state for tensor parallel
             if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
+                offload_enabled = getattr(optimizer, "offload_enabled", False)
+                offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
+
                 for name, param in model.named_parameters():
                     if param not in loaded_optim_state["state"]:
                         continue
@@ -409,7 +422,7 @@ def load_checkpoint(
                     module_name = ".".join(name.split(".")[:-1])
                     # universal checkpoint
                     optimizer_state = loaded_optim_state["state"][param]
-                    for state_key in ["exp_avg", "exp_avg_sq"]:
+                    for state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
                         if state_key not in optimizer_state:
                             continue
 
@@ -431,9 +444,18 @@ def load_checkpoint(
                                 )
                             )
 
-                        loaded_optim_state["state"][param][state_key] = loaded_optim_state["state"][
-                            param
-                        ][state_key].reshape(param.shape)
+                        tensor = loaded_optim_state["state"][param][state_key].reshape(param.shape)
+                        # Keep optimizer state on CPU using same per-param criteria as step()
+                        is_offloaded = offload_enabled and _should_offload_param(
+                            param, offload_min_elements
+                        )
+                        if is_offloaded and state_key in (
+                            "exp_avg",
+                            "exp_avg_sq",
+                            "max_exp_avg_sq",
+                        ):
+                            tensor = tensor.to("cpu")
+                        loaded_optim_state["state"][param][state_key] = tensor
 
             # Handle DistributedOptimizer: partition state for local rank
             is_dist_opt = _is_distributed_optimizer(optimizer)
@@ -588,7 +610,9 @@ def save_checkpoint(
             optim_state = optimizer.state_dict()["state"][optim_state_id]
 
             output_optim_state = {}
-            for key in ["exp_avg", "exp_avg_sq"]:
+            for key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
+                if key not in optim_state:
+                    continue
                 should_gather = False
                 if module_name in model_attribs:
                     attribs = model_attribs[module_name]
@@ -612,8 +636,12 @@ def save_checkpoint(
 
         final_optimizer_state = merged_optimizer_state
 
-    # HuggingFace compatible config
-    hf_config = HFConfigManager.get_hf_config(config)
+    # HuggingFace compatible config (optional — only if hf_model_type/hf_architecture set)
+    hf_config = None
+    if config.model.hf_model_type is not None and config.model.hf_architecture is not None:
+        hf_config = HFConfigManager.get_hf_config(config)
+    else:
+        logger.info("Skipping HF config: hf_model_type/hf_architecture not set")
 
     # Convert dataclass configs to dicts for safe serialization (weights_only=True compatible)
     model_config_dict = None
@@ -656,8 +684,9 @@ def save_checkpoint(
         ) as f:
             f.write(f"{step}\n")
 
-        # Save HuggingFace compatible config
-        HFConfigManager.save_hf_config(config, config.trainer.model_path)
+        # Save HuggingFace compatible config (only if HF fields are set)
+        if config.model.hf_model_type is not None and config.model.hf_architecture is not None:
+            HFConfigManager.save_hf_config(config, config.trainer.model_path)
 
     timer.stop("ckpt-save")
     if parallel_states.get_tensor_model_parallel_world_size() > 1:

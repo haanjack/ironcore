@@ -18,10 +18,7 @@ from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
     vocab_parallel_cross_entropy,
 )
-from ironcore.parallel.tensor_parallel.comm import (
-    _gather_tensor_along_last_dim,
-    gather_from_model_parallel_workers,
-)
+from ironcore.parallel.tensor_parallel.comm import gather_from_model_parallel_workers
 
 
 class LanguageModel(BaseModule):
@@ -290,7 +287,9 @@ class LanguageModel(BaseModule):
 
             next_logits = logits[:, -1, :]
             if parallel_states.get_tensor_model_parallel_world_size() > 1:
-                next_logits = _gather_tensor_along_last_dim(next_logits)
+                next_logits = gather_from_model_parallel_workers(
+                    next_logits, attrib={"column_parallel": True, "row_parallel": False}
+                )
 
             next_token = self._sample(next_logits, temperature, top_p, top_k, do_sample)
 

@@ -103,6 +103,55 @@ class TransformerLayer(BaseModule):
 
         self.residual_dropout = nn.Dropout(config.model.dropout_attn)
 
+    def _attention_subblock(self, hidden_states, attention_mask, rotary_pos_emb, position_ids):
+        """Attention sub-block: layernorm + attention + output proj + residual."""
+        batch_size = hidden_states.size(0)
+        seq_len = hidden_states.size(1)
+
+        norm_output = self.input_layernorm(hidden_states)
+        query = self.linear_q(norm_output)
+        key_value = self.linear_kv(norm_output)
+        key, value = torch.chunk(key_value, 2, dim=-1)
+
+        query = query.view(batch_size, seq_len, self.num_local_attention_heads, self.head_dimension)
+        key = key.view(batch_size, seq_len, self.num_local_attention_groups, self.head_dimension)
+        value = value.view(
+            batch_size, seq_len, self.num_local_attention_groups, self.head_dimension
+        )
+
+        if rotary_pos_emb:
+            query = rotary_pos_emb.forward(query, position_ids)
+            key = rotary_pos_emb.forward(key, position_ids)
+
+        attn_output = self.self_attention(
+            query, key, value, attention_mask, use_cache=False, past_kv=None
+        )
+        attention_output = self.attn_output(attn_output)
+
+        if self.config.model.dropout_attn > 0.0:
+            attention_output = self.residual_dropout(attention_output)
+
+        return hidden_states + attention_output
+
+    def _mlp_subblock(self, norm_input):
+        """MLP sub-block: layernorm + MLP + residual."""
+        norm_output = self.post_attn_layernorm(norm_input)
+        mlp_output = self.mlp(norm_output)
+        return norm_input + mlp_output
+
+    def _full_layer_subblock(
+        self,
+        hidden_states,
+        attention_mask,
+        rotary_pos_emb,
+        position_ids=None,
+    ):
+        """Full layer block: attention + MLP, for full_layer spill granularity."""
+        norm_input = self._attention_subblock(
+            hidden_states, attention_mask, rotary_pos_emb, position_ids
+        )
+        return self._mlp_subblock(norm_input)
+
     def custom_forward(
         self,
         hidden_states,
@@ -116,7 +165,61 @@ class TransformerLayer(BaseModule):
         block_kv_cache_manager=None,
         seq_id=None,
     ):
-        # hidden_states: [b, s, h]
+        # Activation spilling path uses custom autograd.Function that
+        # spills inputs to host during forward and restores during backward,
+        # freeing GPU memory for intermediate activations.
+        scheduler = getattr(self, "_offload_scheduler", None)
+        spill_active = (
+            scheduler is not None and scheduler.spill_manager is not None and self.training
+        )
+
+        if spill_active:
+            from ironcore.offload.hooks import _SpillCheckpointFn
+
+            # _SpillCheckpointFn.forward() runs the sub-block under torch.no_grad(),
+            # so parameters don't contribute to the autograd graph. For apply() to
+            # create a grad_fn, at least one tensor input must require_grad.
+            # Detach + require_grad ensures the autograd chain stays connected
+            # without leaking the original tensor into the saved context.
+            if not hidden_states.requires_grad:
+                hidden_states = hidden_states.detach().requires_grad_(True)
+
+            if getattr(scheduler, "_activation_spill_granularity", "sub_layer") == "full_layer":
+                # Full layer: single spill wrapping attention + MLP
+                return _SpillCheckpointFn.apply(
+                    self._full_layer_subblock,
+                    scheduler,
+                    self.layer_idx,
+                    0,
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    position_ids,
+                )
+            else:
+                # Sub-layer: two spills at attention/MLP boundaries
+                # Sub-block 1: Attention (spills hidden_states as sub_layer=0)
+                norm_input = _SpillCheckpointFn.apply(
+                    self._attention_subblock,
+                    scheduler,
+                    self.layer_idx,
+                    0,
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb,
+                    position_ids,
+                )
+                # Sub-block 2: MLP (spills norm_input as sub_layer=1)
+                output = _SpillCheckpointFn.apply(
+                    self._mlp_subblock,
+                    scheduler,
+                    self.layer_idx,
+                    1,
+                    norm_input,
+                )
+                return output
+
+        # Standard forward path (no spilling)
         batch_size = hidden_states.size(0)
         seq_len = hidden_states.size(1)
 
@@ -285,6 +388,12 @@ class TransformerModel(BaseModule):
         new_key_values = [] if use_cache else None
 
         is_fsdp = self._is_fsdp_enabled()
+        scheduler = getattr(self, "_offload_scheduler", None)
+
+        # Activation spilling replaces checkpointing: when spill_manager is active,
+        # activations are saved to host memory during forward and prefetched during
+        # backward. Checkpointing is disabled to avoid recomputing twice.
+        activation_spill_active = scheduler is not None and scheduler.spill_manager is not None
         use_layer_checkpointing = (
             self.activation_recompute
             and self.training
@@ -292,10 +401,29 @@ class TransformerModel(BaseModule):
             and kv_cache_manager is None
             and block_kv_cache_manager is None
             and not is_fsdp
+            and not activation_spill_active
         )
+
+        # Weight streaming: model stays on CPU but scheduler loads weights to GPU
+        # per-layer. Move hidden_states (and related tensors) to GPU for computation.
+        original_device = hidden_states.device
+        weight_streaming = scheduler is not None and scheduler.weight_streaming_enabled
+        if weight_streaming:
+            compute_device = scheduler.device
+            hidden_states = hidden_states.to(compute_device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(compute_device)
+            if rotary_pos_emb is not None and isinstance(rotary_pos_emb, torch.Tensor):
+                rotary_pos_emb = rotary_pos_emb.to(compute_device)
+            if position_ids is not None and isinstance(position_ids, torch.Tensor):
+                position_ids = position_ids.to(compute_device)
 
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
+
+            # Weight streaming: ensure layer weights are on GPU before execution
+            if scheduler is not None:
+                scheduler.on_layer_start(i)
 
             if use_layer_checkpointing:
                 layer_out = checkpoint(
@@ -326,12 +454,21 @@ class TransformerModel(BaseModule):
                     seq_id=seq_id,
                 )
 
+            # Weight streaming: mark layer as done (weights stay for backward)
+            if scheduler is not None:
+                scheduler.on_layer_end(i)
+
             if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
                 hidden_states, new_kv = layer_out
                 if use_cache:
                     new_key_values.append(new_kv)
             else:
                 hidden_states = layer_out
+
+        # Weight streaming: restore hidden_states to original device for downstream
+        # layers (output_layernorm, output head) which stay on CPU.
+        if weight_streaming and hidden_states.device != original_device:
+            hidden_states = hidden_states.to(original_device)
 
         if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
             return hidden_states, new_key_values

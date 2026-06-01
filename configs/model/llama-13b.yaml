@@ -1,0 +1,27 @@
+num_attention_heads: 40
+num_attention_groups: 8
+head_dim: 128
+max_seq_len: 1024
+num_layers: 40
+d_model: 5120
+d_ffn: 13824
+precision: bfloat16
+ln_type: rmsnorm
+ln_eps: 1.0e-5
+layernorm_bias: false
+activation_type: swiglu
+positional_embedding:
+  type: rope
+  base: 10000
+bias:
+  q: false
+  k: false
+  v: false
+  o: false
+  gate: false
+  up: false
+  down: false
+vocab_name_or_path: gpt2
+tokenizer_type: gpt2
+hf_model_type: llama
+hf_architecture: LlamaForCausalLM

@@ -1,0 +1,49 @@
+trainer:
+  micro_batch_size: 2
+  train_batch_size: 2
+  gradient_accumulation_steps: 1
+  tensor_model_parallel_size: 2
+  save_checkpoint_steps: 9999
+  log_interval: 10
+  model_path: outputs/sanity_offload/offload_2gpu_tp
+  use_flash_attn: true
+  vocab_padding_unit: 128
+
+operation:
+  train_steps: 200
+  eval_interval: 9999
+  eval_samples: 0
+  activation_recompute: false
+  no_save: true
+
+model: gpt-sanity-1b
+
+data:
+  task_type: pretrain
+  use_mock_data: true
+
+offload:
+  enabled: true
+  optimizer_offload: true
+  weight_offload: true
+  activation_spill: true
+  weight_storage_precision: bf16
+  optimizer_state_precision: fp32
+  pinned_memory_pool_gb: -1.0
+
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+  max_lr: 3.0e-4
+  min_lr: 3.0e-5
+  warmup_steps: 20
+  annealing_steps: 200
+  weight_decay: 0.1
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+  clip_grad: 1.0
+
+init:
+  seed: 42
+  init_std: 0.02

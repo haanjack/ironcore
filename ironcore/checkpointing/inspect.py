@@ -102,6 +102,13 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
         pass
 
     # Try native IronCore format
+    if checkpoint_path.is_file():
+        import torch
+
+        info["format"] = "native"
+        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        return state_dict.get("model_state_dict", state_dict)
+
     latest_file = checkpoint_path / "latest_step.txt"
     if latest_file.exists():
         import torch

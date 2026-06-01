@@ -22,6 +22,8 @@ import math
 import torch
 from torch.optim import Optimizer
 
+from ironcore.offload.optimizer_helpers import _adamw_offloaded_step, _should_offload_param
+
 
 def zeropower_via_newtonschulz5(
     grad: torch.Tensor, steps: int = 5, eps: float = 1e-7
@@ -122,12 +124,21 @@ class MuonOptimizer(Optimizer):
         adamw_betas: tuple = (0.9, 0.95),
         adamw_eps: float = 1e-8,
         adamw_weight_decay: float = 0.01,
+        # Offload settings
+        offload_enabled: bool = False,
+        offload_min_param_elements: int = 65536,
+        optimizer_state_precision: str = "fp32",
     ):
         # Store Muon-specific settings
         self.momentum = momentum
         self.newton_schulz_steps = newton_schulz_steps
         self.nesterov = nesterov
         self.adamw_lr = adamw_lr if adamw_lr is not None else lr
+        self.offload_enabled = offload_enabled
+        self.offload_min_param_elements = offload_min_param_elements
+        self.state_dtype = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}[
+            optimizer_state_precision
+        ]
 
         # Build param groups list following standard torch.optim.Optimizer pattern
         param_groups = []
@@ -158,8 +169,6 @@ class MuonOptimizer(Optimizer):
             param_groups.append(param_group)
 
         super().__init__(param_groups, {})
-
-        self.state_dtype = torch.float32
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -297,7 +306,23 @@ class MuonOptimizer(Optimizer):
 
             state = self.state[p]
 
-            # State initialization
+            # Offload path: optimizer states live on CPU
+            if self.offload_enabled and _should_offload_param(p, self.offload_min_param_elements):
+                _adamw_offloaded_step(
+                    p=p,
+                    grad=grad,
+                    state=state,
+                    lr=lr,
+                    beta1=beta1,
+                    beta2=beta2,
+                    eps=eps,
+                    weight_decay=weight_decay,
+                    amsgrad=amsgrad,
+                    state_dtype=self.state_dtype,
+                )
+                continue
+
+            # Standard in-VRAM path
             if len(state) == 0:
                 state["step"] = 0
                 state["exp_avg"] = torch.zeros_like(p, dtype=self.state_dtype)

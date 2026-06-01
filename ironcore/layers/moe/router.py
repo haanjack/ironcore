@@ -97,6 +97,8 @@ class TopKRouter(BaseModule):
         Returns:
             [batch, seq, num_experts] routing logits
         """
+        # Save original dtype before casting
+        original_dtype = hidden_states.dtype
         # Cast to router compute dtype for numerical stability
         hidden_states = hidden_states.to(self.router_dtype)
         weight = self.weight.to(self.router_dtype)
@@ -106,6 +108,9 @@ class TopKRouter(BaseModule):
 
         if self.bias is not None:
             router_logits = router_logits + self.bias.to(self.router_dtype)
+
+        # Cast back to original dtype for consistency with rest of model
+        router_logits = router_logits.to(original_dtype)
 
         return router_logits
 
@@ -143,8 +148,11 @@ class TopKRouter(BaseModule):
         # Clear previous logits at start to prevent memory leak
         self._router_logits = None
 
+        # Save original dtype for consistent output
+        original_dtype = hidden_states.dtype
+
         with profile_context("moe_router"):
-            # Compute router logits
+            # Compute router logits (already casts back to original_dtype internally)
             router_logits = self._compute_router_logits(hidden_states)
 
             # Add jitter noise during training
@@ -156,9 +164,9 @@ class TopKRouter(BaseModule):
             # Apply softmax to get normalized weights
             topk_weights = F.softmax(topk_logits, dim=-1)
 
-            # Cast back to input dtype
-            topk_weights = topk_weights.to(hidden_states.dtype)
-            router_logits = router_logits.to(hidden_states.dtype)
+            # Ensure output is in original dtype
+            topk_weights = topk_weights.to(original_dtype)
+            router_logits = router_logits.to(original_dtype)
 
             # Store logits for auxiliary loss (only during training)
             if training:

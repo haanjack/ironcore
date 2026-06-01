@@ -21,6 +21,7 @@ from .memory import (
     bytes_to_mib,
     format_memory_report,
     get_detailed_memory_breakdown,
+    get_host_memory_usage,
     get_memory_usage,
 )
 from .mfu import MFUCalculator, MFUResult, compute_tflops, estimate_params
@@ -30,6 +31,11 @@ from .subprocess import (
     parse_losses_from_stdout,
     parse_metrics_from_stdout,
     write_temp_config,
+)
+from .system_info import (
+    available_host_memory_gb,
+    recommend_pinned_pool_gb,
+    total_host_memory_gb,
 )
 from .timer import Timer
 
@@ -56,6 +62,7 @@ __all__ = [
     "bytes_to_mib",
     "format_memory_report",
     "get_detailed_memory_breakdown",
+    "get_host_memory_usage",
     "get_memory_usage",
     # profiling
     "profile_context",
@@ -65,6 +72,10 @@ __all__ = [
     "parse_losses_from_stdout",
     "parse_metrics_from_stdout",
     "write_temp_config",
+    # system_info
+    "available_host_memory_gb",
+    "recommend_pinned_pool_gb",
+    "total_host_memory_gb",
     # timer
     "Timer",
 ]

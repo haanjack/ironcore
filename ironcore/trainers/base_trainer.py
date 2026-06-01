@@ -172,6 +172,66 @@ class BaseTrainer(ABC):
 
         self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(self.config) == torch.float16))
 
+        # Initialize weight streaming scheduler if enabled
+        self._offload_scheduler = None
+        offload_needs_scheduler = self.config.offload.enabled and (
+            self.config.offload.weight_offload or self.config.offload.activation_spill
+        )
+        if offload_needs_scheduler:
+            from ironcore.offload.scheduler import ExecutionScheduler
+
+            # Unwrap torch.compile + DDP + LanguageModel to get TransformerModel
+            inner_model = self.model
+            if hasattr(inner_model, "_orig_mod"):
+                inner_model = inner_model._orig_mod
+            if isinstance(inner_model, torch.nn.parallel.DistributedDataParallel):
+                inner_model = inner_model.module
+            # LanguageModel wraps TransformerModel in LanguageModel.model
+            if hasattr(inner_model, "model") and hasattr(inner_model.model, "layers"):
+                inner_model = inner_model.model
+
+            # Get DP group for ZeRO-3 parameter sharding
+            dp_group = None
+            if self.config.offload.weight_offload and dist.is_initialized():
+                dp_world_size = get_data_parallel_world_size()
+                if dp_world_size > 1:
+                    dp_group = get_data_parallel_group()
+
+            self._offload_scheduler = ExecutionScheduler.from_model(
+                model=inner_model,
+                config=self.config.offload,
+                device=torch.device(get_device()),
+                dp_group=dp_group,
+            )
+            if self._offload_scheduler is not None and self._offload_scheduler.is_active:
+                # Attach scheduler to model so forward pass can call per-layer hooks
+                inner_model._offload_scheduler = self._offload_scheduler
+                self.logger.info(f"Weight streaming scheduler attached: {self._offload_scheduler}")
+            elif (
+                self._offload_scheduler is not None
+                and self._offload_scheduler.spill_manager is not None
+            ):
+                # Scheduler created for activation spilling only (no weight streaming)
+                inner_model._offload_scheduler = self._offload_scheduler
+                self.logger.info(f"Activation spill scheduler attached: {self._offload_scheduler}")
+            else:
+                self._offload_scheduler = None
+
+            # Set gradient accumulation steps for activation spill manager
+            if self._offload_scheduler is not None:
+                self._offload_scheduler.set_gradient_accumulation_steps(
+                    self.config.trainer.gradient_accumulation_steps
+                )
+
+            # Configure CPU thread count for optimizer offload compute
+            if self.config.offload.optimizer_cpu_threads > 0:
+                from ironcore.offload.optimizer_helpers import configure_cpu_threads
+
+                configure_cpu_threads(self.config.offload.optimizer_cpu_threads)
+                self.logger.info(
+                    f"Optimizer CPU threads set to {self.config.offload.optimizer_cpu_threads}"
+                )
+
         self._initialized = True
         self.logger.info("Resources acquired successfully.")
 
@@ -185,6 +245,11 @@ class BaseTrainer(ABC):
 
     def _finalize_process(self):
         """Cleanup resources."""
+        # Shutdown weight streaming scheduler (releases GPU staging buffers)
+        if hasattr(self, "_offload_scheduler") and self._offload_scheduler is not None:
+            self._offload_scheduler.shutdown()
+            self._offload_scheduler = None
+
         # Close loggers before exiting
         global_states_cleanup()
 
@@ -235,11 +300,34 @@ class BaseTrainer(ABC):
         self.logger.info(f"Set random seed to {seed} for model initialization")
 
         device = get_device()
+        weight_streaming = self.config.offload.enabled and self.config.offload.weight_offload
 
-        model = LanguageModel(self.config, self.loss_fn).to(device=device)
-        self.logger.info("Created Language Model")
+        if weight_streaming:
+            # Weight streaming: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
+            # This avoids OOM for models whose weights exceed GPU memory (e.g. 13B on 24GB).
+            model = LanguageModel(self.config, self.loss_fn)
+            model = model.to(dtype=get_model_dtype(self.config))
 
-        model = model.to(dtype=get_model_dtype(self.config))
+            # With TP > 1, the embedding and output head must stay on GPU because
+            # VocabParallelEmbedding and vocab_parallel_cross_entropy call dist.all_reduce
+            # which requires CUDA tensors when using NCCL backend.
+            tp_size = self.config.trainer.tensor_model_parallel_size
+            if tp_size > 1:
+                gpu = torch.device(device)
+                model.embedding = model.embedding.to(gpu)
+                model.output_layernorm = model.output_layernorm.to(gpu)
+                if hasattr(model, "output_layer"):
+                    model.output_layer = model.output_layer.to(gpu)
+                self.logger.info(
+                    f"TP={tp_size}: embedding + output head on {gpu}, "
+                    "transformer layers on CPU for weight streaming"
+                )
+
+            self.logger.info("Created Language Model on CPU (weight streaming mode)")
+        else:
+            model = LanguageModel(self.config, self.loss_fn).to(device=device)
+            model = model.to(dtype=get_model_dtype(self.config))
+            self.logger.info("Created Language Model")
 
         # Load pretrained weights from HuggingFace if specified
         if self.config.trainer.load_from_hf:
@@ -284,6 +372,16 @@ class BaseTrainer(ABC):
                 f"Wrapped optimizer with DistributedOptimizer (bucket_cap={self.config.parallel.dist_opt_bucket_cap_mb}MB)"
             )
 
+        # Defensive: verify optimizer holds references to original model params for FSDP+offload
+        if self.config.offload.optimizer_offload and self.config.parallel.use_fsdp:
+            optim_params = {p for group in optimizer.param_groups for p in group["params"]}
+            model_params = set(model.parameters())
+            if not optim_params.issubset(model_params):
+                raise RuntimeError(
+                    "Optimizer parameters don't match model parameters. "
+                    "This will break with FSDP + optimizer_offload."
+                )
+
         # Enable profiling if requested
         if (
             self.config.profiler.gpu_profiler
@@ -311,7 +409,7 @@ class BaseTrainer(ABC):
             except Exception as e:
                 self.logger.warning(f"torch.compile failed: {e}. Running without compilation.")
 
-        if device not in ["cpu", "mps"]:
+        if device not in ["cpu", "mps"] and not weight_streaming:
             model = initialize_parallelism(self.config, model)
         self.rank = dist.get_rank()
 
@@ -489,8 +587,16 @@ class BaseTrainer(ABC):
         total_loss = 0.0
         total_metrics: dict[str, float] = {}
 
+        # Weight streaming: prefetch first layers before forward pass
+        if self._offload_scheduler is not None:
+            self._offload_scheduler.on_training_step_start()
+
         for i in range(self.config.trainer.gradient_accumulation_steps):
             is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
+
+            # Notify spill manager of micro-batch forward start
+            if self._offload_scheduler is not None:
+                self._offload_scheduler.on_microbatch_forward_start(i)
 
             # Disable gradient sync for intermediate accumulation steps (DDP/FSDP)
             backward_sync_ctx = (
@@ -511,8 +617,25 @@ class BaseTrainer(ABC):
                         for k, v in metrics.items():
                             total_metrics[k] = total_metrics.get(k, 0.0) + v
 
+                # Notify spill manager that forward is done for this micro-batch
+                if self._offload_scheduler is not None:
+                    self._offload_scheduler.on_microbatch_forward_end()
+
+                # Notify spill manager of micro-batch backward start
+                if self._offload_scheduler is not None:
+                    self._offload_scheduler.on_microbatch_backward_start(i)
+
                 # Backward pass with gradient scaling
                 self.scaler.scale(scaled_loss).backward()
+
+                # Notify spill manager that backward is done for this micro-batch
+                if self._offload_scheduler is not None:
+                    self._offload_scheduler.on_microbatch_backward_end()
+
+        # Weight streaming: zero GPU staging buffers after all micro-batches' backward passes.
+        # Actual param.data stays on GPU until next step's on_layer_start overwrites it.
+        if self._offload_scheduler is not None:
+            self._offload_scheduler.on_backward_pass_end()
 
         return total_loss, total_metrics
 
@@ -594,28 +717,31 @@ class BaseTrainer(ABC):
             expert_sharded_norm_sq = (
                 sum(p.data.norm() ** 2 for p in expert_sharded)
                 if expert_sharded
-                else torch.tensor(0.0, device=get_device())
+                else torch.tensor(0.0)
             )
             expert_repl_norm_sq = (
-                sum(p.data.norm() ** 2 for p in expert_repl)
-                if expert_repl
-                else torch.tensor(0.0, device=get_device())
+                sum(p.data.norm() ** 2 for p in expert_repl) if expert_repl else torch.tensor(0.0)
             )
             non_expert_sharded_norm_sq = (
                 sum(p.data.norm() ** 2 for p in non_expert_sharded)
                 if non_expert_sharded
-                else torch.tensor(0.0, device=get_device())
+                else torch.tensor(0.0)
             )
             non_expert_repl_norm_sq = (
                 sum(p.data.norm() ** 2 for p in non_expert_repl)
                 if non_expert_repl
-                else torch.tensor(0.0, device=get_device())
+                else torch.tensor(0.0)
             )
 
             # Step 1: FSDP Reduction (parameters are sharded across DP group)
             if isinstance(self.model, FSDP):
                 # Assume all FSDP parameters are sharded across DP
-                combined = torch.stack([expert_sharded_norm_sq, non_expert_sharded_norm_sq])
+                combined = torch.stack(
+                    [
+                        expert_sharded_norm_sq.to(get_device()),
+                        non_expert_sharded_norm_sq.to(get_device()),
+                    ]
+                )
                 dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
                 expert_sharded_norm_sq, non_expert_sharded_norm_sq = combined
 
@@ -625,10 +751,10 @@ class BaseTrainer(ABC):
                 tp_group = parallel_states.get_tensor_model_parallel_group()
                 combined = torch.stack(
                     [
-                        expert_sharded_norm_sq,
-                        expert_repl_norm_sq,
-                        non_expert_sharded_norm_sq,
-                        non_expert_repl_norm_sq,
+                        expert_sharded_norm_sq.to(get_device()),
+                        expert_repl_norm_sq.to(get_device()),
+                        non_expert_sharded_norm_sq.to(get_device()),
+                        non_expert_repl_norm_sq.to(get_device()),
                     ]
                 )
                 dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=tp_group)
@@ -673,10 +799,17 @@ class BaseTrainer(ABC):
 
     def _optimizer_step(self):
         """Perform optimizer step after gradient accumulation."""
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad()
-        self.lr_scheduler.step()
+        try:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+            self.optimizer.zero_grad()
+            self.lr_scheduler.step()
+        finally:
+            # Weight streaming: synchronize all transfers, prepare for next step.
+            # Must run even on exception to free pinned grad buffers and
+            # prevent pool budget exhaustion.
+            if self._offload_scheduler is not None:
+                self._offload_scheduler.on_training_step_end()
 
     def _check_loss_for_nan(self, loss: float, step: int) -> None:
         """Check if loss is NaN or Inf and raise error if so.
@@ -800,6 +933,29 @@ class BaseTrainer(ABC):
                     )
                     metrics["tflops_per_gpu"] = tflops
 
+        # Offload metrics: log when scheduler is active
+        if self._offload_scheduler is not None:
+            offload_metrics = self._offload_scheduler.get_metrics()
+            metrics["step_elapsed_ms"] = offload_metrics["step_elapsed_ms"]
+            metrics["h2d_ms"] = offload_metrics["h2d_ms"]
+            metrics["d2h_snapshot_ms"] = offload_metrics["d2h_snapshot_ms"]
+            metrics["host_pool_used_mb"] = offload_metrics["host_pool_used_mb"]
+
+            # Host RAM (current RSS)
+            try:
+                from ironcore.utils.memory import get_host_memory_usage
+
+                host_mem = get_host_memory_usage()
+                metrics["host_rss_mb"] = host_mem["rss_mb"]
+            except Exception:
+                pass
+
+            # VRAM
+            if torch.cuda.is_available():
+                device = torch.cuda.current_device()
+                metrics["vram_allocated_mb"] = torch.cuda.memory_allocated(device) / (1024 * 1024)
+                metrics["vram_reserved_mb"] = torch.cuda.memory_reserved(device) / (1024 * 1024)
+
         # Memory report: on first log step, then at every checkpoint interval
         if (
             is_first_rank()
@@ -844,6 +1000,13 @@ class BaseTrainer(ABC):
                 log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:
                     log_msg += f" ({metrics['data_load_ratio'] * 100:.1f}%)"
+            if "step_elapsed_ms" in metrics:
+                log_msg += f", step_elapsed: {metrics['step_elapsed_ms']:.1f}ms"
+                log_msg += f" (h2d={metrics['h2d_ms']:.1f}, d2h={metrics['d2h_snapshot_ms']:.1f})"
+                if "host_rss_mb" in metrics:
+                    log_msg += f", host_rss: {metrics['host_rss_mb']:.0f}MB"
+                if "vram_allocated_mb" in metrics:
+                    log_msg += f", vram: {metrics['vram_allocated_mb']:.0f}MB"
             self.logger.info(log_msg)
 
             # Log all metrics to tracking system

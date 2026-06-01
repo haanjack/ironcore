@@ -18,6 +18,7 @@ from .config_data import DataConfig
 from .config_model import KVCacheConfig as KVCacheConfig
 from .config_model import ModelConfig
 from .config_model import PositionalEmbeddingConfig as PositionalEmbeddingConfig
+from .config_offload import OffloadConfig
 from .config_optim import OptimConfig
 from .config_parallel import ParallelConfig
 from .config_peft import LoRAConfig as LoRAConfig
@@ -41,6 +42,7 @@ class MainConfig(BaseConfig):
     profiler: ProfilerConfig
     peft: PEFTConfig
     alignment: AlignmentConfig = field(default_factory=AlignmentConfig)
+    offload: OffloadConfig = field(default_factory=OffloadConfig)
 
 
 def _config_validation(config: MainConfig):
@@ -138,6 +140,161 @@ def _config_validation(config: MainConfig):
                 "use_distributed_optimizer is enabled but DP world size is 1. "
                 "No optimizer state partitioning will occur. "
                 "Increase world_size or decrease tensor_model_parallel_size to enable partitioning.",
+                stacklevel=2,
+            )
+
+    # Offload validation
+    if config.offload.optimizer_offload and not config.offload.enabled:
+        raise ValueError("offload.optimizer_offload requires offload.enabled to be true")
+    if config.offload.optimizer_state_precision not in ("fp32", "fp16", "bf16"):
+        raise ValueError(
+            f"offload.optimizer_state_precision must be fp32, fp16, or bf16, "
+            f"got '{config.offload.optimizer_state_precision}'"
+        )
+    if config.offload.activation_spill and not config.offload.enabled:
+        raise ValueError("offload.activation_spill requires offload.enabled to be true")
+    if config.offload.activation_spill_granularity not in ("sub_layer", "full_layer"):
+        raise ValueError(
+            f"offload.activation_spill_granularity must be 'sub_layer' or 'full_layer', "
+            f"got '{config.offload.activation_spill_granularity}'"
+        )
+    if config.offload.activation_spill and config.operation.activation_recompute:
+        import warnings
+
+        warnings.warn(
+            "offload.activation_spill is enabled but activation_recompute is also enabled. "
+            "Activation spilling replaces checkpointing. Disabling activation_recompute.",
+            stacklevel=2,
+        )
+        config.operation.activation_recompute = False
+    if config.offload.weight_offload and not config.offload.enabled:
+        raise ValueError("offload.weight_offload requires offload.enabled to be true")
+    if config.offload.weight_offload and config.offload.weight_storage_precision not in (
+        "fp32",
+        "fp16",
+        "bf16",
+    ):
+        raise ValueError(
+            f"offload.weight_storage_precision must be fp32, fp16, or bf16, "
+            f"got '{config.offload.weight_storage_precision}'"
+        )
+    if config.offload.weight_offload and config.parallel.use_fsdp:
+        raise ValueError(
+            "offload.weight_offload is incompatible with FSDP. "
+            "FSDP manages its own parameter sharding/unsharding."
+        )
+    if config.offload.weight_offload and not config.offload.activation_spill:
+        import warnings
+
+        warnings.warn(
+            "offload.weight_offload requires activation spilling for weight "
+            "eviction (no_autograd_graph). Enabling offload.activation_spill automatically.",
+            stacklevel=2,
+        )
+        config.offload.activation_spill = True
+    if config.offload.weight_prefetch_layers < 1:
+        raise ValueError(
+            f"offload.weight_prefetch_layers must be >= 1, got {config.offload.weight_prefetch_layers}"
+        )
+
+    # Optimizer offload + FSDP FULL_SHARD → ValueError (host OOM from duplicated optimizer states)
+    if config.offload.optimizer_offload and config.parallel.use_fsdp:
+        if config.parallel.fsdp_sharding_strategy == "full":
+            raise ValueError(
+                "offload.optimizer_offload + FSDP full_shard duplicates optimizer states on host. "
+                "Use fsdp_sharding_strategy: shard_grad_op or disable optimizer_offload."
+            )
+
+    # Optimizer offload + FSDP CPUOffload → ValueError (redundant)
+    if config.offload.optimizer_offload and config.parallel.use_fsdp:
+        if config.parallel.fsdp_offload_params:
+            raise ValueError("optimizer_offload is redundant with FSDP CPUOffload. Use only one.")
+
+    # Optimizer offload + FSDP without use_orig_params → ValueError (FlatParameter breaks optimizer refs)
+    if config.offload.optimizer_offload and config.parallel.use_fsdp:
+        if not config.parallel.fsdp_use_orig_params:
+            raise ValueError(
+                "FSDP + optimizer_offload requires fsdp_use_orig_params=True. "
+                "Without it, FSDP replaces parameters with FlatParameter, breaking optimizer references."
+            )
+
+    # TP + offload validation
+    if config.offload.enabled and config.offload.weight_offload:
+        if config.trainer.tensor_model_parallel_size > 1 and dp_world_size > 1:
+            raise ValueError(
+                f"Weight streaming with tensor_parallel={config.trainer.tensor_model_parallel_size} "
+                f"and data_parallel={dp_world_size} is not supported. "
+                "ZeRO-3 sharding only works with TP=1 + DP>1 or TP>1 + DP=1. "
+                "Use TP-only (DP=1) or TP=1 + DP>1."
+            )
+        if config.parallel.use_distributed_optimizer:
+            raise ValueError(
+                "weight_offload is incompatible with use_distributed_optimizer. "
+                "DistributedOptimizer broadcasts parameters via NCCL, which requires GPU tensors. "
+                "With weight_offload, parameters live on CPU. "
+                "Disable use_distributed_optimizer or disable weight_offload."
+            )
+        if dp_world_size > 1 and config.parallel.use_fsdp:
+            raise ValueError(
+                "weight_offload + DP>1 is incompatible with FSDP. "
+                "Remove use_fsdp to use ZeRO-3 offload sharding."
+            )
+        if config.trainer.tensor_model_parallel_size > 1:
+            import logging
+
+            logging.getLogger("ironcore.config").info(
+                "TP + offload enabled: each rank will stream its own TP shard. "
+                "Embedding and output head stay on GPU for TP communication."
+            )
+        if dp_world_size > 1:
+            import logging
+
+            logging.getLogger("ironcore.config").info(
+                f"ZeRO-3 parameter sharding enabled: weight_offload + DP={dp_world_size}. "
+                "Parameters sharded across DP ranks, all-gather on GPU via NCCL."
+            )
+
+    # Auto-detect pinned memory pool size if requested (-1.0)
+    if config.offload.enabled and config.offload.pinned_memory_pool_gb == -1.0:
+        import logging
+        import warnings
+
+        from ironcore.utils import available_host_memory_gb, total_host_memory_gb
+
+        # Simple auto-detection: 40% of available RAM, min 8GB
+        avail = available_host_memory_gb()
+        auto_size = avail * 0.40
+        auto_size = max(8.0, auto_size)
+        config.offload.pinned_memory_pool_gb = auto_size
+
+        logging.info(
+            f"Auto-detected pinned memory pool: {auto_size:.1f}GB "
+            f"(from {avail:.1f}GB available / {total_host_memory_gb():.1f}GB total)"
+        )
+
+    # Resolve optimizer CPU thread count
+    if config.offload.enabled and (
+        config.offload.optimizer_offload or config.offload.weight_offload
+    ):
+        if config.offload.optimizer_cpu_threads == -1:
+            import os
+
+            total_cores = os.cpu_count() or 1
+            auto_threads = max(1, int(total_cores * 0.8))
+            config.offload.optimizer_cpu_threads = auto_threads
+
+    # Warn if pinned pool size exceeds 80% of total RAM
+    if config.offload.enabled and config.offload.pinned_memory_pool_gb > 0:
+        import warnings
+
+        from ironcore.utils import total_host_memory_gb
+
+        total_ram = total_host_memory_gb()
+        if config.offload.pinned_memory_pool_gb > 0.8 * total_ram:
+            warnings.warn(
+                f"offload.pinned_memory_pool_gb ({config.offload.pinned_memory_pool_gb:.1f}GB) "
+                f"exceeds 80% of total system RAM ({total_ram:.1f}GB). "
+                f"Risk of host OOM. Consider using pinned_memory_pool_gb: -1.0 for auto-sizing.",
                 stacklevel=2,
             )
 
