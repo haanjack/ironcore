@@ -17,7 +17,7 @@ if [ "$ARCH" == "rocm" ]; then
     BASE_IMAGE=${ROCM_IMAGE:-"rocm/pytorch:rocm7.2_ubuntu24.04_py3.12_pytorch_release_2.8.0"}
     # WSL2 + DXG: detect by /dev/dxg presence
     if [ -e /dev/dxg ]; then
-        TAG="ironcore:halo"
+        TAG="ironcore:rocm-wsl"
     else
         TAG="ironcore:rocm"
     fi
