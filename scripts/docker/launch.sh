@@ -18,7 +18,7 @@ if [ -z "$ARCH" ]; then
     if [ -e /dev/nvidiactl ]; then
         ARCH="cuda"
     elif [ -e /dev/dxg ]; then
-        ARCH="halo"
+        ARCH="rocm-wsl"
     elif [ -e /dev/kfd ]; then
         ARCH="rocm"
     else
@@ -27,7 +27,7 @@ if [ -z "$ARCH" ]; then
 fi
 
 case "$ARCH" in
-    halo)
+    rocm-wsl)
         GPU_FLAGS="-v /usr/lib/wsl/lib/libdxcore.so:/usr/lib/libdxcore.so \
             -v /opt/rocm/lib/librocdxg.so:/usr/lib/librocdxg.so \
             --device=/dev/dxg \
@@ -35,7 +35,7 @@ case "$ARCH" in
             -e HSA_ENABLE_DXG_DETECTION=1 \
             --security-opt seccomp=unconfined \
             --shm-size 8G"
-        IMAGE="ironcore:halo"
+        IMAGE="ironcore:rocm-wsl"
         ;;
     rocm)
         GPU_FLAGS="--device /dev/kfd --device /dev/dri --security-opt seccomp=unconfined --group-add video"

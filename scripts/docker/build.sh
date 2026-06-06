@@ -10,14 +10,14 @@ set +a
 ARCH=${ARCH:-"cuda"}
 github_access_token=${github_access_token:-""}
 
-if [ "$ARCH" == "rocm" ]; then
+if [ "$ARCH" == "rocm" ] || [ "$ARCH" == "rocm-wsl" ]; then
     # ROCm PyTorch image — full tag or let the default apply.
     # WSL2 hosts can override ROCM_IMAGE for a different PyTorch version.
     # Example: ROCM_IMAGE="rocm/pytorch:rocm7.2.3_ubuntu24.04_py3.12_pytorch_release_2.10.0"
     BASE_IMAGE=${ROCM_IMAGE:-"rocm/pytorch:rocm7.2_ubuntu24.04_py3.12_pytorch_release_2.8.0"}
-    # WSL2 + DXG: detect by /dev/dxg presence
-    if [ -e /dev/dxg ]; then
-        TAG="ironcore:halo"
+    # WSL2 + DXG: detect by /dev/dxg presence (or explicit rocm-wsl arch)
+    if [ "$ARCH" == "rocm-wsl" ] || [ -e /dev/dxg ]; then
+        TAG="ironcore:rocm-wsl"
     else
         TAG="ironcore:rocm"
     fi
