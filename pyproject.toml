@@ -24,7 +24,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# NVIDIA CUDA — install with: pip install -e ".[cuda]"
+# Requires: pip install torch --index-url https://download.pytorch.org/whl/cu124
+cuda = [
+    "flash-attn>=2.0",
+]
+# AMD ROCm — install with: pip install -e ".[rocm]"
+# Requires: pip install torch --index-url https://download.pytorch.org/whl/rocm7.2
+# flash-attn for ROCm: pip install flash-attn --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/
+rocm = []
 dev = ["pytest", "pytest-timeout", "ruff"]
+docs = ["mkdocs-material", "pymdown-extensions"]
 
 [project.scripts]
 ironcore = "ironcore.__main__:main"
