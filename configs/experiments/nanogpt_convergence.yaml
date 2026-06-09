@@ -1,0 +1,66 @@
+# nanoGPT convergence comparison — GPT-2 small (124M) on OpenWebText.
+#
+# Hyperparameters match nanoGPT exactly:
+#   github.com/karpathy/nanoGPT  (configs/train_gpt2.py)
+#
+# Batch: 480 seqs × 1024 tokens = 491,520 tokens/step
+#   micro_batch_size=12, gradient_accumulation_steps=40
+#
+# Reference val loss (OpenWebText, same 99/1 split):
+#   ~3.3 @ 1k steps  (~500M tokens)
+#   ~3.0 @ 10k steps (~5B tokens)
+#   ~2.9 @ 50k steps (~25B tokens)
+#   ~2.85 @ convergence (200k+ steps)
+#
+# Usage (single GPU):
+#   ironcore train --config configs/experiments/nanogpt_convergence.yaml
+#
+# Usage (2-GPU DP, same tokens/step):
+#   torchrun --nproc_per_node 2 -m ironcore train \
+#     --config configs/experiments/nanogpt_convergence.yaml \
+#     --micro-batch-size 6 --train-batch-size 480
+
+trainer:
+  micro_batch_size: 12
+  train_batch_size: 480          # 480 seqs × 1024 tok = 491,520 tokens/step
+  gradient_accumulation_steps: 40
+  tensor_model_parallel_size: 1
+  model_path: outputs/nanogpt_convergence
+  save_checkpoint_steps: 1000
+  log_interval: 100
+  use_flash_attn: true
+  vocab_padding_unit: 128        # pad vocab to multiple of 128 for efficiency
+
+operation:
+  train_steps: 2000              # end of warmup, first comparison point (~1B tokens, ~1.5h)
+                                 # extend: 2k→5k→10k→20k→50k
+                                 # trainer auto-resumes from checkpoint on re-run
+  eval_interval: 500             # eval every ~250M tokens for a dense loss curve
+  eval_samples: 500
+  activation_recompute: false
+
+model: nanogpt-small
+
+data:
+  config_path: configs/data/nanogpt_owt.yaml
+  task_type: pretrain
+
+optim:
+  optimizer: adam
+  lr_scheduler: cosine
+  max_lr: 6.0e-4
+  min_lr: 6.0e-5
+  warmup_steps: 2000
+  annealing_steps: 600000        # must match nanoGPT's lr_decay_iters=600k
+                                 # even if train_steps is shorter — ensures LR at step N
+                                 # matches nanoGPT's LR at step N for a fair comparison
+  weight_decay: 0.1
+  no_decay_on_embedding: false   # nanoGPT decays embeddings (ndim>=2 rule)
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1.0e-8
+  clip_grad: 1.0
+
+init:
+  seed: 1337                     # matches nanoGPT default seed
+  init_std: 0.02

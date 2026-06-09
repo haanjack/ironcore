@@ -313,6 +313,6 @@ The offload system's value is enabling **prototype-scale training on consumer ha
 
 ### What would help on desktop
 
-- **Fused CPU AdamW kernel** — single pass over parameters instead of separate element-wise ops
-- **Lower-precision optimizer states** (8-bit Adam) — cut 51 GB → ~13 GB, reducing memory traffic by 4x
-- **Multi-GPU with shared pinned pool** — distribute optimizer work across 2+ GPUs, but limited by PCIe sharing
+- **Fused CPU AdamW kernel:** single pass over parameters instead of separate element-wise ops
+- **Lower-precision optimizer states** (8-bit Adam): cut 51 GB to ~13 GB, reducing memory traffic by 4x
+- **Multi-GPU with shared pinned pool:** distribute optimizer work across 2+ GPUs, but limited by PCIe sharing

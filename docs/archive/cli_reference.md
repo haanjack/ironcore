@@ -1,6 +1,6 @@
 # CLI Reference
 
-IronCore provides 10 subcommands. Run `ironcore --help` for the full list.
+IronCore provides 15 subcommands. Run `ironcore --help` for the full list.
 
 ```
 ironcore <command> [options]
@@ -8,16 +8,21 @@ ironcore <command> [options]
 
 | Command | Description |
 |---------|-------------|
-| [`train`](#train--run-training) | Run training (pretrain, SFT, FIM, DPO, GRPO) |
-| [`preprocess`](#preprocess--preprocess--inspect-datasets) | Tokenize and serialize datasets; inspect integrity |
-| [`track`](#track--configure-logging-backends) | Patch YAML config with logging backend settings |
-| [`evaluate`](#evaluate--run-evaluation-benchmarks) | Run eval benchmarks against a checkpoint |
-| [`verify-step`](#verify-step--single-step-loss-verification) | Run 1 training step, report loss |
-| [`verify-parity`](#verify-parity--parallelism-correctness-verification) | Compare loss curves across TP/DP/FSDP configs |
-| [`profile`](#profile--profile-training-runs) | Profile training with mode presets |
-| [`profile-mfu`](#profile-mfu--mfu-profiling) | Measure Model FLOP Utilization |
-| [`analyze-scaling`](#analyze-scaling--scaling-analysis) | Run multi-scale training, fit scaling laws |
-| [`gen-report`](#gen-report--generate-experiment-reports) | Generate markdown experiment reports |
+| [`train`](#train-run-training) | Run training (pretrain, SFT, FIM, DPO, GRPO) |
+| [`preprocess`](#preprocess-preprocess-inspect-datasets) | Tokenize and serialize datasets; inspect integrity |
+| [`track`](#track-configure-logging-backends) | Patch YAML config with logging backend settings |
+| [`evaluate`](#evaluate-run-evaluation-benchmarks) | Run eval benchmarks against a checkpoint |
+| [`verify-step`](#verify-step-single-step-loss-verification) | Run 1 training step, report loss |
+| [`verify-parity`](#verify-parity-parallelism-correctness-verification) | Compare loss curves across TP/DP/FSDP configs |
+| [`profile`](#profile-profile-training-runs) | Profile training with mode presets |
+| [`profile-mfu`](#profile-mfu-mfu-profiling) | Measure Model FLOP Utilization |
+| [`analyze-scaling`](#analyze-scaling-scaling-analysis) | Run multi-scale training, fit scaling laws |
+| [`gen-report`](#gen-report-generate-experiment-reports) | Generate markdown experiment reports |
+| [`config-check`](#config-check-validate-inspect-configs) | Validate, diff, and print resolved training configs |
+| [`tokenize`](#tokenize-tokenize-show-statistics) | Tokenize text/file and show token statistics |
+| [`inspect-checkpoint`](#inspect-checkpoint-inspect-checkpoint-contents) | Inspect checkpoint contents, metadata, and diffs |
+| [`export`](#export-export-to-huggingface) | Export a checkpoint to HuggingFace format |
+| [`generate`](#generate-generate-text) | Generate text from a checkpoint (prompt, REPL, or chat) |
 
 ## Core Commands
 
@@ -349,6 +354,105 @@ Reports are written to `experiments/<category>/<name>.md` and include:
 - Analysis
 - Conclusion (status, criteria, next steps)
 - Artifacts (paths to configs, checkpoints, logs, profiles)
+
+### `config-check` — Validate & Inspect Configs
+
+Validates a training config, optionally diffs it against another, and prints the fully
+resolved config (after defaults and overrides) as YAML.
+
+```bash
+ironcore config-check --config configs/pretrain_micro.yaml --show
+ironcore config-check --config configs/a.yaml --diff configs/b.yaml
+ironcore config-check --config configs/sft_small.yaml --validate-only
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--diff` | No | Second config to compare against |
+| `--show` | No | Print resolved config as YAML |
+| `--validate-only` | No | Only validate; produce no output |
+
+### `tokenize` — Tokenize & Show Statistics
+
+Tokenizes a literal string or text file with the config's tokenizer and reports token counts
+and sequence-length statistics.
+
+```bash
+ironcore tokenize --config configs/pretrain_micro.yaml --input "Hello world"
+ironcore tokenize --config configs/pretrain_micro.yaml --input data/sample.txt --histogram
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--input` | Yes | Text file path or literal string |
+| `--show-tokens` | No | Display per-token breakdown |
+| `--histogram` | No | Show sequence-length histogram |
+
+### `inspect-checkpoint` — Inspect Checkpoint Contents
+
+Inspects a checkpoint's contents and metadata, optionally diffing weights against a second
+checkpoint.
+
+```bash
+ironcore inspect-checkpoint --path checkpoints/step_1000
+ironcore inspect-checkpoint --path checkpoints/step_1000 --compare checkpoints/step_2000 --verbose
+ironcore inspect-checkpoint --path checkpoints/step_1000 --json
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--path` | Yes | Path to checkpoint directory |
+| `--compare` | No | Second checkpoint for weight-diff comparison |
+| `--verbose` | No | Show per-layer weight stats |
+| `--json` | No | Machine-readable JSON output |
+
+### `export` — Export to HuggingFace
+
+Exports a native checkpoint to HuggingFace format (`safetensors` by default), with optional
+sharding and explicit target architecture.
+
+```bash
+ironcore export --config configs/pretrain_micro.yaml \
+    --output-dir exports/my-model
+ironcore export --config configs/pretrain_micro.yaml \
+    --checkpoint checkpoints/step_2000 --output-dir exports/my-model --shard-size 2000
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--checkpoint` | No | Checkpoint path (overrides `trainer.model_path`) |
+| `--output-dir` | Yes | Output directory for the HF checkpoint |
+| `--format` | No | Output format (default: `safetensors`) |
+| `--shard-size` | No | Shard size in MB (no sharding if omitted) |
+| `--architecture` | No | Target architecture (auto-detect if omitted) |
+
+### `generate` — Generate Text
+
+Generates text from a checkpoint. Supply `--prompt` for one-shot generation, omit it for an
+interactive REPL, or use `--chat` for chat-template mode.
+
+```bash
+ironcore generate --config configs/pretrain_micro.yaml \
+    --checkpoint checkpoints/step_2000 --prompt "Once upon a time"
+ironcore generate --config configs/sft_small.yaml --chat \
+    --system-prompt "You are a helpful assistant."
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--config` | Yes | Path to training config YAML |
+| `--checkpoint` | No | Checkpoint path (overrides `trainer.model_path`) |
+| `--prompt` | No | Prompt text (omit for interactive REPL) |
+| `--max-new-tokens` | No | Max tokens to generate (default: 128) |
+| `--temperature` | No | Sampling temperature (default: 1.0) |
+| `--top-p` | No | Top-p (nucleus) sampling (default: 1.0) |
+| `--top-k` | No | Top-k sampling (0 = disabled) |
+| `--no-sample` | No | Use greedy decoding |
+| `--system-prompt` | No | System prompt for chat mode |
+| `--chat` | No | Enable chat-template mode |
 
 ## Mini Model Configs
 

@@ -2,10 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import inspect
-
 from torch import nn
-from torch.optim import AdamW, Optimizer
+from torch.optim import Optimizer
 
 from ironcore.config import MainConfig
 from ironcore.global_vars import get_logger
@@ -23,7 +21,7 @@ __all__ = [
 ]
 
 
-def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> Optimizer:
+def get_optimizer(config: MainConfig, model) -> Optimizer:
     """Returns the optimizer."""
 
     logger = get_logger()
@@ -80,10 +78,6 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
         f"({100.0 * trainable_params / total_params:.2f}%)"
     )
 
-    fused_available = "fused" in inspect.signature(AdamW).parameters
-    use_fused = fused_available and "cuda" in device_type
-    extra_args = dict(fused=False) if use_fused else dict()
-
     if config.optim.optimizer in ("adam", "adamw"):
         optimizer = AdamWOptimizer(
             optimizer_grouped_parameters,
@@ -94,11 +88,10 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
             offload_enabled=config.offload.enabled and config.offload.optimizer_offload,
             offload_min_param_elements=config.offload.optimizer_min_param_elements,
             optimizer_state_precision=config.offload.optimizer_state_precision,
-            **extra_args,
         )
 
     elif config.optim.optimizer == "muon":
-        optimizer = get_muon_optimizer(config, model, device_type)
+        optimizer = get_muon_optimizer(config, model)
 
     else:
         message = f"optimizer {config.optim.optimizer} is not implemented"
@@ -108,7 +101,7 @@ def get_optimizer(config: MainConfig, model, device_type: str | None = None) -> 
     return optimizer
 
 
-def get_muon_optimizer(config: MainConfig, model, device_type: str | None = None) -> MuonOptimizer:
+def get_muon_optimizer(config: MainConfig, model) -> MuonOptimizer:
     """
     Create Muon optimizer with proper parameter grouping.
 
@@ -119,7 +112,6 @@ def get_muon_optimizer(config: MainConfig, model, device_type: str | None = None
     Args:
         config: MainConfig with optimizer settings
         model: The model to optimize
-        device_type: Device type for fused operations
 
     Returns:
         MuonOptimizer instance

@@ -70,14 +70,35 @@ def _build_rollout_output(
 
 
 def _fsdp_done_check(done_mask: torch.Tensor, device: torch.device) -> bool | None:
-    """Check FSDP sync: returns True if should break, False if dummy forward needed, None if not all done."""
-    if not done_mask.all():
-        return None
+    """Coordinate decode loop termination across FSDP data-parallel ranks.
+
+    FSDP requires all ranks to call model.forward() the same number of times.
+    When one rank's sequences finish before another's, the finished rank must
+    keep issuing dummy forwards until all ranks are done.
+
+    Must be called every decode step by ALL ranks simultaneously so the
+    underlying dist.all_reduce collective is always balanced.
+
+    Returns:
+        True  — all FSDP ranks are done; break the loop.
+        False — this rank is done but at least one other rank isn't; do a dummy forward.
+        None  — this rank still has active sequences; proceed normally.
+    """
+    locally_active = not done_mask.all()
+
     if not dist.is_initialized():
-        return True
-    done_signal = torch.tensor(0, dtype=torch.int8, device=device)
-    dist.all_reduce(done_signal, op=dist.ReduceOp.MAX)
-    return done_signal.item() == 0
+        return None if locally_active else True
+
+    # All ranks participate every step: 1 = still active, 0 = done.
+    active_signal = torch.tensor(1 if locally_active else 0, dtype=torch.int8, device=device)
+    dist.all_reduce(active_signal, op=dist.ReduceOp.MAX)
+
+    any_rank_active = active_signal.item() > 0
+    if not any_rank_active:
+        return True  # Every rank finished — safe to break.
+    if not locally_active:
+        return False  # This rank is done but others aren't — dummy forward.
+    return None  # This rank still has active sequences.
 
 
 def _expand_kv_cache(
@@ -381,6 +402,7 @@ def generate_rollouts_paged(
     top_k: int = 0,
     do_sample: bool = True,
     eos_token_id: int | None = None,
+    prompt_lengths: torch.Tensor | None = None,
 ) -> RolloutBuffer:
     """Generate G completions per prompt using block-based paged KV cache.
 
@@ -393,7 +415,8 @@ def generate_rollouts_paged(
 
     Args:
         model: Language model with block_kv_cache_manager support
-        prompt_ids: [B, prompt_len] prompt token IDs
+        prompt_ids: [B, prompt_len] prompt token IDs. May be padded; pass
+            ``prompt_lengths`` to avoid caching padding tokens.
         group_size: Number of completions per prompt (G)
         metadata: List of metadata dicts for each prompt [B]
         max_new_tokens: Maximum tokens to generate
@@ -402,6 +425,10 @@ def generate_rollouts_paged(
         top_k: Top-k cutoff
         do_sample: If False, use greedy decoding
         eos_token_id: EOS token ID for early stopping
+        prompt_lengths: Optional [B] int tensor of true (unpadded) prompt lengths.
+            When provided, each prompt is sliced to its true length before prefill
+            so padding tokens are never written into the KV cache. RoPE positions
+            are therefore computed over the actual token sequence only.
 
     Returns:
         RolloutBuffer with completions, log probs, and metadata
@@ -442,21 +469,26 @@ def generate_rollouts_paged(
                 pass
 
         block_size = bkv.block_size
-        blocks_per_prompt = (prompt_len + block_size - 1) // block_size
 
         # === Step 1: Prefill each prompt into block cache ===
-        # No padding — prompts are written at their true length so RoPE positions
-        # match training-time recomputation exactly. Partial last blocks are
-        # handled correctly by tokens_written tracking in gather functions.
+        # Prompts are written at their true (unpadded) length so RoPE positions
+        # match training-time recomputation exactly. When prompt_lengths is given,
+        # each prompt is sliced before the forward pass — padding tokens are never
+        # written into the KV cache. Partial last blocks are handled correctly by
+        # tokens_written tracking in gather functions.
         with profile_context("grpo_paged_prefill"):
             prefill_logits_list = []
             for i in range(B):
-                bkv.allocate_blocks(seq_id=i, count=blocks_per_prompt)
+                true_len = (
+                    int(prompt_lengths[i].item()) if prompt_lengths is not None else prompt_len
+                )
+                blocks_needed = (true_len + block_size - 1) // block_size
+                bkv.allocate_blocks(seq_id=i, count=blocks_needed)
 
-                single_prompt = prompt_ids[i : i + 1]
+                single_prompt = prompt_ids[i : i + 1, :true_len]
                 logits, _ = model(single_prompt, labels=None, seq_id=i)
 
-                bkv.advance_position(seq_id=i, tokens=prompt_len)
+                bkv.advance_position(seq_id=i, tokens=true_len)
 
                 prefill_logits_list.append(logits[:, -1, :])
 

@@ -10,32 +10,24 @@ Consumer desktop with single GPU (8–24 GB VRAM), 32–128 GB host RAM. Single-
 
 ## Architecture
 
-```
-ExecutionScheduler                     # Central coordinator
-  |
-  +-- PinnedMemoryPool                 # Host page-locked memory allocator
-  +-- GPUStagingPool                   # GPU pre-allocated memory allocator
-  +-- MemoryTransferEngine             # Async H2D/D2H DMA on CUDA streams
-  +-- TileManager                      # Weight tiling, precision conversion, reassembly
-  +-- ActivationSpillManager           # Forward D2H spill + backward H2D prefetch
-```
+![Offload subsystem architecture: ExecutionScheduler coordinating PinnedMemoryPool, GPUStagingPool, MemoryTransferEngine, TileManager, and ActivationSpillManager](assets/offload-architecture.png)
 
 ### ExecutionScheduler
 
 Created via `ExecutionScheduler.from_model(model, config, device)`. Owns all sub-components and orchestrates data movement across the training loop. The trainer calls hooks at each phase:
 
-```
-on_training_step_start()              # Prefetch first N layers
-  for each micro-batch:
-    on_microbatch_forward_start(i)     # Begin tracking activations
-    [forward pass — per-layer hooks]
-    on_microbatch_forward_end(i)
-    on_microbatch_backward_start(i)
-    [backward pass — per-layer hooks]
-    on_microbatch_backward_end(i)
-  on_backward_pass_end()               # Move grads to CPU, evict weights
-  [optimizer step — CPU]
-  on_training_step_end()               # Snapshot updated params to host
+```mermaid
+flowchart TD
+    S["on_training_step_start()<br/>prefetch first N layers"] --> FS["on_microbatch_forward_start(i)<br/>begin tracking activations"]
+    FS --> FWD["forward pass — per-layer hooks"]
+    FWD --> FE["on_microbatch_forward_end(i)"]
+    FE --> BS["on_microbatch_backward_start(i)"]
+    BS --> BWD["backward pass — per-layer hooks"]
+    BWD --> BE["on_microbatch_backward_end(i)"]
+    BE -->|next micro-batch| FS
+    BE -->|all micro-batches done| BPE["on_backward_pass_end()<br/>grads → CPU, evict weights"]
+    BPE --> OPT["optimizer step — CPU"]
+    OPT --> SE["on_training_step_end()<br/>snapshot updated params to host"]
 ```
 
 ### PinnedMemoryPool
@@ -66,13 +58,20 @@ Moves optimizer states (momentum, variance) to CPU RAM. Parameters remain on GPU
 
 ### Data flow
 
-```
-GPU                              CPU
-┌──────────┐                 ┌──────────────────┐
-│ params   │ ──grad D2H──→  │ exp_avg (bf16)   │
-│          │                 │ exp_avg_sq (bf16) │
-│          │ ←──delta H2D── │ AdamW compute     │
-└──────────┘                 └──────────────────┘
+```mermaid
+flowchart LR
+    subgraph GPU
+      P["params + grad"]
+    end
+    subgraph CPU["CPU (pinned)"]
+      C["AdamW compute (SIMD/AVX-512)"]
+      A["exp_avg (bf16)"]
+      V["exp_avg_sq (bf16)"]
+    end
+    P -- "grad D2H" --> C
+    C --- A
+    C --- V
+    C -- "delta H2D" --> P
 ```
 
 ### Implementation
@@ -92,12 +91,12 @@ Shared by both `AdamWOptimizer.step()` and `MuonOptimizer._step_adamw()`.
 | Field | Default | Description |
 |-------|---------|-------------|
 | `optimizer_offload` | `false` | Enable optimizer offload |
-| `optimizer_state_precision` | `"fp32"` | Storage dtype: `"fp32"` or `"bf16"` |
+| `optimizer_state_precision` | `"fp32"` | Storage dtype: `"fp32"` \| `"bf16"` \| `"fp16"` |
 | `optimizer_min_param_elements` | `65536` | Skip offload for params smaller than this |
 
 ### VRAM savings
 
-Removes optimizer states from GPU: ~2× model size in fp32, ~1× model size in bf16.
+Removes optimizer states from GPU. For `P` parameters: fp32 states = `2 × P × 4` bytes = 2× the fp32 model size; bf16 states = `2 × P × 2` bytes = 1× the fp32 model size (= 2× the bf16 model size).
 
 ### Measured performance
 
@@ -113,23 +112,27 @@ Streams model weights to GPU layer-by-layer during forward/backward, keeping the
 
 ### Data flow
 
+```mermaid
+flowchart LR
+    subgraph CPU["CPU (pinned) — all layers"]
+      direction TB
+      C1["L(i)"]
+      C2["L(i+1)"]
+      C3["L(i+2)"]
+    end
+    subgraph GPU["GPU staging — prefetch window (prefetch_layers + 1)"]
+      direction TB
+      G1["L(i) — executing"]
+      G2["L(i+1) — prefetching"]
+      G3["L(i+2) — prefetching"]
+    end
+    C1 -- H2D --> G1
+    C2 -- H2D --> G2
+    C3 -- H2D --> G3
 ```
-Forward pass (layer i):
-                    Prefetch window
-                    ┌─────────────┐
-CPU                 │ GPU          │
-┌───────┐          │ ┌─────────┐  │
-│ L(i-1)│          │ │ L(i)    │  │ ← executing
-│ L(i)  │ ──H2D──→│ │ L(i+1)  │  │ ← prefetching
-│ L(i+1)│          │ │ L(i+2)  │  │ ← prefetching
-│ L(i+2)│          │ └─────────┘  │
-│ ...   │          │              │
-└───────┘          └─────────────┘
 
-After layer i completes:
-  - L(i) evicted from GPU (buffer returned to staging pool)
-  - L(i+3) prefetched from CPU
-```
+After layer `i` completes: `L(i)` is evicted from GPU (buffer returned to the staging pool) and
+`L(i+3)` is prefetched from CPU — the window slides forward by one layer.
 
 ### Implementation
 
@@ -142,6 +145,12 @@ Files: `scheduler.py`, `tile_manager.py`, `gpu_staging_pool.py`
 3. **Backward:** Layers traversed in reverse. `on_backward_layer_start(i)` reloads weights. `on_backward_layer_end(i)` evicts and prefetches previous layers.
 
 4. **Step end:** `snapshot_params_to_host()` copies updated params back to host tiles.
+
+**TP rank independence.** Each TP rank holds its own parameter shard (a column- or
+row-parallel slice of each weight matrix). `TileManager` is instantiated per rank and streams
+only that rank's shard — there is no cross-rank coordination during streaming. The GPU staging
+pool is sized to the local shard dimensions, not the full-weight dimensions, so VRAM overhead
+scales as `(prefetch_layers + 1) × local_layer_bytes` independent of TP degree.
 
 ### Config
 
@@ -160,6 +169,9 @@ Removes model weights from GPU: ~1× model size. GPU only needs `prefetch_layers
 
 ### Measured performance
 
+These figures are from **full offload mode** (optimizer + weight + activation combined); pure
+weight-streaming-only numbers are not isolated separately.
+
 | Model | Mode | Step Time | Throughput |
 |-------|------|-----------|------------|
 | 7B | Full (full offload) | 23.8s | 2.5/min |
@@ -169,24 +181,20 @@ Removes model weights from GPU: ~1× model size. GPU only needs `prefetch_layers
 
 ## Activation Spilling
 
-Saves forward-pass activations to CPU during forward, restores them during backward. Replaces activation checkpointing (which recomputes instead of saving).
+Saves the **input** activation of each sub-block to CPU during forward; in backward, restores that saved input and recomputes only the sub-block (not the full forward pass) under `torch.enable_grad()` to obtain gradients. Compared with standard activation checkpointing — which discards all intermediate tensors and recomputes the entire forward pass — spilling reduces recomputation to one sub-block at a time while trading GPU VRAM for host RAM bandwidth.
 
 ### Data flow
 
-```
-Forward (sub_layer within layer i):
-  GPU                                 CPU
-  ┌──────────────┐                   ┌──────────────┐
-  │ activation_i │ ──async D2H──→    │ activation_i │ (pinned)
-  │ [freed]      │                   │              │
-  └──────────────┘                   └──────────────┘
-
-Backward (same sub_layer):
-  CPU                                 GPU
-  ┌──────────────┐                   ┌──────────────┐
-  │ activation_i │ ──async H2D──→    │ activation_i │
-  │ [freed]      │                   │ [consumed]   │
-  └──────────────┘                   └──────────────┘
+```mermaid
+sequenceDiagram
+    participant G as GPU
+    participant C as CPU (pinned)
+    Note over G,C: Forward (sub-layer within layer i)
+    G->>C: async D2H — spill activation_i
+    Note over G: activation_i freed on GPU
+    Note over G,C: Backward (same sub-layer)
+    C->>G: async H2D — restore activation_i
+    Note over C: host buffer freed (free-after-consume)
 ```
 
 ### Implementation
@@ -201,6 +209,15 @@ File: `ironcore/offload/hooks.py`
 Two granularity modes:
 - `"sub_layer"`: Two spills per layer (hidden_states before attention, norm_input before MLP).
 - `"full_layer"`: One spill per layer (attention + MLP together).
+
+**Async TP interaction.** When `sequence_chunk_size` is set (async TP mode),
+`RowParallelLinear.forward(async_communication=True)` returns a `(partial_output, handle)` pair;
+the all-reduce is still in flight when control returns to the layer. The activation spill hook
+must wait on that handle before submitting the D2H transfer, otherwise the host buffer may
+capture a partial (unreduced) tensor. The current implementation resolves the handle inside
+`TransformerLayer.custom_forward()` before calling into `_SpillCheckpointFn`, so async TP and
+activation spilling are safe to combine — but enabling both simultaneously is not yet validated
+by a dedicated multi-GPU test. Treat the combination as experimental.
 
 ### Config
 
@@ -227,78 +244,26 @@ With activation spilling, steady-state VRAM is constant regardless of seq_len be
 
 ## Component Interactions
 
-### optimizer offload (optimizer offload)
+The three mechanisms compose into a staircase of memory layouts — each step moves more state from
+GPU VRAM to host RAM:
 
-Simplest mode. No scheduler needed. Optimizer states allocated on CPU. Parameters stay on GPU. AdamW runs on CPU.
+![GPU vs CPU memory layout across the three offload modes](assets/offload-memory-layout.png)
 
-```
-┌────────────────────┐
-│ GPU                │
-│ ┌────────────────┐ │
-│ │ model weights  │ │
-│ │ activations    │ │
-│ └────────────────┘ │
-└────────────────────┘
+### optimizer offload
 
-┌────────────────────┐
-│ CPU (pinned)       │
-│ ┌────────────────┐ │
-│ │ exp_avg        │ │
-│ │ exp_avg_sq     │ │
-│ └────────────────┘ │
-└────────────────────┘
-```
+Simplest mode. No scheduler needed. Optimizer states allocated on CPU; parameters stay on GPU;
+AdamW runs on CPU. **Best for:** models where weights fit in GPU but optimizer states don't.
 
-Best for: models where weights fit in GPU but optimizer states don't.
+### optimizer + weight offload
 
-### Optimizer + weight offload (optimizer + weight offload)
+Weights stream to GPU layer-by-layer; optimizer states on CPU. When weight streaming is active,
+params are on CPU during the optimizer step, so the GPU→CPU grad transfer becomes a no-op.
+**Best for:** models where weights alone exceed GPU VRAM.
 
-Weights stream to GPU layer-by-layer. Optimizer states on CPU. When weight streaming is active, params are on CPU during optimizer step, so the GPU→CPU grad transfer becomes a no-op.
+### full offload (optimizer + weight + activation)
 
-```
-┌────────────────────┐
-│ GPU                │
-│ ┌────────────────┐ │
-│ │ staging window │ │ ← prefetch_layers + 1 layers
-│ │ activations    │ │
-│ └────────────────┘ │
-└────────────────────┘
-
-┌────────────────────┐
-│ CPU (pinned)       │
-│ ┌────────────────┐ │
-│ │ ALL weights    │ │
-│ │ exp_avg        │ │
-│ │ exp_avg_sq     │ │
-│ └────────────────┘ │
-└────────────────────┘
-```
-
-Best for: models where weights alone exceed GPU VRAM.
-
-### Full offload (optimizer + weight + activation)
-
-All three mechanisms active. Weights stream in/out, activations spill to CPU, optimizer states on CPU. Maximum memory savings.
-
-```
-┌────────────────────┐
-│ GPU                │
-│ ┌────────────────┐ │
-│ │ staging window │ │ ← current layer weights
-│ └────────────────┘ │
-└────────────────────┘
-
-┌────────────────────────────┐
-│ CPU (pinned)               │
-│ ┌────────────────────────┐ │
-│ │ ALL weights            │ │
-│ │ optimizer states       │ │
-│ │ spilled activations    │ │ ← freed as backward consumes
-│ └────────────────────────┘ │
-└────────────────────────────┘
-```
-
-Best for: maximum model size on minimum GPU VRAM.
+All three mechanisms active: weights stream in/out, activations spill to CPU, optimizer states on
+CPU. **Best for:** maximum model size on minimum GPU VRAM.
 
 ---
 
@@ -324,7 +289,7 @@ offload:
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Master switch |
 | `optimizer_offload` | bool | `false` | offload optimizer states to CPU |
-| `optimizer_state_precision` | str | `"fp32"` | `"fp32"` or `"bf16"` |
+| `optimizer_state_precision` | str | `"fp32"` | `"fp32"` \| `"bf16"` \| `"fp16"` |
 | `optimizer_min_param_elements` | int | `65536` | Min param size for offload |
 | `weight_offload` | bool | `false` | per-layer weight streaming |
 | `weight_prefetch_layers` | int | `2` | Forward lookahead depth |
@@ -383,14 +348,123 @@ for i, layer in enumerate(self.layers):
 | Mode | DDP | FSDP shard_grad_op | FSDP full_shard | TP |
 |------|-----|---------------------|-----------------|-----|
 | optimizer offload | Supported | Supported (use_orig_params=True) | Blocked (duplicated states) | Supported |
-| weight streaming | Supported | Supported | Supported | Supported |
+| weight streaming | Supported | Skipped (FSDP manages param lifecycle) | Skipped (FSDP manages param lifecycle) | Supported |
 | activation spilling | Supported | Supported | Supported | Supported |
-| full offload | Supported | Supported | activation spilling | Supported |
+| full offload | Supported | Partial (act spill + opt offload; weight streaming skipped) | Partial (act spill only; weight streaming skipped, opt offload blocked) | Supported |
 
 Config validation guards prevent invalid combinations:
 - optimizer offload + FSDP full_shard: raises ValueError (duplicated optimizer states on host)
 - optimizer offload + FSDP CPUOffload: raises ValueError (redundant)
 - optimizer offload + FSDP without use_orig_params: raises ValueError (FlatParameter breaks optimizer refs)
+
+> **Note — FSDP2 / `torch.distributed._composable.fsdp`:** The current weight streaming
+> implementation conflicts with FSDP because both systems manage `param.data`. FSDP2 exposes a
+> `CPUOffloadPolicy` with pinned-memory support that could make this combination coherent.
+> Migration to FSDP2 (tracked in [parallelism.md](parallelism.md#future-directions)) would also
+> require updating the activation-checkpointing hook API.
+
+---
+
+## Offload vs FSDP and Distributed Training
+
+Offload (placement of states across GPU/host) is orthogonal to FSDP and `DistributedOptimizer`
+(partitioning of states across ranks). This section captures the design-level relationship; the
+exhaustive multi-GPU configuration catalog and historical notes live in the archived
+[Offload + Distributed Training Architecture](https://github.com/haanjack/ironcore/blob/main/docs/archive/offload_fsdp_architecture.md).
+
+### Capability matrix
+
+| Capability | FSDP FULL_SHARD | FSDP SHARD_GRAD_OP | Optimizer offload | Weight streaming | Activation spilling |
+|---|---|---|---|---|---|
+| Parameter / gradient sharding | Yes (ZeRO-3) | Yes (ZeRO-2) | No | No | No |
+| Optimizer state sharding | Yes (ZeRO-3) | No (replicated) | No | No | No |
+| Optimizer state CPU offload | No | No | **Yes** | N/A | N/A |
+| Configurable state precision | No (fp32) | No (fp32) | **Yes (fp32/bf16/fp16)** | N/A | N/A |
+| Per-param offload threshold / LoRA exclusion | No | No | **Yes** | No | No |
+| Weight streaming w/ GPU staging | No | No | No | **Yes** | No |
+| Activation D2H/H2D spill | No | No | No | No | **Yes** |
+| Multi-GPU required | Yes | Yes | No | No | No |
+| Gradient accumulation | Yes | Yes | Yes | Yes | Yes |
+
+Activation spilling and configurable optimizer-state precision are unique to IronCore — neither
+FSDP nor DeepSpeed ZeRO provides CPU activation spill, and both are essentially fp32-only for
+optimizer states.
+
+### Memory formulas
+
+For `P` parameters, `N` ranks, dtype bytes `D` (2 = bf16, 4 = fp32):
+
+| Component | Formula | Notes |
+|---|---|---|
+| Parameters (full / sharded) | `P*D` / `P*D/N` | sharded = per-rank with FSDP |
+| Gradients (full / sharded) | `P*D` / `P*D/N` | same size as params |
+| Optimizer states (fp32 AdamW) | `2*P*4` | exp_avg + exp_avg_sq |
+| Optimizer states (bf16 AdamW) | `2*P*2` | optimizer offload, bf16 precision |
+| Optimizer states (ZeRO-1 + offload bf16) | `2*P*2/N` | DistributedOptimizer + offload |
+| GPU staging pool (weight streaming) | `(prefetch_layers+1) * layer_bytes` | sliding window |
+| Activations | `batch*seq*hidden*layers*k` | k = 1–5 (checkpointing) |
+
+**Host-memory avoidance rule (critical).** Never duplicate optimizer states on the host. FSDP
+FULL_SHARD already keeps a per-rank optimizer shard, so combining it with optimizer offload
+creates a *second* full host copy (`2*P*4/N + 2*P*2`) — hence the config-validation block above.
+Safe combinations keep exactly one host copy: `DDP + optimizer offload (bf16) = 2*P*2`;
+`DDP + DistOpt + optimizer offload (bf16) = 2*P*2/N`; `SHARD_GRAD_OP + optimizer offload (bf16) = 2*P*2`.
+
+Worked comparison (13B model, 4 GPUs, bf16 params):
+
+| Configuration | GPU per rank | Host per rank |
+|---|---|---|
+| No offload, DDP | 112–132 GB | ~0 GB |
+| Full offload, DDP | ~27 GB | 30–50 GB |
+| Full offload + DistOpt, DDP | ~27 GB | 37–43 GB |
+| FSDP FULL_SHARD | 60–72 GB | ~0 GB |
+| FSDP SHARD_GRAD_OP + optimizer offload + activation spill | ~39 GB | 30–36 GB |
+
+### Choosing a configuration
+
+```mermaid
+flowchart TD
+    A[How many GPUs?] -->|1 GPU| D{Model fits in VRAM?}
+    A -->|Multiple| K{Using FSDP?}
+    D -->|Yes| E[No offload needed]
+    D -->|No| F{What does not fit?}
+    F -->|Optimizer states| G[optimizer_offload=true]
+    F -->|Activations| H[activation_spill=true]
+    F -->|Parameters| I[weight_offload=true]
+    F -->|Multiple| J[Enable all three]
+    K -->|Yes| L{Fits per-GPU after shard?}
+    L -->|Yes| M[FSDP alone; add activation_spill if needed]
+    L -->|No| N[SHARD_GRAD_OP + optimizer_offload + activation_spill]
+    K -->|No / DDP| O{Optimizer states too large per-rank?}
+    O -->|Yes| P[DDP + DistributedOptimizer + optimizer_offload + activation_spill]
+    O -->|No| Q[DDP + optimizer_offload + activation_spill]
+```
+
+| Scenario | Recommended config |
+|---|---|
+| Single GPU, 7B, 24 GB VRAM | full offload (optimizer + weight + activation) |
+| Single GPU, 7B, 48 GB VRAM | optimizer offload + activation spilling |
+| 4× GPU, FSDP, 13B, 48 GB each | FSDP SHARD_GRAD_OP + optimizer offload + activation spilling (`fsdp_use_orig_params=true`) |
+| 4× GPU, DDP, 13B, 48 GB each | DDP + DistOpt + optimizer offload + activation spilling |
+| 8× GPU, FSDP, 70B | FSDP FULL_SHARD + activation spilling |
+
+### DistributedOptimizer + optimizer offload
+
+`DistributedOptimizer` (ZeRO-1) shards optimizer **states** across DP ranks so each rank owns
+`1/N` of the parameters. When optimizer offload is also enabled, the CPU AdamW step runs on that
+same `1/N` shard — not duplicating any work.
+
+However, `DistributedOptimizer` broadcasts updated `param.data` on the GPU after each step. With
+optimizer offload the params are updated on CPU, so an H2D transfer must precede the broadcast:
+
+```
+CPU step (rank's 1/N shard)  →  H2D param transfer  →  GPU broadcast (all DP ranks)
+```
+
+This H2D transfer is handled by `_adamw_offloaded_step()` writing the delta back to the GPU
+parameter buffer before the broadcast loop in `DistributedOptimizer.step()`. The net result:
+each rank holds `2 × P × 2 / N` bytes of optimizer state on host, giving the lowest per-rank
+host footprint of any DDP configuration.
 
 ---
 
@@ -455,7 +529,7 @@ Thread scaling test on AdamW (7 tensors per layer, 13B model distribution):
 | 16 (best) | 869ms | 2.5 GB/s |
 | 24 (all HT) | 1122ms | 2.0 GB/s |
 
-DDR5 dual-channel saturates at ~2.5 GB/s with 8+ threads. Hyperthreading (24 threads) causes 27% regression. `torch.set_num_threads(12)` (default, physical cores) is near-optimal.
+CPU AdamW compute throughput saturates at ~2.5 GB/s **effective parameter-update bandwidth** with 8+ threads — well below the DDR5 bus ceiling (~96 GB/s). The gap is expected: each AdamW update touches 7 tensors per parameter (read param, grad, exp\_avg, exp\_avg\_sq; write param, exp\_avg, exp\_avg\_sq), and the strided multi-tensor access pattern cannot sustain peak DRAM bandwidth. Hyperthreading (24 threads) causes 27% regression. `torch.set_num_threads(12)` (default, physical cores) is near-optimal.
 
 ### Conclusion
 

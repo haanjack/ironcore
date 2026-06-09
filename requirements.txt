@@ -4,13 +4,11 @@ huggingface_hub
 numpy
 pandas
 pyarrow
-pytest
 python-dotenv
 pyyaml
 safetensors
 tabulate
 tensorboard
 tiktoken
-torch
 tqdm
 transformers>=4.30.0

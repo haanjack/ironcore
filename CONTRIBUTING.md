@@ -80,10 +80,21 @@ This installs IronCore in editable mode plus `pytest` and `ruff` (the `dev` extr
 |---|---|
 | `pyproject.toml` `dependencies` | Runtime Python packages needed to run IronCore |
 | `pyproject.toml` `[dev]` optional-dependencies | `pytest`, `ruff`, and other dev tools |
-| `requirements.txt` | Mirror of `pyproject.toml` dependencies (kept in sync) |
+| `requirements.txt` | Packages installed into the Docker image layer (subset of `pyproject.toml` — excludes torch and dev tools, which come from the NGC base or the `[dev]` extra) |
 | NGC base image | Flash-attn, cuDNN, NCCL, PyTorch — **do not add these to pyproject.toml** |
 
 To upgrade PyTorch or flash-attn, bump `NGC_VERSION` in `.env` (or the `Dockerfile` `ARG BASE_IMAGE`) and rebuild the container. Do not pin these packages inside the repo.
+
+### Building the docs
+
+MkDocs runs outside the container (no GPU needed). Use `uvx` so that torch and other training deps are never pulled in:
+
+```bash
+uvx --with mkdocs-material --with pymdown-extensions --with mkdocs-static-i18n mkdocs serve  # live preview
+uvx --with mkdocs-material --with pymdown-extensions --with mkdocs-static-i18n mkdocs build  # static build → site/
+```
+
+`uvx` creates an isolated environment with only the listed packages — it does not install the project or its core dependencies.
 
 ---
 

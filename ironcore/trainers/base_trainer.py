@@ -356,7 +356,7 @@ class BaseTrainer(ABC):
                 f"{len(result['unexpected_keys'])} unexpected"
             )
 
-        optimizer = get_optimizer(self.config, model, device_type=device)
+        optimizer = get_optimizer(self.config, model)
         self.logger.info("Created Optimizer")
 
         # Wrap with DistributedOptimizer if requested (after optimizer creation, before parallelism)

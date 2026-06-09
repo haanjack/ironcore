@@ -16,9 +16,9 @@ AlignmentConfig
 
 | Component | File | Role |
 |---|---|---|
-| `RewardManager` | `ironcore/alignment/reward_manager.py` | Weighted registry/orchestrator. Extends `RewardFunction` so `RewardWorkerPool` needs zero changes. |
-| `TemplateRuleReward` | `ironcore/alignment/reward_rules.py` | YAML-driven rule reward. Replaces `MathRewardFunction`, `FormatRewardFunction`, `StrictFormatRewardFunction` with config-driven logic. |
-| `RewardModelFunction` | `ironcore/alignment/reward_model.py` | Classifier-head RM scoring (scalar output). Backends: `local_endpoint`, `api`, `local_inference`. |
+| `RewardManager` | `ironcore/alignment/rewards/manager.py` | Weighted registry/orchestrator. Extends `RewardFunction` so `RewardWorkerPool` needs zero changes. |
+| `TemplateRuleReward` | `ironcore/alignment/rewards/template.py` | YAML-driven rule reward. Replaces `MathRewardFunction`, `FormatRewardFunction`, `StrictFormatRewardFunction` with config-driven logic. |
+| `RewardModelFunction` | `ironcore/alignment/rewards/model.py` | Classifier-head RM scoring (scalar output). Backends: `local_endpoint`, `api`, `local_inference`. |
 | `RewardFunctionEntry` | `ironcore/config/config_alignment.py` | Config dataclass for a single reward function entry. |
 | `RewardManagerConfig` | `ironcore/config/config_alignment.py` | Config dataclass holding the list of entries + worker settings. |
 

@@ -18,6 +18,14 @@ ironcore train --config configs/example.yaml
 
 ### Distributed (torchrun)
 
+**Data Parallel — 2 GPUs, pure DP (set `tensor_model_parallel_size: 1` in config):**
+
+```bash
+torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml
+```
+
+**Tensor Parallel — 4 GPUs:**
+
 ```bash
 torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 ```

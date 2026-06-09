@@ -2,25 +2,40 @@
 
 **Personal LLM Training Framework for Learning & Experimentation**
 
-A personal project for practicing AI development and testing training algorithms. Built from scratch to understand LLM training internals — distributed training, parallelism, alignment, and optimization.
+A personal project for practicing AI development and testing training algorithms. Built from
+scratch to understand LLM training internals — distributed training, parallelism, alignment,
+and optimization.
 
 Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experiences.
 
 ## Features
 
-- **Training modes**: Pretraining, SFT, DPO, and GRPO (Group Relative Policy Optimization)
-- **Data preprocessing**: FIM (Fill-in-the-Middle) with PSM format and configurable split strategies
-- **Parallelism**: Tensor Parallelism (TP), Expert Parallelism (EP), Data Parallelism (DP), multi-node, and FSDP
-- **Model architectures**: GPT-2/3, LLaMA, Gemma, Qwen, Phi via unified `TransformerModel`
-- **Mixture of Experts (MoE)**: Expert routing with load-balance and Z-loss, expert parallelism
-- **PEFT / LoRA**: Parameter-efficient fine-tuning with TP-correct implementations
-- **GRPO / RL alignment**: Online rollout generation, group-relative advantage normalization, KL penalty, multi-epoch replay with IS ratio clipping, multi-backend rewards (math, code, keyword, API, local model)
-- **Optimizer**: Muon (Newton-Schulz orthogonalization) + AdamW hybrid with 4 param groups; ZeRO-1 `DistributedOptimizer`
-- **Checkpointing**: Native (universal + distributed TP formats) and HuggingFace-interop save/load
-- **KV cache**: Stateful `KVCacheManager` with prefix caching for efficient rollout generation
-- **MFU tracking**: Model FLOP utilization monitoring during training via `MFUCalculator`
-- **Logging**: TensorBoard, WandB, and MLflow via pluggable logger classes (`TensorboardLogger`, `WandbLogger`, `MLFlowLogger`)
-- Runs on my precious dual RTX 3090 (with NVLink)
+- **Training modes** — Pretraining, SFT, DPO, and GRPO (Group Relative Policy Optimization)
+- **Parallelism** — Tensor Parallelism (TP), Expert Parallelism (EP), Data Parallelism (DP),
+  multi-node, and FSDP; `DistributedOptimizer` for ZeRO-1 state sharding
+- **Model architectures** — GPT-2/3, LLaMA/LLaMA-2/3, Gemma/Gemma-2, Qwen/Qwen2/Qwen3,
+  Mistral, Mixtral, Phi-1/2 via a single `TransformerModel`; GQA/MQA, RoPE, SwiGLU/GeGLU
+- **HF weight loading** — load any LLaMA-family HF checkpoint directly (Qwen2.5, Llama-3,
+  Gemma-2, Mistral, Mixtral, …) via `trainer.pretrained_model_name_or_path`
+- **Mixture of Experts (MoE)** — expert routing with load-balance loss and Z-loss, expert parallelism
+- **PEFT / LoRA** — TP-correct, replicated adapters; `offloadable=False` keeps adapters on GPU
+  while base weights stream to host
+- **GRPO / RL alignment** — online rollout generation, group-relative advantage normalization,
+  KL penalty, multi-epoch replay with IS-ratio clipping, multi-backend rewards (math, code,
+  keyword, API, local model)
+- **Optimizer** — Muon (Newton-Schulz orthogonalization) + AdamW hybrid, ZeRO-1
+  `DistributedOptimizer`
+- **Offload** — RAM-first staircase scaling: optimizer-state offload, weight streaming with GPU
+  staging pool, activation spilling; combine all three for maximum VRAM reduction
+- **Checkpointing** — native (universal + distributed TP formats) and HuggingFace-interop save/load
+- **KV cache** — stateful `KVCacheManager` for inference; block-based `BlockKVCacheManager`
+  with prefix sharing and reference-counted CoW for efficient GRPO rollout
+- **Data preprocessing** — FIM (Fill-in-the-Middle) with PSM format, configurable split
+  strategies, bin-packing SFT collator
+- **MFU tracking** — Model FLOP utilization monitoring via `MFUCalculator`
+- **Logging** — TensorBoard, WandB, and MLflow via pluggable logger classes
+
+Runs on my precious dual RTX 3090 (with NVLink).
 
 <details>
 <summary>My test machine</summary>
@@ -29,16 +44,17 @@ Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experi
 
 ## Installation
 
-IronCore requires the NGC PyTorch container for full functionality — flash attention ships with the base image and cannot be installed via pip on the host.
+IronCore requires the NGC PyTorch container for full functionality — flash attention ships with
+the base image and cannot be installed via pip on the host.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete container-first setup guide.
 
 **Quick start inside the container:**
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/haanjack/ironcore
 cd ironcore
-pip install -e .[dev]
+pip install -e ".[dev]"
 ```
 
 ## Quick Start
@@ -50,8 +66,8 @@ pip install -e .[dev]
 cp .env.example .env
 
 # Build the container
-./scripts/docker/build.sh          # CUDA (default)
-ARCH=rocm ./scripts/docker/build.sh  # ROCm
+./scripts/docker/build.sh                # CUDA (default)
+ARCH=rocm-wsl ./scripts/docker/build.sh  # ROCm (WSL2)
 
 # Launch an interactive shell
 ./scripts/docker/launch.sh bash
@@ -68,28 +84,18 @@ ironcore preprocess --config configs/data/pretrain_example.yaml --inspect
 
 ### Training
 
-The training mode is determined by `data.task_type` in your config (`pretrain`, `sft`, `dpo`, `grpo`).
+The training mode is set by `data.task_type` in your config (`pretrain`, `sft`, `dpo`, `grpo`).
 
-**Single GPU:**
+**Single GPU — smoke test with random data:**
 ```bash
 ironcore train --config configs/example.yaml
 ```
 
-**Tensor Parallel (2 GPUs) — set TP degree in config:**
+**Tensor Parallel (2 GPUs):**
 ```yaml
-# In your config YAML
+# configs/example.yaml
 trainer:
   tensor_model_parallel_size: 2
-```
-```bash
-torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml
-```
-
-**Data Parallel (2 GPUs) — ensure TP degree is 1 in config:**
-```yaml
-# In your config YAML
-trainer:
-  tensor_model_parallel_size: 1
 ```
 ```bash
 torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml
@@ -102,21 +108,36 @@ torchrun --nproc_per_node 8 --nnodes 2 --node_rank 0 \
     -m ironcore train --config configs/example.yaml
 ```
 
-**DPO Training:**
+**DPO:**
 ```bash
 ironcore train --config configs/alignment/dpo_default.yaml
 ```
 
-**GRPO Training:**
-```bash
-ironcore train --config configs/alignment/<grpo_config>.yaml
-```
+**GRPO** — set `data.task_type: grpo` and `alignment.method: grpo`; see
+[docs/alignment.md](docs/alignment.md) for the full field reference.
 
-> A consolidated GRPO example config is not yet in `configs/alignment/`. Set `data.task_type: grpo` and `alignment.method: grpo` in your own config; see [docs/alignment.md](docs/alignment.md) for the full field reference.
-
-**LoRA Fine-tuning:**
+**LoRA fine-tuning:**
 ```bash
 ironcore train --config configs/train_lora_example.yaml
+```
+
+**Train beyond your VRAM (offload):**
+```yaml
+# Add to any config to offload optimizer states + stream weights
+offload:
+  enabled: true
+  optimizer_offload: true
+  optimizer_state_precision: "bf16"
+  weight_offload: true
+  activation_spill: true
+```
+
+### Load a HuggingFace checkpoint
+
+```yaml
+trainer:
+  pretrained_model_name_or_path: "Qwen/Qwen2.5-0.5B-Instruct"
+  # or a local path to any LLaMA-family HF checkpoint
 ```
 
 ## Configuration
@@ -124,27 +145,27 @@ ironcore train --config configs/train_lora_example.yaml
 | Group | Description |
 |-------|-------------|
 | `model` | Model architecture (`gpt2-small`, `llama`, etc.) |
-| `data` | Dataset config, task type (`pretrain` \| `sft` \| `dpo` \| `grpo`), and tokenizer |
-| `trainer` | Batch sizes, parallelism, checkpointing |
-| `optim` | Optimizer, learning rate, scheduler |
-| `operation` | Training steps, eval intervals |
+| `data` | Dataset config, task type (`pretrain` \| `sft` \| `dpo` \| `grpo`), tokenizer |
+| `trainer` | Batch sizes, parallelism, checkpointing, flash attention |
+| `optim` | Optimizer (`adam` \| `muon`), learning rate, scheduler |
+| `operation` | Training steps, eval intervals, activation recompute |
 | `peft` | LoRA rank, alpha, target modules |
-| `alignment` | DPO/GRPO method, beta, group size |
-| `alignment.generation` | Rollout generation (temperature, top-p, chat template) |
-| `alignment.reward_manager` | Reward backend (math, code, keyword, API, local model) |
-| `init` | Random seed |
+| `alignment` | DPO/GRPO method, beta, group size, rollout, reward manager |
+| `offload` | Optimizer offload, weight streaming, activation spilling |
+| `init` | Random seed, init std |
 
 ### Supported Model Architectures
 
-| Family | Models |
-|--------|--------|
-| GPT | `gpt2-small`, `gpt2-medium`, `gpt2-large`, `gpt2-xl`, `gpt3` |
-| LLaMA | `llama-7b`, `llama-13b`, `llama-70b` |
-| Gemma | `gemma-1-2b`, `gemma-1-7b` (Gemma 1 only) |
-| Qwen | `qwen-*` |
-| Phi | `phi-1`, `phi-2` |
+| Family | Notes |
+|--------|-------|
+| GPT | `gpt2-small` through `gpt3` |
+| LLaMA | LLaMA, LLaMA-2, LLaMA-3; HF weight loading supported |
+| Gemma | Gemma 1 + Gemma 2; HF weight loading supported |
+| Qwen | Qwen, Qwen2, Qwen2.5, Qwen3; HF weight loading supported |
+| Mistral / Mixtral | LLaMA-architecture mapping; HF weight loading supported |
+| Phi | Phi-1, Phi-2 |
 
-**Architecture features:** Pre/post-norm, RMSNorm, GQA/MQA, RoPE, GELU/SiLU/SwiGLU/GeGLU
+**Architecture features:** Pre/post-norm, RMSNorm, GQA/MQA, RoPE, GELU/SiLU/SwiGLU/GeGLU, MoE
 
 **Limitations:** No sliding window attention, no multimodal support, no encoder-decoder.
 
@@ -153,9 +174,12 @@ ironcore train --config configs/train_lora_example.yaml
 ```yaml
 trainer:
   micro_batch_size: 4
-  train_batch_size: 480
-  gradient_accumulation_steps: 60
+  train_batch_size: 8
+  gradient_accumulation_steps: 2
   tensor_model_parallel_size: 1
+  save_checkpoint_steps: 1000
+  log_interval: 10
+  model_path: outputs/example
 
 operation:
   train_steps: 2000
@@ -164,13 +188,20 @@ operation:
 model: gpt2-small
 
 data:
-  task_type: pretrain  # pretrain | sft | dpo | grpo
-  config_path: configs/data/full_owt_pretrain.yaml
+  task_type: pretrain       # pretrain | sft | dpo | grpo
+  use_mock_data: true       # use random data (no preprocessing needed)
 
 optim:
-  optimizer: adam
+  optimizer: adam           # adam | muon
+  lr_scheduler: cosine
   max_lr: 6.0e-4
+  min_lr: 6.0e-5
   warmup_steps: 100
+  weight_decay: 0.1
+  clip_grad: 1.0
+
+init:
+  seed: 42
 ```
 
 ## Documentation
@@ -179,15 +210,18 @@ optim:
 |-------|-----|
 | Contributing (setup, coding standards, PR workflow) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Getting started | [docs/getting_started.md](docs/getting_started.md) |
-| Checkpointing (native + HF interop) | [docs/checkpointing.md](docs/checkpointing.md) |
-| Optimizer (Muon + AdamW, ZeRO-1) | [docs/optimizer.md](docs/optimizer.md) |
+| CLI guide & reference | [docs/cli_guide.md](docs/cli_guide.md) |
+| Parallelism (TP/EP/DP/FSDP) | [docs/parallelism.md](docs/parallelism.md) |
 | Trainers (BaseTrainer lifecycle) | [docs/trainers.md](docs/trainers.md) |
+| Optimizer (Muon + AdamW, ZeRO-1) | [docs/optimizer.md](docs/optimizer.md) |
+| Offload (RAM-first staircase scaling) | [docs/offload.md](docs/offload.md) |
 | Alignment (DPO + GRPO) | [docs/alignment.md](docs/alignment.md) |
+| Reward system (GRPO rewards) | [docs/reward_manager.md](docs/reward_manager.md) |
 | Dataloader (streaming, bin-packing, FIM) | [docs/dataloader.md](docs/dataloader.md) |
 | Inference & KV cache | [docs/inference.md](docs/inference.md) |
 | Evaluation (HellaSwag + perplexity) | [docs/eval.md](docs/eval.md) |
-| Reward system (GRPO rewards) | [docs/reward_manager.md](docs/reward_manager.md) |
 | LoRA / PEFT guide | [docs/peft_guide.md](docs/peft_guide.md) |
+| Checkpointing (native + HF interop) | [docs/checkpointing.md](docs/checkpointing.md) |
 | CI/CD setup | [docs/ci_cd_guide.md](docs/ci_cd_guide.md) |
 
 ## License

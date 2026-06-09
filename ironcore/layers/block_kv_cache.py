@@ -38,6 +38,31 @@ class BlockKVCacheManager:
     Each sequence owns a block table mapping logical positions to physical blocks.
     Prefix sharing between sequences is achieved by copying block table entries
     and incrementing reference counts — no KV tensor duplication.
+
+    ## Position counter invariant
+
+    Two separate counters track per-sequence progress:
+
+    - ``token_positions[seq_id]``: **externally managed**. Reflects the position
+      BEFORE the current step's tokens are written. Advanced explicitly by callers
+      (``advance_position`` / ``advance_positions_batched``) AFTER all transformer
+      layers have written for the current step.
+
+    - ``tokens_written[seq_id]``: **internally managed** by ``_write_kv_to_blocks``
+      (on ``layer_idx == 0`` only). Updated IMMEDIATELY when tokens are written,
+      before ``advance_position`` is called.
+
+    The split exists because gather (``get_layer_kv_gathered*``) is called within
+    the same forward pass as write — before ``advance_position`` is called.
+    Gather uses ``tokens_written`` so it sees the just-written tokens.
+    Block allocation uses ``token_positions`` to determine which logical block slot
+    to write into (position before this step's token).
+
+    **Invariant after each complete decode step:**
+        token_positions[seq_id] == tokens_written[seq_id]
+
+    Callers that extend this class must preserve this invariant by always calling
+    ``advance_position`` once per decode step, after all layers have written.
     """
 
     def __init__(self, config: MainConfig):
@@ -194,11 +219,12 @@ class BlockKVCacheManager:
         # Available memory for cache
         if device.type == "cuda":
             total_mem = torch.cuda.get_device_properties(device).total_memory
-            # Subtract both allocated and reserved memory, plus a 10% safety
-            # margin for fragmentation and other process overhead.
+            # Subtract currently allocated/reserved memory; gpu_util controls the
+            # fraction of remaining free memory dedicated to the block pool.
+            # The default (0.9) already leaves a 10% headroom for fragmentation.
             allocated = torch.cuda.memory_allocated(device)
             reserved = torch.cuda.memory_reserved(device)
-            available = (total_mem - max(allocated, reserved)) * gpu_util * 0.9
+            available = (total_mem - max(allocated, reserved)) * gpu_util
         else:
             available = _CPU_FALLBACK_CACHE_BYTES
 
@@ -368,27 +394,35 @@ class BlockKVCacheManager:
             assert key.shape[1] == 1, (
                 f"write_decode_batched expects single token, got seq_len={key.shape[1]}"
             )
-            key = key.squeeze(1)
+            key = key.squeeze(1)  # [B, ng, hd]
         if value.dim() == 4:
             value = value.squeeze(1)
 
         if isinstance(seq_ids, torch.Tensor):
             seq_ids = seq_ids.tolist()
 
-        # Vectorized block allocation check
-        positions = self.token_positions[seq_ids]
-        logical_block_idxs = positions // self.block_size
-        num_valid = self.num_valid_blocks[seq_ids]
-        needs_alloc = logical_block_idxs >= num_valid
+        seq_id_tensor = torch.tensor(seq_ids, dtype=torch.long, device=self.device)
+        positions = self.token_positions[seq_id_tensor]  # [B]
+        logical_block_idxs = positions // self.block_size  # [B]
 
+        # Block allocation — must remain a Python loop (modifies free_blocks list)
         if layer_idx == 0:
+            num_valid = self.num_valid_blocks[seq_id_tensor]
+            needs_alloc = logical_block_idxs >= num_valid
             for i, sid in enumerate(seq_ids):
                 if needs_alloc[i]:
                     self.allocate_blocks(sid, 1)
 
-        # Vectorized write: scatter each seq's token into its block
-        for i, sid in enumerate(seq_ids):
-            self._write_kv_to_blocks(layer_idx, sid, key[i : i + 1], value[i : i + 1])
+        # Resolve physical targets after potential allocation
+        physical_block_idxs = self.block_tables[seq_id_tensor, logical_block_idxs]  # [B]
+        pos_in_blocks = positions % self.block_size  # [B]
+
+        # Single GPU advanced-indexing op instead of B Python calls to _write_kv_to_blocks
+        self.physical_key_caches[layer_idx][physical_block_idxs, pos_in_blocks] = key
+        self.physical_value_caches[layer_idx][physical_block_idxs, pos_in_blocks] = value
+
+        if layer_idx == 0:
+            self.tokens_written[seq_id_tensor] = positions + 1
 
     def get_layer_kv_gathered_batched(
         self,
