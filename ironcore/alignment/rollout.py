@@ -95,10 +95,10 @@ def _fsdp_done_check(done_mask: torch.Tensor, device: torch.device) -> bool | No
 
     any_rank_active = active_signal.item() > 0
     if not any_rank_active:
-        return True   # Every rank finished — safe to break.
+        return True  # Every rank finished — safe to break.
     if not locally_active:
         return False  # This rank is done but others aren't — dummy forward.
-    return None       # This rank still has active sequences.
+    return None  # This rank still has active sequences.
 
 
 def _expand_kv_cache(
@@ -479,7 +479,9 @@ def generate_rollouts_paged(
         with profile_context("grpo_paged_prefill"):
             prefill_logits_list = []
             for i in range(B):
-                true_len = int(prompt_lengths[i].item()) if prompt_lengths is not None else prompt_len
+                true_len = (
+                    int(prompt_lengths[i].item()) if prompt_lengths is not None else prompt_len
+                )
                 blocks_needed = (true_len + block_size - 1) // block_size
                 bkv.allocate_blocks(seq_id=i, count=blocks_needed)
 

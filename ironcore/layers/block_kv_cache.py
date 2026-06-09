@@ -394,7 +394,7 @@ class BlockKVCacheManager:
             assert key.shape[1] == 1, (
                 f"write_decode_batched expects single token, got seq_len={key.shape[1]}"
             )
-            key = key.squeeze(1)   # [B, ng, hd]
+            key = key.squeeze(1)  # [B, ng, hd]
         if value.dim() == 4:
             value = value.squeeze(1)
 
@@ -402,8 +402,8 @@ class BlockKVCacheManager:
             seq_ids = seq_ids.tolist()
 
         seq_id_tensor = torch.tensor(seq_ids, dtype=torch.long, device=self.device)
-        positions = self.token_positions[seq_id_tensor]        # [B]
-        logical_block_idxs = positions // self.block_size      # [B]
+        positions = self.token_positions[seq_id_tensor]  # [B]
+        logical_block_idxs = positions // self.block_size  # [B]
 
         # Block allocation — must remain a Python loop (modifies free_blocks list)
         if layer_idx == 0:
@@ -415,7 +415,7 @@ class BlockKVCacheManager:
 
         # Resolve physical targets after potential allocation
         physical_block_idxs = self.block_tables[seq_id_tensor, logical_block_idxs]  # [B]
-        pos_in_blocks = positions % self.block_size                                   # [B]
+        pos_in_blocks = positions % self.block_size  # [B]
 
         # Single GPU advanced-indexing op instead of B Python calls to _write_kv_to_blocks
         self.physical_key_caches[layer_idx][physical_block_idxs, pos_in_blocks] = key
