@@ -34,7 +34,7 @@ cuda = [
 # flash-attn for ROCm: pip install flash-attn --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/
 rocm = []
 dev = ["pytest", "pytest-timeout", "ruff"]
-docs = ["mkdocs-material", "pymdown-extensions"]
+docs = ["mkdocs-material", "pymdown-extensions", "mkdocs-static-i18n"]
 
 [project.scripts]
 ironcore = "ironcore.__main__:main"

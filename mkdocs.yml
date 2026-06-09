@@ -6,6 +6,9 @@ docs_dir: docs
 
 theme:
   name: material
+  font:
+    text: Noto Sans KR
+    code: JetBrains Mono
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -29,6 +32,20 @@ theme:
     - content.code.copy
     - toc.follow
 
+plugins:
+  - search:
+      lang: [en, ko]
+  - i18n:
+      docs_structure: folder   # docs/ = English, docs/ko/ = Korean
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: ko
+          name: 한국어
+          build: true
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -50,7 +67,6 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
 
 # Files kept in the repo for history / internal planning but excluded from the built site
-# (their stale internal TOCs would otherwise fail the strict build).
 exclude_docs: |
   archive/
   feature_plan.md

@@ -22,14 +22,11 @@ Set `data.task_type: dpo` and provide a preference dataset with `chosen` and `re
 
 ### Key config decisions
 
-**Concat forward passes** (`alignment.concat_forward_passes: true`, default):  
-Runs chosen and rejected sequences in a single forward pass instead of two. Saves one TP all-gather; leave enabled unless debugging.
+`concat_forward_passes: true` (default) runs chosen and rejected sequences in a single forward pass, saving one TP all-gather. Leave it on unless you're debugging.
 
-**Label smoothing** (`alignment.dpo_label_smoothing`):  
-Adds ε smoothing to the preference target. Leave at `0.0` for standard DPO; small values (0.1–0.2) can improve robustness with noisy preference data.
+`dpo_label_smoothing` adds ε smoothing to the preference target. The standard DPO default is `0.0`; values around 0.1–0.2 can help when preference data is noisy.
 
-**β (preference strength)** (`alignment.dpo_beta`):  
-Controls how strongly the loss penalizes deviation from the reference policy. Typical range: 0.1–0.5.
+`dpo_beta` controls how strongly the loss penalizes deviation from the reference policy. Typical range: 0.1–0.5.
 
 ### Minimal DPO config
 

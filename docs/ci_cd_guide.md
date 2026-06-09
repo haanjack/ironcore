@@ -10,7 +10,7 @@ IronCore uses a resource-efficient CI/CD setup for a side project:
 - **Self-hosted Runner (GPU)**: Optional; auto-runs on main if registered
 - **Local Development**: Developer runs tests before PR
 
-### Dual Parallel Execution
+### Dual parallel execution
 
 When you create a PR:
 ```
@@ -198,18 +198,14 @@ gh workflow run test.yml -f test_mode=gpu
 # Will queue and wait for runner to come online
 ```
 
-### Runner Registration 404 Error
+### Runner registration 404 error
 
-**Cause:** Token expired, invalid URL, or network issue
+Tokens expire about an hour after generation. If `config.sh` returns 404:
 
-**Fix:**
-1. Generate **new** token (Step 1 tokens expire ~1 hour)
-   - Visit: `https://github.com/YOUR_USER/ironcore/settings/actions/runners`
-   - Click **"New self-hosted runner"** → **Linux** → **x64**
-   - Copy fresh token
-2. Verify URL is correct: `https://github.com/YOUR_USER/ironcore` (replace YOUR_USER)
+1. Generate a new token: go to your runner settings page, click "New self-hosted runner" → Linux → x64, and copy the fresh token.
+2. Verify the URL is correct: `https://github.com/YOUR_USER/ironcore` (replace YOUR_USER).
 3. Check network connectivity: `curl -I https://api.github.com`
-4. Re-run `./config.sh` with new token and correct URL
+4. Re-run `./config.sh` with the new token and correct URL.
 
 ---
 

@@ -13,9 +13,9 @@
 
 ## Dataset formats
 
-**`StreamingDataset`** — block-based shuffling for large text corpora. Supports weighted mixing of multiple datasets via the `ratio` field.
+**`StreamingDataset`:** block-based shuffling for large text corpora. Supports weighted mixing of multiple datasets via the `ratio` field.
 
-**`StreamingBinaryDataset`** — memory-mapped access to preprocessed `.bin`/`.idx` files produced by `ironcore preprocess`. Use for large pretrain corpora.
+**`StreamingBinaryDataset`:** memory-mapped access to preprocessed `.bin`/`.idx` files produced by `ironcore preprocess`. Use for large pretrain corpora.
 
 ## SFT bin-packing
 

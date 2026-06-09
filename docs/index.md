@@ -8,15 +8,15 @@ alignment, and optimization. Inspired by NVIDIA Megatron-LM and HuggingFace Tran
 
 ## What's inside
 
-- **Training modes** — pretraining, SFT, DPO, and GRPO (Group Relative Policy Optimization)
-- **Parallelism** — Tensor (TP), Expert (EP), Data (DP), multi-node, and FSDP
-- **Model architectures** — GPT-2/3, LLaMA, Gemma, Qwen, Phi via a single `TransformerModel`
-- **Mixture of Experts** — expert routing with load-balance + Z-loss, expert parallelism
-- **PEFT / LoRA** — TP-correct, replicated (not sharded) adapters
-- **Alignment / RL** — online rollouts, group-relative advantages, KL penalty, multi-backend rewards
-- **Optimizer** — Muon (Newton-Schulz) + AdamW hybrid; ZeRO-1 `DistributedOptimizer`
-- **Offload** — optimizer-state offload, weight streaming, and activation spilling for single-GPU desktops
-- **Checkpointing** — native (universal + distributed TP) and HuggingFace interop
+- **Training modes:** pretraining, SFT, DPO, and GRPO (Group Relative Policy Optimization)
+- **Parallelism:** Tensor (TP), Expert (EP), Data (DP), multi-node, and FSDP
+- **Model architectures:** GPT-2/3, LLaMA, Gemma, Qwen, Phi via a single `TransformerModel`
+- **Mixture of Experts:** expert routing with load-balance + Z-loss, expert parallelism
+- **PEFT / LoRA:** TP-correct, replicated (not sharded) adapters
+- **Alignment / RL:** online rollouts, group-relative advantages, KL penalty, multi-backend rewards
+- **Optimizer:** Muon (Newton-Schulz) + AdamW hybrid; ZeRO-1 `DistributedOptimizer`
+- **Offload:** optimizer-state offload, weight streaming, and activation spilling for single-GPU desktops
+- **Checkpointing:** native (universal + distributed TP) and HuggingFace interop
 
 ## Where to start
 
