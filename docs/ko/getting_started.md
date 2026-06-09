@@ -18,6 +18,14 @@ ironcore train --config configs/example.yaml
 
 ### 분산 훈련 (torchrun)
 
+**데이터 병렬 — GPU 2개, 순수 DP (설정에서 `tensor_model_parallel_size: 1`):**
+
+```bash
+torchrun --nproc_per_node 2 -m ironcore train --config configs/example.yaml
+```
+
+**텐서 병렬 — GPU 4개:**
+
 ```bash
 torchrun --nproc_per_node 4 -m ironcore train --config configs/<name>.yaml
 ```
