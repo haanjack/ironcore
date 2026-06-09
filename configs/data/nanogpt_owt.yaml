@@ -8,7 +8,7 @@ splits: [0.99, 0.01, 0.0]
 
 train_datasets:
   - name: openwebtext
-    dataset_path: openwebtext
+    dataset_path: Skylion007/openwebtext
     task_type: pretrain
     ratio: 1.0
     split: train
@@ -16,4 +16,4 @@ train_datasets:
 
 preprocessed_dir: ./data/preprocessed/nanogpt_owt
 cache_dir: ./data/cache
-num_workers: 4
+num_workers: 24

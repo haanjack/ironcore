@@ -3,6 +3,7 @@ einops
 huggingface_hub
 numpy
 pandas
+psutil>=5.9
 pyarrow
 python-dotenv
 pyyaml
@@ -12,3 +13,4 @@ tensorboard
 tiktoken
 tqdm
 transformers>=4.30.0
+wandb

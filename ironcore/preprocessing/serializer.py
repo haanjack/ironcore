@@ -205,56 +205,92 @@ class DataSerializer:
             if self.verbose:
                 print(f"  FIM enabled: {self.config.fim_rate:.0%} of sequences will be transformed")
 
-        # Open binary file for writing
+        # Determine output dtype from tokenizer vocab size (avoids full-pass max scan)
+        vocab_size = getattr(self.tokenizer, "vocab_size", None) or 65536
+        token_dtype = np.uint16 if vocab_size < 65535 else np.uint32
+
+        if not fim_enabled:
+            # Fast path: parallel tokenization via dataset.map + incremental disk write.
+            # Avoids accumulating all tokens in a Python list before writing.
+            eos_id = self.tokenizer.eos_token_id
+            tokenizer = self.tokenizer
+            num_workers = self.config.num_workers
+
+            def _tokenize_batch(batch):
+                tokens_list = []
+                for text in batch[text_column]:
+                    if hasattr(tokenizer, "add_special_tokens"):
+                        ids = tokenizer.encode(text, add_special_tokens=False)
+                    else:
+                        ids = tokenizer.encode(text)
+                    ids.append(eos_id)
+                    tokens_list.append(ids)
+                return {"tokens": tokens_list}
+
+            if self.verbose:
+                print(f"  Tokenizing with {num_workers} workers...")
+
+            tokenized = dataset.map(
+                _tokenize_batch,
+                batched=True,
+                batch_size=1000,
+                num_proc=num_workers,
+                remove_columns=dataset.column_names,
+                desc="  Tokenizing",
+            )
+
+            metadata = []
+            current_offset = 0
+            total_tokens = 0
+
+            with open(bin_path, "wb") as bin_f:
+                dataset_iter = (
+                    tqdm(tokenized, desc="  Writing", unit="docs")
+                    if self.verbose
+                    else tokenized
+                )
+                for sample in dataset_iter:
+                    token_ids = sample["tokens"]
+                    arr = np.array(token_ids, dtype=token_dtype)
+                    arr.tofile(bin_f)
+                    metadata.append((current_offset, len(token_ids), "pretrain", -1, "[]"))
+                    current_offset += len(token_ids)
+                    total_tokens += len(token_ids)
+
+            metadata_array = np.array(metadata, dtype=self.METADATA_DTYPE)
+            np.save(idx_path, metadata_array)
+
+            if self.verbose:
+                print(f"  Tokens: {total_tokens:,}")
+                print(f"  Documents: {len(metadata):,}")
+            return
+
+        # Sequential path (FIM enabled): accumulate then write
         all_tokens = []
         metadata = []
         current_offset = 0
 
-        desc = "  Tokenizing" + (" (FIM)" if fim_enabled else "")
-        if self.verbose:
-            dataset_iter = tqdm(dataset, desc=desc, unit="docs")
-        else:
-            dataset_iter = dataset
-
+        dataset_iter = (
+            tqdm(dataset, desc="  Tokenizing (FIM)", unit="docs") if self.verbose else dataset
+        )
         for sample in dataset_iter:
             text = sample[text_column]
-
-            # Tokenize
             token_ids = self._tokenize(text)
 
-            # Apply FIM transformation with probability fim_rate
-            if fim_enabled and rng.random() < self.config.fim_rate:
+            if rng.random() < self.config.fim_rate:
                 token_ids = self._apply_fim_transformation(
                     token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
                 )
 
-            # Add EOS token
             token_ids.append(self.tokenizer.eos_token_id)
-
-            # Append to token stream
             all_tokens.extend(token_ids)
-
-            # Record metadata
-            metadata.append(
-                (
-                    current_offset,  # offset
-                    len(token_ids),  # length
-                    "pretrain",  # type
-                    -1,  # group_id (not used)
-                    "[]",  # mask_ranges (empty)
-                )
-            )
-
+            metadata.append((current_offset, len(token_ids), "pretrain", -1, "[]"))
             current_offset += len(token_ids)
 
-        # Save .bin file
-        tokens_array = np.array(
-            all_tokens, dtype=np.uint16 if max(all_tokens) < 65535 else np.uint32
-        )
+        tokens_array = np.array(all_tokens, dtype=token_dtype)
         with open(bin_path, "wb") as f:
             tokens_array.tofile(f)
 
-        # Save .idx file
         metadata_array = np.array(metadata, dtype=self.METADATA_DTYPE)
         np.save(idx_path, metadata_array)
 
