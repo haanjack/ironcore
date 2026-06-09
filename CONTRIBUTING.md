@@ -85,6 +85,17 @@ This installs IronCore in editable mode plus `pytest` and `ruff` (the `dev` extr
 
 To upgrade PyTorch or flash-attn, bump `NGC_VERSION` in `.env` (or the `Dockerfile` `ARG BASE_IMAGE`) and rebuild the container. Do not pin these packages inside the repo.
 
+### Building the docs
+
+MkDocs runs outside the container (no GPU needed). Use `uvx` so that torch and other training deps are never pulled in:
+
+```bash
+uvx --with mkdocs-material --with pymdown-extensions mkdocs serve  # live preview
+uvx --with mkdocs-material --with pymdown-extensions mkdocs build  # static build → site/
+```
+
+`uvx` creates an isolated environment with only the listed packages — it does not install the project or its core dependencies.
+
 ---
 
 ## 2. Coding Standards
