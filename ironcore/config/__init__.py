@@ -416,29 +416,52 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             raise ValueError(f"{config_group_key} is not defined configuration group")
 
         # load configs from yaml
-        if isinstance(sub_group_config, str):
-            # add config name to config group
+        if isinstance(sub_group_config, dict) and "config-path" in sub_group_config:
+            # Explicit form: model: {name: foo, config-path: configs/model/foo.yaml, <overrides>}
+            # config-path is resolved relative to the working directory.
+            explicit_path = Path(sub_group_config["config-path"])
+            if not explicit_path.exists():
+                raise FileNotFoundError(f"Config file not found: {explicit_path}")
+
+            name = sub_group_config.get("name")
+            if name:
+                getattr(config, config_group_key).name = name
+
+            sub_group_config_from_file = load_yaml_config(explicit_path)
+            _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
+
+            # Apply any inline overrides (keys other than name / config-path)
+            overrides = {
+                k: v for k, v in sub_group_config.items() if k not in ("name", "config-path")
+            }
+            if overrides:
+                _load_subgroup_config_from_yaml(config, config_group_key, overrides)
+
+        elif isinstance(sub_group_config, str):
+            # Short-form string reference: model: nanogpt-small
+            # Resolves to configs/{group}/{name}.yaml relative to the config file.
             getattr(config, config_group_key).name = sub_group_config
 
-            # Sanitize path component to prevent directory traversal
             sanitized_config_name = _sanitize_path_component(sub_group_config)
 
-            # load sub-config: data, model config
-            # Resolve sub-config path relative to the project's 'configs/' directory
             config_base_dir = Path(args.config_path).parent
             sub_group_config_path = (
                 config_base_dir / f"{config_group_key}/{sanitized_config_name}.yaml"
             )
+            # Walk up one level for configs living in a subdirectory (e.g. configs/experiments/)
+            if not sub_group_config_path.exists() and config_base_dir.parent != config_base_dir:
+                fallback_base = config_base_dir.parent
+                fallback_path = fallback_base / f"{config_group_key}/{sanitized_config_name}.yaml"
+                if fallback_path.exists():
+                    config_base_dir = fallback_base
+                    sub_group_config_path = fallback_path
 
-            # Validate path is within expected directory
             if not _validate_path_within_dir(sub_group_config_path, config_base_dir):
                 raise ValueError(
                     f"Invalid config path: {sub_group_config} resolves outside the config directory"
                 )
 
             if sanitized_config_name == "dummy":
-                # load dummy config if it exists or run with default dummy config
-                # this is usually for dummy model usage
                 if sub_group_config_path.exists():
                     sub_group_config_from_file = load_yaml_config(sub_group_config_path)
                 continue
@@ -448,6 +471,7 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
                 sub_group_config_from_file = load_yaml_config(sub_group_config_path)
 
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
+
         else:
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config)
 
