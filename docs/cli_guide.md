@@ -8,21 +8,21 @@ ironcore <command> [options]
 
 | Command | Description |
 |---------|-------------|
-| [`train`](#train--run-training) | Run training (pretrain, SFT, FIM, DPO, GRPO) |
-| [`preprocess`](#preprocess--preprocess--inspect-datasets) | Tokenize and serialize datasets; inspect integrity |
-| [`config-check`](#config-check--validate-and-inspect-configs) | Validate configs, diff two configs, show resolved YAML |
-| [`tokenize`](#tokenize--tokenize-input-and-show-statistics) | Tokenize input text or files, show statistics |
-| [`inspect-checkpoint`](#inspect-checkpoint--checkpoint-introspection) | Inspect checkpoint contents, compare two checkpoints |
-| [`export`](#export--convert-to-huggingface-format) | Convert IronCore checkpoints to HuggingFace format |
-| [`generate`](#generate--text-generation) | Interactive REPL or one-shot text generation |
-| [`track`](#track--configure-logging-backends) | Patch YAML config with logging backend settings |
-| [`evaluate`](#evaluate--run-evaluation-benchmarks) | Run eval benchmarks against a checkpoint |
-| [`verify-step`](#verify-step--single-step-loss-verification) | Run 1 training step, report loss |
-| [`verify-parity`](#verify-parity--parallelism-correctness-verification) | Compare loss curves across TP/DP/FSDP configs |
-| [`profile`](#profile--profile-training-runs) | Profile training with mode presets |
-| [`profile-mfu`](#profile-mfu--mfu-profiling) | Measure Model FLOP Utilization |
-| [`analyze-scaling`](#analyze-scaling--scaling-analysis) | Run multi-scale training, fit scaling laws |
-| [`gen-report`](#gen-report--generate-experiment-reports) | Generate markdown experiment reports |
+| [`train`](#train-run-training) | Run training (pretrain, SFT, FIM, DPO, GRPO) |
+| [`preprocess`](#preprocess-preprocess-inspect-datasets) | Tokenize and serialize datasets; inspect integrity |
+| [`config-check`](#config-check-validate-and-inspect-configs) | Validate configs, diff two configs, show resolved YAML |
+| [`tokenize`](#tokenize-tokenize-input-and-show-statistics) | Tokenize input text or files, show statistics |
+| [`inspect-checkpoint`](#inspect-checkpoint-checkpoint-introspection) | Inspect checkpoint contents, compare two checkpoints |
+| [`export`](#export-convert-to-huggingface-format) | Convert IronCore checkpoints to HuggingFace format |
+| [`generate`](#generate-text-generation) | Interactive REPL or one-shot text generation |
+| [`track`](#track-configure-logging-backends) | Patch YAML config with logging backend settings |
+| [`evaluate`](#evaluate-run-evaluation-benchmarks) | Run eval benchmarks against a checkpoint |
+| [`verify-step`](#verify-step-single-step-loss-verification) | Run 1 training step, report loss |
+| [`verify-parity`](#verify-parity-parallelism-correctness-verification) | Compare loss curves across TP/DP/FSDP configs |
+| [`profile`](#profile-profile-training-runs) | Profile training with mode presets |
+| [`profile-mfu`](#profile-mfu-mfu-profiling) | Measure Model FLOP Utilization |
+| [`analyze-scaling`](#analyze-scaling-scaling-analysis) | Run multi-scale training, fit scaling laws |
+| [`gen-report`](#gen-report-generate-experiment-reports) | Generate markdown experiment reports |
 
 ## Core Commands
 

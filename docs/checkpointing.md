@@ -1,77 +1,165 @@
 # Checkpointing
 
-## Disk layout
+> This guide covers how to configure and use checkpointing. For the internal architecture,
+> TP weight gather/split mechanics, and DistributedOptimizer state handling, see the
+> [Checkpointing system design](design/checkpointing.md).
 
-Two on-disk formats are supported, selected by `operation.save_dist_ckpt`:
+## Overview
 
-| Format | Path | When |
+IronCore saves checkpoints in two formats:
+
+| Format | Path | Best for |
 |---|---|---|
-| Universal | `step_X/pytorch_model.bin` | `save_dist_ckpt: false` (default) |
-| Distributed | `step_X/tpN/pytorch_model.bin` | `save_dist_ckpt: true` |
+| **Universal** | `step_N/pytorch_model.bin` | Portability, changing TP degree |
+| **Distributed** | `step_N/tp{r}/pytorch_model.bin` | Fast parallel saves, fixed TP |
 
-`latest_step.txt` in the model directory records the most recently saved step and is read by `load_checkpoint()` when no explicit step is given, enabling automatic resume.
+Both formats store model weights, optimizer states, LR scheduler state, and step counter in a single `torch.save` dict per rank. `latest_step.txt` tracks the most recently written step for automatic resume.
 
-`config.json` (HuggingFace-compatible) is written alongside every checkpoint by `HFConfigManager.save_hf_config()`.
+## Basic setup
 
-## Saving
+Set `trainer.model_path` to enable saving and loading:
 
-`save_checkpoint()` in `ironcore/checkpointing/native.py` writes a single `torch.save` dict per rank containing:
-- `model_state_dict`
-- `optimizer_state_dict` (keyed by **parameter name**, not integer index — stable across formats)
-- `lr_scheduler`
-- `step`
-- `config`, `hf_config`
+```yaml
+trainer:
+  model_path: checkpoints/my-run
+  save_checkpoint_steps: 500   # save every 500 steps
+```
 
-**Universal format (TP > 1, `save_dist_ckpt: false`):** TP rank 0 gathers sharded parameters from all TP workers via `comm.gather_from_model_parallel_workers()` before writing. Only DP rank 0 and TP rank 0 write to disk.
+Training automatically resumes from the latest checkpoint on restart. To disable saving (e.g., evaluation runs):
 
-**Distributed format (`save_dist_ckpt: true`):** each TP rank writes its own shard to `step_X/tp{rank}/pytorch_model.bin`. No gather required.
+```yaml
+operation:
+  no_save: true
+```
 
-### LoRA-aware gather
+## Resuming training
 
-When saving a universal checkpoint from a TP-parallel model with LoRA adapters:
-- Column-parallel layers: gather `weight`, `bias`, **and `lora_B`**
-- Row-parallel layers: gather `weight` **and `lora_A`**
+On `train()`, IronCore reads `latest_step.txt` and loads the matching checkpoint before the first step. Training continues from `step = last_saved_step + 1`. No config change needed — just re-run the same command.
 
-### DistributedOptimizer checkpoint
+To resume from a specific step rather than the latest:
 
-When `parallel.use_distributed_optimizer: true` and saving a universal checkpoint, `_gather_distributed_optimizer_states()` all-gathers optimizer states (partitioned across DP ranks) to rank 0, then merges into a single keyed-by-name dict.
+```python
+from ironcore.checkpointing import load_checkpoint
+load_checkpoint(config, model, optimizer, lr_scheduler, step=1000)
+```
 
-For distributed checkpoints the local partition is saved directly.
+To resume weights only (skip optimizer state — e.g., after architecture change or fine-tuning from a pretrained base):
 
-## Loading
+```yaml
+optim:
+  load_checkpoint_optim_state: false
+  load_checkpoint_lr_scheduler: false
+```
 
-`load_checkpoint()` auto-detects format by checking whether `step_X/tpN/` exists.
+## Universal checkpointing (changing TP degree)
 
-**Loading universal into TP > 1:** for each parameter, calls `comm.split_to_model_parallel_workers()` to shard the gathered weight across ranks. The same LoRA-aware logic applies in reverse:
-- Column-parallel: split `weight`, `bias`, `lora_B`
-- Row-parallel: split `weight`, `lora_A`
+The default format (`save_dist_ckpt: false`) is TP-degree agnostic. You can save at TP=4 and
+resume at TP=1, or scale up from TP=2 to TP=8, without any conversion step.
 
-**Loading optimizer state:** optimizer state is keyed by parameter name, then re-mapped to parameter objects. AdamW `exp_avg`/`exp_avg_sq` tensors are reshaped to match the current parameter shape (handles TP topology changes).
+```yaml
+operation:
+  save_dist_ckpt: false   # default — universal format
+```
 
-When `parallel.use_distributed_optimizer: true`, `_partition_optimizer_states_for_load()` filters the full state dict to only the parameters owned by this DP rank before calling `optimizer.optimizer.load_state_dict()`.
+On save, IronCore gathers TP-sharded weights and optimizer moment tensors from all TP ranks and writes a single file from rank 0. On load, the full tensors are split for the new TP degree automatically.
 
-**DDP prefix normalization:** the loader strips or adds `module.` prefix automatically if the checkpoint was saved from a DDP-wrapped model but is being loaded into a non-DDP model (or vice versa).
+This applies to LoRA adapters too: `lora_B` is gathered/split with column-parallel layers; `lora_A` with row-parallel layers.
+
+## Distributed checkpointing (parallel I/O)
+
+When saving speed matters more than portability, enable distributed format. Each TP rank writes its own shard concurrently:
+
+```yaml
+operation:
+  save_dist_ckpt: true
+```
+
+This produces `step_N/tp{r}/pytorch_model.bin` per rank. Saves complete `TP_size` times faster at scale, but the checkpoint is tied to the saved TP degree — loading at a different TP will fail.
 
 ## HuggingFace interop
 
-`load_from_huggingface()` and `export_to_huggingface()` in `ironcore/checkpointing/hf_interop.py`:
+### Loading from a HuggingFace checkpoint
 
-- `detect_checkpoint_format()` probes for `model.safetensors`, `model.safetensors.index.json`, `pytorch_model.bin`, or `pytorch_model.bin.index.json` (sharded variants supported).
-- `WeightMapper` in `ironcore/checkpointing/weight_mapping.py` handles bidirectional key and tensor translation for `Architecture.GPT2` and `Architecture.LLAMA` (aliases: Mistral, Qwen2/3, Gemma, Gemma2, Mixtral).
+```yaml
+trainer:
+  load_from_hf: meta-llama/Llama-3.1-8B   # HF model id or local path
+```
 
-**LLaMA weight transforms:**
-- HF stores linear weights as `[out, in]`; IronCore uses `[in, out]` — transpose applied in `WeightMapper`.
-- HF has separate `k_proj` / `v_proj`; IronCore uses fused `linear_kv` — concatenated along the output dim.
-- HF has separate `gate_proj` / `up_proj` (SwiGLU); IronCore fuses them into `mlp.up_proj` — concatenated then transposed.
+`detect_checkpoint_format()` handles safetensors, PyTorch, single-file, and sharded formats automatically. Before building the model, run `detect_bias_from_hf_state_dict()` to infer which projections have biases so `BiasConfig` is set correctly.
 
-`get_architecture()` resolves model type strings (including `"qwen2"`, `"gemma"`, etc.) to `Architecture.LLAMA`.
+### Exporting to HuggingFace format
+
+```python
+from ironcore.checkpointing.hf_interop import export_to_huggingface
+
+export_to_huggingface(
+    config=config,
+    model=model,
+    save_directory="exports/llama-finetuned",
+    format="safetensors",   # or "pytorch"
+    max_shard_size="5GB",
+)
+```
+
+Output is the standard HF layout:
+
+```
+exports/llama-finetuned/
+├── config.json
+├── model.safetensors.index.json
+├── model-00001-of-00003.safetensors
+└── ...
+```
+
+### HF config.json generation
+
+To write a HF-compatible `config.json` alongside native checkpoints (required for direct `AutoModel.from_pretrained` use):
+
+```yaml
+model:
+  hf_model_type: llama
+  hf_architecture: LlamaForCausalLM
+```
+
+Both fields must be set. When set, `config.json` is written to `{model_path}/` on every save.
+
+## LoRA checkpoints
+
+LoRA adapter weights are saved **together** with base model weights — no separate adapter file:
+
+```
+step_N/pytorch_model.bin
+  model.layers.0.linear_q.weight    ← base weight
+  model.layers.0.linear_q.lora_A    ← LoRA A
+  model.layers.0.linear_q.lora_B    ← LoRA B
+  ...
+```
+
+Loading works identically to a full checkpoint — PEFT config must match at load time (same `r`, `alpha`, `target_modules`).
+
+## Inspecting checkpoints
+
+```bash
+# Summary: format, parameter count, size, dtype breakdown, step
+ironcore inspect-checkpoint --path checkpoints/my-run
+
+# Per-layer shapes and statistics
+ironcore inspect-checkpoint --path checkpoints/my-run --verbose
+
+# Diff two checkpoints (max_abs_diff, mean_abs_diff per layer)
+ironcore inspect-checkpoint --path checkpoints/run-a --compare checkpoints/run-b
+```
 
 ## Configuration reference
 
-| Field | Default | Description |
-|---|---|---|
-| `trainer.model_path` | `""` | Checkpoint directory (empty = no save/load) |
-| `trainer.load_from_hf` | `null` | HuggingFace model name or local path to load weights from |
-| `operation.save_dist_ckpt` | `false` | Save one file per TP rank instead of universal |
-| `optim.load_checkpoint_optim_state` | `true` | Restore optimizer states from checkpoint |
-| `optim.load_checkpoint_lr_scheduler` | `true` | Restore LR scheduler state from checkpoint |
+| Field | Group | Default | Description |
+|---|---|---|---|
+| `model_path` | `trainer` | `""` | Checkpoint directory (empty = no save/load) |
+| `load_from_hf` | `trainer` | `null` | HF model id or local path to load from |
+| `save_checkpoint_steps` | `trainer` | — | Save every N steps |
+| `no_save` | `operation` | `false` | Disable checkpoint saving |
+| `save_dist_ckpt` | `operation` | `false` | `true` = distributed per-rank, `false` = universal |
+| `load_checkpoint_optim_state` | `optim` | `true` | Restore optimizer states on resume |
+| `load_checkpoint_lr_scheduler` | `optim` | `true` | Restore LR scheduler state on resume |
+| `hf_model_type` | `model` | `null` | HF model type string; enables `config.json` generation |
+| `hf_architecture` | `model` | `null` | HF architecture class name |

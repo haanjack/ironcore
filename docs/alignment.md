@@ -1,41 +1,52 @@
 # Alignment (DPO and GRPO)
 
-## Comparison
+> This guide covers how to configure and run alignment training. For loss formulas,
+> advantage computation, KL estimator, and rollout internals, see the
+> [Alignment system design](design/alignment.md).
+
+## DPO vs GRPO
 
 | | DPO | GRPO |
 |---|---|---|
 | Generation at train time | No | Yes |
+| Data requirement | Pre-collected (chosen, rejected) pairs | Prompts only |
 | Reward source | Implicit (preference pairs) | Explicit reward functions |
-| Advantage computation | N/A | Group-relative normalization |
-| IS ratio clipping | No | Optional (multi-epoch replay) |
-| Data source | Pre-collected (chosen, rejected) pairs | Prompts; responses generated on-the-fly |
+| Memory overhead | Low — no rollout buffers | Higher — rollout buffer + reference model |
 | Trainer | `DPOTrainer` | `GRPOTrainer` |
 
 ---
 
 ## DPO
 
-### Loss
+Set `data.task_type: dpo` and provide a preference dataset with `chosen` and `rejected` columns.
 
-Implemented in `ironcore/alignment/loss/dpo.py` — `dpo_loss()`.
+### Key config decisions
 
+**Concat forward passes** (`alignment.concat_forward_passes: true`, default):  
+Runs chosen and rejected sequences in a single forward pass instead of two. Saves one TP all-gather; leave enabled unless debugging.
+
+**Label smoothing** (`alignment.dpo_label_smoothing`):  
+Adds ε smoothing to the preference target. Leave at `0.0` for standard DPO; small values (0.1–0.2) can improve robustness with noisy preference data.
+
+**β (preference strength)** (`alignment.dpo_beta`):  
+Controls how strongly the loss penalizes deviation from the reference policy. Typical range: 0.1–0.5.
+
+### Minimal DPO config
+
+```yaml
+data:
+  task_type: dpo
+  datasets:
+    - source: my-org/preference-dataset
+      chosen_column: chosen
+      rejected_column: rejected
+
+alignment:
+  dpo_beta: 0.5
+  concat_forward_passes: true
 ```
-L = -log(sigmoid(β · (log π_chosen − log π_ref_chosen − log π_rejected + log π_ref_rejected)))
-```
 
-`compute_logps()` computes per-sequence log probabilities from logits via a TP-safe log-softmax (`_compute_log_softmax_tp_safe()`). Under tensor parallelism the vocabulary is sharded across ranks; the function all-gathers logits before applying `F.log_softmax` to ensure correct normalization.
-
-Label smoothing (`dpo_label_smoothing > 0`) replaces the hard `1` target with `1 − ε`.
-
-### Efficiency: concat forward passes
-
-When `alignment.concat_forward_passes: true`, chosen and rejected sequences are concatenated into a single batch `[2B, seq_len]` and processed in one forward pass instead of two. This avoids a second TP all-gather for log-softmax.
-
-### Reference model
-
-`DPOTrainer._post_checkpoint_load()` creates a frozen reference model. Under FSDP it uses a `state_dict` copy (not `deepcopy`) to avoid entangling internal FSDP metadata.
-
-### DPO config fields
+### DPO config reference
 
 | Field | Default | Description |
 |---|---|---|
@@ -48,84 +59,87 @@ When `alignment.concat_forward_passes: true`, chosen and rejected sequences are 
 
 ## GRPO
 
-### Rollout generation
+Set `data.task_type: grpo` and provide a prompt dataset. The trainer generates completions, scores them with reward functions, and trains the policy.
 
-`generate_rollouts_batched()` in `ironcore/alignment/rollout.py`:
+### Rollout configuration
 
-1. **Prefill** prompts `[B, prompt_len]` → `prefill_logits`, `prefix_kv`
-2. **Expand KV cache** `[B, …] → [B×G, …]` via `_expand_kv_cache()`, which calls `tensor.repeat_interleave(group_size, dim=0)` on each layer's key and value tensors. This avoids re-computing the prompt prefix for each of the G completions.
-3. **Sample first tokens** from `prefill_logits[:, -1, :]`, expanded to `[B×G, vocab]`
-4. **Autoregressive decode** all `B×G` sequences in parallel until `max_new_tokens` or all hit EOS
+`grpo_group_size` (G) is the total number of completions sampled per prompt. Advantages are computed group-relative — all G completions for a prompt must be visible before normalization. With DP > 1, rewards are all-gathered across ranks before normalization.
 
-Under TP, stochastic sampling broadcasts the sampled token from rank 0 to all TP ranks so they remain in sync.
+`grpo_rollout_micro_group_size` controls how many completions are generated in parallel per step. Set lower to reduce peak memory during generation.
 
-#### Chunked generation
-
-`rollout_chunks = grpo_group_size / grpo_rollout_micro_group_size`. The `GRPOTrainer` calls `generate_rollouts_batched` once per chunk, then aggregates into a `RolloutBuffer`.
-
-### Advantages
-
-`compute_advantages()` in `ironcore/alignment/loss/grpo.py`:
-
-```
-A_i = (R_i − mean(R_group)) / (std(R_group) + ε)
+```yaml
+alignment:
+  grpo_group_size: 8                 # G completions per prompt
+  grpo_rollout_micro_group_size: 2   # generate 2 at a time
 ```
 
-In distributed settings, rewards are all-gathered from all DP ranks before normalization so that all completions for a given prompt are normalized together regardless of how they are distributed across GPUs. When all rewards in a group are equal (std < ε), advantages are set to 0.
+### Multi-epoch replay (offline GRPO)
 
-### KL divergence
+Setting `grpo_num_epochs > 1` enables importance-sampled multi-epoch replay: the same rollout batch is used for multiple gradient update steps with IS ratio clipping. This improves sample efficiency at the cost of slightly stale advantage estimates.
 
-`kl_divergence_approx()` in `ironcore/alignment/loss/kl.py` uses the Schulman estimator:
-
-```
-KL ≈ exp(log_π_ref − log_π) − (log_π_ref − log_π) − 1
-```
-
-This avoids materializing the full-vocabulary softmax — it only requires per-token log probs of the response tokens already selected during rollout. The approximation is non-negative and unbiased.
-
-### Loss
-
-`grpo_loss()` in `ironcore/alignment/loss/grpo.py`:
-
-**Online** (`grpo_num_epochs == 1`, `old_log_probs` not set):
-```
-L = −mean(A · log π_θ(y|x)) + β · KL
+```yaml
+alignment:
+  grpo_num_epochs: 4      # reuse each rollout for 4 gradient steps
+  grpo_clip_eps: 0.2      # PPO-style IS ratio clipping range
 ```
 
-**Offline / multi-epoch** (`grpo_num_epochs > 1`, IS ratio clipping):
+### Generation parameters
+
+```yaml
+alignment:
+  generation:
+    max_new_tokens: 512
+    temperature: 1.0
+    top_p: 0.9
+    top_k: 0          # 0 = disabled
+    do_sample: true   # false = greedy
 ```
-ratio = exp(log π_θ − log π_old)
-L = −mean(min(ratio · A, clip(ratio, 1±ε) · A)) + β · KL
+
+### Reference model CPU offload
+
+Set `alignment.offload_ref_model: true` to keep the reference model on CPU between forward passes. Moves it to GPU only when computing reference log-probabilities. Useful for single-GPU GRPO where policy + reference model together exceed VRAM.
+
+**Limitation:** incompatible with FSDP. If FSDP is active, the flag is ignored with a warning.
+
+### Minimal GRPO config
+
+```yaml
+data:
+  task_type: grpo
+  datasets:
+    - source: my-org/prompt-dataset
+      prompt_column: prompt
+
+alignment:
+  grpo_group_size: 8
+  grpo_beta: 0.1
+  grpo_num_epochs: 1
+  generation:
+    max_new_tokens: 512
+    temperature: 1.0
+  reward_manager:
+    num_workers: 4
+    functions:
+      - name: correctness
+        type: rule_template
+        weight: 1.0
+        rule_template: configs/rewards/math_gsm8k.yaml
 ```
 
-### Reward orchestration
-
-`RewardManager` collects rewards from one or more `RewardFunction` implementations (rule-based or model-based) and averages them with configurable weights. See `docs/reward_manager.md` for full details.
-
-### GRPO config fields
+### GRPO config reference
 
 | Field | Default | Description |
 |---|---|---|
 | `alignment.grpo_group_size` | `4` | Total completions per prompt (G) |
-| `alignment.grpo_rollout_micro_group_size` | `1` | Per-GPU parallel completions per prompt |
+| `alignment.grpo_rollout_micro_group_size` | `1` | Parallel completions generated per chunk |
 | `alignment.grpo_beta` | `0.1` | KL penalty coefficient |
 | `alignment.grpo_eps` | `1e-8` | Advantage normalization ε |
 | `alignment.grpo_num_epochs` | `1` | Gradient epochs per rollout (>1 = offline replay) |
 | `alignment.grpo_clip_eps` | `0.2` | IS ratio clip range ε (0 = no clipping) |
+| `alignment.offload_ref_model` | `false` | Keep reference model on CPU between passes |
 | `alignment.generation.max_new_tokens` | `512` | Max tokens to generate |
 | `alignment.generation.temperature` | `1.0` | Sampling temperature |
 | `alignment.generation.top_p` | `0.9` | Nucleus sampling threshold |
 | `alignment.generation.top_k` | `0` | Top-k cutoff (0 = disabled) |
 | `alignment.generation.do_sample` | `true` | Stochastic sampling (false = greedy) |
-| `alignment.reward_manager.*` | — | Reward function list and worker pool config |
-| `alignment.offload_ref_model` | `false` | Move reference model to CPU between forward passes |
-
-### Reference model CPU offloading
-
-Set `alignment.offload_ref_model: true` to keep the GRPO reference model on CPU between forward passes. The model is moved to GPU only during reference log-probability computation, then moved back to CPU. This frees GPU memory for the policy model, enabling GRPO training on GPUs that would otherwise run out of memory.
-
-**When to use:** Single-GPU GRPO training where the policy model + reference model together exceed available VRAM.
-
-**Limitations:** Not compatible with FSDP. FSDP-wrapped models cannot be moved between devices because sharding state is device-bound. If FSDP is active and offloading is requested, a warning is logged and the reference model stays on GPU.
-
-**Separate from `grpo_offload_ref_logps`:** The `offload_ref_model` flag controls where the model weights live. The `grpo_offload_ref_logps` flag (accessed via getattr) controls where computed log-probability tensors are accumulated. They are independent.
+| `alignment.reward_manager.*` | — | Reward function list and worker pool — see [reward_manager.md](reward_manager.md) |

@@ -307,19 +307,6 @@ Approximate training speeds on A100 GPUs (7B model):
 | LoRA (TP=2) | 8 GB | 2200 | 1.83x |
 | LoRA + Chunk (TP=2) | 6 GB | 2000 | 1.67x |
 
-## Future Extensions
-
-The PEFT module is designed to support additional methods:
-
-- **Adapters**: Bottleneck layers between transformer blocks
-- **Prefix Tuning**: Trainable prefix embeddings
-- **IA3**: Learned rescaling vectors (even more efficient than LoRA)
-- **DoRA**: LoRA + magnitude vector for improved performance
-
-To add a new method, extend `PEFTLayer` in `ironcore/peft/base.py` and register in `PEFTConfig`.
-
 ## References
 
 - **LoRA Paper**: [Hu et al., 2021](https://arxiv.org/abs/2106.09685)
-- **QLoRA**: Quantized LoRA for 4-bit models
-- **HuggingFace PEFT**: Reference implementation

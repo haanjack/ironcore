@@ -1,6 +1,6 @@
 # CI/CD & Testing Guide
 
-> Referenced by [CLAUDE.md](../CLAUDE.md) for detailed test setup and CI/CD workflow details.
+> Referenced by [CLAUDE.md](https://github.com/haanjack/ironcore/blob/main/CLAUDE.md) for detailed test setup and CI/CD workflow details.
 
 ## Overview
 
@@ -261,6 +261,6 @@ Note: `rlvr` alone also matches cheap GRPO math tests in `tests/unit/alignment/`
 
 ## Files & References
 
-- [CLAUDE.md](../CLAUDE.md): Commands, architecture, test markers (for Claude)
-- [tests/conftest.py](../tests/conftest.py): Auto-skip logic for cuda/mp markers (no marker registration — single source of truth is pyproject.toml)
-- [.github/workflows/test.yml](../.github/workflows/test.yml): Workflow YAML definition
+- [CLAUDE.md](https://github.com/haanjack/ironcore/blob/main/CLAUDE.md): Commands, architecture, test markers (for Claude)
+- [tests/conftest.py](https://github.com/haanjack/ironcore/blob/main/tests/conftest.py): Auto-skip logic for cuda/mp markers (no marker registration — single source of truth is pyproject.toml)
+- [.github/workflows/test.yml](https://github.com/haanjack/ironcore/blob/main/.github/workflows/test.yml): Workflow YAML definition

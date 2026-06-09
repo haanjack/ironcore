@@ -1,0 +1,19 @@
+# Full OpenWebText for nanoGPT convergence comparison.
+# 99/1 train/val split — matches nanoGPT's evaluation setup.
+# No max_samples limit; uses the full ~8M document corpus.
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe
+seq_length: 1024
+splits: [0.99, 0.01, 0.0]
+
+train_datasets:
+  - name: openwebtext
+    dataset_path: openwebtext
+    task_type: pretrain
+    ratio: 1.0
+    split: train
+    text_column: text
+
+preprocessed_dir: ./data/preprocessed/nanogpt_owt
+cache_dir: ./data/cache
+num_workers: 4

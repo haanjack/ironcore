@@ -1,0 +1,96 @@
+site_name: IronCore
+site_description: A from-scratch LLM training framework — pretraining, SFT, alignment (DPO/GRPO), parallelism, and offload.
+repo_url: https://github.com/haanjack/ironcore
+repo_name: ironcore
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Files kept in the repo for history / internal planning but excluded from the built site
+# (their stale internal TOCs would otherwise fail the strict build).
+exclude_docs: |
+  archive/
+  feature_plan.md
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Getting started: getting_started.md
+      - CLI guide: cli_guide.md
+      - Parallelism: parallelism.md
+      - Trainers: trainers.md
+      - Optimizer: optimizer.md
+      - Dataloader: dataloader.md
+      - Multi-dataset SFT: multi_dataset_sft.md
+      - Checkpointing: checkpointing.md
+      - Inference & KV cache: inference.md
+      - Evaluation: eval.md
+      - PEFT (LoRA): peft_guide.md
+      - Alignment (DPO/GRPO): alignment.md
+      - Reward manager: reward_manager.md
+      - Offload: offload.md
+  - Design:
+      - design/index.md
+      - Parallelism: design/parallelism.md
+      - Alignment (DPO/GRPO): design/alignment.md
+      - KV Cache & Inference: design/kv-cache.md
+      - Optimizer (Muon+AdamW): design/optimizer.md
+      - Models & Layers: design/models-layers.md
+      - Checkpointing: design/checkpointing.md
+      - Offload system: design/offload.md
+  - Reference:
+      - CLI reference: cli_reference.md
+      - Capability report: capability_report.md
+  - Reports:
+      - Distributed training: reports/distributed_training.md
+      - Attention benchmarks: reports/attention_benchmarks.md
+      - HF checkpointing: reports/hf_checkpointing.md
+      - torch.compile: reports/torch_compile.md
+      - GRPO online/offline: reports/2026-03-09_GRPO_Online_Offline.md
+      - CPU offload capability: experiments/cpu_offload_capability.md
+      - Convergence vs nanoGPT: experiments/nanogpt_convergence.md
+  - Project:
+      - CI/CD guide: ci_cd_guide.md

@@ -1,0 +1,44 @@
+# nanoGPT GPT-2 small (124M) — exact architecture match for convergence comparison.
+#
+# Differences from gpt2-small.yaml:
+#   - bias: false in all linear projections (nanoGPT train_gpt2.py: bias=False)
+#   - layernorm_bias: false
+#   - activation_type: gelu_new (tanh approximation, matches nanoGPT's new_gelu)
+#
+# Matches: Pre-LN (post_ln: false default), residual scaled init, weight tying.
+
+num_attention_heads: 12
+num_attention_groups: 12
+attention_head_size: 64
+head_dim: 64
+max_seq_len: 1024
+num_layers: 12
+d_model: 768
+d_ffn: 3072
+untie_embed: false
+reset_position_ids: false
+reset_attention_mask: false
+eod_mask_loss: false
+precision: bf16
+
+activation_type: gelu_new
+
+# No bias anywhere — matches nanoGPT's bias=False
+bias:
+  q: false
+  k: false
+  v: false
+  o: false
+  gate: false
+  up: false
+  down: false
+layernorm_bias: false
+
+# No dropout — matches nanoGPT train_gpt2.py: dropout=0.0
+dropout_embd: 0.0
+dropout_attn: 0.0
+dropout_mlp: 0.0
+attention_dropout: 0.0
+
+vocab_name_or_path: gpt2
+tokenizer_type: bbpe

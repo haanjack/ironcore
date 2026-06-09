@@ -1,5 +1,9 @@
 # Offload (RAM-First Staircase Scaling)
 
+> This is the user-facing guide (how to configure and run offload). For the architecture,
+> memory analysis, and how offload relates to FSDP, see the
+> [Offload system design](design/offload.md).
+
 ## Overview
 
 The offload subsystem moves tensors between GPU VRAM and host RAM to train models that don't fit entirely in VRAM. Configured via `offload:` section in YAML config.
