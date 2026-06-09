@@ -55,7 +55,7 @@ ironcore/
 ├── preprocessing/   # Data serialization (bin packing, tokenization pipelines)
 ├── tokenizer/       # BBPE and tiktoken tokenizer implementations
 ├── utils/           # mfu.py, memory.py, timer.py, device.py, config.py, profiling.py
-└── cli/             # 15 CLI subcommands (registry.py); see docs/cli_reference.md
+└── cli/             # 15 CLI subcommands (registry.py); see docs/cli_guide.md
 ```
 
 ### Invariants that aren't obvious from the code
@@ -82,7 +82,7 @@ is handled at the column/row parallel layer boundaries. See [docs/peft_guide.md]
 | Subsystem | One-liner | Doc |
 | --- | --- | --- |
 | Getting started | Install, CLI, first run | [getting_started](docs/getting_started.md) |
-| CLI | 15 subcommands; add one via `ironcore/cli/registry.py` + `cli/<name>.py` | [cli_guide](docs/cli_guide.md) · [cli_reference](docs/cli_reference.md) |
+| CLI | 15 subcommands; add one via `ironcore/cli/registry.py` + `cli/<name>.py` | [cli_guide](docs/cli_guide.md) |
 | Parallelism | TP/EP/DP, multi-node, FSDP, `DistributedOptimizer` vs FSDP | [parallelism](docs/parallelism.md) |
 | Trainers | `BaseTrainer` lifecycle, grad accumulation, mixed precision | [trainers](docs/trainers.md) |
 | Optimizer | Muon (Newton-Schulz) + AdamW hybrid, ZeRO-1 sharding | [optimizer](docs/optimizer.md) |

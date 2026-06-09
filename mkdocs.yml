@@ -10,17 +10,13 @@ theme:
     text: Noto Sans KR
     code: JetBrains Mono
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: indigo
+    - scheme: default
+      primary: deep-purple
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: indigo
+    - scheme: slate
+      primary: deep-purple
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -99,8 +95,5 @@ nav:
       - Models & Layers: design/models-layers.md
       - Checkpointing: design/checkpointing.md
       - Offload system: design/offload.md
-  - Reference:
-      - CLI reference: cli_reference.md
-      - Capability report: capability_report.md
   - Project:
       - CI/CD guide: ci_cd_guide.md
