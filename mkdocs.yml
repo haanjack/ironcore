@@ -70,6 +70,8 @@ markdown_extensions:
 exclude_docs: |
   archive/
   feature_plan.md
+  reports/
+  experiments/
 
 nav:
   - Home: index.md
@@ -100,13 +102,5 @@ nav:
   - Reference:
       - CLI reference: cli_reference.md
       - Capability report: capability_report.md
-  - Reports:
-      - Distributed training: reports/distributed_training.md
-      - Attention benchmarks: reports/attention_benchmarks.md
-      - HF checkpointing: reports/hf_checkpointing.md
-      - torch.compile: reports/torch_compile.md
-      - GRPO online/offline: reports/2026-03-09_GRPO_Online_Offline.md
-      - CPU offload capability: experiments/cpu_offload_capability.md
-      - Convergence vs nanoGPT: experiments/nanogpt_convergence.md
   - Project:
       - CI/CD guide: ci_cd_guide.md
