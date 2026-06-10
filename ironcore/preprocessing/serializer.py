@@ -245,9 +245,7 @@ class DataSerializer:
 
             with open(bin_path, "wb") as bin_f:
                 dataset_iter = (
-                    tqdm(tokenized, desc="  Writing", unit="docs")
-                    if self.verbose
-                    else tokenized
+                    tqdm(tokenized, desc="  Writing", unit="docs") if self.verbose else tokenized
                 )
                 for sample in dataset_iter:
                     token_ids = sample["tokens"]
