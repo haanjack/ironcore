@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Transparent ironcore CLI wrapper.
+# Routes through the container from the host; runs directly inside the container.
+#
+# Usage (host):
+#   ./ironcore-run train --config configs/experiments/nanogpt_convergence.yaml
+#   ./ironcore-run eval  --config configs/...
+#
+# Multi-GPU (inside container or via launch.sh):
+#   torchrun --nproc_per_node 4 -m ironcore train --config configs/...
+#
+# Interactive / arbitrary commands:
+#   ./scripts/docker/launch.sh
+#   ./scripts/docker/launch.sh pytest tests/
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f /.dockerenv ]; then
+    exec python3 -m ironcore "$@"
+else
+    exec "$REPO_ROOT/scripts/docker/launch.sh" python3 -m ironcore "$@"
+fi
