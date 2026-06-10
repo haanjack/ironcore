@@ -908,12 +908,12 @@ class BaseTrainer(ABC):
         if param_norm > 0:
             metrics["param_norm"] = param_norm
 
-        # Timing metrics
+        # Timing metrics — only computed on logging steps.
+        # get_interval() resets the buffer, so calling it on every step would leave
+        # only one sample in the interval instead of log_interval samples.
         iter_time: float = 0.0
-        interval_time: float = 0.0
-        if timer is not None:
-            interval_time = timer.get_interval("iter")  # avg over this log interval, resets buffer
-            iter_time = interval_time  # used for throughput calculations below
+        if timer is not None and self.control.do_log(step):
+            iter_time = timer.get_interval("iter")  # avg over this log interval, resets buffer
             metrics["iter_time"] = iter_time
 
             # Overall average from wall clock since training (re)started

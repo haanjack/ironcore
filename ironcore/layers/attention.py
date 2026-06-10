@@ -61,19 +61,21 @@ class Attention(BaseModule):
                 value, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=2
             )
 
-        # SDPA expects [b, n, s, d]
-        query = query.transpose(1, 2)
-        key = key.transpose(1, 2)
-        value = value.transpose(1, 2)
+        # SDPA expects [b, n, s, d]; contiguous() ensures fast kernel dispatch
+        query = query.transpose(1, 2).contiguous()
+        key = key.transpose(1, 2).contiguous()
+        value = value.transpose(1, 2).contiguous()
 
         dropout_p = self.config.model.dropout_attn if self.training else 0.0
+        # Cast to bool so SDPA treats the mask as boolean (not additive float)
+        sdpa_mask = attention_mask.bool() if attention_mask is not None else None
 
         with profile_context("self attention"):
             context_output = F.scaled_dot_product_attention(
                 query,
                 key,
                 value,
-                attn_mask=attention_mask,
+                attn_mask=sdpa_mask,
                 dropout_p=dropout_p,
             )
 
