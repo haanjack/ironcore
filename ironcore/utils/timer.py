@@ -44,12 +44,28 @@ class Timer:
         self.timers[name][-1] = time.time() - self.timers[name][-1]
 
     def get(self, name: str) -> float:
-        """Get summary of requested timer."""
+        """Get overall average of all recorded samples."""
         if name not in self.running:
             raise KeyError(f"Not initialized timer ({name}) is requested")
         if self.running[name]:
             self.stop(name)
         return sum(self.timers[name]) / len(self.timers[name])
+
+    def get_interval(self, name: str) -> float:
+        """Return average of samples since the last get_interval call, then clear them.
+
+        Use this to get per-log-interval speed alongside the running average from get().
+        """
+        if name not in self.running:
+            raise KeyError(f"Not initialized timer ({name}) is requested")
+        if self.running[name]:
+            self.stop(name)
+        samples = self.timers[name]
+        if not samples:
+            return 0.0
+        val = sum(samples) / len(samples)
+        self.timers[name] = []
+        return val
 
     def get_summary(self) -> dict[str, float]:
         """Get summary of all timers."""
