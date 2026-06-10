@@ -76,11 +76,22 @@ git push origin feature/xyz
 
 Register your GPU machine so GitHub Actions automatically runs GPU tests.
 
+### Runner labels and job routing
+
+| Job | Runner labels | GPU requirement |
+|---|---|---|
+| `gpu-tests` (every PR) | `self-hosted, gpu` | 1 GPU (CUDA or ROCm) |
+| `distributed-tests` (push to main) | `self-hosted, gpu, mp` | 2+ GPUs |
+| `e2e-tests` (manual) | `self-hosted, gpu, mp` | 2+ GPUs |
+
+Register a **single-GPU machine** (e.g. ROCm/WSL2) with `--labels gpu` — it will serve PR tests.
+Register a **multi-GPU machine** with `--labels gpu,mp` — it serves all GPU jobs including distributed.
+
 ### Prerequisites
 
-- Linux machine with 2+ NVIDIA GPUs
-- CUDA drivers installed
-- PyTorch with GPU support
+- Linux (or WSL2) machine with at least 1 GPU
+- GPU drivers installed (NVIDIA CUDA or AMD ROCm)
+- Docker with GPU passthrough (`nvidia-docker` or ROCm `--device /dev/kfd` support)
 
 ### Step 1: Generate Runner Token
 
@@ -94,14 +105,21 @@ Register your GPU machine so GitHub Actions automatically runs GPU tests.
 cd ~
 mkdir -p github-runner && cd github-runner
 
-# Download latest runner (update version if newer available)
-# Check: https://github.com/actions/runner/releases
-RUNNER_VERSION="2.333.1"  # Update this to latest if needed
+# Download latest runner — check https://github.com/actions/runner/releases for latest version
+RUNNER_VERSION="2.333.1"  # Update to latest if needed
 curl -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
   -L https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 tar xzf ./actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 
-# Configure (replace YOUR_USER and NEW_TOKEN with actual values)
+# Single-GPU machine (serves gpu-tests on PRs):
+./config.sh \
+  --url https://github.com/YOUR_USER/ironcore \
+  --token NEW_TOKEN_HERE \
+  --labels gpu \
+  --unattended \
+  --replace
+
+# Multi-GPU machine (also serves distributed-tests and e2e-tests):
 ./config.sh \
   --url https://github.com/YOUR_USER/ironcore \
   --token NEW_TOKEN_HERE \
@@ -122,6 +140,12 @@ tar xzf ./actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 sudo ./svc.sh install
 sudo ./svc.sh start
 sudo ./svc.sh status
+```
+
+**WSL2 note:** `svc.sh` requires `systemd`. On WSL2 without systemd, run the runner in a `tmux` or `screen` session instead:
+
+```bash
+./run.sh  # keep this running (tmux/screen recommended)
 ```
 
 ### Step 4: Verify
