@@ -80,18 +80,17 @@ Register your GPU machine so GitHub Actions automatically runs GPU tests.
 
 | Job | Runner labels | GPU requirement |
 |---|---|---|
-| `gpu-tests` (every PR) | `self-hosted, gpu` | 1 GPU (CUDA or ROCm) |
+| `gpu-tests` (every PR) | `self-hosted, gpu` | 1+ GPU |
 | `distributed-tests` (push to main) | `self-hosted, gpu, mp` | 2+ GPUs |
 | `e2e-tests` (manual) | `self-hosted, gpu, mp` | 2+ GPUs |
 
-Register a **single-GPU machine** (e.g. ROCm/WSL2) with `--labels gpu` — it will serve PR tests.
+Register a **single-GPU machine** with `--labels gpu` — it will serve PR tests.
 Register a **multi-GPU machine** with `--labels gpu,mp` — it serves all GPU jobs including distributed.
 
 ### Prerequisites
 
-- Linux (or WSL2) machine with at least 1 GPU
-- GPU drivers installed (NVIDIA CUDA or AMD ROCm)
-- Docker with GPU passthrough (`nvidia-docker` or ROCm `--device /dev/kfd` support)
+- Linux machine with at least 1 GPU
+- GPU drivers and Docker with GPU passthrough installed
 
 ### Step 1: Generate Runner Token
 
@@ -140,12 +139,6 @@ tar xzf ./actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 sudo ./svc.sh install
 sudo ./svc.sh start
 sudo ./svc.sh status
-```
-
-**WSL2 note:** `svc.sh` requires `systemd`. On WSL2 without systemd, run the runner in a `tmux` or `screen` session instead:
-
-```bash
-./run.sh  # keep this running (tmux/screen recommended)
 ```
 
 ### Step 4: Verify
