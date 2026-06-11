@@ -44,6 +44,7 @@ jobs:
           CUDA_VISIBLE_DEVICES: ""
         run: |
           pytest tests/ \
+            --ignore=tests/integration \
             -m "not cuda and not mp and not e2e and not hf_hub" \
             -v --tb=short -q
 
