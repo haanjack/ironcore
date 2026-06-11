@@ -5,7 +5,11 @@
 
 import sys
 
+from dotenv import load_dotenv
+
 from ironcore.cli.registry import build_parser
+
+load_dotenv()  # loads .env from cwd (repo root) if present; no-op otherwise
 
 
 def main():

@@ -5,7 +5,9 @@ description = "Distributed training framework"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.12"
 dependencies = [
-    "torch",
+    # torch is intentionally absent — provided by the container environment
+    # (NGC PyTorch image for CUDA, ROCm image for AMD). Adding torch here causes
+    # pip/uv to overwrite the container-optimized build with a generic PyPI build.
     "pyyaml",
     "tiktoken",
     "datasets",

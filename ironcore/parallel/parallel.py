@@ -35,6 +35,18 @@ def initialize_process(config: MainConfig):
 
     logger = get_logger()
 
+    # Provide defaults for single-GPU / non-torchrun launches.
+    # os.environ.setdefault leaves externally set values (e.g. from torchrun) intact.
+    # PyTorch's env:// init method reads these directly from the environment even when
+    # rank/world_size are passed explicitly to init_process_group.
+    import os
+
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    os.environ.setdefault("RANK", str(config.parallel.rank))
+    os.environ.setdefault("LOCAL_RANK", str(config.parallel.local_rank))
+    os.environ.setdefault("WORLD_SIZE", str(config.parallel.world_size))
+
     # initialize parallelism
     if torch.distributed.is_initialized():
         logger.info(

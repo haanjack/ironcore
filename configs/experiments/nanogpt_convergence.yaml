@@ -39,7 +39,9 @@ operation:
   eval_samples: 500
   activation_recompute: false
 
-model: nanogpt-small
+model:
+  name: nanogpt
+  config-path: configs/model/nanogpt-small.yaml
 
 data:
   config_path: configs/data/nanogpt_owt.yaml
@@ -64,3 +66,7 @@ optim:
 init:
   seed: 1337                     # matches nanoGPT default seed
   init_std: 0.02
+
+utils:
+  wandb_project: ironcore
+  wandb_name: nanogpt-small-owt
