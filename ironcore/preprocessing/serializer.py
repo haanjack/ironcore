@@ -210,7 +210,11 @@ class DataSerializer:
         if hasattr(self.tokenizer, "__len__"):
             vocab_size = len(self.tokenizer)
         else:
-            vocab_size = getattr(self.tokenizer, "n_vocab", None) or getattr(self.tokenizer, "vocab_size", None) or 65536
+            vocab_size = (
+                getattr(self.tokenizer, "n_vocab", None)
+                or getattr(self.tokenizer, "vocab_size", None)
+                or 65536
+            )
         token_dtype = np.uint16 if vocab_size < 65536 else np.uint32
 
         if not fim_enabled:
@@ -252,9 +256,7 @@ class DataSerializer:
 
             with open(bin_path, "wb") as bin_f:
                 dataset_iter = (
-                    tqdm(tokenized, desc="  Writing", unit="docs")
-                    if self.verbose
-                    else tokenized
+                    tqdm(tokenized, desc="  Writing", unit="docs") if self.verbose else tokenized
                 )
                 for sample in dataset_iter:
                     token_ids = sample["tokens"]

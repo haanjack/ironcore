@@ -436,7 +436,9 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
 
             # Apply any inline overrides (keys other than name / config-path / config_path)
             overrides = {
-                k: v for k, v in sub_group_config.items() if k not in ("name", "config-path", "config_path")
+                k: v
+                for k, v in sub_group_config.items()
+                if k not in ("name", "config-path", "config_path")
             }
             if overrides:
                 _load_subgroup_config_from_yaml(config, config_group_key, overrides)

@@ -103,12 +103,14 @@ def _assert_training_success(result: subprocess.CompletedProcess, label: str) ->
 class TestGRPOTraining:
     @pytest.mark.grpo
     @pytest.mark.cuda
+    @pytest.mark.mp
     def test_grpo_baseline_training(self):
         result = _run_training(GRPO_BASELINE_CONFIG)
         _assert_training_success(result, "baseline")
 
     @pytest.mark.grpo
     @pytest.mark.cuda
+    @pytest.mark.mp
     def test_grpo_paged_rollout_training(self):
         result = _run_training(GRPO_PAGED_CONFIG)
         _assert_training_success(result, "paged")
