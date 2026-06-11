@@ -205,9 +205,17 @@ class DataSerializer:
             if self.verbose:
                 print(f"  FIM enabled: {self.config.fim_rate:.0%} of sequences will be transformed")
 
-        # Determine output dtype from tokenizer vocab size (avoids full-pass max scan)
-        vocab_size = getattr(self.tokenizer, "vocab_size", None) or 65536
-        token_dtype = np.uint16 if vocab_size < 65535 else np.uint32
+        # Determine output dtype from actual tokenizer size including added special tokens.
+        # Using vocab_size alone misses FIM/added tokens and can cause silent uint16 overflow.
+        if hasattr(self.tokenizer, "__len__"):
+            vocab_size = len(self.tokenizer)
+        else:
+            vocab_size = (
+                getattr(self.tokenizer, "n_vocab", None)
+                or getattr(self.tokenizer, "vocab_size", None)
+                or 65536
+            )
+        token_dtype = np.uint16 if vocab_size < 65536 else np.uint32
 
         if not fim_enabled:
             # Fast path: parallel tokenization via dataset.map + incremental disk write.
@@ -219,11 +227,14 @@ class DataSerializer:
             def _tokenize_batch(batch):
                 tokens_list = []
                 for text in batch[text_column]:
+                    if not isinstance(text, str):
+                        text = ""
                     if hasattr(tokenizer, "add_special_tokens"):
                         ids = tokenizer.encode(text, add_special_tokens=False)
                     else:
                         ids = tokenizer.encode(text)
-                    ids.append(eos_id)
+                    if eos_id is not None:
+                        ids.append(eos_id)
                     tokens_list.append(ids)
                 return {"tokens": tokens_list}
 

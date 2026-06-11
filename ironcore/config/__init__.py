@@ -416,10 +416,14 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             raise ValueError(f"{config_group_key} is not defined configuration group")
 
         # load configs from yaml
-        if isinstance(sub_group_config, dict) and "config-path" in sub_group_config:
+        if isinstance(sub_group_config, dict) and (
+            "config-path" in sub_group_config or "config_path" in sub_group_config
+        ):
             # Explicit form: model: {name: foo, config-path: configs/model/foo.yaml, <overrides>}
+            # Both config-path and config_path are accepted for consistency with other config keys.
             # config-path is resolved relative to the working directory.
-            explicit_path = Path(sub_group_config["config-path"])
+            config_path_key = "config-path" if "config-path" in sub_group_config else "config_path"
+            explicit_path = Path(sub_group_config[config_path_key])
             if not explicit_path.exists():
                 raise FileNotFoundError(f"Config file not found: {explicit_path}")
 
@@ -430,9 +434,11 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
             sub_group_config_from_file = load_yaml_config(explicit_path)
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
 
-            # Apply any inline overrides (keys other than name / config-path)
+            # Apply any inline overrides (keys other than name / config-path / config_path)
             overrides = {
-                k: v for k, v in sub_group_config.items() if k not in ("name", "config-path")
+                k: v
+                for k, v in sub_group_config.items()
+                if k not in ("name", "config-path", "config_path")
             }
             if overrides:
                 _load_subgroup_config_from_yaml(config, config_group_key, overrides)

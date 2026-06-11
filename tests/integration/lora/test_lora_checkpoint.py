@@ -124,8 +124,7 @@ class TestLoRACheckpointTP1:
             _seed_all()
             model = LanguageModel(config)
             model.to(device)
-            device_type = "cuda" if torch.cuda.is_available() else "cpu"
-            optimizer = get_optimizer(config, model, device_type=device_type)
+            optimizer = get_optimizer(config, model)
 
             from torch.optim.lr_scheduler import StepLR
 
@@ -200,7 +199,7 @@ class TestLoRAUniversalCheckpoint:
                 _seed_all()
                 model_tp1 = LanguageModel(config_tp1)
                 model_tp1.to(device)
-                optimizer_tp1 = get_optimizer(config_tp1, model_tp1, device_type="cuda")
+                optimizer_tp1 = get_optimizer(config_tp1, model_tp1)
 
                 from torch.optim.lr_scheduler import StepLR
 
@@ -230,7 +229,7 @@ class TestLoRAUniversalCheckpoint:
             _seed_all()
             model_tp2 = LanguageModel(config_tp2)
             model_tp2.to(device)
-            optimizer_tp2 = get_optimizer(config_tp2, model_tp2, device_type="cuda")
+            optimizer_tp2 = get_optimizer(config_tp2, model_tp2)
 
             from torch.optim.lr_scheduler import StepLR
 
