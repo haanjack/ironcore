@@ -76,11 +76,21 @@ git push origin feature/xyz
 
 Register your GPU machine so GitHub Actions automatically runs GPU tests.
 
+### Runner labels and job routing
+
+| Job | Runner labels | GPU requirement |
+|---|---|---|
+| `gpu-tests` (every PR) | `self-hosted, gpu` | 1+ GPU |
+| `distributed-tests` (push to main) | `self-hosted, gpu, mp` | 2+ GPUs |
+| `e2e-tests` (manual) | `self-hosted, gpu, mp` | 2+ GPUs |
+
+Register a **single-GPU machine** with `--labels gpu` — it will serve PR tests.
+Register a **multi-GPU machine** with `--labels gpu,mp` — it serves all GPU jobs including distributed.
+
 ### Prerequisites
 
-- Linux machine with 2+ NVIDIA GPUs
-- CUDA drivers installed
-- PyTorch with GPU support
+- Linux machine with at least 1 GPU
+- GPU drivers and Docker with GPU passthrough installed
 
 ### Step 1: Generate Runner Token
 
@@ -94,14 +104,21 @@ Register your GPU machine so GitHub Actions automatically runs GPU tests.
 cd ~
 mkdir -p github-runner && cd github-runner
 
-# Download latest runner (update version if newer available)
-# Check: https://github.com/actions/runner/releases
-RUNNER_VERSION="2.333.1"  # Update this to latest if needed
+# Download latest runner — check https://github.com/actions/runner/releases for latest version
+RUNNER_VERSION="2.333.1"  # Update to latest if needed
 curl -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz \
   -L https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 tar xzf ./actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
 
-# Configure (replace YOUR_USER and NEW_TOKEN with actual values)
+# Single-GPU machine (serves gpu-tests on PRs):
+./config.sh \
+  --url https://github.com/YOUR_USER/ironcore \
+  --token NEW_TOKEN_HERE \
+  --labels gpu \
+  --unattended \
+  --replace
+
+# Multi-GPU machine (also serves distributed-tests and e2e-tests):
 ./config.sh \
   --url https://github.com/YOUR_USER/ironcore \
   --token NEW_TOKEN_HERE \

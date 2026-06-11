@@ -4,6 +4,7 @@
 
 """Base trainer class with common functionality for all training methods."""
 
+import time
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
 from typing import Union
@@ -506,6 +507,8 @@ class BaseTrainer(ABC):
         self.model.train()
 
         step = last_step
+        self._train_wall_start = time.time()
+        self._train_step_start = last_step
 
         self.logger.info(f"Training start from step: {step}")
         while step < self.config.operation.train_steps:
@@ -905,33 +908,50 @@ class BaseTrainer(ABC):
         if param_norm > 0:
             metrics["param_norm"] = param_norm
 
-        # Timing metrics
+        # Timing metrics — only computed on logging steps.
+        # get_interval() resets the buffer, so calling it on every step would leave
+        # only one sample in the interval instead of log_interval samples.
         iter_time: float = 0.0
-        if timer is not None:
-            iter_time = timer.get("iter")
+        if timer is not None and self.control.do_log(step):
+            iter_time = timer.get_interval("iter")  # avg over this log interval, resets buffer
             metrics["iter_time"] = iter_time
-            if iter_time > 0:
-                tokens_per_sec = (
-                    self.config.trainer.train_batch_size * self.config.model.max_seq_len / iter_time
-                )
-                metrics["tokens_per_sec"] = tokens_per_sec
 
-                if self.mfu_calculator is not None:
-                    dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
-                    micro_batch_size = self.config.trainer.micro_batch_size or 1
-                    gradient_accumulation_steps = (
-                        self.config.trainer.gradient_accumulation_steps or 1
-                    )
-                    global_batch_size = (
-                        micro_batch_size * gradient_accumulation_steps * dp_world_size
-                    )
-                    tflops = self.mfu_calculator.compute_tflops(
+            # Overall average from wall clock since training (re)started
+            train_start = getattr(self, "_train_wall_start", None)
+            train_step_start = getattr(self, "_train_step_start", 0)
+            steps_done = step - train_step_start
+            if train_start is not None and steps_done > 0:
+                metrics["avg_iter_time"] = (time.time() - train_start) / steps_done
+
+            tokens_per_step = self.config.trainer.train_batch_size * self.config.model.max_seq_len
+
+            if iter_time > 0:
+                metrics["tokens_per_sec"] = tokens_per_step / iter_time
+
+            avg_iter_time = metrics.get("avg_iter_time", 0.0)
+            if avg_iter_time > 0:
+                metrics["avg_tokens_per_sec"] = tokens_per_step / avg_iter_time
+
+            if self.mfu_calculator is not None:
+                dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
+                micro_batch_size = self.config.trainer.micro_batch_size or 1
+                gradient_accumulation_steps = self.config.trainer.gradient_accumulation_steps or 1
+                global_batch_size = micro_batch_size * gradient_accumulation_steps * dp_world_size
+
+                if iter_time > 0:
+                    metrics["tflops_per_gpu"] = self.mfu_calculator.compute_tflops(
                         batch_size=global_batch_size,
                         seq_len=self.config.model.max_seq_len,
                         step_time_seconds=iter_time,
                         num_gpus=dp_world_size,
                     )
-                    metrics["tflops_per_gpu"] = tflops
+                if avg_iter_time > 0:
+                    metrics["avg_tflops_per_gpu"] = self.mfu_calculator.compute_tflops(
+                        batch_size=global_batch_size,
+                        seq_len=self.config.model.max_seq_len,
+                        step_time_seconds=avg_iter_time,
+                        num_gpus=dp_world_size,
+                    )
 
         # Offload metrics: log when scheduler is active
         if self._offload_scheduler is not None:
@@ -991,11 +1011,21 @@ class BaseTrainer(ABC):
             if grad_norm > 0:
                 log_msg += f", grad_norm: {grad_norm:.4f}"
             if timer is not None:
-                log_msg += f", iter_time: {iter_time:.3f}s"
+                log_msg += f", step_time: {iter_time:.3f}s"
+                if "avg_iter_time" in metrics:
+                    log_msg += f" (avg: {metrics['avg_iter_time']:.3f}s)"
                 if "tokens_per_sec" in metrics:
-                    log_msg += f", tok/s: {metrics['tokens_per_sec']:.1f}"
+                    tok_s = metrics["tokens_per_sec"]
+                    avg_tok_s = metrics.get("avg_tokens_per_sec")
+                    log_msg += f", tok/s: {tok_s:.1f}"
+                    if avg_tok_s is not None:
+                        log_msg += f" (avg: {avg_tok_s:.1f})"
                 if "tflops_per_gpu" in metrics:
-                    log_msg += f", TFLOPS/s/GPU: {metrics['tflops_per_gpu']:.2f}"
+                    tflops = metrics["tflops_per_gpu"]
+                    avg_tflops = metrics.get("avg_tflops_per_gpu")
+                    log_msg += f", TFLOPS/s/GPU: {tflops:.2f}"
+                    if avg_tflops is not None:
+                        log_msg += f" (avg: {avg_tflops:.2f})"
             if "data_load_ms_per_step" in metrics:
                 log_msg += f", data_load: {metrics['data_load_ms_per_step']:.1f}ms/step"
                 if "data_load_ratio" in metrics:

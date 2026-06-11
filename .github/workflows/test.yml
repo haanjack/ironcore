@@ -51,7 +51,7 @@ jobs:
   # Single-GPU tests — runs on every PR and push to main
   gpu-tests:
     name: GPU Tests
-    runs-on: [self-hosted, gpu, mp]
+    runs-on: [self-hosted, gpu]
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'pull_request') ||

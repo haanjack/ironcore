@@ -6,8 +6,18 @@ if [ -f .env ]; then
 fi
 set +a
 
-# Default to cuda if not set
-ARCH=${ARCH:-"cuda"}
+# Auto-detect GPU architecture from device files unless already set (via .env or env var)
+if [ -z "$ARCH" ]; then
+    if [ -e /dev/nvidiactl ]; then
+        ARCH="cuda"
+    elif [ -e /dev/dxg ]; then
+        ARCH="rocm-wsl"
+    elif [ -e /dev/kfd ]; then
+        ARCH="rocm"
+    else
+        ARCH="cuda"
+    fi
+fi
 github_access_token=${github_access_token:-""}
 
 if [ "$ARCH" == "rocm" ] || [ "$ARCH" == "rocm-wsl" ]; then

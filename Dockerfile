@@ -9,3 +9,7 @@ RUN apt update && apt install -y --no-install-recommends \
 ADD ./requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt &&\
     rm /tmp/requirements.txt
+
+# Make the runtime-mounted workspace (/workspace) importable without PYTHONPATH.
+# The source is mounted at runtime; ./ironcore-run handles CLI dispatch.
+RUN python3 -c "import site; open(site.getsitepackages()[0]+'/ironcore-dev.pth','w').write('/workspace\n')"

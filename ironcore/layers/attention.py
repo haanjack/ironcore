@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 try:
@@ -50,7 +51,7 @@ class Attention(BaseModule):
         value,
         attention_mask,
     ):
-        """Standard attention implementation using [b, s, n, d] layout."""
+        """Attention via F.scaled_dot_product_attention using [b, s, n, d] layout."""
         # GQA expansion
         if key.size(2) != query.size(2):
             key = expand_for_gqa(
@@ -60,26 +61,26 @@ class Attention(BaseModule):
                 value, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=2
             )
 
-        with profile_context("self attention score"):
-            # query: [b, sq, n, d], key: [b, sk, n, d] -> [b, n, sq, sk]
-            attention_score = torch.einsum("bqnd,bknd->bnqk", query, key)
-            attention_score = attention_score / self.scale_factor
+        # SDPA expects [b, n, s, d]; contiguous() ensures fast kernel dispatch
+        query = query.transpose(1, 2).contiguous()
+        key = key.transpose(1, 2).contiguous()
+        value = value.transpose(1, 2).contiguous()
 
-            if attention_mask is not None:
-                attention_score = attention_score.masked_fill(attention_mask == 0, self.mask_value)
+        dropout_p = self.config.model.dropout_attn if self.training else 0.0
+        # Cast to bool so SDPA treats the mask as boolean (not additive float)
+        sdpa_mask = attention_mask.bool() if attention_mask is not None else None
 
-        # Softmax in fp32
-        with profile_context("attention softmax"):
-            attention_probs = self.softmax(attention_score.float()).to(query.dtype)
+        with profile_context("self attention"):
+            context_output = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=sdpa_mask,
+                dropout_p=dropout_p,
+            )
 
-        if self.config.model.dropout_attn > 0.0:
-            attention_probs = self.attn_dropout(attention_probs)
-
-        # Matmul: [b, n, sq, sk] * [b, sk, n, d] -> [b, sq, n, d]
-        with profile_context("self attention context"):
-            context_output = torch.einsum("bnqk,bknd->bqnd", attention_probs, value)
-
-        # Reshape to [b, sq, n*d]
+        # [b, n, sq, d] -> [b, sq, n*d]
+        context_output = context_output.transpose(1, 2)
         context_output = rearrange(context_output, "b q n d -> b q (n d)")
         return context_output
 
