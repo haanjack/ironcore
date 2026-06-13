@@ -245,7 +245,7 @@ class DataSerializer:
                 _tokenize_batch,
                 batched=True,
                 batch_size=1000,
-                num_proc=num_workers,
+                num_proc=num_workers if hasattr(dataset, "__len__") else None,
                 remove_columns=dataset.column_names,
                 desc="  Tokenizing",
             )
