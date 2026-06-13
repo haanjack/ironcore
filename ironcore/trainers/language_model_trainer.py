@@ -108,14 +108,22 @@ class LanguageModelTrainer(BaseTrainer):
         input_ids = batch["input_ids"]
         labels = batch["labels"]
 
-        with self.context["autocast"]:
-            loss = self.model(input_ids, labels)
-
         with torch.no_grad(), self.context["autocast"]:
             logits = self.model(input_ids, labels=None)
 
         loss_mask = (labels != -100).float()
         accuracy = compute_token_accuracy(logits, labels, loss_mask)
+
+        shifted_logits = logits[..., :-1, :].contiguous().float()
+        shifted_labels = labels[..., 1:].contiguous()
+        shifted_mask = loss_mask[..., 1:]
+
+        per_token_losses = torch.nn.functional.cross_entropy(
+            shifted_logits.view(-1, shifted_logits.size(-1)),
+            shifted_labels.view(-1),
+            reduction="none",
+        ).view(shifted_labels.shape)
+        loss = (per_token_losses * shifted_mask).sum() / shifted_mask.sum()
 
         return loss.item(), accuracy
 

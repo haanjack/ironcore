@@ -318,6 +318,8 @@ def load_checkpoint(
                 k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v
                 for k, v in raw_ckpt_state.items()
             }
+        elif not ckpt_has_orig_mod and model_has_orig_mod:
+            raw_ckpt_state = {f"_orig_mod.{k}": v for k, v in raw_ckpt_state.items()}
 
     loaded_checkpoint = {}
     for name, param in model.named_parameters():
