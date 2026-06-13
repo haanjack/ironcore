@@ -33,6 +33,15 @@ _CKPT_FILENAME = "pytorch_model.bin"
 _LATEST_STEP_FILENAME = "latest_step.txt"
 
 
+def _strip_prefixes(key: str) -> str:
+    """Strip DDP 'module.' and torch.compile '_orig_mod.' prefixes."""
+    if key.startswith("module."):
+        key = key[len("module.") :]
+    if key.startswith("_orig_mod."):
+        key = key[len("_orig_mod.") :]
+    return key
+
+
 class HFConfigManager:
     """Manage configuration files for HuggingFace compatibility."""
 
@@ -284,7 +293,7 @@ def load_checkpoint(
 
     # load state dict
     model_attribs = {
-        name: {
+        _strip_prefixes(name): {
             "column_parallel": layer.column_parallel,
             "row_parallel": layer.row_parallel,
             "concatenated_weights": layer.concatenated_weights,
@@ -294,9 +303,8 @@ def load_checkpoint(
     }
 
     # Normalize checkpoint state dict to match model's parameter namespace.
-    # Handles the case where the checkpoint was saved from a DDP-wrapped model
-    # (keys have "module." prefix) but is being loaded into a non-DDP model
-    # (or vice versa). Also handles torch.compile prefix ("_orig_mod.").
+    # Handles backward compatibility with checkpoints saved before the prefix
+    # stripping was added at save time (keys may have 'module.' or '_orig_mod.').
     raw_ckpt_state = checkpoint["model_state_dict"]
     model_param_names = {n for n, _ in model.named_parameters()}
     model_state_keys = set(model.state_dict())
@@ -540,8 +548,9 @@ def save_checkpoint(
             and parallel_states.get_tensor_model_parallel_world_size() > 1
         )
 
+    # model_state_dict — keys are already clean since we strip at save time
     model_attribs = {
-        name: {
+        _strip_prefixes(name): {
             "column_parallel": layer.column_parallel,
             "row_parallel": layer.row_parallel,
             "concatenated_weights": layer.concatenated_weights,
@@ -553,7 +562,7 @@ def save_checkpoint(
     # model_state_dict
     model_state_dict = {}
     for name, param in model.state_dict().items():
-        # remove 'weights' or 'bias' from the name
+        name = _strip_prefixes(name)
         module_name = ".".join(name.split(".")[:-1])
 
         output_param = param
@@ -602,7 +611,7 @@ def save_checkpoint(
             "param_groups": optimizer.state_dict()["param_groups"],
         }
         for _i, (name, param) in enumerate(model.named_parameters()):
-            optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
+            optimizer_state_dict_by_name["state"][_strip_prefixes(name)] = optimizer.state[param]
 
     # For universal checkpoints, gather TP-sharded optimizer states
     final_optimizer_state = optimizer_state_dict_by_name
@@ -645,7 +654,7 @@ def save_checkpoint(
             output_optim_state["step"] = step
 
             # Use parameter name as key (not integer index) for consistent load format
-            merged_optimizer_state["state"][name] = output_optim_state
+            merged_optimizer_state["state"][_strip_prefixes(name)] = output_optim_state
 
         final_optimizer_state = merged_optimizer_state
 
