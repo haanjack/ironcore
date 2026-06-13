@@ -33,15 +33,6 @@ _CKPT_FILENAME = "pytorch_model.bin"
 _LATEST_STEP_FILENAME = "latest_step.txt"
 
 
-def _strip_prefixes(key: str) -> str:
-    """Strip DDP 'module.' and torch.compile '_orig_mod.' prefixes."""
-    if key.startswith("module."):
-        key = key[len("module.") :]
-    if key.startswith("_orig_mod."):
-        key = key[len("_orig_mod.") :]
-    return key
-
-
 class HFConfigManager:
     """Manage configuration files for HuggingFace compatibility."""
 
@@ -291,24 +282,31 @@ def load_checkpoint(
         ckpt_path, weights_only=True, map_location=next(model.parameters()).device
     )
 
+    # Unwrap DDP and torch.compile to get clean parameter names that match
+    # checkpoint keys (which are always saved without wrapper prefixes).
+    load_model = model
+    if hasattr(load_model, "_orig_mod"):
+        load_model = load_model._orig_mod
+    if hasattr(load_model, "module"):
+        load_model = load_model.module
+
     # load state dict
     model_attribs = {
-        _strip_prefixes(name): {
+        name: {
             "column_parallel": layer.column_parallel,
             "row_parallel": layer.row_parallel,
             "concatenated_weights": layer.concatenated_weights,
         }
-        for name, layer in model.named_modules()
+        for name, layer in load_model.named_modules()
         if hasattr(layer, "column_parallel") or hasattr(layer, "row_parallel")
     }
 
     raw_ckpt_state = checkpoint["model_state_dict"]
 
     loaded_checkpoint = {}
-    for name, param in model.named_parameters():
-        ckpt_name = _strip_prefixes(name)
-        loaded_param = raw_ckpt_state[ckpt_name]
-        module_name = ".".join(ckpt_name.split(".")[:-1])
+    for name, param in load_model.named_parameters():
+        loaded_param = raw_ckpt_state[name]
+        module_name = ".".join(name.split(".")[:-1])
 
         if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
             if module_name in model_attribs:
@@ -316,33 +314,28 @@ def load_checkpoint(
                 should_split = False
 
                 if attribs["column_parallel"]:
-                    # Split if it's base weight/bias or LoRA B
                     if any(k in name for k in ["weight", "bias", "lora_B"]):
                         should_split = True
                 elif attribs["row_parallel"]:
-                    # Split if it's base weight or LoRA A
                     if any(k in name for k in ["weight", "lora_A"]):
                         should_split = True
 
                 if should_split:
                     loaded_param = comm.split_to_model_parallel_workers(loaded_param, attribs)
 
-        # Sanity check
         assert loaded_param is not None, f"loaded layer [{name}] is None"
-
-        # assert torch.all(param_ == get_tensor_model_parallel_rank()), f"loaded state {name} are not aligned with tensor model parallel"
         assert loaded_param.numel() == param.numel(), (
             f"loaded layer [{name}] has elements {loaded_param.numel()} which is invalid to target shape {param.shape}"
         )
 
         loaded_checkpoint[name] = loaded_param.reshape_as(param)
 
-    for name, param in model.state_dict().items():
-        if name in dict(model.named_parameters()):
+    for name, param in load_model.state_dict().items():
+        if name in dict(load_model.named_parameters()):
             continue
-        loaded_checkpoint[name] = raw_ckpt_state[_strip_prefixes(name)].reshape_as(param)
+        loaded_checkpoint[name] = raw_ckpt_state[name].reshape_as(param)
 
-    model.load_state_dict(loaded_checkpoint)
+    load_model.load_state_dict(loaded_checkpoint)
 
     # Extract step early so we can return it even if optimizer state is missing
     last_step = checkpoint["step"]
@@ -364,21 +357,18 @@ def load_checkpoint(
 
             from ironcore.offload.optimizer_helpers import _should_offload_param
 
-            for name, param in model.named_parameters():
+            for name, param in load_model.named_parameters():
                 # Skip frozen parameters (they don't have optimizer state)
                 if not param.requires_grad:
                     continue
 
-                ckpt_name = _strip_prefixes(name)
                 # Skip if optimizer state doesn't exist for this param (e.g., newly added PEFT params)
-                if ckpt_name not in loaded_optim_state_dict["state"]:
-                    logger.warning(
-                        f"Optimizer state for {ckpt_name} not found in checkpoint, skipping"
-                    )
+                if name not in loaded_optim_state_dict["state"]:
+                    logger.warning(f"Optimizer state for {name} not found in checkpoint, skipping")
                     continue
 
                 processed_state = {}
-                for state_key, state_tensor in loaded_optim_state_dict["state"][ckpt_name].items():
+                for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
                     if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
                         # Determine target device using the same per-param criteria
                         # as the optimizer step (TP-aware via _should_offload_param).
@@ -415,12 +405,11 @@ def load_checkpoint(
                 offload_enabled = getattr(optimizer, "offload_enabled", False)
                 offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
 
-                for name, param in model.named_parameters():
+                for name, param in load_model.named_parameters():
                     if param not in loaded_optim_state["state"]:
                         continue
 
-                    ckpt_name = _strip_prefixes(name)
-                    module_name = ".".join(ckpt_name.split(".")[:-1])
+                    module_name = ".".join(name.split(".")[:-1])
                     # universal checkpoint
                     optimizer_state = loaded_optim_state["state"][param]
                     for state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
@@ -431,10 +420,10 @@ def load_checkpoint(
                         if module_name in model_attribs:
                             attribs = model_attribs[module_name]
                             if attribs["column_parallel"]:
-                                if any(k in ckpt_name for k in ["weight", "bias", "lora_B"]):
+                                if any(k in name for k in ["weight", "bias", "lora_B"]):
                                     should_split = True
                             elif attribs["row_parallel"]:
-                                if any(k in ckpt_name for k in ["weight", "lora_A"]):
+                                if any(k in name for k in ["weight", "lora_A"]):
                                     should_split = True
 
                         if should_split:
@@ -463,7 +452,7 @@ def load_checkpoint(
             if is_dist_opt and not load_dist_ckpt:
                 # Universal checkpoint: partition full state for this DP rank
                 loaded_optim_state = _partition_optimizer_states_for_load(
-                    optimizer, loaded_optim_state, model
+                    optimizer, loaded_optim_state, load_model
                 )
                 optimizer.optimizer.load_state_dict(loaded_optim_state)
             elif is_dist_opt and load_dist_ckpt:
@@ -528,21 +517,26 @@ def save_checkpoint(
             and parallel_states.get_tensor_model_parallel_world_size() > 1
         )
 
-    # model_state_dict — keys are already clean since we strip at save time
+    # Unwrap DDP and torch.compile for clean parameter names
+    save_model = model
+    if hasattr(save_model, "_orig_mod"):
+        save_model = save_model._orig_mod
+    if hasattr(save_model, "module"):
+        save_model = save_model.module
+
+    # model_state_dict
     model_attribs = {
-        _strip_prefixes(name): {
+        name: {
             "column_parallel": layer.column_parallel,
             "row_parallel": layer.row_parallel,
             "concatenated_weights": layer.concatenated_weights,
         }
-        for name, layer in model.named_modules()
+        for name, layer in save_model.named_modules()
         if hasattr(layer, "column_parallel") or hasattr(layer, "row_parallel")
     }
 
-    # model_state_dict
     model_state_dict = {}
-    for name, param in model.state_dict().items():
-        name = _strip_prefixes(name)
+    for name, param in save_model.state_dict().items():
         module_name = ".".join(name.split(".")[:-1])
 
         output_param = param
@@ -582,7 +576,7 @@ def save_checkpoint(
         # DistributedOptimizer with universal checkpoint: gather from all DP ranks
         dp_group = parallel_states.get_data_parallel_group()
         optimizer_state_dict_by_name = _gather_distributed_optimizer_states(
-            optimizer, model, dp_group
+            optimizer, save_model, dp_group
         )
     else:
         # Standard optimizer or distributed checkpoint: use local state
@@ -590,8 +584,8 @@ def save_checkpoint(
             "state": {},
             "param_groups": optimizer.state_dict()["param_groups"],
         }
-        for _i, (name, param) in enumerate(model.named_parameters()):
-            optimizer_state_dict_by_name["state"][_strip_prefixes(name)] = optimizer.state[param]
+        for _i, (name, param) in enumerate(save_model.named_parameters()):
+            optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
 
     # For universal checkpoints, gather TP-sharded optimizer states
     final_optimizer_state = optimizer_state_dict_by_name
@@ -602,7 +596,7 @@ def save_checkpoint(
         }
 
         for _i, ((name, param), optim_state_id) in enumerate(
-            zip(model.named_parameters(), optimizer.state_dict()["state"], strict=True)
+            zip(save_model.named_parameters(), optimizer.state_dict()["state"], strict=True)
         ):
             # Skip frozen parameters
             if not param.requires_grad:
@@ -634,7 +628,7 @@ def save_checkpoint(
             output_optim_state["step"] = step
 
             # Use parameter name as key (not integer index) for consistent load format
-            merged_optimizer_state["state"][_strip_prefixes(name)] = output_optim_state
+            merged_optimizer_state["state"][name] = output_optim_state
 
         final_optimizer_state = merged_optimizer_state
 
