@@ -124,7 +124,7 @@ class LanguageModel(BaseModule):
                     cache_position = past_key.size(1)
 
         attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
-            input_ids, labels, cache_position=cache_position
+            input_ids, labels, cache_position=cache_position, use_cache=use_cache
         )
         if position_ids is None:
             position_ids = computed_position_ids
@@ -328,7 +328,7 @@ class LanguageModel(BaseModule):
         probs = logits.softmax(dim=-1)
         return torch.multinomial(probs, num_samples=1)
 
-    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0):
+    def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0, use_cache=False):
         att_mask_batch = input_ids.size(0) if input_ids.dim() == 2 else 1
         seq_len = input_ids.size(1)
         if isinstance(cache_position, torch.Tensor):
@@ -345,8 +345,12 @@ class LanguageModel(BaseModule):
                 .expand(att_mask_batch, seq_len)
             )
 
-        # Correct masking for stateful cache
-        if seq_len == 1 and not isinstance(cache_position, torch.Tensor) and cache_position > 0:
+        # Standard training / full prefill: Attention uses is_causal=True, no mask needed.
+        # Inference decode (use_cache or cache_position > 0): explicit mask required.
+        if not use_cache and not isinstance(cache_position, torch.Tensor) and cache_position == 0:
+            attention_mask = None
+        elif seq_len == 1 and not isinstance(cache_position, torch.Tensor) and cache_position > 0:
+            # Single-token decode: attend to all cached positions.
             attention_mask = torch.ones(
                 (att_mask_batch, 1, 1, total_len), dtype=torch.bool, device=input_ids.device
             )
@@ -356,6 +360,7 @@ class LanguageModel(BaseModule):
             )
             if not isinstance(cache_position, torch.Tensor):
                 if cache_position == 0:
+                    # use_cache=True prefill: need explicit mask (Attention won't set is_causal).
                     attention_mask = (
                         full_causal_mask.unsqueeze(0)
                         .unsqueeze(0)

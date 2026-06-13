@@ -123,26 +123,23 @@ class VocabParallelEmbedding(ParallelLinear):
         Forward pass for the embedding layer.
         """
 
+        tp_size = parallel_states.get_tensor_model_parallel_world_size()
+        if tp_size == 1:
+            return F.embedding(x, self.weight)
+
         start_idx = self.parallel_input_dim * parallel_states.get_tensor_model_parallel_rank()
         end_idx = self.parallel_input_dim * (parallel_states.get_tensor_model_parallel_rank() + 1)
 
-        # set token ids to the corresponding embedding space
-        # We need to subtract start_idx because self.weight only contains this rank's partition
-        # Tokens not in this rank's range should be masked out (0.0)
         token_mask = (x >= start_idx) & (x < end_idx)
         x_local = (x - start_idx) * token_mask
 
-        # Ensure x_local is on the correct device and long type for embedding lookup
         x_local = x_local.to(device=self.weight.device, dtype=torch.long)
         x_partition = F.embedding(x_local, self.weight)
 
-        # Mask out embeddings for tokens not in this partition
-        # This is critical: if token is NOT in this rank, its embedding must be 0.0
-        # so that summing (all_reduce) across ranks yields the correct embedding.
-        x_partition[~token_mask, :] = 0.0
+        mask = token_mask.unsqueeze(-1).to(dtype=x_partition.dtype)
+        x_partition = x_partition * mask
 
-        if self.reduce_output and parallel_states.get_tensor_model_parallel_world_size() > 1:
-            # Sum embeddings across all TP ranks
+        if self.reduce_output and tp_size > 1:
             x = comm.reduce_inputs_from_model_parallel_workers(x_partition)
         else:
             x = x_partition

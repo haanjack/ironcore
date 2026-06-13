@@ -50,6 +50,7 @@ class Attention(BaseModule):
         key,
         value,
         attention_mask,
+        is_causal: bool = False,
     ):
         """Attention via F.scaled_dot_product_attention using [b, s, n, d] layout."""
         # GQA expansion
@@ -67,8 +68,13 @@ class Attention(BaseModule):
         value = value.transpose(1, 2).contiguous()
 
         dropout_p = self.config.model.dropout_attn if self.training else 0.0
-        # Cast to bool so SDPA treats the mask as boolean (not additive float)
-        sdpa_mask = attention_mask.bool() if attention_mask is not None else None
+        # is_causal=True is the reliable path under torch.compile — SDPA boolean masks
+        # can be silently ignored by the inductor backend, producing non-causal attention.
+        # Use the explicit mask only for inference with non-square (q_len != kv_len) attention.
+        if is_causal:
+            sdpa_mask = None
+        else:
+            sdpa_mask = attention_mask.bool() if attention_mask is not None else None
 
         with profile_context("self attention"):
             context_output = F.scaled_dot_product_attention(
@@ -77,6 +83,7 @@ class Attention(BaseModule):
                 value,
                 attn_mask=sdpa_mask,
                 dropout_p=dropout_p,
+                is_causal=is_causal,
             )
 
         # [b, n, sq, d] -> [b, sq, n*d]
@@ -156,7 +163,10 @@ class Attention(BaseModule):
         if self.config.trainer.use_flash_attn and flash_attn_varlen_func is not None:
             context_output = self._flash_attention(query, key, value, seq_len_q, seq_len_kv)
         else:
-            context_output = self._attention(query, key, value, attention_mask)
+            # Full-sequence prefill (training or non-cached inference): always causal.
+            # Decode step (use_cache + past_kv present, or q_len < kv_len): use explicit mask.
+            is_causal = seq_len_q == seq_len_kv and not use_cache
+            context_output = self._attention(query, key, value, attention_mask, is_causal=is_causal)
 
         if use_cache:
             return context_output, (key, value)
