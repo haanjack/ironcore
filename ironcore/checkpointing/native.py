@@ -302,37 +302,13 @@ def load_checkpoint(
         if hasattr(layer, "column_parallel") or hasattr(layer, "row_parallel")
     }
 
-    # Normalize checkpoint state dict to match model's parameter namespace.
-    # Handles backward compatibility with checkpoints saved before the prefix
-    # stripping was added at save time (keys may have 'module.' or '_orig_mod.').
     raw_ckpt_state = checkpoint["model_state_dict"]
-    model_param_names = {n for n, _ in model.named_parameters()}
-    model_state_keys = set(model.state_dict())
-    ckpt_keys = set(raw_ckpt_state.keys())
-    if not ckpt_keys.issubset(model_param_names | model_state_keys):
-        # Strip DDP module. prefix first (module._orig_mod.X → _orig_mod.X)
-        model_has_module = any(n.startswith("module.") for n in model_param_names)
-        ckpt_has_module = any(k.startswith("module.") for k in raw_ckpt_state)
-        if ckpt_has_module and not model_has_module:
-            raw_ckpt_state = {k[len("module.") :]: v for k, v in raw_ckpt_state.items()}
-        elif not ckpt_has_module and model_has_module:
-            raw_ckpt_state = {f"module.{k}": v for k, v in raw_ckpt_state.items()}
-
-        # Strip torch.compile _orig_mod. prefix if model doesn't have it
-        model_has_orig_mod = any(n.startswith("_orig_mod.") for n in model_param_names)
-        ckpt_has_orig_mod = any(k.startswith("_orig_mod.") for k in raw_ckpt_state)
-        if ckpt_has_orig_mod and not model_has_orig_mod:
-            raw_ckpt_state = {
-                k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v
-                for k, v in raw_ckpt_state.items()
-            }
-        elif not ckpt_has_orig_mod and model_has_orig_mod:
-            raw_ckpt_state = {f"_orig_mod.{k}": v for k, v in raw_ckpt_state.items()}
 
     loaded_checkpoint = {}
     for name, param in model.named_parameters():
-        loaded_param = raw_ckpt_state[name]
-        module_name = ".".join(name.split(".")[:-1])
+        ckpt_name = _strip_prefixes(name)
+        loaded_param = raw_ckpt_state[ckpt_name]
+        module_name = ".".join(ckpt_name.split(".")[:-1])
 
         if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
             if module_name in model_attribs:
@@ -364,7 +340,7 @@ def load_checkpoint(
     for name, param in model.state_dict().items():
         if name in dict(model.named_parameters()):
             continue
-        loaded_checkpoint[name] = raw_ckpt_state[name].reshape_as(param)
+        loaded_checkpoint[name] = raw_ckpt_state[_strip_prefixes(name)].reshape_as(param)
 
     model.load_state_dict(loaded_checkpoint)
 
@@ -393,13 +369,16 @@ def load_checkpoint(
                 if not param.requires_grad:
                     continue
 
+                ckpt_name = _strip_prefixes(name)
                 # Skip if optimizer state doesn't exist for this param (e.g., newly added PEFT params)
-                if name not in loaded_optim_state_dict["state"]:
-                    logger.warning(f"Optimizer state for {name} not found in checkpoint, skipping")
+                if ckpt_name not in loaded_optim_state_dict["state"]:
+                    logger.warning(
+                        f"Optimizer state for {ckpt_name} not found in checkpoint, skipping"
+                    )
                     continue
 
                 processed_state = {}
-                for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
+                for state_key, state_tensor in loaded_optim_state_dict["state"][ckpt_name].items():
                     if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
                         # Determine target device using the same per-param criteria
                         # as the optimizer step (TP-aware via _should_offload_param).
@@ -440,7 +419,8 @@ def load_checkpoint(
                     if param not in loaded_optim_state["state"]:
                         continue
 
-                    module_name = ".".join(name.split(".")[:-1])
+                    ckpt_name = _strip_prefixes(name)
+                    module_name = ".".join(ckpt_name.split(".")[:-1])
                     # universal checkpoint
                     optimizer_state = loaded_optim_state["state"][param]
                     for state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
@@ -451,10 +431,10 @@ def load_checkpoint(
                         if module_name in model_attribs:
                             attribs = model_attribs[module_name]
                             if attribs["column_parallel"]:
-                                if any(k in name for k in ["weight", "bias", "lora_B"]):
+                                if any(k in ckpt_name for k in ["weight", "bias", "lora_B"]):
                                     should_split = True
                             elif attribs["row_parallel"]:
-                                if any(k in name for k in ["weight", "lora_A"]):
+                                if any(k in ckpt_name for k in ["weight", "lora_A"]):
                                     should_split = True
 
                         if should_split:
