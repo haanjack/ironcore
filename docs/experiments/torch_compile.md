@@ -265,7 +265,96 @@ trainer:
 
 1. **Warmup Overhead**: First few iterations are slower due to JIT compilation
 2. **Graph Breaks**: Some operations may cause graph breaks, reducing optimization
-3. **FSDP/TP**: Not yet tested with FSDP or Tensor Parallel
+3. **FSDP**: Not yet tested with FSDP
+4. **Tensor Parallelism (TP>1)**: Incompatible — see investigation below
+
+---
+
+## TP>1 Investigation (2026-06-12)
+
+### Problem
+
+`torch.compile` produces incorrect training loss when `tensor_model_parallel_size > 1`.
+At TP=2, compiled loss starts at ~10.55 vs correct ~10.92 (no-compile baseline).
+
+### Root Cause
+
+**Dynamo tracing is fundamentally incompatible with TP's custom autograd Functions** that
+wrap collective communication (`dist.all_reduce`, `dist.all_gather`).
+
+The TP communication primitives in `ironcore/parallel/tensor_parallel/comm.py` are implemented
+as `torch.autograd.Function` subclasses:
+
+- `_CopyToModelParallelWorkers` — identity forward, all-reduce backward
+- `_ReduceFromModelParallelWorkers` — all-reduce forward, identity backward
+- `_ScatterToModelParallelWorkers` — scatter forward, gather backward
+- `_GatherFromModelParallelWorkers` — gather forward, scatter backward
+
+When `torch.compile()` wraps the model, dynamo traces through these autograd Functions and
+produces incorrect computation graphs. This is **not** an inductor-specific bug — it reproduces
+with ALL backends including `eager` (no-op):
+
+| Config | Backend | TP=1 loss (step 10) | TP=2 loss (step 10) | Correct? |
+|--------|---------|--------------------|--------------------|----------|
+| TP=1 no-compile | — | 10.8828 | — | ✓ |
+| TP=1 inductor | inductor | 10.8829 | — | ✓ |
+| TP=2 no-compile | — | — | 10.9196 | ✓ |
+| TP=2 inductor | inductor | — | 10.5467 | ✗ |
+| TP=2 aot_eager | aot_eager | — | 10.9196 | ✓ |
+| TP=2 eager | eager | — | 10.5468 | ✗ |
+| TP=2 (all forward disabled) | inductor | — | 10.5468 | ✗ |
+| TP=2 (all forward disabled) | eager | — | 10.5468 | ✗ |
+
+The `eager` backend (no optimization, just wraps in `OptimizedModule`) also produces wrong
+results, proving the issue is in dynamo's model wrapping/tracing, not in inductor's codegen.
+
+### Attempts that did not fix
+
+1. `@torch.compiler.disable` on comm wrapper functions — no effect
+2. `@torch.compiler.disable(recursive=True)` on ColumnParallelLinear/RowParallelLinear forward — no effect
+3. `@torch.compiler.disable(recursive=True)` on TransformerLayer + TransformerModel forward — no effect
+4. Functional masking in VocabParallelEmbedding (replacing in-place scatter) — fixed TP=1 but not TP>1
+5. TP=1 fast path in VocabParallelEmbedding (skip TP code entirely) — fixed TP=1 but not TP>1
+
+### Solution
+
+Compile guard in `ironcore/trainers/base_trainer.py` — `torch.compile` only activates when
+`tp_size == 1`. When `tp_size > 1`, compilation is skipped with an informational log message.
+
+```python
+if self.config.trainer.compile_model:
+    tp_size = self.config.trainer.tensor_model_parallel_size
+    if tp_size > 1:
+        self.logger.info(
+            f"torch.compile skipped for tp_size={tp_size}: "
+            f"dynamo tracing is incompatible with TP collective communication "
+            f"(all-reduce/all-gather in custom autograd Functions)."
+        )
+    else:
+        # ... compile as usual
+```
+
+### TP=1 Performance (compile vs no-compile)
+
+| Batch size | No-compile tok/s | Compile tok/s | Speedup |
+|-----------|-----------------|--------------|---------|
+| Small (batch=16) | 56K | 79K | +42% |
+| Nanogpt (batch=480) | 61K | 93K | +53% |
+
+### Related PyTorch Issues
+
+- [#113180](https://github.com/pytorch/pytorch/issues/113180) — MPT weight-tying + compile accuracy regression
+- [#128077](https://github.com/pytorch/pytorch/issues/128077) — compile + custom autograd Function interaction
+- [#179561](https://github.com/pytorch/pytorch/issues/179561) — inductor cast elision (bf16→fp32→bf16)
+
+### Roadmap
+
+1. **Short-term**: DP scaling + `torch.compile` (TP=1) — current implementation
+2. **Long-term**: Migrate TP layer to `torch.distributed.tensor.parallel` (DTensor-based).
+   DTensor handles collective communication through the tensor dispatcher instead of custom
+   autograd Functions, which is compatible with `torch.compile`. This is the same direction
+   Megatron-LM / Megatron-Core is moving. Requires significant refactoring of
+   `ironcore/parallel/tensor_parallel/`.
 
 ---
 
