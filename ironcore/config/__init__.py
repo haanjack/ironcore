@@ -429,7 +429,9 @@ def _load_config_from_yaml(config: dataclass, args: Namespace):
 
             name = sub_group_config.get("name")
             if name:
-                getattr(config, config_group_key).name = name
+                sub_config = getattr(config, config_group_key)
+                if hasattr(sub_config, "name"):
+                    sub_config.name = name
 
             sub_group_config_from_file = load_yaml_config(explicit_path)
             _load_subgroup_config_from_yaml(config, config_group_key, sub_group_config_from_file)
