@@ -361,6 +361,13 @@ def _update_config_from_yaml(config: dataclass, config_group_key: str, config_gr
 
 def _update_data_config_from_yaml(config: dataclass, config_group_key, config_group: dict):
     """update data config from yaml config file."""
+    # New-format configs use train_datasets / eval_datasets / test_datasets keys.
+    # Delegate to DataConfig's own parser which already understands this format.
+    if any(k in config_group for k in ("train_datasets", "eval_datasets", "test_datasets")):
+        parsed = DataConfig._parse_config_dict(config_group)
+        for f in fields(parsed):
+            setattr(config.data, f.name, getattr(parsed, f.name))
+        return
 
     for sub_group_key, sub_group_value in config_group.items():
         if sub_group_key in ["train", "eval", "test"]:

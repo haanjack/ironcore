@@ -296,17 +296,28 @@ def load_checkpoint(
     # Normalize checkpoint state dict to match model's parameter namespace.
     # Handles the case where the checkpoint was saved from a DDP-wrapped model
     # (keys have "module." prefix) but is being loaded into a non-DDP model
-    # (or vice versa).
+    # (or vice versa). Also handles torch.compile prefix ("_orig_mod.").
     raw_ckpt_state = checkpoint["model_state_dict"]
     model_param_names = {n for n, _ in model.named_parameters()}
+    model_state_keys = set(model.state_dict())
     ckpt_keys = set(raw_ckpt_state.keys())
-    if not ckpt_keys.issubset(model_param_names | set(model.state_dict())):
+    if not ckpt_keys.issubset(model_param_names | model_state_keys):
+        # Strip DDP module. prefix first (module._orig_mod.X → _orig_mod.X)
         model_has_module = any(n.startswith("module.") for n in model_param_names)
-        ckpt_has_module = any(k.startswith("module.") for k in ckpt_keys)
+        ckpt_has_module = any(k.startswith("module.") for k in raw_ckpt_state)
         if ckpt_has_module and not model_has_module:
             raw_ckpt_state = {k[len("module.") :]: v for k, v in raw_ckpt_state.items()}
         elif not ckpt_has_module and model_has_module:
             raw_ckpt_state = {f"module.{k}": v for k, v in raw_ckpt_state.items()}
+
+        # Strip torch.compile _orig_mod. prefix if model doesn't have it
+        model_has_orig_mod = any(n.startswith("_orig_mod.") for n in model_param_names)
+        ckpt_has_orig_mod = any(k.startswith("_orig_mod.") for k in raw_ckpt_state)
+        if ckpt_has_orig_mod and not model_has_orig_mod:
+            raw_ckpt_state = {
+                k[len("_orig_mod.") :] if k.startswith("_orig_mod.") else k: v
+                for k, v in raw_ckpt_state.items()
+            }
 
     loaded_checkpoint = {}
     for name, param in model.named_parameters():

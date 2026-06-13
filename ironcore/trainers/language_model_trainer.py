@@ -13,7 +13,9 @@ The training algorithm is the same for both use cases; only the data and
 initialization differ (scratch vs. checkpoint).
 """
 
-from ironcore.training_utils import compute_token_accuracy, get_batch
+import torch
+
+from ironcore.training_utils import compute_token_accuracy
 
 from .base_trainer import BaseTrainer
 
@@ -92,30 +94,28 @@ class LanguageModelTrainer(BaseTrainer):
 
         return (avg_loss, grad_norm, param_norm)
 
-    def _eval_step(self, data_iterator) -> tuple:
+    def _eval_step(self, batch) -> tuple:
         """Single evaluation step for language modeling.
 
         Computes loss and accuracy on evaluation batch.
 
         Args:
-            data_iterator: Evaluation data iterator
+            batch: Batch dict with 'input_ids' and 'labels'
 
         Returns:
             Tuple of (loss, accuracy)
         """
-        batch = get_batch(data_iterator)
-
-        # Extract batch data
         input_ids = batch["input_ids"]
         labels = batch["labels"]
 
-        # Forward pass
         with self.context["autocast"]:
-            logits = self.model(input_ids, labels=None)
-            loss = self.loss_fn(logits, labels)
+            loss = self.model(input_ids, labels)
 
-        # Compute accuracy
-        accuracy = compute_token_accuracy(logits, labels)
+        with torch.no_grad(), self.context["autocast"]:
+            logits = self.model(input_ids, labels=None)
+
+        loss_mask = (labels != -100).float()
+        accuracy = compute_token_accuracy(logits, labels, loss_mask)
 
         return loss.item(), accuracy
 

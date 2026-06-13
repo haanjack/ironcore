@@ -12,6 +12,12 @@ def register_parser(subparsers) -> None:
     parser.add_argument(
         "--config", type=str, required=True, help="Path to training configuration YAML file"
     )
+    parser.add_argument(
+        "--micro-batch-size", type=int, default=None, help="Override trainer.micro_batch_size"
+    )
+    parser.add_argument(
+        "--train-batch-size", type=int, default=None, help="Override trainer.train_batch_size"
+    )
 
 
 def run_train(args):
@@ -24,7 +30,12 @@ def run_train(args):
     from ironcore.train import load_full_config, train
 
     try:
-        config = load_full_config(args.config)
+        overrides = {}
+        if args.micro_batch_size is not None:
+            overrides["trainer.micro_batch_size"] = args.micro_batch_size
+        if args.train_batch_size is not None:
+            overrides["trainer.train_batch_size"] = args.train_batch_size
+        config = load_full_config(args.config, overrides=overrides or None)
         train(config)
     except (ValueError, FileNotFoundError) as e:
         print(f"Error: {e}", file=sys.stderr)

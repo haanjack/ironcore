@@ -18,7 +18,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -f /.dockerenv ]; then
-    exec python3 -m ironcore "$@"
+    if [ "${1:-}" = "torchrun" ]; then
+        exec "$@"
+    else
+        exec python3 -m ironcore "$@"
+    fi
 else
-    exec "$REPO_ROOT/scripts/docker/launch.sh" python3 -m ironcore "$@"
+    if [ "${1:-}" = "torchrun" ]; then
+        exec "$REPO_ROOT/scripts/docker/launch.sh" "$@"
+    else
+        exec "$REPO_ROOT/scripts/docker/launch.sh" python3 -m ironcore "$@"
+    fi
 fi
