@@ -285,10 +285,11 @@ def load_checkpoint(
     # Unwrap DDP and torch.compile to get clean parameter names that match
     # checkpoint keys (which are always saved without wrapper prefixes).
     load_model = model
-    if hasattr(load_model, "_orig_mod"):
-        load_model = load_model._orig_mod
-    if hasattr(load_model, "module"):
-        load_model = load_model.module
+    while hasattr(load_model, "_orig_mod") or hasattr(load_model, "module"):
+        if hasattr(load_model, "_orig_mod"):
+            load_model = load_model._orig_mod
+        if hasattr(load_model, "module"):
+            load_model = load_model.module
 
     # load state dict
     model_attribs = {
@@ -519,10 +520,11 @@ def save_checkpoint(
 
     # Unwrap DDP and torch.compile for clean parameter names
     save_model = model
-    if hasattr(save_model, "_orig_mod"):
-        save_model = save_model._orig_mod
-    if hasattr(save_model, "module"):
-        save_model = save_model.module
+    while hasattr(save_model, "_orig_mod") or hasattr(save_model, "module"):
+        if hasattr(save_model, "_orig_mod"):
+            save_model = save_model._orig_mod
+        if hasattr(save_model, "module"):
+            save_model = save_model.module
 
     # model_state_dict
     model_attribs = {

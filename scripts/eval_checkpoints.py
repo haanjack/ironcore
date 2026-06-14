@@ -79,8 +79,12 @@ def main():
     args = parse_args()
     # Set WORLD_SIZE=2 so the DP=2 config passes validation,
     # then override to single-GPU after loading
-    os.environ["WORLD_SIZE"] = "2"
+    is_multi_gpu = "WORLD_SIZE" in os.environ
+    if not is_multi_gpu:
+        os.environ["WORLD_SIZE"] = "2"
     config = load_full_config(args.config)
+    if not is_multi_gpu:
+        os.environ["WORLD_SIZE"] = "1"
 
     # Single-GPU eval overrides
     config.parallel.world_size = 1

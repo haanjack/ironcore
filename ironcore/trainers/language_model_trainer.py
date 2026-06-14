@@ -123,7 +123,8 @@ class LanguageModelTrainer(BaseTrainer):
             shifted_labels.view(-1),
             reduction="none",
         ).view(shifted_labels.shape)
-        loss = (per_token_losses * shifted_mask).sum() / shifted_mask.sum()
+        mask_sum = shifted_mask.sum()
+        loss = (per_token_losses * shifted_mask).sum() / (mask_sum if mask_sum > 0 else 1.0)
 
         return loss.item(), accuracy
 
