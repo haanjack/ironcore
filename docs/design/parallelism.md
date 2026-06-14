@@ -399,6 +399,27 @@ The **global batch size** is:
 global_batch_size = micro_batch_size × gradient_accumulation_steps × dp_size
 ```
 
+## torch.compile Compatibility
+
+`torch.compile` (dynamo + inductor) is **incompatible with TP>1** in the current architecture.
+The root cause is that TP communication is implemented via custom `torch.autograd.Function`
+subclasses that wrap `dist.all_reduce` / `dist.all_gather` calls. When dynamo traces through
+these functions, it produces an incorrect computation graph — even with the `eager` backend
+(no optimization), proving the issue is in dynamo's wrapping, not inductor's codegen.
+
+| TP size | `torch.compile` | Status |
+|---------|-----------------|--------|
+| TP=1 | ✓ enabled | +42-53% throughput (inductor) |
+| TP>1 | ✗ skipped | Falls back to eager execution |
+
+The compile guard is in `ironcore/trainers/base_trainer.py` — `torch.compile` only activates
+when `tp_size == 1`. TP>1 runs without compilation and logs an informational message.
+
+**Implication**: For multi-GPU scaling, use **DP** (not TP) with `torch.compile` to get both
+correctness and the compile speedup. TP scaling loses inductor optimizations.
+
+See `docs/experiments/torch_compile.md` for the full investigation and benchmark data.
+
 ## Trade-offs and Known Bottlenecks
 
 **TP communication overhead.** Each transformer sub-block has two all-reduce collectives
@@ -429,6 +450,15 @@ reductions). This is unavoidable for correctness; users who profile communicatio
 account for this overhead separately from the model collectives.
 
 ## Future Directions
+
+**DTensor-based TP migration.** Migrate TP communication from custom `autograd.Function`
+wrappers (`comm.py`) to `torch.distributed.tensor.parallel` (DTensor). DTensor handles
+collective communication through the tensor dispatcher mechanism instead of custom autograd
+Functions, making it compatible with `torch.compile`. This is the same direction Megatron-Core
+is moving. The migration would replace `ColumnParallelLinear` / `RowParallelLinear` /
+`VocabParallelEmbedding` with DTensor-based primitives, enabling compile + TP simultaneously.
+Async TP overlap would shift from manual `async_op=True` handles to compiler-scheduled async
+collectives. Requires significant refactoring of `ironcore/parallel/tensor_parallel/`.
 
 **Sequence parallelism (SP).** Distributes LayerNorm and Dropout activations along the
 sequence dimension *within the existing TP group* — no new process groups required. In

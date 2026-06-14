@@ -70,7 +70,6 @@ class CosineAnnealingLR(LRScheduler):
 
     def get_lr(self):
         if self._step_count <= self.warmup_steps:
-            # warmup
             warmup_factor = self._step_count / self.warmup_steps
             lr = [base_lr * warmup_factor for base_lr in self.base_lrs]
         elif self._step_count >= self.annealing_steps + self.warmup_steps:

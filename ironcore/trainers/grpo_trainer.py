@@ -13,7 +13,6 @@ Reference:
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
 
 import torch
 from torch import distributed as dist
@@ -32,9 +31,6 @@ from ironcore.global_vars import log_metric
 from ironcore.utils import is_first_rank
 
 from .base_trainer import BaseTrainer
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 
 class GRPOTrainer(BaseTrainer):
@@ -865,7 +861,7 @@ class GRPOTrainer(BaseTrainer):
                 f"{'=' * 60}"
             )
 
-    def _eval_step(self, data_iterator: Iterator) -> tuple[float, float]:
+    def _eval_step(self, batch) -> tuple[float, float]:
         """Evaluation step (simplified - just compute loss on held-out prompts)."""
         # For GRPO, evaluation is tricky since we need to generate + reward
         # For now, return placeholder

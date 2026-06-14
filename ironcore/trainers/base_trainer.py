@@ -10,6 +10,7 @@ from contextlib import nullcontext
 from typing import Union
 
 import torch
+import torch._dynamo
 from torch import distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
@@ -397,18 +398,27 @@ class BaseTrainer(ABC):
 
         # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
         if self.config.trainer.compile_model:
-            compile_options = {
-                "backend": self.config.trainer.compile_backend,
-                "dynamic": self.config.trainer.compile_dynamic,
-                "fullgraph": self.config.trainer.compile_fullgraph,
-            }
-            if self.config.trainer.compile_mode is not None:
-                compile_options["mode"] = self.config.trainer.compile_mode
-            try:
-                model = torch.compile(model, **compile_options)
-                self.logger.info(f"Compiled model with options: {compile_options}")
-            except Exception as e:
-                self.logger.warning(f"torch.compile failed: {e}. Running without compilation.")
+            tp_size = self.config.trainer.tensor_model_parallel_size
+            if tp_size > 1:
+                self.logger.info(
+                    f"torch.compile skipped for tp_size={tp_size}: "
+                    f"dynamo tracing is incompatible with TP collective communication "
+                    f"(all-reduce/all-gather in custom autograd Functions)."
+                )
+            else:
+                torch._dynamo.config.optimize_ddp = False
+                compile_options = {
+                    "backend": self.config.trainer.compile_backend,
+                    "dynamic": self.config.trainer.compile_dynamic,
+                    "fullgraph": self.config.trainer.compile_fullgraph,
+                }
+                if self.config.trainer.compile_mode is not None:
+                    compile_options["mode"] = self.config.trainer.compile_mode
+                try:
+                    model = torch.compile(model, **compile_options)
+                    self.logger.info(f"Compiled model with options: {compile_options}")
+                except Exception as e:
+                    self.logger.warning(f"torch.compile failed: {e}. Running without compilation.")
 
         if device not in ["cpu", "mps"] and not weight_streaming:
             model = initialize_parallelism(self.config, model)
@@ -530,9 +540,6 @@ class BaseTrainer(ABC):
                 self._on_checkpoint_save(step)
                 save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
-                if self.control.do_eval(step):
-                    self.evaluate(step)
-                    self.model.train()
                 if self.control.do_eval_subtask(step):
                     self.evaluate_subtask(step)
                     self.model.train()
@@ -542,6 +549,10 @@ class BaseTrainer(ABC):
                         f"Training stopped by exit interval: {self.config.operation.exit_interval}"
                     )
                     break
+
+            if self.control.do_eval(step):
+                self.evaluate(step)
+                self.model.train()
 
         # Final checkpoint if needed
         if self.control.do_final_checkpoint(step, last_step):
@@ -1043,11 +1054,11 @@ class BaseTrainer(ABC):
             log_metrics(metrics, step)
 
     @abstractmethod
-    def _eval_step(self, data_iterator) -> tuple:
+    def _eval_step(self, batch) -> tuple:
         """Single evaluation step.
 
         Args:
-            data_iterator: Evaluation data iterator
+            batch: A batch dict from the data loader
 
         Returns:
             Tuple of evaluation metrics
@@ -1077,7 +1088,8 @@ class BaseTrainer(ABC):
 
             with torch.no_grad():
                 for _ in range(num_batches):
-                    loss, accuracy = self._eval_step(self.data_iterator["eval"])
+                    batch = next(self.data_iterator["eval"])
+                    loss, accuracy = self._eval_step(batch)
                     total_loss += loss
                     total_accuracy += accuracy
 

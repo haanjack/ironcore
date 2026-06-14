@@ -1,7 +1,8 @@
 # Convergence Validation: GPT-2 small vs nanoGPT
 
-**Status:** In progress  
-**Config:** `configs/experiments/nanogpt_convergence.yaml` + `configs/model/nanogpt-small.yaml`  
+**Status:** Complete (10k steps)  
+**Config:** `configs/experiments/nanogpt_convergence_dp2.yaml` + `configs/model/nanogpt-small.yaml`  
+**Hardware:** 2× RTX 3090 (NVLink), DP=2, torch.compile (inductor)  
 **Reference:** [karpathy/nanoGPT](https://github.com/karpathy/nanoGPT) — `configs/train_gpt2.py`
 
 ## Goal
@@ -47,14 +48,23 @@ data pipeline produce numerically equivalent results.
 
 ## IronCore results
 
-<!-- Fill in after training runs -->
+10k steps, DP=2, torch.compile, bf16. Validation loss measured post-hoc via
+`scripts/eval_checkpoints.py` (40 batches × 12 sequences = 480 val sequences per checkpoint).
 
-| Tokens processed | Steps | IronCore val loss | nanoGPT val loss | Δ |
-|---|---|---|---|---|
-| ~500M | 1,000 | — | ~3.30 | — |
-| ~5B | 10,000 | — | ~3.00 | — |
-| ~25B | 50,000 | — | ~2.90 | — |
-| ~49B | 100,000 | — | ~2.87 | — |
+| Step | Tokens | Train Loss | Val Loss | PPL | nanoGPT Val | Δ |
+|------|--------|------------|----------|-----|-------------|---|
+| 1,000 | ~500M | 4.81 | 4.85 | 127.2 | ~3.30 | +1.55 |
+| 2,000 | ~1B | 3.88 | 3.92 | 50.6 | ~3.20 | +0.72 |
+| 3,000 | ~1.5B | 3.55 | 3.60 | 36.7 | ~3.15 | +0.45 |
+| 5,000 | ~2.5B | 3.40 | 3.43 | 30.8 | ~3.10 | +0.33 |
+| 7,000 | ~3.5B | 3.30 | 3.25 | 25.8 | ~3.06 | +0.19 |
+| 10,000 | ~5B | 3.20 | 3.26 | 26.0 | ~3.00 | +0.26 |
+
+**Training throughput:** ~90K tok/s, ~33.4 TFLOPS/s/GPU, 5.46s/step
+
+![Loss Curves](nanogpt_convergence_loss.png)
+
+WandB: https://wandb.ai/haanjack/ironcore/runs/3zx28xv6
 
 ## How to run
 
@@ -79,3 +89,19 @@ Track `val_loss` vs `tokens_processed` for direct comparison with nanoGPT.
 - **Vocab padding:** `vocab_padding_unit: 128` pads the vocabulary from 50,257 to 50,304 for CUDA efficiency. The extra embeddings are zero-initialized and not reachable from the tokenizer — no effect on loss.
 - **Dropout:** nanoGPT supports configurable dropout; this run uses 0.0 (no dropout) matching the nanoGPT default training config.
 - **Model config:** `nanogpt-small.yaml` differs from the general-purpose `gpt2-small.yaml` in three ways: `bias=False` for all linear projections, `layernorm_bias=False`, and `activation_type=gelu_new`. These match nanoGPT's `train_gpt2.py` exactly.
+
+## Analysis: val loss gap (~0.26 at 10k steps)
+
+ironcore's val loss is consistently higher than nanoGPT. The gap narrows from +1.55
+at step 1k to +0.26 at step 10k. Contributing factors:
+
+1. **Data sampling (primary):** ironcore uses IID shuffling with a shuffle buffer;
+   nanoGPT reads documents sequentially. Different document ordering leads to different
+   gradient trajectories, especially early in training.
+2. **Train/val split:** nanoGPT splits at document level (first 99% of documents → train,
+   last 1% → val). ironcore's `WeightedMixingDataset` may split differently (token-level
+   or shard-level), resulting in a different validation set distribution.
+3. **Cosine annealing range:** ironcore uses `annealing_steps=600000` vs nanoGPT's
+   `lr_decay_iters=598000` (= 600000 − warmup 2000). Minor LR difference at all steps.
+
+The gap is expected to narrow further at longer training (50k+ steps).

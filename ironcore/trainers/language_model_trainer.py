@@ -13,7 +13,9 @@ The training algorithm is the same for both use cases; only the data and
 initialization differ (scratch vs. checkpoint).
 """
 
-from ironcore.training_utils import compute_token_accuracy, get_batch
+import torch
+
+from ironcore.training_utils import compute_token_accuracy
 
 from .base_trainer import BaseTrainer
 
@@ -92,30 +94,37 @@ class LanguageModelTrainer(BaseTrainer):
 
         return (avg_loss, grad_norm, param_norm)
 
-    def _eval_step(self, data_iterator) -> tuple:
+    def _eval_step(self, batch) -> tuple:
         """Single evaluation step for language modeling.
 
         Computes loss and accuracy on evaluation batch.
 
         Args:
-            data_iterator: Evaluation data iterator
+            batch: Batch dict with 'input_ids' and 'labels'
 
         Returns:
             Tuple of (loss, accuracy)
         """
-        batch = get_batch(data_iterator)
-
-        # Extract batch data
         input_ids = batch["input_ids"]
         labels = batch["labels"]
 
-        # Forward pass
-        with self.context["autocast"]:
+        with torch.no_grad(), self.context["autocast"]:
             logits = self.model(input_ids, labels=None)
-            loss = self.loss_fn(logits, labels)
 
-        # Compute accuracy
-        accuracy = compute_token_accuracy(logits, labels)
+        loss_mask = (labels != -100).float()
+        accuracy = compute_token_accuracy(logits, labels, loss_mask)
+
+        shifted_logits = logits[..., :-1, :].contiguous().float()
+        shifted_labels = labels[..., 1:].contiguous()
+        shifted_mask = loss_mask[..., 1:]
+
+        per_token_losses = torch.nn.functional.cross_entropy(
+            shifted_logits.view(-1, shifted_logits.size(-1)),
+            shifted_labels.view(-1),
+            reduction="none",
+        ).view(shifted_labels.shape)
+        mask_sum = shifted_mask.sum()
+        loss = (per_token_losses * shifted_mask).sum() / (mask_sum if mask_sum > 0 else 1.0)
 
         return loss.item(), accuracy
 

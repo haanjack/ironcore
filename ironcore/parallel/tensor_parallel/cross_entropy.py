@@ -154,4 +154,6 @@ def vocab_parallel_cross_entropy(
     """
     Performs cross entropy loss calculation when logits are sharded across tensor parallel ranks.
     """
-    return _VocabParallelCrossEntropyWorkers.apply(vocab_parallel_logits, labels, padding_start_idx)
+    return torch.compiler.disable(_VocabParallelCrossEntropyWorkers.apply)(
+        vocab_parallel_logits, labels, padding_start_idx
+    )

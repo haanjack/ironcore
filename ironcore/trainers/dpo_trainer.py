@@ -16,7 +16,6 @@ Reference:
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
 
 import torch
 from torch import distributed as dist
@@ -27,9 +26,6 @@ from ironcore.global_vars import log_metric
 from ironcore.utils import is_first_rank
 
 from .base_trainer import BaseTrainer
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 
 class DPOTrainer(BaseTrainer):
@@ -452,16 +448,15 @@ class DPOTrainer(BaseTrainer):
             f"accuracy: {metrics.get('dpo_accuracy', 0):.4f}"
         )
 
-    def _eval_step(self, data_iterator: Iterator) -> tuple[float, float]:
+    def _eval_step(self, batch) -> tuple[float, float]:
         """Single evaluation step for DPO.
 
         Args:
-            data_iterator: Evaluation data iterator
+            batch: Batch dict from DPO data loader
 
         Returns:
             Tuple of (loss, accuracy)
         """
-        batch = next(data_iterator)
         batch = self._move_batch_to_device(batch)
 
         # Extract inputs
