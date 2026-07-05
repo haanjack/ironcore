@@ -17,7 +17,6 @@ from .lora import (
 )
 from .utils import (
     count_lora_parameters,
-    get_lora_target_modules,
     merge_lora_weights,
     wrap_with_lora_if_target,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "LoRARowParallelLinear",
     "LoRAConcatenatedColumnParallel",
     "wrap_with_lora_if_target",
-    "get_lora_target_modules",
     "count_lora_parameters",
     "merge_lora_weights",
 ]

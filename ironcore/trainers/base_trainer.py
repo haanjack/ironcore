@@ -422,14 +422,6 @@ class BaseTrainer(ABC):
 
         return model, optimizer
 
-    @staticmethod
-    def average_loss(loss):
-        """Average loss across data parallel ranks."""
-        if dist.is_initialized() and get_data_parallel_world_size() > 1:
-            dist.all_reduce(loss, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
-            loss /= get_data_parallel_world_size()
-        return loss.item()
-
     def _pre_train_setup(self) -> int:
         """Hook for setup before training starts.
 
@@ -740,40 +732,6 @@ class BaseTrainer(ABC):
                 f"Possible causes: learning rate too high, gradient explosion, or data issues. "
                 f"Consider enabling `torch.autograd.set_detect_anomaly(True)` for more debugging information."
             )
-
-    def _handle_training_error(self, error: Exception, step: int) -> None:
-        """Handle training errors with appropriate logging and cleanup.
-
-        Args:
-            error: The exception that occurred
-            step: Current training step
-
-        Raises:
-            The original error after logging and cleanup
-        """
-        import torch.cuda
-
-        self.logger.error(f"Training error at step {step}: {error}")
-
-        # Log GPU memory state if CUDA is available
-        if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                allocated = torch.cuda.memory_allocated(i) / 1024**3
-                reserved = torch.cuda.memory_reserved(i) / 1024**3
-                self.logger.error(
-                    f"GPU {i}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB"
-                )
-
-        # Try to save emergency checkpoint
-        try:
-            emergency_path = f"{self.config.trainer.model_path}_emergency_step{step}"
-            self.logger.info(f"Attempting to save emergency checkpoint to {emergency_path}")
-            # Note: We intentionally don't save here to avoid overwriting good checkpoints
-            # Users can manually save if needed
-        except Exception as e:
-            self.logger.error(f"Failed to save emergency checkpoint: {e}")
-
-        raise error
 
     def log_training(
         self,

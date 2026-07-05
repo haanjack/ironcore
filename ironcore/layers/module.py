@@ -40,8 +40,6 @@ class BaseModule(torch.nn.Module):
 
     def init_weights(self):
         """Initialize model weights with proper handling for tensor parallel layers."""
-        from ironcore.parallel import parallel_states
-
         for name, param in self.named_parameters():
             if "bias" in name:
                 # zero initialization to bias
@@ -172,10 +170,6 @@ class BaseModule(torch.nn.Module):
         # Copy the shard to the parameter
         with torch.no_grad():
             param.copy_(shard)
-
-    def save_to_state_dict(self, destination, prefix, keep_vars):
-        """Save module state to the `destination` dictionary."""
-        return super()._save_to_state_dict(destination, prefix, keep_vars)
 
     @property
     def device(self):

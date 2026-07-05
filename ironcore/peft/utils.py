@@ -6,17 +6,6 @@ import torch
 
 from ironcore.config import LoRAConfig
 
-# Module name mapping from config to actual layer names
-MODULE_NAME_MAPPING = {
-    "q_proj": "linear_q",
-    "k_proj": "linear_kv",  # K and V share the same layer
-    "v_proj": "linear_kv",
-    "o_proj": "attn_output",
-    "up_proj": "up_proj",
-    "gate_proj": "up_proj",  # Gate and up share the same layer in some architectures
-    "down_proj": "down_proj",
-}
-
 
 def wrap_with_lora_if_target(
     layer,
@@ -64,23 +53,6 @@ def wrap_with_lora_if_target(
     else:
         # Not a parallelized layer, return as-is
         return layer
-
-
-def get_lora_target_modules(target_module_names: list[str]) -> set[str]:
-    """
-    Convert target module names from config format to actual layer names.
-
-    Args:
-        target_module_names: List of module names from config (e.g., ["q_proj", "v_proj"])
-
-    Returns:
-        Set of actual layer names in the model
-    """
-    actual_names = set()
-    for name in target_module_names:
-        if name in MODULE_NAME_MAPPING:
-            actual_names.add(MODULE_NAME_MAPPING[name])
-    return actual_names
 
 
 def freeze_base_model(model, peft_method: str):
