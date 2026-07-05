@@ -120,10 +120,10 @@ def compute_advantages(
                     zip(gathered_rewards, gathered_group_ids, strict=True)
                 ):
                     size = all_sizes[i]
-                    # Extract active portion.
-                    # Note: We assume group_ids are already globally consistent if prompts
-                    # are shared across ranks. If prompts are unique per rank, normalization
-                    # will still be correct as unique group IDs remain unique.
+                    # Extract active portion. group_ids are offset by dp_rank * B when
+                    # built (see rollout._build_rollout_output), so they are globally
+                    # unique across the DP group and different ranks' groups are never
+                    # pooled together here.
                     rank_group_ids = g_g[:size]
 
                     if i == rank:

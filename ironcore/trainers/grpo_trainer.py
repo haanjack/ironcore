@@ -13,6 +13,7 @@ Reference:
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 
 import torch
 from torch import distributed as dist
@@ -526,6 +527,7 @@ class GRPOTrainer(BaseTrainer):
 
             for i in range(0, total_samples, micro_batch_size):
                 stop = min(i + micro_batch_size, total_samples)
+                is_last_micro_batch = stop == total_samples
                 mb_indices = perm[i:stop]
 
                 # Create a temporary micro-batch buffer
@@ -544,7 +546,17 @@ class GRPOTrainer(BaseTrainer):
 
                 # Scale loss by micro-batch fraction (accumulation is defined by rollout batch size)
                 scaled_loss = loss * (len(mb_indices) / total_samples)
-                self.scaler.scale(scaled_loss).backward()
+
+                # Disable gradient sync for intermediate micro-batches (DDP/FSDP),
+                # matching BaseTrainer._run_gradient_accumulation: only the last
+                # micro-batch in this epoch needs to all-reduce gradients.
+                backward_sync_ctx = (
+                    self.model.no_sync
+                    if not is_last_micro_batch and hasattr(self.model, "no_sync")
+                    else nullcontext
+                )
+                with backward_sync_ctx():
+                    self.scaler.scale(scaled_loss).backward()
 
                 # Accumulate metrics (average over epochs and samples)
                 for k, v in mb_metrics.items():

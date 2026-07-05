@@ -82,8 +82,18 @@ class RolloutBuffer:
 
     @property
     def group_size(self) -> int:
-        """Total completions per prompt across all chunks (G_total = chunk_group_size * rollout_chunks)."""
-        return len(self.metadata) // self.batch_size
+        """Average completions per prompt in this buffer.
+
+        Derived from group_ids (which select() slices correctly) rather than
+        len(metadata) // batch_size: select() intentionally keeps prompt_ids
+        (and therefore batch_size) as the original full prompt set, so that
+        ratio goes wrong for a select()-produced sub-buffer that only holds a
+        subset of completions.
+        """
+        num_groups = self.group_ids.unique().numel()
+        if num_groups == 0:
+            return 0
+        return self.total_samples // num_groups
 
     @property
     def total_samples(self) -> int:

@@ -17,6 +17,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
+from ironcore.parallel import parallel_states
 from ironcore.utils import profile_context
 
 from .buffer import RolloutBuffer
@@ -49,7 +50,12 @@ def _build_rollout_output(
     log_probs_stacked = torch.stack(log_probs_list, dim=1)
     old_log_probs = log_probs_stacked.sum(dim=1)
 
-    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
+    # Offset by dp_rank * B so group_ids are globally unique across the data-parallel
+    # group. compute_advantages() all-gathers rewards/group_ids across ranks and
+    # normalizes per unique group_id; without this offset, group 0 on rank 0 and
+    # group 0 on rank 1 (different prompts) would be pooled together.
+    dp_rank = parallel_states.get_data_parallel_group_rank()
+    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1) + dp_rank * B
 
     expanded_metadata = []
     for meta in metadata:
