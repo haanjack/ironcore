@@ -851,11 +851,11 @@ class TestCollatorTruncation:
         # Create DPO pair where chosen exceeds max_seq_len
         chosen_sample = {
             "token_ids": torch.randint(0, 100, (50,)),  # 50 tokens > 32 max
-            "metadata": {"type": "dpo_chosen", "mask_ranges": []},
+            "metadata": {"type": "dpo_chosen", "group_id": 0, "mask_ranges": []},
         }
         rejected_sample = {
             "token_ids": torch.randint(0, 100, (50,)),
-            "metadata": {"type": "dpo_rejected", "mask_ranges": []},
+            "metadata": {"type": "dpo_rejected", "group_id": 0, "mask_ranges": []},
         }
 
         # Should not raise, should truncate both
