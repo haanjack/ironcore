@@ -76,6 +76,73 @@ def zeropower_via_newtonschulz5(
     return x
 
 
+def _orthogonalize_tp_aware(
+    grad_for_update: torch.Tensor, param: torch.Tensor, newton_schulz_steps: int
+) -> tuple[torch.Tensor, tuple[int, ...]]:
+    """
+    Newton-Schulz orthogonalization for a (possibly tensor-parallel-sharded) 2D param.
+
+    Orthogonalizing a local TP shard is mathematically different from orthogonalizing
+    the full matrix, so under TP>1 this gathers the full matrix across the TP group,
+    orthogonalizes it once, and re-shards the result back to this rank's local slice.
+    This keeps the Muon update identical to what a TP=1 run would compute.
+
+    Returns the (possibly re-sharded) update together with the shape of the matrix
+    that was actually orthogonalized (full matrix under TP, local shard otherwise),
+    since the RMS-matching scale must be computed from that shape to stay
+    equivalent to the TP=1 case.
+    """
+    if not getattr(param, "is_tp_sharded", False):
+        update = zeropower_via_newtonschulz5(grad_for_update, steps=newton_schulz_steps)
+        return update, tuple(update.shape)
+
+    from ironcore.parallel import parallel_states
+
+    if parallel_states.get_tensor_model_parallel_world_size() == 1:
+        update = zeropower_via_newtonschulz5(grad_for_update, steps=newton_schulz_steps)
+        return update, tuple(update.shape)
+
+    from ironcore.parallel.tensor_parallel.comm import (
+        _gather_concated_tensor_along_last_dim,
+        _gather_tensor_along_first_dim,
+        _gather_tensor_along_last_dim,
+        _split_concated_tensor_along_last_dim,
+        _split_tensor_along_first_dim,
+        _split_tensor_along_last_dim,
+    )
+
+    shard_dim = getattr(param, "tp_shard_dim", None)
+    concatenated = getattr(param, "tp_concatenated_weights", 1)
+
+    if shard_dim == 1:
+        full = (
+            _gather_concated_tensor_along_last_dim(grad_for_update, concatenated)
+            if concatenated > 1
+            else _gather_tensor_along_last_dim(grad_for_update)
+        )
+    elif shard_dim == 0:
+        full = _gather_tensor_along_first_dim(grad_for_update)
+    else:
+        # Shard-dim metadata missing: fall back to local-shard orthogonalization
+        # rather than risk gathering along the wrong axis.
+        update = zeropower_via_newtonschulz5(grad_for_update, steps=newton_schulz_steps)
+        return update, tuple(update.shape)
+
+    full_shape = tuple(full.shape)
+    orthogonal_full = zeropower_via_newtonschulz5(full, steps=newton_schulz_steps)
+
+    if shard_dim == 1:
+        resharded = (
+            _split_concated_tensor_along_last_dim(orthogonal_full, concatenated)
+            if concatenated > 1
+            else _split_tensor_along_last_dim(orthogonal_full)
+        )
+    else:
+        resharded = _split_tensor_along_first_dim(orthogonal_full)
+
+    return resharded, full_shape
+
+
 class MuonOptimizer(Optimizer):
     """
     Muon optimizer for 2D parameters with Newton-Schulz orthogonalization.
@@ -242,16 +309,19 @@ class MuonOptimizer(Optimizer):
             else:
                 grad_for_update = momentum_buffer.clone()
 
-            # Apply Newton-Schulz orthogonalization
-            orthogonal_update = zeropower_via_newtonschulz5(
-                grad_for_update, steps=self.newton_schulz_steps
+            # Apply Newton-Schulz orthogonalization (TP-aware: gathers the full
+            # matrix across the TP group first when p is a TP-sharded weight)
+            orthogonal_update, orthogonalized_shape = _orthogonalize_tp_aware(
+                grad_for_update, p, self.newton_schulz_steps
             )
 
             # Apply scaling to match AdamW's update RMS (~0.2-0.4)
             # Reference: Moonshot AI paper (arxiv:2502.16982), Equation 4
             # Muon's theoretical update RMS is sqrt(1/max(A,B))
             # We scale by 0.2 * sqrt(max(A,B)) to match AdamW's RMS
-            rows, cols = orthogonal_update.shape
+            # Note: scaling must use the shape that was actually orthogonalized
+            # (the full matrix under TP, not the local shard) to match TP=1.
+            rows, cols = orthogonalized_shape
             update_rms_scaling = 0.2 * (max(rows, cols) ** 0.5)
             orthogonal_update.mul_(update_rms_scaling)
 
@@ -424,20 +494,16 @@ def is_muon_param(param_name: str, param: torch.Tensor) -> bool:
     if any(pat in param_name for pat in exclude_patterns):
         return False
 
-    # Include attention and MLP weights
+    # Include attention and MLP weights.
+    # linear_q/linear_kv/attn_output are direct children of TransformerLayer
+    # (self_attention is a weightless compute module), so patterns must not
+    # assume a "self_attention." or "attention." prefix.
     muon_patterns = [
-        "self_attention.linear_q.weight",
-        "self_attention.linear_kv.weight",
-        "self_attention.attn_output.weight",
-        "self_attention.linear_k.weight",
-        "self_attention.linear_v.weight",
+        "linear_q.weight",
+        "linear_kv.weight",
+        "attn_output.weight",
         "mlp.up_proj.weight",
         "mlp.down_proj.weight",
-        "mlp.gate_proj.weight",
-        # For RoPE or other attention variants
-        "attention.linear_q.weight",
-        "attention.linear_kv.weight",
-        "attention.attn_output.weight",
     ]
 
     return any(pattern in param_name for pattern in muon_patterns)
