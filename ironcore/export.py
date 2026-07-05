@@ -88,6 +88,7 @@ def export(
         architecture=arch,
         use_safetensors=use_safetensors,
         shard_size=shard_size,
+        ironcore_config=config,
     )
 
     # Annotate with metadata useful for callers

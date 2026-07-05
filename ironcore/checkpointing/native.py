@@ -256,8 +256,8 @@ def load_checkpoint(
     timer.start("ckpt-load")
     logger.info(f"Loading checkpoint from {init_ckpt_path}")
 
-    # Register safe globals for future use with weights_only=True
-    # Note: Currently using weights_only=False to support optimizer states
+    # Register safe globals needed to unpickle the dataclass configs stored in
+    # the checkpoint under weights_only=True (the secure loading mode).
     torch.serialization.add_safe_globals(
         [
             MainConfig,
@@ -586,7 +586,15 @@ def save_checkpoint(
             "state": {},
             "param_groups": optimizer.state_dict()["param_groups"],
         }
+        # Frozen parameters (e.g. LoRA base_layer weights) were never registered
+        # with the optimizer. optimizer.state is a defaultdict, so indexing it
+        # with a param that was never registered silently inserts a stray
+        # entry into the live optimizer's state — corrupting it for any later
+        # optimizer.state_dict() call (e.g. the universal-checkpoint merge
+        # below, or the next checkpoint save).
         for _i, (name, param) in enumerate(save_model.named_parameters()):
+            if not param.requires_grad:
+                continue
             optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
 
     # For universal checkpoints, gather TP-sharded optimizer states
@@ -597,13 +605,17 @@ def save_checkpoint(
             "param_groups": optimizer.state_dict()["param_groups"],
         }
 
+        # Frozen parameters (e.g. LoRA base_layer weights) are never registered
+        # with the optimizer, so optimizer.state_dict()["state"] only has one
+        # entry per *trainable* parameter. Filter before zipping with
+        # strict=True, rather than after — zip(..., strict=True) raises on a
+        # length mismatch before the loop body ever runs.
+        trainable_named_parameters = [
+            (name, param) for name, param in save_model.named_parameters() if param.requires_grad
+        ]
         for _i, ((name, param), optim_state_id) in enumerate(
-            zip(save_model.named_parameters(), optimizer.state_dict()["state"], strict=True)
+            zip(trainable_named_parameters, optimizer.state_dict()["state"], strict=True)
         ):
-            # Skip frozen parameters
-            if not param.requires_grad:
-                continue
-
             module_name = ".".join(name.split(".")[:-1])
             optim_state = optimizer.state_dict()["state"][optim_state_id]
 
