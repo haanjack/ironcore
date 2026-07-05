@@ -217,12 +217,18 @@ class DistributedOptimizer(Optimizer):
         with profile_context("dist_opt_broadcast"):
             for bucket in self._buckets:
                 owner_rank = bucket["rank"]
+                global_owner_rank = dist.get_global_rank(self.process_group, owner_rank)
                 params = bucket["params"]
 
                 # For each parameter in the bucket, perform broadcast
                 # Note: broadcast is non-destructive on non-owner ranks
                 handles = [
-                    dist.broadcast(p.data, src=owner_rank, group=self.process_group, async_op=True)
+                    dist.broadcast(
+                        p.data,
+                        src=global_owner_rank,
+                        group=self.process_group,
+                        async_op=True,
+                    )
                     for p in params
                 ]
 

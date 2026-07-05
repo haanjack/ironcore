@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import math
+import zlib
 
 import torch
 from torch.cuda import nvtx
@@ -59,8 +60,8 @@ class BaseModule(torch.nn.Module):
                 hasattr(module, "column_parallel") or hasattr(module, "row_parallel")
             ) and name.endswith("weight")
 
-            if is_tp_layer and parallel_states.get_tensor_model_parallel_world_size() > 1:
-                # For TP layers, initialize full tensor then extract shard
+            if is_tp_layer:
+                # Keep TP=1 and TP>1 on the same deterministic initialization path.
                 self._init_tp_weight(name, param, module)
             else:
                 # Non-TP layer: initialize directly
@@ -115,21 +116,11 @@ class BaseModule(torch.nn.Module):
             torch.nn.init.normal_(param, std=self.init_std, mean=0.0)
             return
 
-        # Initialize the full tensor (same seed on all ranks ensures consistency)
-        # Use a fixed seed for the full tensor initialization to guarantee across-rank equivalence
-        import random
-
-        import numpy as np
-
-        rng_state = torch.get_rng_state()
-        cuda_rng_state = torch.cuda.get_rng_state() if torch.cuda.is_available() else None
-
-        seed = self.config.init.seed
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        # Stable per-parameter seeds prevent equal-shaped layers from receiving
+        # identical values. A local generator leaves process RNG state untouched.
+        seed = (self.config.init.seed + zlib.crc32(name.encode("utf-8"))) % (2**63)
+        generator = torch.Generator(device=param.device)
+        generator.manual_seed(seed)
 
         full_tensor = torch.empty(full_shape, dtype=param.dtype, device=param.device)
 
@@ -139,14 +130,11 @@ class BaseModule(torch.nn.Module):
             init_std = self.init_std / math.sqrt(2 * self.config.model.num_layers)
 
         if self.xavier_init:
-            torch.nn.init.xavier_uniform_(full_tensor)
+            torch.nn.init.xavier_uniform_(full_tensor, generator=generator)
         else:
-            torch.nn.init.normal_(full_tensor, std=init_std, mean=0.0)
-
-        # Restore RNG states
-        torch.set_rng_state(rng_state)
-        if cuda_rng_state is not None:
-            torch.cuda.set_rng_state(cuda_rng_state)
+            torch.nn.init.normal_(
+                full_tensor, std=init_std, mean=0.0, generator=generator
+            )
 
         # Extract the shard for this rank
         shard_size = param.shape[shard_dim]
