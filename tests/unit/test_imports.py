@@ -39,28 +39,17 @@ class TestMFUImports:
 class TestParallelImports:
     """Parallel module import paths."""
 
-    def test_clip_grad_norm_tp_deferred_import(self):
-        """clip_grad_norm_tp is importable after TP module is initialized."""
+    def test_compute_param_norm_deferred_import(self):
+        """compute_param_norm is importable after TP module is initialized."""
         importlib.import_module("ironcore.trainers.base_trainer")
 
         def _deferred():
-            from ironcore.parallel.tensor_parallel.comm import clip_grad_norm_tp
+            from ironcore.parallel.grad_norm import compute_param_norm
 
-            return clip_grad_norm_tp
-
-        fn = _deferred()
-        assert callable(fn), "clip_grad_norm_tp must be a callable"
-
-    def test_clip_grad_norm_tp_in_tp_package(self):
-        """clip_grad_norm_tp must be re-exported from the TP package."""
-
-        def _deferred():
-            from ironcore.parallel.tensor_parallel import clip_grad_norm_tp
-
-            return clip_grad_norm_tp
+            return compute_param_norm
 
         fn = _deferred()
-        assert callable(fn)
+        assert callable(fn), "compute_param_norm must be a callable"
 
 
 class TestTrainerModuleLoad:
