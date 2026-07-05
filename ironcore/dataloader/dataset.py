@@ -395,11 +395,14 @@ class StreamingDataset(IterableDataset):
 
         Strategy:
             1. Compute total samples (don't store indices)
-            2. Generate shuffled indices on-the-fly with weighted sampling
+            2. Pick which dataset each yielded sample comes from via weighted
+               sampling, and shuffle *within* each dataset via a fixed-size
+               streaming shuffle buffer (samples are read from each dataset in
+               file order, but yielded out of order)
             3. Only sample from non-exhausted datasets (prevents division by zero)
             4. Yield samples lazily
 
-        Memory: O(1) instead of O(num_samples)
+        Memory: O(shuffle_buffer_size) instead of O(num_samples)
         """
         # Compute sample counts per dataset
         dataset_info = []
@@ -428,9 +431,21 @@ class StreamingDataset(IterableDataset):
             [info["num_samples"] * info["weight"] for info in dataset_info], dtype=np.float64
         )
 
-        # Use reservoir sampling for memory-efficient weighted shuffle
         # For each position, decide which dataset it comes from
         indices_per_dataset = [0] * len(dataset_info)
+
+        # Per-dataset streaming shuffle buffers: each dataset's own samples are
+        # still read sequentially, but held in a small buffer and yielded in
+        # random order from within it (classic reservoir-style shuffle), so a
+        # single dataset's epoch isn't emitted in strict file order.
+        per_dataset_buffer_size = max(1, self.shuffle_buffer_size // max(1, len(dataset_info)))
+        buffers: list[list[dict]] = [[] for _ in dataset_info]
+
+        def _fetch_next(ds_idx: int):
+            info = dataset_info[ds_idx]
+            fetch_idx = info["start"] + indices_per_dataset[ds_idx]
+            indices_per_dataset[ds_idx] += 1
+            return self.datasets[info["ds_idx"]][fetch_idx]
 
         for global_idx in range(total_samples):
             # Shard check: only process if this rank owns this index
@@ -448,22 +463,34 @@ class StreamingDataset(IterableDataset):
             selected_ds_idx = rng.choice(len(dataset_info), p=dataset_probs)
 
             info = dataset_info[selected_ds_idx]
+            buffer = buffers[selected_ds_idx]
 
-            # The selected dataset is guaranteed to have samples because its weight was > 0.
-            sample_idx = info["start"] + indices_per_dataset[selected_ds_idx]
-            indices_per_dataset[selected_ds_idx] += 1
+            # Top up this dataset's shuffle buffer before drawing from it.
+            while (
+                len(buffer) < per_dataset_buffer_size
+                and indices_per_dataset[selected_ds_idx] < info["num_samples"]
+            ):
+                buffer.append(_fetch_next(selected_ds_idx))
 
-            # Fetch and yield sample
-            dataset = self.datasets[info["ds_idx"]]
-            sample = dataset[sample_idx]
+            # Draw a uniformly random sample from the buffer, then refill that
+            # slot from the dataset's sequential cursor (or shrink the buffer
+            # if the dataset has no more samples left to read).
+            pick = rng.integers(0, len(buffer))
+            sample = buffer[pick]
+            if indices_per_dataset[selected_ds_idx] < info["num_samples"]:
+                buffer[pick] = _fetch_next(selected_ds_idx)
+            else:
+                buffer[pick] = buffer[-1]
+                buffer.pop()
 
             yield {
                 "token_ids": torch.from_numpy(sample["token_ids"].astype(np.int64)),
                 "metadata": sample["metadata"],
             }
 
-            # If the dataset is now exhausted, set its weight to 0 for future selections.
-            if indices_per_dataset[selected_ds_idx] >= info["num_samples"]:
+            # A dataset is only exhausted once its sequential cursor is done
+            # AND its shuffle buffer has been fully drained.
+            if indices_per_dataset[selected_ds_idx] >= info["num_samples"] and not buffer:
                 weighted_counts[selected_ds_idx] = 0
 
 
