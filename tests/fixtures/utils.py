@@ -6,7 +6,52 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import contextmanager
+
 import torch
+
+
+@contextmanager
+def single_gpu_env():
+    """Temporarily set RANK/LOCAL_RANK/WORLD_SIZE for single-GPU test mode.
+
+    Uses setdefault semantics (won't override a real torchrun launch) and
+    restores whatever was present beforehand on exit, so it never leaks into
+    later tests/modules in the same pytest process.
+    """
+    keys = ("WORLD_SIZE", "RANK", "LOCAL_RANK")
+    defaults = {"WORLD_SIZE": "1", "RANK": "0", "LOCAL_RANK": "0"}
+    originals = {k: os.environ.get(k) for k in keys}
+    for k in keys:
+        os.environ.setdefault(k, defaults[k])
+    try:
+        yield
+    finally:
+        for k, orig in originals.items():
+            if orig is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = orig
+
+
+@contextmanager
+def cudnn_determinism(deterministic: bool = True, benchmark: bool = False):
+    """Temporarily set torch.backends.cudnn.deterministic/benchmark, restoring
+    the prior values on exit so they don't leak into later tests/modules in
+    the same pytest process."""
+    if not torch.cuda.is_available():
+        yield
+        return
+    orig_deterministic = torch.backends.cudnn.deterministic
+    orig_benchmark = torch.backends.cudnn.benchmark
+    torch.backends.cudnn.deterministic = deterministic
+    torch.backends.cudnn.benchmark = benchmark
+    try:
+        yield
+    finally:
+        torch.backends.cudnn.deterministic = orig_deterministic
+        torch.backends.cudnn.benchmark = orig_benchmark
 
 
 def assert_tensors_close(

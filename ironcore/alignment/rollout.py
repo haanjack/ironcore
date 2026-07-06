@@ -269,17 +269,12 @@ def generate_rollouts_batched(
 
     # Get TP group if applicable
     tp_group = None
-    if dist.is_initialized():
-        try:
-            from ironcore.parallel.parallel_states import (
-                get_tensor_model_parallel_group,
-                get_tensor_model_parallel_world_size,
-            )
-
-            if get_tensor_model_parallel_world_size() > 1:
-                tp_group = get_tensor_model_parallel_group()
-        except (AssertionError, ImportError):
-            pass
+    if (
+        dist.is_initialized()
+        and parallel_states.is_model_parallel_initialized()
+        and parallel_states.get_tensor_model_parallel_world_size() > 1
+    ):
+        tp_group = parallel_states.get_tensor_model_parallel_group()
 
     # === Step 1: Prefill all prompts ===
     with profile_context("grpo_prefill"):
@@ -462,17 +457,12 @@ def generate_rollouts_paged(
 
         # Get TP group if applicable
         tp_group = None
-        if dist.is_initialized():
-            try:
-                from ironcore.parallel.parallel_states import (
-                    get_tensor_model_parallel_group,
-                    get_tensor_model_parallel_world_size,
-                )
-
-                if get_tensor_model_parallel_world_size() > 1:
-                    tp_group = get_tensor_model_parallel_group()
-            except (AssertionError, ImportError):
-                pass
+        if (
+            dist.is_initialized()
+            and parallel_states.is_model_parallel_initialized()
+            and parallel_states.get_tensor_model_parallel_world_size() > 1
+        ):
+            tp_group = parallel_states.get_tensor_model_parallel_group()
 
         block_size = bkv.block_size
 

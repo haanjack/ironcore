@@ -77,7 +77,7 @@ All 10 markers are the single source of truth — registered in `pyproject.toml`
 **Key design points:**
 - `grpo` marks any test touching the GRPO pipeline (cheap math tests **and** expensive training tests).
 - `e2e` is a separate gate for the expensive ones. Default `addopts` excludes only `e2e`, so cheap `grpo` math tests run in every CI run.
-- `mp` tests guard themselves with `pytest.skipif("RANK" not in os.environ …)` so they safely skip under plain `pytest` and are exercised by the `distributed-tests` CI job via per-file `torchrun`.
+- `mp` tests are auto-skipped by `tests/conftest.py` unless launched under a real `torchrun` (checked via the `TORCHELASTIC_RUN_ID` env var torchrun's elastic agent sets — not `RANK`, which other tests can leave set in the process even outside torchrun), so they safely skip under plain `pytest` and are exercised by the `distributed-tests` CI job via per-file `torchrun`. No per-file skip guard is required, though a couple of files keep a redundant local one.
 
 **Marker selection by example:**
 
@@ -91,9 +91,9 @@ def test_advantage_normalization(): ...
 @pytest.mark.cuda
 def test_attention_forward_cuda(): ...
 
-# 2-GPU test (must also add RANK skipif guard)
+# 2-GPU test (conftest.py auto-skips unless launched via torchrun; no
+# per-file skipif needed)
 @pytest.mark.mp
-@pytest.mark.skipif("RANK" not in os.environ or ..., reason="requires torchrun")
 def test_tensor_parallel(): ...
 
 # Expensive E2E test (spawns torchrun internally)
@@ -140,7 +140,7 @@ pytest tests/ -m e2e
 2. **Add appropriate markers** (see table above for all 10):
    - CPU logic test → no marker (runs in default `pytest tests/`)
    - Single GPU → `@pytest.mark.cuda`
-   - 2+ GPU with torchrun → `@pytest.mark.mp` + `skipif("RANK" not in os.environ …)`
+   - 2+ GPU with torchrun → `@pytest.mark.mp` (auto-skipped by `tests/conftest.py` unless run under `torchrun`)
    - Expensive E2E → `@pytest.mark.e2e` (+ pipeline marker: `grpo`, `dpo`, etc.)
    - HuggingFace download → `@pytest.mark.hf_hub`
    - Pipeline feature → `@pytest.mark.pretrain / sft / dpo / grpo`

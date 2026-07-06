@@ -10,17 +10,10 @@ Tests verify:
 3. Shared vs routed expert gradient distribution
 """
 
-import os
-
 import pytest
 import torch
-
-# Set up environment for single-GPU testing
-os.environ.setdefault("WORLD_SIZE", "1")
-os.environ.setdefault("RANK", "0")
-os.environ.setdefault("LOCAL_RANK", "0")
-
 from tests.fixtures.config_fixtures import create_moe_test_config
+from tests.fixtures.utils import single_gpu_env
 
 from ironcore.layers.moe import MoEMLP, TopKRouter
 from ironcore.parallel.parallel_states import (
@@ -32,12 +25,13 @@ from ironcore.parallel.parallel_states import (
 @pytest.fixture(autouse=True)
 def setup_parallel_states():
     """Initialize parallel states before each test."""
-    initialize_model_parallel(
-        tensor_model_parallel_size=1,
-        timeout_in_minutes=10.0,
-    )
-    yield
-    destroy_model_parallel()
+    with single_gpu_env():
+        initialize_model_parallel(
+            tensor_model_parallel_size=1,
+            timeout_in_minutes=10.0,
+        )
+        yield
+        destroy_model_parallel()
 
 
 class TestDeterministicRouting:

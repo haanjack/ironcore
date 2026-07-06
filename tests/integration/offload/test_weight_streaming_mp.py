@@ -17,6 +17,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 from tests.fixtures.config_fixtures import create_test_config
+from tests.fixtures.utils import cudnn_determinism
 from tests.integration.offload.conftest import (
     create_mock_data_iterator,
     create_mock_evaluators,
@@ -27,7 +28,7 @@ from ironcore.trainers import LanguageModelTrainer
 
 cuda_available = torch.cuda.is_available()
 has_multi_gpu = (
-    cuda_available and torch.cuda.device_count() >= 2 and os.environ.get("RANK") is not None
+    cuda_available and torch.cuda.device_count() >= 2 and "TORCHELASTIC_RUN_ID" in os.environ
 )
 skip_no_multi_gpu = pytest.mark.skipif(
     not has_multi_gpu,
@@ -41,8 +42,12 @@ SEQ_LEN = 256
 torch.manual_seed(42)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(42)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+
+
+@pytest.fixture(autouse=True)
+def _cudnn_determinism():
+    with cudnn_determinism(deterministic=True, benchmark=False):
+        yield
 
 
 def _make_config(**overrides):
