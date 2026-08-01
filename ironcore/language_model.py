@@ -172,7 +172,11 @@ class LanguageModel(BaseModule):
                 logits_parallel,
                 {"column_parallel": True, "concatenated_weights": 1},
             )
-            if has_cache:
+            # The return shape depends only on the explicit use_cache argument. Keying it
+            # off runtime state instead (eval mode, presence of a cache manager) made the
+            # type invisible to callers, which silently broke everything that called this
+            # with labels=None while a cache happened to be active.
+            if use_cache:
                 return logits, new_key_values
             return logits
 
@@ -259,7 +263,7 @@ class LanguageModel(BaseModule):
                     use_cache=False,
                     cache_position=cur_cache_pos,
                 )
-                logits, _ = out
+                logits = out
             elif use_paged:
                 if batch_size > 1:
                     raise ValueError(
@@ -272,7 +276,7 @@ class LanguageModel(BaseModule):
                     use_cache=False,
                     seq_id=0,
                 )
-                logits, _ = out
+                logits = out
                 # Advance position after all layers have written
                 tokens_written = cur_input.size(1)
                 self.advance_cache_position(0, tokens_written)

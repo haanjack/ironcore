@@ -166,7 +166,7 @@ def test_single_token_caching(model, small_config):
 
         # Step 3: Compare with non-cached full sequence
         input_full = torch.cat([token_0, token_1], dim=1)
-        logits_full, _ = model(input_full, use_cache=False)
+        logits_full = model(input_full, use_cache=False)
 
         # The last logit from cached should match the last logit from full
         # (both predict token 2 given [token_0, token_1])
@@ -204,7 +204,7 @@ def test_multi_token_sequence(model, small_config):
         cached_logits_concat = torch.cat(cached_logits, dim=1)
 
         # Process full sequence without cache
-        full_logits, _ = model(full_input, use_cache=False)
+        full_logits = model(full_input, use_cache=False)
 
         # Compare outputs - they should be identical (within numerical tolerance)
         torch.testing.assert_close(
@@ -241,7 +241,7 @@ def test_batch_independence(model, small_config):
 
         # Process full sequence + final token without cache
         full_input_with_final = torch.cat([full_input, final_token], dim=1)
-        logits_full, _ = model(full_input_with_final, use_cache=False)
+        logits_full = model(full_input_with_final, use_cache=False)
 
         # Compare last logits for each batch element
         torch.testing.assert_close(

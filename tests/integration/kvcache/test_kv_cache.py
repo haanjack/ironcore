@@ -145,7 +145,7 @@ class TestKVCacheTP1:
                     input_ids[:, i : i + 1], use_cache=True, past_key_values=past_kv
                 )
                 cached_logits.append(logits)
-            full_logits, _ = model(input_ids, use_cache=False)
+            full_logits = model(input_ids, use_cache=False)
         torch.testing.assert_close(
             torch.cat(cached_logits, dim=1), full_logits, rtol=1e-4, atol=1e-5
         )
@@ -159,7 +159,7 @@ class TestKVCacheTP1:
         with torch.no_grad():
             _, kv_1 = model(ids_1, use_cache=True)
             logits_2, _ = model(ids_2, use_cache=True, past_key_values=kv_1)
-            full_logits, _ = model(torch.cat([ids_1, ids_2], dim=1), use_cache=False)
+            full_logits = model(torch.cat([ids_1, ids_2], dim=1), use_cache=False)
         torch.testing.assert_close(
             logits_2[:, -10:, :], full_logits[:, -10:, :], rtol=1e-4, atol=1e-5
         )
