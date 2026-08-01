@@ -75,6 +75,9 @@ ARCH=rocm-wsl ./scripts/docker/build.sh  # ROCm (WSL2)
 
 The repo is mounted at `/workspace` inside the container.
 
+Running on an AMD APU under WSL2 (e.g. Strix Halo / gfx1151) needs the ROCDXG bridge, which
+`ARCH=rocm-wsl` bakes into the image — see [docs/rocm_wsl_setup.md](docs/rocm_wsl_setup.md).
+
 ### Data Preprocessing
 
 ```bash

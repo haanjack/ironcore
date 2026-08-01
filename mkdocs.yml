@@ -72,6 +72,7 @@ nav:
   - Home: index.md
   - Guides:
       - Getting started: getting_started.md
+      - ROCm on WSL2 (Strix Halo): rocm_wsl_setup.md
       - CLI guide: cli_guide.md
       - Parallelism: parallelism.md
       - Trainers: trainers.md
