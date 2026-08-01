@@ -311,6 +311,11 @@ class LanguageModel(BaseModule):
         return generated
 
     def _sample(self, logits, temperature, top_p, top_k, do_sample):
+        # The output head spans the padded vocabulary, and the padding rows are zero
+        # initialized — their logits are exactly 0.0 while real-token logits are typically
+        # negative, so an unmasked argmax would always select a padding id.
+        logits = self._mask_padding_logits(logits)
+
         if not do_sample:
             return logits.argmax(dim=-1, keepdim=True)
         if temperature != 1.0:
@@ -327,6 +332,17 @@ class LanguageModel(BaseModule):
             logits = torch.full_like(logits, float("-inf")).scatter_(1, sorted_idx, sorted_logits)
         probs = logits.softmax(dim=-1)
         return torch.multinomial(probs, num_samples=1)
+
+    def _mask_padding_logits(self, logits):
+        """Exclude vocab-padding entries from selection by driving them to -inf."""
+        padding_start_idx = getattr(self, "padding_start_idx", None)
+        if padding_start_idx is None or padding_start_idx >= logits.size(-1):
+            return logits
+        return logits.index_fill(
+            -1,
+            torch.arange(padding_start_idx, logits.size(-1), device=logits.device),
+            float("-inf"),
+        )
 
     def get_masks_and_position_ids(self, input_ids, labels=None, cache_position=0, use_cache=False):
         att_mask_batch = input_ids.size(0) if input_ids.dim() == 2 else 1
