@@ -520,6 +520,16 @@ class BaseTrainer(ABC):
         self._train_wall_start = time.time()
         self._train_step_start = last_step
 
+        # train_steps == 0 means evaluation only: the loop below would never run, so
+        # evaluate once here and return. This is the mode `ironcore evaluate` drives.
+        if self.config.operation.train_steps == 0:
+            self.logger.info("train_steps=0 — running evaluation only")
+            self.evaluate(step)
+            if self.config.trainer.do_eval_subtask:
+                self.evaluate_subtask(step)
+            self.logger.info("Finishing evaluation")
+            return
+
         self.logger.info(f"Training start from step: {step}")
         while step < self.config.operation.train_steps:
             loss, grad_norm, param_norm = self.train_step(step)

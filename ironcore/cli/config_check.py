@@ -69,13 +69,13 @@ def _run_validation_checks(config) -> list[dict]:
     """Run each validation check individually, collecting results."""
     checks = []
 
-    # Check 1: train_steps > 0
+    # Check 1: train_steps >= 0 (0 selects evaluation-only mode)
     try:
-        if config.operation.train_steps <= 0:
-            raise ValueError("train_steps must be > 0")
-        checks.append({"name": "train_steps > 0", "passed": True})
+        if config.operation.train_steps < 0:
+            raise ValueError("train_steps must not be negative")
+        checks.append({"name": "train_steps >= 0", "passed": True})
     except ValueError as e:
-        checks.append({"name": "train_steps > 0", "passed": False, "message": str(e)})
+        checks.append({"name": "train_steps >= 0", "passed": False, "message": str(e)})
 
     # Check 2: world_size >= tp_size
     try:

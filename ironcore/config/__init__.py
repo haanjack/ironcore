@@ -47,9 +47,9 @@ class MainConfig(BaseConfig):
 
 def _config_validation(config: MainConfig):
     """Validate arguments and update internal enum if necessary"""
-    # train steps
-    if config.operation.train_steps <= 0:
-        raise ValueError("operation.train_steps should be larger than 0")
+    # train steps — 0 selects evaluation-only mode (used by `ironcore evaluate`)
+    if config.operation.train_steps < 0:
+        raise ValueError("operation.train_steps should not be negative")
 
     dp_group_size = config.trainer.tensor_model_parallel_size
     dp_world_size = config.parallel.world_size // dp_group_size
