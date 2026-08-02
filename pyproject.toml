@@ -35,7 +35,7 @@ cuda = [
 # Requires: pip install torch --index-url https://download.pytorch.org/whl/rocm7.2
 # flash-attn for ROCm: pip install flash-attn --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/
 rocm = []
-dev = ["pytest", "pytest-timeout", "ruff"]
+dev = ["pytest", "pytest-timeout", "ruff==0.15.17"]
 docs = ["mkdocs-material", "pymdown-extensions", "mkdocs-static-i18n"]
 
 [project.scripts]
