@@ -27,7 +27,7 @@ def _fake_model_with_logits(logits: torch.Tensor):
     `model(input_ids, labels=None)`)."""
 
     def _model(input_ids, labels=None):
-        return logits
+        return logits, None
 
     return _model
 
