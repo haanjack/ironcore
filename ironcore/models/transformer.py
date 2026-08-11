@@ -11,8 +11,8 @@ from ironcore.layers import BaseModule
 from ironcore.layers.attention import Attention
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.mlp import MLP
-from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 from ironcore.parallel.random import tensor_parallel_rng_fork
+from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 from ironcore.peft import wrap_with_lora_if_target
 
 

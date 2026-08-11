@@ -23,19 +23,19 @@ def _register_checkpoint_safe_globals() -> None:
     from ironcore.config import (
         AlignmentConfig,
         DataConfig,
+        InitConfig,
         LoRAConfig,
         MainConfig,
         ModelConfig,
         OffloadConfig,
+        OperationConfig,
         OptimConfig,
         ParallelConfig,
         PEFTConfig,
         PositionalEmbeddingConfig,
-        TrainerConfig,
-        OperationConfig,
-        InitConfig,
-        UtilsConfig,
         ProfilerConfig,
+        TrainerConfig,
+        UtilsConfig,
     )
 
     torch.serialization.add_safe_globals(
