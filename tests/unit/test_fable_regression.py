@@ -266,16 +266,16 @@ class TestCheckpointLifecycle:
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
         class _Cfg:
-            class operation:
+            class operation:  # noqa: N801 - matches MainConfig.operation attribute name
                 no_save = False
                 save_dist_ckpt = False
                 save_full_model = False
 
-            class trainer:
+            class trainer:  # noqa: N801 - matches MainConfig.trainer attribute name
                 model_path = str(tmp_path)
                 tensor_model_parallel_size = 1
 
-            class model:
+            class model:  # noqa: N801 - matches MainConfig.model attribute name
                 hf_model_type = None
                 hf_architecture = None
 
@@ -313,16 +313,16 @@ class TestCheckpointLifecycle:
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
 
         class _Cfg:
-            class operation:
+            class operation:  # noqa: N801 - matches MainConfig.operation attribute name
                 no_save = False
                 save_dist_ckpt = False
                 save_full_model = False
 
-            class trainer:
+            class trainer:  # noqa: N801 - matches MainConfig.trainer attribute name
                 model_path = str(tmp_path)
                 tensor_model_parallel_size = 1
 
-            class model:
+            class model:  # noqa: N801 - matches MainConfig.model attribute name
                 hf_model_type = None
                 hf_architecture = None
 
