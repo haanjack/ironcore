@@ -231,7 +231,9 @@ def compute_param_norm(
     # Step 1: FSDP reduction (parameters sharded across the DP group)
     if is_fsdp:
         combined = torch.stack([expert_sharded_norm_sq, non_expert_sharded_norm_sq])
-        dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=parallel_states.get_data_parallel_group())
+        dist.all_reduce(
+            combined, op=dist.ReduceOp.SUM, group=parallel_states.get_data_parallel_group()
+        )
         expert_sharded_norm_sq, non_expert_sharded_norm_sq = combined
 
     # Step 2: Tensor parallelism reduction

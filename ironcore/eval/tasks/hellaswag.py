@@ -140,9 +140,9 @@ class HellaSwag(Task):
                     add_special_tokens=True,
                 ).to(model.device)
 
-                attention_mask = tokenized.get("attention_mask") if hasattr(
-                    tokenized, "get"
-                ) else None
+                attention_mask = (
+                    tokenized.get("attention_mask") if hasattr(tokenized, "get") else None
+                )
 
                 if "input_ids" in tokenized:
                     tokenized_inputs = tokenized["input_ids"]

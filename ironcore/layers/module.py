@@ -130,9 +130,7 @@ class BaseModule(torch.nn.Module):
         if self.xavier_init:
             torch.nn.init.xavier_uniform_(full_tensor, generator=generator)
         else:
-            torch.nn.init.normal_(
-                full_tensor, std=init_std, mean=0.0, generator=generator
-            )
+            torch.nn.init.normal_(full_tensor, std=init_std, mean=0.0, generator=generator)
 
         # Extract the shard for this rank
         shard_size = param.shape[shard_dim]

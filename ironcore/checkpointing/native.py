@@ -486,9 +486,17 @@ def load_checkpoint(
                 try:
                     import numpy as np
 
-                    keys = np_rs["keys"].numpy() if hasattr(np_rs["keys"], "numpy") else np_rs["keys"]
+                    keys = (
+                        np_rs["keys"].numpy() if hasattr(np_rs["keys"], "numpy") else np_rs["keys"]
+                    )
                     np.random.set_state(
-                        (np_rs["name"], keys, np_rs["pos"], np_rs["has_gauss"], np_rs["cached_gaussian"])
+                        (
+                            np_rs["name"],
+                            keys,
+                            np_rs["pos"],
+                            np_rs["has_gauss"],
+                            np_rs["cached_gaussian"],
+                        )
                     )
                 except (ImportError, KeyError, TypeError) as rng_err:
                     logger.warning(f"Could not restore numpy RNG state: {rng_err}")
@@ -607,9 +615,7 @@ def save_checkpoint(
     # being distributed as a standalone adapter. An explicit
     # operation.save_full_model opt-in restores the previous behaviour.
     # (Fable issue #65.)
-    is_peft_active = any(
-        "lora_" in name for name, _ in save_model.named_parameters()
-    )
+    is_peft_active = any("lora_" in name for name, _ in save_model.named_parameters())
     if is_peft_active and not getattr(config.operation, "save_full_model", False):
         adapter_only = {name: t for name, t in model_state_dict.items() if "lora_" in name}
         if adapter_only:

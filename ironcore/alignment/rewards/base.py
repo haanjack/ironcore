@@ -102,7 +102,14 @@ class RewardWorkerPool:
                 try:
                     result = future.result()
                     rewards.append(float(result))
-                except (ValueError, RuntimeError, TypeError, OSError, KeyError, AttributeError) as exc:
+                except (
+                    ValueError,
+                    RuntimeError,
+                    TypeError,
+                    OSError,
+                    KeyError,
+                    AttributeError,
+                ) as exc:
                     # Narrow catch: only the exception types a reward backend
                     # is realistically expected to raise. Log with context so
                     # a poisoned run is observable. (Fable issue #67.)

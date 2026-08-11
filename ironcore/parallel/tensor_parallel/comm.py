@@ -335,5 +335,3 @@ def split_to_model_parallel_workers(x, attrib):
             return _split_tensor_along_last_dim(x)
     elif attrib["row_parallel"]:
         return _split_tensor_along_first_dim(x)
-
-

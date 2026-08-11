@@ -453,7 +453,7 @@ class BaseTrainer(ABC):
 
         Returns:
             Starting step number (0 for fresh training, or checkpoint step + 1)
-        """        # Default implementation: load checkpoint if available
+        """  # Default implementation: load checkpoint if available
         try:
             last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
             if last_step > -1:
