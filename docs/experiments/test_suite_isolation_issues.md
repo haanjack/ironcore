@@ -74,6 +74,7 @@ RuntimeError: Tensor model parallel not initialized. Call initialize_model_paral
                get_tensor_model_parallel_group,
                get_tensor_model_parallel_world_size,
            )
+
            if get_tensor_model_parallel_world_size() > 1:
                tp_group = get_tensor_model_parallel_group()
        except (AssertionError, ImportError):

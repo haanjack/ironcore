@@ -52,7 +52,7 @@ Dataset C:  200 samples, ratio=0.2  →  weighted =  200 × 0.2 =  40
 ```python
 # 크기 10000과 2000 데이터셋을 50/50으로:
 ratio_a = 1 / 10000  # 0.0001
-ratio_b = 1 / 2000   # 0.0005
+ratio_b = 1 / 2000  # 0.0005
 # 정규화: ratio_a=0.17, ratio_b=0.83
 ```
 

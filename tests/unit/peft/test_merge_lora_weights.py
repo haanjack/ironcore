@@ -59,7 +59,9 @@ class TestMergeLoraWeights:
             num_attention_heads=4,
             max_seq_len=16,
         )
-        parallel_states.initialize_model_parallel(tensor_model_parallel_size=1, timeout_in_minutes=10.0)
+        parallel_states.initialize_model_parallel(
+            tensor_model_parallel_size=1, timeout_in_minutes=10.0
+        )
         set_global_states(self.config)
 
     def teardown_method(self):
@@ -109,9 +111,7 @@ class TestMergeLoraWeights:
         # Deliberately do NOT randomize lora_B here.
 
         base_weights_before = {
-            name: param.clone()
-            for name, param in model.named_parameters()
-            if "lora_" not in name
+            name: param.clone() for name, param in model.named_parameters() if "lora_" not in name
         }
 
         merge_lora_weights(model)

@@ -74,7 +74,7 @@ The `min` (pessimistic surrogate) prevents the policy from exploiting large posi
 Added two new fields to `AlignmentConfig`:
 
 ```python
-grpo_num_epochs: int = 1    # gradient steps per rollout batch
+grpo_num_epochs: int = 1  # gradient steps per rollout batch
 grpo_clip_eps: float = 0.2  # PPO clip range (0 = disabled)
 ```
 

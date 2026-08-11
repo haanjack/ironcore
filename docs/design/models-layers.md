@@ -113,7 +113,7 @@ before the dot product:
 ```python
 # expand_for_gqa: repeat K/V groups to fill num_heads
 if key.size(2) != query.size(2):
-    key   = expand_for_gqa(key,   num_groups, num_heads, kv_dim=2)
+    key = expand_for_gqa(key, num_groups, num_heads, kv_dim=2)
     value = expand_for_gqa(value, num_groups, num_heads, kv_dim=2)
 ```
 
@@ -123,7 +123,7 @@ if key.size(2) != query.size(2):
 if config.trainer.use_flash_attn and flash_attn_varlen_func is not None:
     return self._flash_attention(query, key, value, ...)  # flash_attn_varlen_func
 else:
-    return self._attention(query, key, value, ...)        # torch.einsum SDPA
+    return self._attention(query, key, value, ...)  # torch.einsum SDPA
 ```
 
 Flash path flattens `[B, S, …]` → `[B×S, …]`, passes `cu_seqlens` for variable-length
@@ -137,7 +137,7 @@ Applied in `TransformerLayer` before attention, on the reshaped
 ```python
 if rotary_pos_emb:
     query = rotary_pos_emb.forward(query, position_ids)
-    key   = rotary_pos_emb.forward(key,   position_ids)
+    key = rotary_pos_emb.forward(key, position_ids)
 ```
 
 ## MLP
@@ -159,9 +159,9 @@ splits and applies gating (`SiLU(gate) × up` for SwiGLU). `down_proj` sees `d_f
 ### Forward
 
 ```python
-x = self.up_proj(x)        # ColumnParallel: [B, S, d_ffn] or [B, S, 2×d_ffn]
-x = self.activation(x)     # split+gate (GLU) or elementwise (non-GLU)
-x = self.down_proj(x)      # RowParallel: [B, S, d_model]
+x = self.up_proj(x)  # ColumnParallel: [B, S, d_ffn] or [B, S, 2×d_ffn]
+x = self.activation(x)  # split+gate (GLU) or elementwise (non-GLU)
+x = self.down_proj(x)  # RowParallel: [B, S, d_model]
 ```
 
 `async_communication=True` overlaps the RowParallel all-reduce with the next layer's

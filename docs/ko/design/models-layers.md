@@ -101,7 +101,7 @@ flowchart TD
 ```python
 # expand_for_gqa: K/V 그룹을 반복하여 num_heads를 채움
 if key.size(2) != query.size(2):
-    key   = expand_for_gqa(key,   num_groups, num_heads, kv_dim=2)
+    key = expand_for_gqa(key, num_groups, num_heads, kv_dim=2)
     value = expand_for_gqa(value, num_groups, num_heads, kv_dim=2)
 ```
 
@@ -111,7 +111,7 @@ if key.size(2) != query.size(2):
 if config.trainer.use_flash_attn and flash_attn_varlen_func is not None:
     return self._flash_attention(query, key, value, ...)  # flash_attn_varlen_func
 else:
-    return self._attention(query, key, value, ...)        # torch.einsum SDPA
+    return self._attention(query, key, value, ...)  # torch.einsum SDPA
 ```
 
 Flash 경로는 `[B, S, …]` → `[B×S, …]`로 평탄화하고, 가변 길이 배치를 위해 `cu_seqlens`를 전달하며, 항상 `causal=True`를 사용합니다.
@@ -123,7 +123,7 @@ Flash 경로는 `[B, S, …]` → `[B×S, …]`로 평탄화하고, 가변 길�
 ```python
 if rotary_pos_emb:
     query = rotary_pos_emb.forward(query, position_ids)
-    key   = rotary_pos_emb.forward(key,   position_ids)
+    key = rotary_pos_emb.forward(key, position_ids)
 ```
 
 ## MLP
@@ -144,9 +144,9 @@ GLU 활성화의 경우 `up_proj`는 `[gate ‖ up]` 연결 출력을 내보내�
 ### 순전파
 
 ```python
-x = self.up_proj(x)        # ColumnParallel: [B, S, d_ffn] 또는 [B, S, 2×d_ffn]
-x = self.activation(x)     # 분할+게이트 (GLU) 또는 원소별 (비-GLU)
-x = self.down_proj(x)      # RowParallel: [B, S, d_model]
+x = self.up_proj(x)  # ColumnParallel: [B, S, d_ffn] 또는 [B, S, 2×d_ffn]
+x = self.activation(x)  # 분할+게이트 (GLU) 또는 원소별 (비-GLU)
+x = self.down_proj(x)  # RowParallel: [B, S, d_model]
 ```
 
 `async_communication=True`는 `finalize()` 두 단계 호출을 사용해 RowParallel all-reduce와 다음 레이어의 프리노름을 겹칩니다.

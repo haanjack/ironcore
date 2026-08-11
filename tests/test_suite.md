@@ -84,17 +84,21 @@ All 10 markers are the single source of truth — registered in `pyproject.toml`
 ```python
 import pytest
 
+
 # CPU-only logic test — no marker needed (runs by default)
 def test_advantage_normalization(): ...
+
 
 # Single-GPU test
 @pytest.mark.cuda
 def test_attention_forward_cuda(): ...
 
+
 # 2-GPU test (conftest.py auto-skips unless launched via torchrun; no
 # per-file skipif needed)
 @pytest.mark.mp
 def test_tensor_parallel(): ...
+
 
 # Expensive E2E test (spawns torchrun internally)
 @pytest.mark.grpo
@@ -102,9 +106,11 @@ def test_tensor_parallel(): ...
 @pytest.mark.mp
 def test_grpo_full_training(): ...
 
+
 # HuggingFace-dependent test (excluded from CPU CI)
 @pytest.mark.hf_hub
 def test_hf_weight_roundtrip(): ...
+
 
 # Checkpoint test found across multiple dirs
 @pytest.mark.cuda
@@ -149,6 +155,7 @@ pytest tests/ -m e2e
 3. **Use shared fixtures:**
    ```python
    from tests.fixtures.config_fixtures import create_small_test_config
+
 
    def test_my_feature(create_small_test_config):
        config = create_small_test_config()

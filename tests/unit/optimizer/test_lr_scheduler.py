@@ -164,5 +164,10 @@ class TestCosineAnnealingLR:
         optimizer = _make_optimizer(lr=1.0)
         with pytest.raises(ValueError):
             CosineAnnealingLR(
-                optimizer, warmup_steps=0, annealing_steps=10, total_steps=10, max_lr=0.1, min_lr=1.0
+                optimizer,
+                warmup_steps=0,
+                annealing_steps=10,
+                total_steps=10,
+                max_lr=0.1,
+                min_lr=1.0,
             )

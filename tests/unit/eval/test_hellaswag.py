@@ -82,8 +82,10 @@ class TestHellaSwagMasking:
 
         task = HellaSwag.__new__(HellaSwag)
         loss_masked = task._do_predict(
-            model, tokenized_inputs=tokenized_inputs,
-            attention_mask=torch.ones_like(tokenized_inputs), prompt_lens=[3],
+            model,
+            tokenized_inputs=tokenized_inputs,
+            attention_mask=torch.ones_like(tokenized_inputs),
+            prompt_lens=[3],
         )
         loss_unmasked = task._do_predict(model, tokenized_inputs=tokenized_inputs)
 
@@ -105,8 +107,10 @@ class TestHellaSwagMasking:
 
         task = HellaSwag.__new__(HellaSwag)
         loss = task._do_predict(
-            model, tokenized_inputs=tokenized_inputs,
-            attention_mask=attention_mask, prompt_lens=[0],
+            model,
+            tokenized_inputs=tokenized_inputs,
+            attention_mask=attention_mask,
+            prompt_lens=[0],
         )
 
         assert loss.item() < 0.1
