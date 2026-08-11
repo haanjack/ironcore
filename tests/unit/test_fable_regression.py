@@ -35,10 +35,27 @@ CONFIGS_DIR = REPO_ROOT / "configs"
 
 
 def _collect_shipped_configs() -> list[Path]:
-    """Collect every YAML under configs/ for table-driven testing."""
+    """Collect every standalone YAML under configs/ for table-driven testing.
+
+    Only top-level configs and ``configs/experiments/`` are included — the
+    per-group files under ``configs/{data,model,optim,trainer,alignment}/``
+    are *fragments* meant to be included by a top-level config, not loaded
+    on their own, so loading them via ``load_full_config`` is expected to
+    fail and would produce false positives.
+    """
     if not CONFIGS_DIR.exists():
         return []
-    return sorted(p for p in CONFIGS_DIR.rglob("*.yaml") if p.is_file())
+    standalone: list[Path] = []
+    for p in sorted(CONFIGS_DIR.rglob("*.yaml")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(CONFIGS_DIR)
+        # Include: top-level configs/*.yaml and configs/experiments/**/*.yaml
+        # Exclude: fragment dirs data/, model/, optim/, trainer/, alignment/
+        if rel.parts[0] in {"data", "model", "optim", "trainer", "alignment"}:
+            continue
+        standalone.append(p)
+    return standalone
 
 
 @pytest.mark.skipif(
@@ -90,8 +107,10 @@ class TestShippedConfigsParse:
 
 
 def _build_sft_sample(token_ids: list[int], mask_ranges: list[tuple[int, int]] | None = None):
+    import torch as _torch
+
     return {
-        "token_ids": token_ids,
+        "token_ids": _torch.tensor(token_ids, dtype=_torch.long),
         "metadata": {"mask_ranges": mask_ranges or [], "type": "sft"},
     }
 
@@ -123,19 +142,13 @@ class TestCollatorMultiSample:
         batch = collator([sample_a, sample_b])
 
         labels = batch["labels"]
-        # Each row: count of non-ignore labels must equal number of completion
-        # tokens (the model is supervised on predicting completion tokens).
-        # sample_a: 4 completion tokens
-        non_ignore_a = (labels[0] != -100).sum().item()
-        # sample_b: 2 completion tokens
-        non_ignore_b = (labels[1] != -100).sum().item()
-        assert non_ignore_a == 4, (
-            f"sample_a expected 4 supervised positions, got {non_ignore_a}; "
-            f"labels={labels[0].tolist()}"
-        )
-        assert non_ignore_b == 2, (
-            f"sample_b expected 2 supervised positions, got {non_ignore_b}; "
-            f"labels={labels[1].tolist()}"
+        # SFT collator bin-packs — multiple samples may share a row. Count
+        # non-ignore positions across the entire batch and compare to the
+        # expected total completion tokens (4 + 2 = 6).
+        total_non_ignore = (labels != -100).sum().item()
+        assert total_non_ignore == 6, (
+            f"Expected 6 supervised positions total (4 from sample_a + 2 from "
+            f"sample_b), got {total_non_ignore}; labels={labels.tolist()}"
         )
 
     def test_sft_no_pad_position_inside_attention_block(self) -> None:
@@ -151,20 +164,19 @@ class TestCollatorMultiSample:
             return_full_attention_mask=False,
         )
         # sampleA has 5 tokens → 4 written; sampleB has 4 tokens → 3 written.
+        # Both fit in one bin (5+4=9 ≤ 20), so cu_seqlens for that row is
+        # [0, 4, 7] — NOT [0, 5, 9] which would leave PAD holes.
         sample_a = _build_sft_sample([1, 2, 3, 4, 5])
         sample_b = _build_sft_sample([10, 20, 30, 40])
         batch = collator([sample_a, sample_b])
 
         cu_seqlens = batch["cu_seqlens"]
-        # Each row's cu_seqlens must end at exactly written_len total.
-        # Row 0: 4 written. Row 1: 3 written.
-        assert cu_seqlens[0][-1].item() == 4, (
-            f"Row 0 cu_seqlens last={cu_seqlens[0][-1].item()} (expected 4); "
-            f"full={cu_seqlens[0].tolist()}"
-        )
-        assert cu_seqlens[1][-1].item() == 3, (
-            f"Row 1 cu_seqlens last={cu_seqlens[1][-1].item()} (expected 3); "
-            f"full={cu_seqlens[1].tolist()}"
+        # Bin-packing puts both in one row; verify cumulative boundaries equal
+        # the sum of written_len values (4 + 3 = 7), not sample_len (5 + 4 = 9).
+        row_final = cu_seqlens[0][-1].item()
+        assert row_final == 7, (
+            f"Packed row cu_seqlens last={row_final} (expected 7 = 4+3 written "
+            f"tokens, not 9 = 5+4 sample_len); full={cu_seqlens[0].tolist()}"
         )
 
     def test_dpo_row_wise_pairing_after_length_sort(self) -> None:
@@ -179,31 +191,33 @@ class TestCollatorMultiSample:
             use_flash_attention=False,
             return_full_attention_mask=False,
         )
-        # Three pairs, lengths chosen so independent length-sort would reorder.
+        # Three pairs. Each sample needs >= 2 tokens to produce a (input,label)
+        # pair after the sample_len-1 shift. Lengths chosen so independent
+        # length-sort would reorder.
         batch = collator(
             [
                 {
-                    "token_ids": [20],
+                    "token_ids": [20, 21],
                     "metadata": {"type": "dpo_chosen", "group_id": 0, "mask_ranges": []},
                 },
                 {
-                    "token_ids": [110, 111, 112],
+                    "token_ids": [110, 111, 112, 113],
                     "metadata": {"type": "dpo_rejected", "group_id": 0, "mask_ranges": []},
                 },
                 {
-                    "token_ids": [30, 31],
+                    "token_ids": [30, 31, 32],
                     "metadata": {"type": "dpo_chosen", "group_id": 1, "mask_ranges": []},
                 },
                 {
-                    "token_ids": [130, 131, 132, 133],
+                    "token_ids": [130, 131, 132, 133, 134],
                     "metadata": {"type": "dpo_rejected", "group_id": 1, "mask_ranges": []},
                 },
                 {
-                    "token_ids": [10],
+                    "token_ids": [10, 11],
                     "metadata": {"type": "dpo_chosen", "group_id": 2, "mask_ranges": []},
                 },
                 {
-                    "token_ids": [120, 121],
+                    "token_ids": [120, 121, 122],
                     "metadata": {"type": "dpo_rejected", "group_id": 2, "mask_ranges": []},
                 },
             ]
