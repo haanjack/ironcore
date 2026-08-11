@@ -76,7 +76,7 @@ def create_mock_forward_step_func(deterministic: bool = False):
         input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=device)
         labels = input_ids.clone()
 
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
 
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()

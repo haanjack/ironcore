@@ -46,8 +46,13 @@ def get_data_iterator(config):
     """
     # Mock data mode — skip dataset preparation entirely
     if getattr(config.data, "use_mock_data", False):
+        # Prefer data.seq_length when set; fall back to model.max_seq_len so
+        # smoke tests on long-context models (e.g. Qwen2.5-0.5B with max_seq_len
+        # 32768) don't allocate 32K-token mock batches when the user asked for
+        # a smaller seq_length. (Fable issue #71.)
+        seq_length = getattr(config.data, "seq_length", None) or config.model.max_seq_len
         return get_random_data_iterator(
-            seq_length=config.model.max_seq_len,
+            seq_length=seq_length,
             vocab_size=getattr(config.model, "padded_vocab_size", 50304),
             batch_size=config.trainer.micro_batch_size,
         )

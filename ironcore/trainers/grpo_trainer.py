@@ -626,7 +626,11 @@ class GRPOTrainer(BaseTrainer):
             policy_log_probs_full = _compute_log_softmax_tp_safe(policy_logits)
             entropy = compute_entropy(policy_log_probs_full, response_mask)  # [batch]
 
-        # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
+        # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates.
+        # response_lengths enables length normalisation of the IS ratio and KL
+        # (Fable issues #68 / #69): longer completions no longer mechanically
+        # dominate the gradient or inflate the clip fraction.
+        response_lengths = response_mask.sum(dim=-1).clamp(min=1)
         loss, metrics = grpo_loss(
             policy_log_probs=policy_log_probs_seq,
             ref_log_probs=ref_log_probs_seq,
@@ -637,6 +641,7 @@ class GRPOTrainer(BaseTrainer):
             clip_eps=self.clip_eps,
             entropy=entropy,
             entropy_coef=self.entropy_coef,
+            response_lengths=response_lengths,
         )
 
         return loss, metrics

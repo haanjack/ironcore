@@ -332,8 +332,8 @@ class TestReferenceModel:
         rejected_logits = tiny_transformer(batch["rejected_input_ids"], labels=None)
 
         with torch.no_grad():
-            ref_chosen_logits = ref_model(batch["chosen_input_ids"], labels=None)
-            ref_rejected_logits = ref_model(batch["rejected_input_ids"], labels=None)
+            ref_chosen_logits, _ = ref_model(batch["chosen_input_ids"], labels=None)
+            ref_rejected_logits, _ = ref_model(batch["rejected_input_ids"], labels=None)
 
         loss, _ = dpo_loss(
             policy_chosen_logits=chosen_logits,
@@ -385,8 +385,8 @@ class TestGradientAccumulation:
         chosen_logits = tiny_transformer(batch["chosen_input_ids"], labels=None)
         rejected_logits = tiny_transformer(batch["rejected_input_ids"], labels=None)
         with torch.no_grad():
-            ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
-            ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
+            ref_chosen, _ = ref_model(batch["chosen_input_ids"], labels=None)
+            ref_rejected, _ = ref_model(batch["rejected_input_ids"], labels=None)
 
         loss1, _ = dpo_loss(
             chosen_logits,
@@ -410,8 +410,8 @@ class TestGradientAccumulation:
             chosen_logits = tiny_transformer(batch["chosen_input_ids"], labels=None)
             rejected_logits = tiny_transformer(batch["rejected_input_ids"], labels=None)
             with torch.no_grad():
-                ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
-                ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
+                ref_chosen, _ = ref_model(batch["chosen_input_ids"], labels=None)
+                ref_rejected, _ = ref_model(batch["rejected_input_ids"], labels=None)
 
             loss2, _ = dpo_loss(
                 chosen_logits,
@@ -569,12 +569,12 @@ class TestDPOTrainingLoop:
             for _ in range(5):
                 optimizer.zero_grad()
 
-                chosen_logits = model(batch["chosen_input_ids"], labels=None)
-                rejected_logits = model(batch["rejected_input_ids"], labels=None)
+                chosen_logits, _ = model(batch["chosen_input_ids"], labels=None)
+                rejected_logits, _ = model(batch["rejected_input_ids"], labels=None)
 
                 with torch.no_grad():
-                    ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
-                    ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
+                    ref_chosen, _ = ref_model(batch["chosen_input_ids"], labels=None)
+                    ref_rejected, _ = ref_model(batch["rejected_input_ids"], labels=None)
 
                 loss, _ = dpo_loss(
                     chosen_logits,
@@ -627,12 +627,12 @@ class TestDPOTrainingLoop:
 
                 model.train()
 
-                chosen_logits = model(batch["chosen_input_ids"], labels=None)
-                rejected_logits = model(batch["rejected_input_ids"], labels=None)
+                chosen_logits, _ = model(batch["chosen_input_ids"], labels=None)
+                rejected_logits, _ = model(batch["rejected_input_ids"], labels=None)
 
                 with torch.no_grad():
-                    ref_chosen = ref_model(batch["chosen_input_ids"], labels=None)
-                    ref_rejected = ref_model(batch["rejected_input_ids"], labels=None)
+                    ref_chosen, _ = ref_model(batch["chosen_input_ids"], labels=None)
+                    ref_rejected, _ = ref_model(batch["rejected_input_ids"], labels=None)
 
                 loss, metrics = dpo_loss(
                     chosen_logits,

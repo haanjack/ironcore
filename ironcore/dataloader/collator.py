@@ -166,9 +166,18 @@ class UniversalCollator:
                     token_ids = token_ids[:available]
                     sample_len = available
 
+                # written_len: number of (input, label) pairs written for this
+                # sample = sample_len - 1. ALL per-sample bookkeeping below
+                # (position_ids, cu_seqlens, attention mask block, current_pos)
+                # must advance by written_len, not sample_len, otherwise a PAD
+                # slot is left inside the sample's attention block with a valid
+                # position id — confusing FlashAttention and inflating cu_seqlens.
+                # (Fable issue #63.)
+                written_len = sample_len - 1
+
                 # Copy tokens
-                input_ids[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[:-1]
-                labels[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[1:]
+                input_ids[batch_idx, current_pos : current_pos + written_len] = token_ids[:-1]
+                labels[batch_idx, current_pos : current_pos + written_len] = token_ids[1:]
 
                 # Apply masking for user/system prompt tokens. mask_ranges are
                 # token-space indices, but labels are shifted by one relative to
@@ -180,19 +189,19 @@ class UniversalCollator:
                     mask_end = current_pos + max(min(end, sample_len) - 1, 0)
                     labels[batch_idx, mask_start:mask_end] = -100
 
-                # Position IDs reset for each sample
-                position_ids[batch_idx, current_pos : current_pos + sample_len] = position_range[
-                    :sample_len
+                # Position IDs reset for each sample — advance by written_len.
+                position_ids[batch_idx, current_pos : current_pos + written_len] = position_range[
+                    :written_len
                 ]
 
                 # Block-diagonal attention mask
                 if self.return_full_attention_mask:
                     # This sample attends only to itself
-                    sample_end = current_pos + sample_len
+                    sample_end = current_pos + written_len
                     attention_mask[batch_idx, current_pos:sample_end, current_pos:sample_end] = True
 
-                # Update cumulative sequence lengths
-                current_pos += sample_len
+                # Update cumulative sequence lengths — advance by written_len.
+                current_pos += written_len
                 cu_seqlens.append(current_pos)
 
             cu_seqlens_list.append(torch.tensor(cu_seqlens, dtype=torch.int32))

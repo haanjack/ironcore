@@ -23,7 +23,11 @@ GRPO_BASELINE_CONFIG = str(
     REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_baseline_smoke.yaml"
 )
 GRPO_PAGED_CONFIG = str(REPO_ROOT / "tests" / "fixtures" / "configs" / "grpo_paged_smoke.yaml")
+# Single-GPU variant command — exercises the full GRPO pipeline
+# (rollout → reward → advantage → policy update) on a one-GPU machine so the
+# pipeline is not uncovered when only 1 GPU is available. (Fable issue #79.)
 TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=2"]
+TORCHRUN_CMD_SINGLE = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=1"]
 
 
 def _resolve_config_paths(config_path: str) -> str:
@@ -71,10 +75,16 @@ def _resolve_config_paths(config_path: str) -> str:
     return str(temp_file)
 
 
-def _run_training(config: str) -> subprocess.CompletedProcess:
+def _run_training(config: str, single_gpu: bool = False) -> subprocess.CompletedProcess:
     """Run torchrun training job, return CompletedProcess."""
     resolved_config = _resolve_config_paths(config)
-    cmd = TORCHRUN_CMD + ["-m", "ironcore", "train", "--config", resolved_config]
+    cmd = (TORCHRUN_CMD_SINGLE if single_gpu else TORCHRUN_CMD) + [
+        "-m",
+        "ironcore",
+        "train",
+        "--config",
+        resolved_config,
+    ]
     try:
         return subprocess.run(
             cmd,
@@ -114,3 +124,26 @@ class TestGRPOTraining:
     def test_grpo_paged_rollout_training(self):
         result = _run_training(GRPO_PAGED_CONFIG)
         _assert_training_success(result, "paged")
+
+
+class TestGRPOTrainingSingleGPU:
+    """Single-GPU end-to-end GRPO coverage.
+
+    The multi-GPU class above is marked ``@mp`` and skips when fewer than 2
+    GPUs are visible, leaving the GRPO pipeline with no end-to-end coverage
+    on a single-GPU machine. This class runs the same configs with
+    ``--nproc_per_node=1`` so rollout → reward → advantage → policy update
+    is exercised without requiring multiple GPUs. (Fable issue #79.)
+    """
+
+    @pytest.mark.grpo
+    @pytest.mark.cuda
+    def test_grpo_baseline_training_single_gpu(self):
+        result = _run_training(GRPO_BASELINE_CONFIG, single_gpu=True)
+        _assert_training_success(result, "baseline-single-gpu")
+
+    @pytest.mark.grpo
+    @pytest.mark.cuda
+    def test_grpo_paged_rollout_training_single_gpu(self):
+        result = _run_training(GRPO_PAGED_CONFIG, single_gpu=True)
+        _assert_training_success(result, "paged-single-gpu")

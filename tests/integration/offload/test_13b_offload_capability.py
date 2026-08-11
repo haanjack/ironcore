@@ -106,7 +106,7 @@ def _run_training(config, num_steps, tmp_path):
         torch.manual_seed(42)
         input_ids = torch.randint(0, 32000, (BATCH_SIZE, SEQ_LEN), device=device)
         labels = input_ids.clone()
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         return F.cross_entropy(

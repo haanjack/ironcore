@@ -112,7 +112,7 @@ def compute_sequence_log_probs(
         [batch] - sum of log probs over response tokens
     """
     # Forward pass to get logits
-    logits = model(input_ids, labels=None)  # [batch, seq_len, vocab/tp]
+    logits, _ = model(input_ids, labels=None)  # [batch, seq_len, vocab/tp]
 
     # Compute TP-safe log softmax
     log_probs = _compute_log_softmax_tp_safe(logits)  # [batch, seq_len, full_vocab]

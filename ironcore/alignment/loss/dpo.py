@@ -96,8 +96,11 @@ def _extract_logps_from_log_probs(
        where prompt tokens should be excluded.
 
     3. **Sum vs Mean**: Uses sum (not mean) to compute sequence-level log probs.
-       This follows the standard DPO formulation which avoids biasing toward
-       shorter sequences.
+       This follows the standard DPO formulation. Note: summing means longer
+       sequences mechanically contribute larger-magnitude terms; this is the
+       accepted DPO convention (the chosen/rejected pair share the same prompt
+       so length differences are usually small), not a bias correction.
+       (Fable issue #69 notes the prior docstring inverted this causality.)
 
     Args:
         log_probs: Full log probabilities [batch, seq_len, vocab_size]
@@ -126,8 +129,10 @@ def _extract_logps_from_log_probs(
             ignore_mask, torch.zeros_like(selected_log_probs), selected_log_probs
         )
 
-    # Apply mask and sum (standard DPO uses sum, not average)
-    # This avoids biasing toward shorter sequences
+    # Apply mask and sum (standard DPO uses sum, not average). Summing means
+    # longer sequences contribute larger-magnitude terms — accepted in DPO
+    # because chosen/rejected pairs share a prompt. (Fable #69 corrected an
+    # inverted claim that sum avoids biasing toward shorter sequences.)
     if mask is not None:
         selected_log_probs = selected_log_probs * mask.float()
 

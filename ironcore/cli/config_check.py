@@ -33,10 +33,30 @@ def run_config_check(args: Namespace) -> None:
 
     from ironcore.train import load_full_config
 
-    config = load_full_config(config_path)
-
-    # Run individual validation checks
-    checks = _run_validation_checks(config)
+    # Load the config defensively. load_full_config runs _config_validation,
+    # which raises ValueError on any hard failure. A config-check command
+    # must REPORT those failures, not crash on them. (Fable issue #76.)
+    try:
+        config = load_full_config(config_path)
+        checks = [{"name": "config_validation", "passed": True}]
+    except ValueError as e:
+        config = None
+        checks = [
+            {
+                "name": "config_validation",
+                "passed": False,
+                "message": str(e),
+            }
+        ]
+    except Exception as e:  # noqa: BLE001 — config-check must never crash
+        config = None
+        checks = [
+            {
+                "name": "config_loading",
+                "passed": False,
+                "message": f"{type(e).__name__}: {e}",
+            }
+        ]
 
     # Print results
     if not args.validate_only:
@@ -50,12 +70,12 @@ def run_config_check(args: Namespace) -> None:
         all_passed = all(c["passed"] for c in checks)
         print(f"Overall: {'PASS' if all_passed else 'FAIL'}")
 
-    # Diff mode
-    if args.diff:
+    # Diff mode — requires a loaded config; skip if loading failed.
+    if args.diff and config is not None:
         _print_config_diff(config, args.diff)
 
-    # Show mode
-    if args.show:
+    # Show mode — requires a loaded config; skip if loading failed.
+    if args.show and config is not None:
         print("\nResolved Config:")
         print("-" * 40)
         config_dict = asdict(config)
@@ -63,93 +83,6 @@ def run_config_check(args: Namespace) -> None:
 
     if not all(c["passed"] for c in checks):
         sys.exit(1)
-
-
-def _run_validation_checks(config) -> list[dict]:
-    """Run each validation check individually, collecting results."""
-    checks = []
-
-    # Check 1: train_steps > 0
-    try:
-        if config.operation.train_steps <= 0:
-            raise ValueError("train_steps must be > 0")
-        checks.append({"name": "train_steps > 0", "passed": True})
-    except ValueError as e:
-        checks.append({"name": "train_steps > 0", "passed": False, "message": str(e)})
-
-    # Check 2: world_size >= tp_size
-    try:
-        dp_group_size = config.trainer.tensor_model_parallel_size
-        dp_world_size = config.parallel.world_size // dp_group_size
-        if dp_world_size <= 0:
-            raise ValueError(
-                f"world_size ({config.parallel.world_size}) < tp_size ({dp_group_size})"
-            )
-        checks.append({"name": "world_size >= tp_size", "passed": True})
-    except ValueError as e:
-        checks.append({"name": "world_size >= tp_size", "passed": False, "message": str(e)})
-
-    # Check 3: batch size consistency
-    try:
-        batch_fields = [
-            config.trainer.micro_batch_size,
-            config.trainer.train_batch_size,
-            config.trainer.gradient_accumulation_steps,
-        ]
-        none_count = batch_fields.count(None)
-        if none_count > 1:
-            raise ValueError("At most one of micro_batch/train_batch/grad_accum can be None")
-        if none_count == 0:
-            dp_world_size = config.parallel.world_size // config.trainer.tensor_model_parallel_size
-            expected = (
-                config.trainer.micro_batch_size
-                * config.trainer.gradient_accumulation_steps
-                * dp_world_size
-            )
-            if expected != config.trainer.train_batch_size:
-                raise ValueError(
-                    f"micro_batch({config.trainer.micro_batch_size}) * grad_accum({config.trainer.gradient_accumulation_steps}) * dp({dp_world_size}) = {expected}, but train_batch = {config.trainer.train_batch_size}"
-                )
-        checks.append({"name": "batch size consistency", "passed": True})
-    except ValueError as e:
-        checks.append({"name": "batch size consistency", "passed": False, "message": str(e)})
-
-    # Check 4: TP divisibility
-    try:
-        tp = config.trainer.tensor_model_parallel_size
-        if tp > 1 and config.model.name != "dummy":
-            if config.model.num_attention_heads % tp != 0:
-                raise ValueError(
-                    f"num_attention_heads ({config.model.num_attention_heads}) not divisible by tp ({tp})"
-                )
-            if config.model.num_attention_groups % tp != 0:
-                raise ValueError(
-                    f"num_attention_groups ({config.model.num_attention_groups}) not divisible by tp ({tp})"
-                )
-        checks.append({"name": "TP head divisibility", "passed": True})
-    except ValueError as e:
-        checks.append({"name": "TP head divisibility", "passed": False, "message": str(e)})
-
-    # Check 5: positional embedding type
-    try:
-        valid = ["absolute", "rope", "none"]
-        if config.model.positional_embedding.type.lower() not in valid:
-            raise ValueError(
-                f"positional_embedding must be one of {valid}, got '{config.model.positional_embedding.type}'"
-            )
-        checks.append({"name": "positional embedding type", "passed": True})
-    except ValueError as e:
-        checks.append({"name": "positional embedding type", "passed": False, "message": str(e)})
-
-    # Check 6: distributed optimizer vs FSDP
-    try:
-        if config.parallel.use_distributed_optimizer and config.parallel.use_fsdp:
-            raise ValueError("use_distributed_optimizer is incompatible with FSDP")
-        checks.append({"name": "optimizer/FSDP compatibility", "passed": True})
-    except ValueError as e:
-        checks.append({"name": "optimizer/FSDP compatibility", "passed": False, "message": str(e)})
-
-    return checks
 
 
 def _print_config_diff(config_a, diff_path: str) -> None:

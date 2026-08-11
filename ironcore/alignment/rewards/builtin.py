@@ -16,6 +16,7 @@ Supports:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -24,6 +25,8 @@ from collections import OrderedDict
 import torch
 
 from .base import RewardFunction
+
+logger = logging.getLogger(__name__)
 
 
 class MathRewardFunction(RewardFunction):
@@ -372,7 +375,14 @@ Score:""",
                 response = self._call_api(eval_prompt)
                 score = self._parse_response(response)
                 break
-            except Exception:
+            except (ValueError, RuntimeError, OSError, KeyError, TimeoutError) as exc:
+                logger.warning(
+                    "CodeReward _call_api failed (attempt %d/%d): %s: %s",
+                    attempt + 1,
+                    self.max_retries,
+                    type(exc).__name__,
+                    exc,
+                )
                 if attempt == self.max_retries - 1:
                     score = 0.5
                 time.sleep(2**attempt)
@@ -524,7 +534,14 @@ class LocalEndpointRewardFunction(RewardFunction):
                 )
                 score = self._parse_response(response.choices[0].message.content or "")
                 break
-            except Exception:
+            except (ValueError, RuntimeError, OSError, KeyError, TimeoutError) as exc:
+                logger.warning(
+                    "CodeRewardLocal _local_call failed (attempt %d/%d): %s: %s",
+                    attempt + 1,
+                    self.max_retries,
+                    type(exc).__name__,
+                    exc,
+                )
                 if attempt == self.max_retries - 1:
                     score = 0.5
                 time.sleep(2**attempt)

@@ -198,6 +198,16 @@ def get_batch(
     return input_ids, labels
 
 
+# Module-level slot for the most recent MoE aux loss so trainers can log it
+# as a metric after forward_step returns. (Fable issue #78.)
+_last_moe_aux_loss: float = 0.0
+
+
+def get_last_moe_aux_loss() -> float:
+    """Return the aux loss from the most recent forward_step call, or 0.0."""
+    return _last_moe_aux_loss
+
+
 def forward_step(model, data_iterator) -> torch.Tensor:
     """Forward step with MoE auxiliary loss accumulation.
 
@@ -205,6 +215,7 @@ def forward_step(model, data_iterator) -> torch.Tensor:
     Clears aux loss after accumulation to prevent memory leaks.
     For non-MoE models, this is essentially a no-op overhead.
     """
+    global _last_moe_aux_loss
     input_ids, labels = get_batch(data_iterator=data_iterator)
     loss = model(input_ids, labels)
 
@@ -212,8 +223,11 @@ def forward_step(model, data_iterator) -> torch.Tensor:
     aux_loss = get_moe_aux_loss(model)
     if aux_loss is not None:
         loss = loss + aux_loss
+        _last_moe_aux_loss = float(aux_loss.detach().item())
         # Clear aux loss after accumulation to prevent memory leak
         clear_moe_aux_loss(model)
+    else:
+        _last_moe_aux_loss = 0.0
 
     return loss
 

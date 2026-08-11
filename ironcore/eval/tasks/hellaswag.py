@@ -64,7 +64,7 @@ class HellaSwag(Task):
         labels = tokenized_inputs[:, 1:]
 
         # Get logits from model (no labels = inference mode)
-        logits = model(input_ids, labels=None)  # [b, s, v]
+        logits, _ = model(input_ids, labels=None)  # [b, s, v]
 
         batch_size, seq_len = labels.shape
         position_idx = torch.arange(seq_len, device=labels.device)

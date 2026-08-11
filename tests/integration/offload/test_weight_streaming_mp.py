@@ -92,7 +92,7 @@ def _create_forward_step_func():
         labels = input_ids.clone()
         input_ids = input_ids.to(device)
         labels = labels.to(device)
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         loss = F.cross_entropy(

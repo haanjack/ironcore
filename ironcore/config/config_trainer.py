@@ -140,6 +140,14 @@ class OperationConfig(BaseConfig):
     save_dist_ckpt: bool = field(
         default=False, metadata={"help": "use distributed save checkpoint"}
     )
+    save_full_model: bool = field(
+        default=False,
+        metadata={
+            "help": "When PEFT is active, save the full model (base + adapter). "
+            "Default (False) saves adapter weights only — much smaller and "
+            "distributable as a standalone adapter. (Fable issue #65.)"
+        },
+    )
 
 
 @dataclass

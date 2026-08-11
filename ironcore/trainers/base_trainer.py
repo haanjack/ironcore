@@ -422,6 +422,29 @@ class BaseTrainer(ABC):
 
         return model, optimizer
 
+    def _skip_consumed_train_samples(self, last_step: int) -> None:
+        """Advance the train iterator past samples already seen before resume.
+
+        Without this, a resumed run replays the dataset from the start,
+        re-training on samples the original run already consumed. We compute
+        consumed samples as ``last_step * train_batch_size`` and burn through
+        that many micro-batches. The streaming dataset is seeded deterministically
+        so this reproduces the original trajectory. (Fable issue #62.)
+        """
+        if last_step <= 0 or not self.data_iterator or "train" not in self.data_iterator:
+            return
+        batch_size = self.config.trainer.train_batch_size
+        if not batch_size:
+            return
+        skip = last_step * batch_size
+        self.logger.info(f"Skipping {skip} consumed training samples to resume data position.")
+        train_iter = self.data_iterator["train"]
+        for _ in range(skip):
+            try:
+                next(train_iter)
+            except StopIteration:
+                break
+
     def _pre_train_setup(self) -> int:
         """Hook for setup before training starts.
 
@@ -430,8 +453,7 @@ class BaseTrainer(ABC):
 
         Returns:
             Starting step number (0 for fresh training, or checkpoint step + 1)
-        """
-        # Default implementation: load checkpoint if available
+        """        # Default implementation: load checkpoint if available
         try:
             last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
             if last_step > -1:
@@ -439,6 +461,7 @@ class BaseTrainer(ABC):
                     f"Successfully loaded checkpoint: {self.config.trainer.model_path} "
                     f"(resuming from step {last_step})"
                 )
+                self._skip_consumed_train_samples(last_step)
             else:
                 self.logger.info("Training start from scratch")
                 last_step = 0
@@ -545,6 +568,12 @@ class BaseTrainer(ABC):
         # Final checkpoint if needed
         if self.control.do_final_checkpoint(step, last_step):
             save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
+
+        # Eval-only mode: train_steps == 0 means skip training, run eval once.
+        if self.config.operation.train_steps == 0 and self.config.trainer.do_eval_subtask:
+            self.logger.info("Eval-only mode (train_steps=0): running evaluation.")
+            self.evaluate(step=0)
+            self.model.train()
 
         if self.config.trainer.do_test:
             self.test()

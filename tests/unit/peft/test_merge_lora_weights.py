@@ -79,12 +79,12 @@ class TestMergeLoraWeights:
             return out[0] if isinstance(out, tuple) else out
 
         with torch.no_grad():
-            output_before = _logits(model(input_ids, labels=None))
+            output_before = _logits(model(input_ids, labels=None)[0])
 
         merge_lora_weights(model)
 
         with torch.no_grad():
-            output_after = _logits(model(input_ids, labels=None))
+            output_after = _logits(model(input_ids, labels=None)[0])
 
         assert torch.allclose(output_before, output_after, atol=1e-3, rtol=1e-3), (
             "merged model's forward output diverged from the pre-merge (LoRA-wrapped) output"

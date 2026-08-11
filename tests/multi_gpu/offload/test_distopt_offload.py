@@ -89,7 +89,7 @@ def _create_forward_step_func():
         step_counter[0] += 1
         input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN), device=device)
         labels = input_ids.clone()
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         loss = F.cross_entropy(

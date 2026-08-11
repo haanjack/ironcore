@@ -11,11 +11,14 @@ from a classifier-head reward model.
 
 from __future__ import annotations
 
+import logging
 import time
 
 import torch
 
 from .base import RewardFunction
+
+logger = logging.getLogger(__name__)
 
 
 class RewardModelFunction(RewardFunction):
@@ -90,6 +93,9 @@ class RewardModelFunction(RewardFunction):
             return self._compute_api(prompt, completion)
         if self.backend == "local_inference":
             return self._compute_local_inference(prompt, completion)
+        # Unknown backend — log and return neutral instead of silent 0.5.
+        # (Fable issue #67.)
+        logger.warning("RewardModelFunction: unknown backend '%s', returning default", self.backend)
         return 0.5
 
     def _compute_local_endpoint(self, prompt: str, completion: str) -> float:
@@ -109,7 +115,14 @@ class RewardModelFunction(RewardFunction):
                 data = resp.json()
                 # Support both {"reward": float} and {"score": float} formats
                 return float(data.get("reward", data.get("score", 0.5)))
-            except Exception:
+            except (ValueError, RuntimeError, OSError, KeyError, TimeoutError) as exc:
+                logger.warning(
+                    "RewardModelFunction local_endpoint failed (attempt %d/%d): %s: %s",
+                    attempt + 1,
+                    self.max_retries,
+                    type(exc).__name__,
+                    exc,
+                )
                 if attempt == self.max_retries - 1:
                     return 0.5
                 time.sleep(2**attempt)
@@ -130,7 +143,14 @@ class RewardModelFunction(RewardFunction):
                 # Parse scalar from response
                 text = response.choices[0].message.content or ""
                 return min(max(float(text.strip()), 0.0), 1.0)
-            except Exception:
+            except (ValueError, RuntimeError, OSError, KeyError, TimeoutError) as exc:
+                logger.warning(
+                    "RewardModelFunction api backend failed (attempt %d/%d): %s: %s",
+                    attempt + 1,
+                    self.max_retries,
+                    type(exc).__name__,
+                    exc,
+                )
                 if attempt == self.max_retries - 1:
                     return 0.5
                 time.sleep(2**attempt)

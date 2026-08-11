@@ -226,20 +226,21 @@ class DPOTrainer(BaseTrainer):
 
             # Policy model forward
             if enable_grad:
-                concat_policy_logits = self.model(
+                concat_policy_logits, _ = self.model(
                     concat_input_ids, labels=None, position_ids=concat_position_ids
                 )
             else:
                 with torch.no_grad():
-                    concat_policy_logits = self.model(
+                    concat_policy_logits, _ = self.model(
                         concat_input_ids, labels=None, position_ids=concat_position_ids
                     )
 
             # Reference model forward (always no_grad)
             with torch.no_grad():
-                concat_ref_logits = self.reference_model(
+                concat_ref_logits, _ = self.reference_model(
                     concat_input_ids, labels=None, position_ids=concat_position_ids
-                ).detach()
+                )
+                concat_ref_logits = concat_ref_logits.detach()
 
             # Split back into chosen and rejected
             chosen_policy_logits = concat_policy_logits[:batch_size]
@@ -253,29 +254,31 @@ class DPOTrainer(BaseTrainer):
         else:
             # Standard approach: 4 separate forward passes
             if enable_grad:
-                chosen_policy_logits = self.model(
+                chosen_policy_logits, _ = self.model(
                     chosen_input_ids, labels=None, position_ids=chosen_position_ids
                 )
-                rejected_policy_logits = self.model(
+                rejected_policy_logits, _ = self.model(
                     rejected_input_ids, labels=None, position_ids=rejected_position_ids
                 )
             else:
                 with torch.no_grad():
-                    chosen_policy_logits = self.model(
+                    chosen_policy_logits, _ = self.model(
                         chosen_input_ids, labels=None, position_ids=chosen_position_ids
                     )
-                    rejected_policy_logits = self.model(
+                    rejected_policy_logits, _ = self.model(
                         rejected_input_ids, labels=None, position_ids=rejected_position_ids
                     )
 
             # Reference model forward (always no_grad)
             with torch.no_grad():
-                chosen_ref_logits = self.reference_model(
+                chosen_ref_logits, _ = self.reference_model(
                     chosen_input_ids, labels=None, position_ids=chosen_position_ids
-                ).detach()
-                rejected_ref_logits = self.reference_model(
+                )
+                chosen_ref_logits = chosen_ref_logits.detach()
+                rejected_ref_logits, _ = self.reference_model(
                     rejected_input_ids, labels=None, position_ids=rejected_position_ids
-                ).detach()
+                )
+                rejected_ref_logits = rejected_ref_logits.detach()
 
             policy_concat_logits = None
             reference_concat_logits = None
