@@ -83,6 +83,26 @@ Measured throughput (ROCm 7.2.4 / PyTorch 2.10, after warm-up):
 Always discard the first iterations when benchmarking — kernel JIT makes an unwarmed
 matmul look ~45× slower than it is.
 
+**Benchmark with the CPU idle.** This is an APU: the iGPU shares both the LPDDR5X
+bus and the package power budget with the CPU cores, so unrelated host work moves
+these numbers by about 2×. The `example.yaml` row measured 3.1k tok/s / 2.3 TFLOPS
+with two analysis jobs running and 6.4k tok/s / 4.8 TFLOPS on the same commit with
+the box idle. A discrete GPU would barely notice the same load, so a slow number
+here is not evidence of a regression until it is re-measured quiet — check `docker
+ps` and any background jobs before concluding anything from a throughput delta.
+
+## Multi-GPU tests cannot run here
+
+RCCL refuses to put two ranks on one device, so `torchrun --nproc_per_node=2` is not
+a way to exercise the `mp`-marked suite on a single-iGPU box:
+
+```
+ncclInvalidUsage: Duplicate GPU detected : rank 0 and rank 1 both on CUDA device c4000
+```
+
+(NCCL 2.27.7, both ranks after `torch.cuda.set_device(0)`.) Tensor-parallel and
+distributed-optimizer tests need a genuine 2-GPU host.
+
 ## Things that differ from a CUDA box
 
 **Attention.** `flash-attn` has no working gfx1151 build; the config flag `use_flash_attn`

@@ -101,6 +101,17 @@ def snapshot_tensor_parallel_rng_tracker() -> dict[tuple[str, int, str, int | No
     return _TP_RNG_TRACKER.snapshot()
 
 
+def restore_tensor_parallel_rng_tracker(
+    states: dict[tuple[str, int, str, int | None], torch.Tensor],
+) -> None:
+    """Rewind the shared tracker to `states` and leave it there.
+
+    Used by checkpoint resume; `tensor_parallel_rng_rewound_to` is the scoped
+    form for recompute, which has to put the tracker back afterwards.
+    """
+    _TP_RNG_TRACKER.restore(states)
+
+
 @contextmanager
 def tensor_parallel_rng_rewound_to(
     states: dict[tuple[str, int, str, int | None], torch.Tensor],

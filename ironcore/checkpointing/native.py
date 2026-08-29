@@ -473,11 +473,15 @@ def load_checkpoint(
     rng_state = checkpoint.get("rng_state")
     if rng_state is not None:
         try:
-            torch.set_rng_state(rng_state["torch_cpu"])
+            # These load onto the model's device because of map_location, but the
+            # RNG setters take CPU ByteTensors — passing a CUDA one raises "RNG
+            # state must be a torch.ByteTensor", which the except below turned
+            # into a warning, so no RNG state was ever actually restored.
+            torch.set_rng_state(rng_state["torch_cpu"].cpu())
             if torch.cuda.is_available():
                 cuda_states = rng_state.get("torch_cuda")
                 if cuda_states is not None:
-                    torch.cuda.set_rng_state_all(cuda_states)
+                    torch.cuda.set_rng_state_all([s.cpu() for s in cuda_states])
             py_rs = rng_state.get("python_random")
             if py_rs is not None:
                 random.setstate(py_rs)
@@ -487,7 +491,9 @@ def load_checkpoint(
                     import numpy as np
 
                     keys = (
-                        np_rs["keys"].numpy() if hasattr(np_rs["keys"], "numpy") else np_rs["keys"]
+                        np_rs["keys"].cpu().numpy()
+                        if hasattr(np_rs["keys"], "numpy")
+                        else np_rs["keys"]
                     )
                     np.random.set_state(
                         (
@@ -500,6 +506,25 @@ def load_checkpoint(
                     )
                 except (ImportError, KeyError, TypeError) as rng_err:
                     logger.warning(f"Could not restore numpy RNG state: {rng_err}")
+
+            # Tensor-parallel dropout streams. Absent from checkpoints written
+            # before this was saved, in which case dropout resumes from a fresh
+            # stream as it did then.
+            tp_entries = rng_state.get("tp_tracker")
+            if tp_entries:
+                from ironcore.parallel.random import restore_tensor_parallel_rng_tracker
+
+                restore_tensor_parallel_rng_tracker(
+                    {
+                        (
+                            entry["stream"],
+                            int(entry["seed"]),
+                            entry["device_type"],
+                            None if int(entry["device_index"]) < 0 else int(entry["device_index"]),
+                        ): entry["state"].cpu()
+                        for entry in tp_entries
+                    }
+                )
         except (KeyError, TypeError, RuntimeError) as rng_err:
             logger.warning(f"Could not restore RNG state from checkpoint: {rng_err}")
 
@@ -744,6 +769,23 @@ def save_checkpoint(
     except ImportError:
         pass
 
+    # Dropout draws from the tensor-parallel RNG tracker's own streams, which sit
+    # outside the ambient generators above — so saving those alone still left a
+    # resumed run drawing different masks than the run it continues.
+    # Flattened to a list of plain entries to stay loadable under weights_only.
+    from ironcore.parallel.random import snapshot_tensor_parallel_rng_tracker
+
+    tp_rng_state = [
+        {
+            "stream": key[0],
+            "seed": int(key[1]),
+            "device_type": key[2],
+            "device_index": -1 if key[3] is None else int(key[3]),
+            "state": value,
+        }
+        for key, value in snapshot_tensor_parallel_rng_tracker().items()
+    ]
+
     checkpoint = {
         "model_state_dict": model_state_dict,
         "optimizer_state_dict": final_optimizer_state,
@@ -756,6 +798,7 @@ def save_checkpoint(
             "torch_cuda": torch.cuda.get_rng_state_all(),
             "numpy": np_state,
             "python_random": random.getstate(),
+            "tp_tracker": tp_rng_state,
         },
     }
 

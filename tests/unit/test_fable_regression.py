@@ -75,6 +75,23 @@ def _collect_shipped_configs() -> list[Path]:
 _CANDIDATE_WORLD_SIZES = (1, 2, 4, 8)
 
 
+def _config_tp_size(path: Path) -> int:
+    """tensor_model_parallel_size a config asks for, without importing ironcore."""
+    import yaml
+
+    raw = yaml.safe_load(path.read_text()) or {}
+    return (raw.get("trainer") or {}).get("tensor_model_parallel_size", 1)
+
+
+# Split by TP size so each group lands in a job that can actually run it. Config
+# validation rejects tensor_model_parallel_size > 1 outright when CUDA is absent,
+# and the CPU logic job is the only one that collects an unmarked test — so a
+# single unmarked test skipping the TP configs meant nothing validated them at all.
+_SHIPPED_CONFIGS = _collect_shipped_configs()
+_TP1_CONFIGS = [p for p in _SHIPPED_CONFIGS if _config_tp_size(p) == 1]
+_TP_PARALLEL_CONFIGS = [p for p in _SHIPPED_CONFIGS if _config_tp_size(p) > 1]
+
+
 @pytest.mark.skipif(
     not CONFIGS_DIR.exists(),
     reason="configs/ directory not available from this CWD",
@@ -98,22 +115,25 @@ class TestShippedConfigsParse:
 
     @pytest.mark.parametrize(
         "config_path",
-        _collect_shipped_configs(),
+        _TP1_CONFIGS,
         ids=lambda p: str(p.relative_to(CONFIGS_DIR)),
     )
     def test_config_loads(self, config_path: Path, monkeypatch) -> None:
-        import torch
-        import yaml
+        self._assert_loads(config_path, monkeypatch)
 
+    @pytest.mark.cuda
+    @pytest.mark.parametrize(
+        "config_path",
+        _TP_PARALLEL_CONFIGS,
+        ids=lambda p: str(p.relative_to(CONFIGS_DIR)),
+    )
+    def test_tp_config_loads(self, config_path: Path, monkeypatch) -> None:
+        """Same check for TP configs, which validation rejects without CUDA."""
+        self._assert_loads(config_path, monkeypatch)
+
+    @staticmethod
+    def _assert_loads(config_path: Path, monkeypatch) -> None:
         from ironcore.train import load_full_config
-
-        # Validation rejects tensor_model_parallel_size > 1 without CUDA, so a
-        # TP config is unverifiable on the CPU runner however well formed it is.
-        # The GPU job covers these.
-        raw = yaml.safe_load(config_path.read_text()) or {}
-        tp_size = (raw.get("trainer") or {}).get("tensor_model_parallel_size", 1)
-        if tp_size > 1 and not torch.cuda.is_available():
-            pytest.skip(f"tensor_model_parallel_size={tp_size} requires CUDA")
 
         failures: list[str] = []
         for world_size in _CANDIDATE_WORLD_SIZES:

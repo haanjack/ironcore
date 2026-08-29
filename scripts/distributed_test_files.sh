@@ -34,7 +34,7 @@ DIST_TEST_FILES_NP1=(
 # torchrun --nproc_per_node=2: every file containing @pytest.mark.mp tests.
 DIST_TEST_FILES_NP2=(
     "tests/integration/attention/test_attention_multi_gpu.py"
-    "tests/integration/kvcache/test_kv_cache.py"
+    "tests/multi_gpu/kvcache/test_kv_cache_tp.py"
     "tests/integration/lora/test_lora_async.py"
     "tests/integration/lora/test_lora_checkpoint.py"
     "tests/integration/lora/test_lora_correctness.py"
