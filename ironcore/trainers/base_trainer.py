@@ -426,18 +426,25 @@ class BaseTrainer(ABC):
         """Advance the train iterator past samples already seen before resume.
 
         Without this, a resumed run replays the dataset from the start,
-        re-training on samples the original run already consumed. We compute
-        consumed samples as ``last_step * train_batch_size`` and burn through
-        that many micro-batches. The streaming dataset is seeded deterministically
-        so this reproduces the original trajectory. (Fable issue #62.)
+        re-training on samples the original run already consumed. The streaming
+        dataset is seeded deterministically, so advancing the iterator by exactly
+        what the original run drew reproduces its trajectory. (Fable issue #62.)
+
+        Count in micro-batches, not samples: each ``next()`` yields a whole
+        micro-batch, so burning ``last_step * train_batch_size`` of them
+        overshot by the micro-batch size and landed the resumed run on entirely
+        different data.
         """
         if last_step <= 0 or not self.data_iterator or "train" not in self.data_iterator:
             return
-        batch_size = self.config.trainer.train_batch_size
-        if not batch_size:
+        accum_steps = self.config.trainer.gradient_accumulation_steps
+        if not accum_steps:
             return
-        skip = last_step * batch_size
-        self.logger.info(f"Skipping {skip} consumed training samples to resume data position.")
+        skip = last_step * accum_steps
+        self.logger.info(
+            f"Skipping {skip} consumed micro-batches to resume data position "
+            f"({skip * self.config.trainer.micro_batch_size} samples on this rank)."
+        )
         train_iter = self.data_iterator["train"]
         for _ in range(skip):
             try:
