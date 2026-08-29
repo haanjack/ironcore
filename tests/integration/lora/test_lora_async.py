@@ -102,8 +102,20 @@ class TestLoRAAsyncChunking:
         if tp_size > 1 and int(os.environ.get("WORLD_SIZE", "1")) < tp_size:
             pytest.skip(f"TP={tp_size} requires torchrun with {tp_size} ranks")
 
-        rank = 0
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        # TP > 1 needs a real process group and this rank pinned to its own
+        # device before initialize_model_parallel; the tp1 path never needed
+        # either, and while the tp2 case skipped itself nobody noticed it was
+        # missing. Mirrors the fixture in test_lora_correctness.py.
+        if tp_size > 1:
+            local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+            device = torch.device(f"cuda:{local_rank}")
+            torch.cuda.set_device(device)
+            if not dist.is_initialized():
+                dist.init_process_group(backend="nccl")
+            rank = dist.get_rank()
+        else:
+            rank = 0
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         try:
             _seed_all()

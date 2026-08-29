@@ -9,14 +9,13 @@ Verifies optimizer offload + activation spill combination works correctly withou
 """
 
 import math
-import os
 from unittest.mock import patch
 
 import pytest
 import torch
 import torch.nn.functional as F
 from tests.fixtures.config_fixtures import create_test_config
-from tests.fixtures.utils import cudnn_determinism
+from tests.fixtures.utils import cudnn_determinism, set_default_rendezvous_env
 from tests.integration.offload.conftest import (
     create_mock_data_iterator,
     create_mock_evaluators,
@@ -28,7 +27,7 @@ from ironcore.trainers import LanguageModelTrainer
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
-pytestmark = [pytest.mark.cuda, pytest.mark.mp]
+pytestmark = [pytest.mark.cuda]
 
 NUM_STEPS = 50
 BATCH_SIZE = 2
@@ -100,11 +99,7 @@ def _create_forward_step_func():
 def _run_training(config, num_steps):
     """Run N training steps. Returns (initial_loss, final_loss)."""
     reset_global_states()
-    os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "29500")
-    os.environ.setdefault("LOCAL_RANK", "0")
-    os.environ.setdefault("RANK", "0")
-    os.environ.setdefault("WORLD_SIZE", "1")
+    set_default_rendezvous_env()
     if not torch.distributed.is_initialized():
         torch.distributed.init_process_group(backend="nccl", rank=0, world_size=1)
 

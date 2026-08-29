@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared fixtures for offload integration tests."""
 
-import os
 from unittest.mock import patch
 
 import pytest
@@ -11,6 +10,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from tests.fixtures.config_fixtures import create_small_test_config
+from tests.fixtures.utils import set_default_rendezvous_env
 
 from ironcore.global_vars import reset_global_states
 from ironcore.parallel.parallel_states import destroy_model_parallel
@@ -18,11 +18,7 @@ from ironcore.parallel.parallel_states import destroy_model_parallel
 
 def setup_distributed():
     """Initialize single-GPU distributed environment."""
-    os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "29500")
-    os.environ.setdefault("LOCAL_RANK", "0")
-    os.environ.setdefault("RANK", "0")
-    os.environ.setdefault("WORLD_SIZE", "1")
+    set_default_rendezvous_env()
     if not dist.is_initialized():
         dist.init_process_group(backend="nccl", rank=0, world_size=1)
 
