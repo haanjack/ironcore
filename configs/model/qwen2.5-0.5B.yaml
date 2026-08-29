@@ -13,15 +13,26 @@ eod_mask_loss: false
 precision: bf16
 
 vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
-tokenizer_type: tiktoken
+# "sentencepiece" selects the generic AutoTokenizer.from_pretrained path, which is what
+# Qwen's BPE vocab needs — the value is a router key, not a claim about the algorithm.
+tokenizer_type: sentencepiece
 
 hf_model_type: qwen2
 hf_architecture: Qwen2ForCausalLM
 
-norm_type: rmsnorm
-norm_eps: 1.0e-6
-attention_type: gqa
-positional_embedding: rope
-rope_theta: 10000.0
-rope_scaling: null
-tie_word_embeddings: true
+ln_type: rmsnorm
+ln_eps: 1.0e-6
+positional_embedding:
+  type: rope
+  base: 10_000
+
+# Qwen2.5 biases the attention QKV projections only; GQA follows from
+# num_attention_groups < num_attention_heads.
+bias:
+  q: true
+  k: true
+  v: true
+  o: false
+  gate: false
+  up: false
+  down: false

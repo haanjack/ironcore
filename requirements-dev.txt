@@ -1,0 +1,12 @@
+# Test and lint tooling baked into the container image.
+#
+# The image cannot rely on `pip install -e .[dev]` at run time: launch.sh runs
+# the container as the invoking user and site-packages is root-owned, so the
+# write fails. Everything the CI scripts need must already be here.
+#
+# Keep the ruff pin in sync with the dev extra in pyproject.toml and the
+# install step in .github/workflows/lint.yml — an unpinned ruff turns every
+# release into a CI failure on code that did not change.
+pytest
+pytest-timeout
+ruff==0.15.17

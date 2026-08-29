@@ -20,14 +20,19 @@ if [ -z "$ARCH" ]; then
 fi
 github_access_token=${github_access_token:-""}
 
+EXTRA_BUILD_ARGS=()
+
 if [ "$ARCH" == "rocm" ] || [ "$ARCH" == "rocm-wsl" ]; then
     # ROCm PyTorch image — full tag or let the default apply.
     # WSL2 hosts can override ROCM_IMAGE for a different PyTorch version.
     # Example: ROCM_IMAGE="rocm/pytorch:rocm7.2.3_ubuntu24.04_py3.12_pytorch_release_2.10.0"
-    BASE_IMAGE=${ROCM_IMAGE:-"rocm/pytorch:rocm7.2_ubuntu24.04_py3.12_pytorch_release_2.8.0"}
+    BASE_IMAGE=${ROCM_IMAGE:-"rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0"}
     # WSL2 + DXG: detect by /dev/dxg presence (or explicit rocm-wsl arch)
     if [ "$ARCH" == "rocm-wsl" ] || [ -e /dev/dxg ]; then
         TAG="ironcore:rocm-wsl"
+        # Bake ROCDXG into the image so the WSL distro needs no ROCm install.
+        # Version must cover your APU: 1.2.0+ covers Ryzen AI Max+ 395 (gfx1151).
+        EXTRA_BUILD_ARGS+=(--build-arg "ROCDXG_VERSION=${ROCDXG_VERSION:-1.2.1}")
     else
         TAG="ironcore:rocm"
     fi
@@ -40,4 +45,5 @@ fi
 echo "Building for $ARCH ($TAG) using $BASE_IMAGE..."
 
 docker build . -t "$TAG" \
-    --build-arg BASE_IMAGE="$BASE_IMAGE"
+    --build-arg BASE_IMAGE="$BASE_IMAGE" \
+    "${EXTRA_BUILD_ARGS[@]}"
