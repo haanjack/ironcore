@@ -47,16 +47,22 @@ def _cudnn_determinism():
 
 
 def _make_config(**offload_overrides):
-    """GPT-small architecture config with optimizer_offload+weight_offload."""
+    # Narrower than GPT-small on purpose: these tests assert convergence and
+    # baseline parity, neither of which needs the width, and it cut the pair
+    # from ~250s to ~150s. Kept at 384 rather than 256 so every projection
+    # stays clear of offload.optimizer_min_param_elements (65536) — at 256 the
+    # attention projections land exactly on it, and a later bump to that
+    # default would silently stop these tests offloading anything.
+    """Narrow GPT-style config with optimizer_offload+weight_offload."""
     from ironcore.config import OffloadConfig
 
     offload = OffloadConfig(enabled=True, **offload_overrides)
     config = create_test_config(
-        d_model=768,
-        d_ffn=3072,
+        d_model=384,
+        d_ffn=1536,
         num_layers=4,
-        num_attention_heads=12,
-        num_attention_groups=12,
+        num_attention_heads=6,
+        num_attention_groups=6,
         head_dim=64,
         max_seq_len=SEQ_LEN,
         dropout_attn=0.0,
