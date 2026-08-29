@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
-pip install -e ".[dev]" -q
+source "$(dirname "$0")/_ci_setup.sh"
+ci_install_package
 
 failed=0
 get_free_port() {

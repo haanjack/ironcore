@@ -21,8 +21,9 @@ RUN if [ -n "$ROCDXG_VERSION" ]; then \
     fi
 
 ADD ./requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt &&\
-    rm /tmp/requirements.txt
+ADD ./requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install -r /tmp/requirements.txt -r /tmp/requirements-dev.txt &&\
+    rm /tmp/requirements.txt /tmp/requirements-dev.txt
 
 # Make the runtime-mounted workspace (/workspace) importable without PYTHONPATH.
 # The source is mounted at runtime; ./ironcore-run handles CLI dispatch.
