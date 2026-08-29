@@ -29,7 +29,7 @@ from ironcore.trainers import LanguageModelTrainer
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
-pytestmark = [pytest.mark.cuda, pytest.mark.mp]
+pytestmark = [pytest.mark.cuda]
 
 NUM_STEPS = 50
 BATCH_SIZE = 2

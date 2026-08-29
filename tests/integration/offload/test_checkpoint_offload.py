@@ -25,7 +25,7 @@ from ironcore.trainers import LanguageModelTrainer
 
 skip_no_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 
-pytestmark = [pytest.mark.cuda, pytest.mark.mp]
+pytestmark = [pytest.mark.cuda]
 
 
 @skip_no_cuda

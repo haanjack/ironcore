@@ -91,6 +91,10 @@ def _destroy_parallel():
     parallel_states.destroy_model_parallel()
 
 
+# run_distributed_tests.sh selects with `-m "mp"`; without the marker pytest
+# collected nothing here and exited 5, which the runner reported as a failure.
+@pytest.mark.cuda
+@pytest.mark.mp
 @pytest.mark.skipif(
     "'RANK' not in os.environ or torch.cuda.device_count() < 2",
     reason="TP=2 tests require torchrun with 2 GPUs",
