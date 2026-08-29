@@ -25,7 +25,17 @@ class BaseConfig:
                 field_type = self.__dataclass_fields__[k].type
                 try:
                     if isinstance(field_type, type) and issubclass(field_type, BaseConfig):
-                        v = field_type(**v)
+                        current = getattr(self, k, None)
+                        if isinstance(current, field_type):
+                            # Merge onto what is already there, the way top-level
+                            # groups behave. Building a fresh field_type(**v) from
+                            # only the supplied keys reset every unmentioned
+                            # sibling to its dataclass default — so an overlay
+                            # tweaking one MoE field also silently set use_moe
+                            # back to False.
+                            v = current(**v)
+                        else:
+                            v = field_type(**v)
                 except TypeError:
                     # field_type is not a class (could be string forward reference, Union, etc.)
                     pass

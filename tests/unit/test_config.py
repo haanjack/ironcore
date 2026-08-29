@@ -100,3 +100,42 @@ class TestInlineDataBlockTypoGuard:
         with pytest.raises(ValueError):
             self._apply({"seq_lenght": 999999})
         assert DataConfig().seq_length == default
+
+
+class TestNestedConfigOverrideMerges:
+    """A partial write to a nested group must not reset its siblings.
+
+    BaseConfig.__call__ built a fresh field_type(**v) from only the supplied
+    keys, so an overlay touching one field of model.moe also silently reverted
+    every other field to its dataclass default — including use_moe, which turns
+    the feature off entirely.
+    """
+
+    def test_partial_nested_write_keeps_siblings(self):
+        from ironcore.config.config_model import ModelConfig
+
+        config = ModelConfig()
+        config(moe={"use_moe": True, "num_routed_experts": 8})
+        assert config.moe.use_moe is True
+        assert config.moe.num_routed_experts == 8
+
+        # Second, partial write — the shape an overlay config takes.
+        config(moe={"num_routed_experts": 16})
+
+        assert config.moe.num_routed_experts == 16
+        assert config.moe.use_moe is True, "unmentioned sibling was reset to its default"
+
+    def test_nested_write_onto_default_still_works(self):
+        from ironcore.config.config_model import ModelConfig
+
+        config = ModelConfig()
+        config(moe={"num_routed_experts": 4})
+        assert config.moe.num_routed_experts == 4
+
+    def test_unknown_nested_key_still_rejected(self):
+        import pytest
+
+        from ironcore.config.config_model import ModelConfig
+
+        with pytest.raises((KeyError, TypeError)):
+            ModelConfig()(moe={"definitely_not_a_moe_field": 1})
