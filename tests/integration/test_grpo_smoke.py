@@ -113,8 +113,7 @@ def _run_training(config: str, single_gpu: bool = False) -> subprocess.Completed
     """Run torchrun training job, return CompletedProcess."""
     resolved_config = _resolve_config_paths(config, single_gpu=single_gpu)
     cmd = (
-        (TORCHRUN_CMD_SINGLE if single_gpu else TORCHRUN_CMD)
-        + [f"--master_port={_free_port()}"]
+        (TORCHRUN_CMD_SINGLE if single_gpu else TORCHRUN_CMD) + [f"--master_port={_free_port()}"]
     ) + [
         "-m",
         "ironcore",
