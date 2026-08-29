@@ -374,15 +374,23 @@ def _update_data_config_from_yaml(config: dataclass, config_group_key, config_gr
             setattr(config.data, f.name, getattr(parsed, f.name))
         return
 
+    # Check against DataConfig's real fields, the way _update_config_from_yaml does
+    # for every other group. The old guard tested `sub_group_key not in config_group`
+    # — a key taken from that same dict, so it never fired — which left inline
+    # `data:` blocks as the one place a misspelling was silently accepted and
+    # setattr'd as a stray attribute while the real field kept its default.
+    data_field_names = {f.name for f in fields(config.data)}
+
     for sub_group_key, sub_group_value in config_group.items():
         if sub_group_key in ["train", "eval", "test"]:
             sub_group_key = f"{sub_group_key}_datasets"
             setattr(config.data, sub_group_key, load_data_config(config, sub_group_value))
         else:
             # update arguments for DataConfig class
-            if sub_group_key not in config_group:
+            if sub_group_key not in data_field_names:
                 raise ValueError(
-                    f"{sub_group_key} is not defined in {config_group_key}. Check yaml config file."
+                    f"{sub_group_key} is not defined in {config_group_key} config. "
+                    "Check yaml config file."
                 )
             setattr(config.data, sub_group_key, sub_group_value)
 

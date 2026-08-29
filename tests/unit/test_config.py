@@ -60,3 +60,43 @@ class TestAlignmentConfig:
         """offload_ref_model should be settable."""
         config = AlignmentConfig(offload_ref_model=True)
         assert config.offload_ref_model is True
+
+
+class TestInlineDataBlockTypoGuard:
+    """A misspelled key in an inline `data:` block must not be accepted.
+
+    Every other config group is checked against its dataclass fields, but the
+    data path guarded with `sub_group_key not in config_group` — a key drawn
+    from that same dict, so the check never fired. A typo was setattr'd as a
+    stray attribute while the real field silently kept its default.
+    """
+
+    @staticmethod
+    def _apply(block):
+        from ironcore.config import _update_data_config_from_yaml
+        from ironcore.config.config_data import DataConfig
+
+        holder = type("Holder", (), {})()
+        holder.data = DataConfig()
+        _update_data_config_from_yaml(holder, "data", block)
+        return holder.data
+
+    def test_known_key_is_applied(self):
+        data = self._apply({"seq_length": 256})
+        assert data.seq_length == 256
+
+    def test_misspelled_key_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="seq_lenght"):
+            self._apply({"seq_lenght": 256})
+
+    def test_misspelled_key_does_not_reach_the_object(self):
+        import pytest
+
+        from ironcore.config.config_data import DataConfig
+
+        default = DataConfig().seq_length
+        with pytest.raises(ValueError):
+            self._apply({"seq_lenght": 999999})
+        assert DataConfig().seq_length == default
