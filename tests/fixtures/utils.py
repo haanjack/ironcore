@@ -292,3 +292,29 @@ def validate_token_conservation(
     """Verify that all original tokens are present in transformed sequence."""
     transformed_no_special = [t for t in transformed if t not in [fp_id, fs_id, fm_id]]
     return sorted(original) == sorted(transformed_no_special)
+
+
+def set_default_rendezvous_env(world_size: int = 1) -> None:
+    """Fill in MASTER_ADDR/MASTER_PORT etc. for an in-process process group.
+
+    Only defaults are set, so a torchrun launch keeps the values it exported.
+    The port is picked free rather than hardcoded: 29500 is the documented
+    default, which makes it exactly the port most likely to be occupied on a
+    shared machine, and a collision surfaces as
+
+        DistNetworkError: The server socket has failed to listen on any local
+        network address. port: 29500 ... EADDRINUSE
+
+    which reads as a test failure rather than as a busy host.
+    """
+    import os
+    import socket
+
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    if "MASTER_PORT" not in os.environ:
+        with socket.socket() as sock:
+            sock.bind(("", 0))
+            os.environ["MASTER_PORT"] = str(sock.getsockname()[1])
+    os.environ.setdefault("LOCAL_RANK", "0")
+    os.environ.setdefault("RANK", "0")
+    os.environ.setdefault("WORLD_SIZE", str(world_size))
