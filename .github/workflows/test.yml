@@ -83,7 +83,7 @@ jobs:
   # Multi-GPU distributed tests — push to main and manual dispatch only (not PR)
   distributed-tests:
     name: Distributed Tests
-    runs-on: [self-hosted, gpu, mp]
+    runs-on: [self-hosted, mp]
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'distributed' || github.event.inputs.test_mode == 'all'))
@@ -114,7 +114,7 @@ jobs:
   # E2E smoke tests — manual dispatch only (~10 min per test, 2 GPUs)
   e2e-tests:
     name: E2E Tests
-    runs-on: [self-hosted, gpu, mp]
+    runs-on: [self-hosted, mp]
     if: |
       github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'e2e' || github.event.inputs.test_mode == 'all')
 
