@@ -25,6 +25,11 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from ironcore.parallel.random import (
+    snapshot_tensor_parallel_rng_tracker,
+    tensor_parallel_rng_rewound_to,
+)
+
 if TYPE_CHECKING:
     from ironcore.offload.memory_pool import PinnedMemoryPool
     from ironcore.offload.transfer_engine import MemoryTransferEngine
@@ -75,6 +80,11 @@ class _SpillCheckpointFn(torch.autograd.Function):
         else:
             ctx.had_cuda_rng = False
 
+        # TP-replicated dropout draws from the tracker's own streams rather than
+        # the ambient generator, so fwd_rng_state alone does not let the
+        # recompute below reproduce this block's masks.
+        ctx.fwd_tp_rng_states = snapshot_tensor_parallel_rng_tracker()
+
         # Spill primary activation to host (async D2H)
         scheduler.on_sublayer_forward(layer_idx, sub_layer, activation)
 
@@ -108,19 +118,20 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
         # Recompute forward with grad enabled, using saved RNG state for
         # consistent dropout masks
-        if ctx.had_cuda_rng:
-            _dev_idx = (
-                ctx.activation_device.index
-                if ctx.activation_device.index is not None
-                else torch.cuda.current_device()
-            )
-            with torch.random.fork_rng(devices=[_dev_idx]):
-                torch.cuda.set_rng_state(ctx.fwd_rng_state, device=ctx.activation_device)
+        with tensor_parallel_rng_rewound_to(ctx.fwd_tp_rng_states):
+            if ctx.had_cuda_rng:
+                _dev_idx = (
+                    ctx.activation_device.index
+                    if ctx.activation_device.index is not None
+                    else torch.cuda.current_device()
+                )
+                with torch.random.fork_rng(devices=[_dev_idx]):
+                    torch.cuda.set_rng_state(ctx.fwd_rng_state, device=ctx.activation_device)
+                    with torch.enable_grad():
+                        output = ctx.block_fn(activation, *aux_args)
+            else:
                 with torch.enable_grad():
                     output = ctx.block_fn(activation, *aux_args)
-        else:
-            with torch.enable_grad():
-                output = ctx.block_fn(activation, *aux_args)
 
         # Compute gradients. No stream sync needed here:
         # - grad_output is produced by the outer autograd engine on the default

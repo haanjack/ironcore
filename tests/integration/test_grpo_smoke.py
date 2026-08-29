@@ -30,8 +30,17 @@ TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node
 TORCHRUN_CMD_SINGLE = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=1"]
 
 
-def _resolve_config_paths(config_path: str) -> str:
-    """Resolve relative configs/... paths to absolute paths in YAML."""
+def _resolve_config_paths(config_path: str, single_gpu: bool = False) -> str:
+    """Resolve relative configs/... paths to absolute paths in YAML.
+
+    With single_gpu, also rebalance the batch block. The fixture configs were
+    written for the 2-GPU class, and `_config_validation` enforces
+    `micro_batch_size * gradient_accumulation_steps * dp_world_size ==
+    train_batch_size`. dp_world_size comes from torchrun's WORLD_SIZE, so under
+    --nproc_per_node=1 the same block fails validation before training starts.
+    Trading the lost data-parallel replicas for accumulation steps keeps the
+    global batch size — and therefore the optimizer trajectory — identical.
+    """
     import yaml
 
     config_file = Path(config_path)
@@ -65,11 +74,22 @@ def _resolve_config_paths(config_path: str) -> str:
                         modified = True
         return modified
 
-    if not resolve_paths(config):
+    modified = resolve_paths(config)
+
+    if single_gpu:
+        trainer = config.get("trainer") or {}
+        micro_bs = trainer.get("micro_batch_size")
+        train_bs = trainer.get("train_batch_size")
+        if micro_bs and train_bs and train_bs % micro_bs == 0:
+            trainer["gradient_accumulation_steps"] = train_bs // micro_bs
+            modified = True
+
+    if not modified:
         return config_path
 
     config_dir = config_file.parent
-    temp_file = config_dir / f"resolved_{config_file.stem}.yaml"
+    suffix = "1gpu" if single_gpu else "2gpu"
+    temp_file = config_dir / f"resolved_{config_file.stem}_{suffix}.yaml"
     with open(temp_file, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
     return str(temp_file)
@@ -77,7 +97,7 @@ def _resolve_config_paths(config_path: str) -> str:
 
 def _run_training(config: str, single_gpu: bool = False) -> subprocess.CompletedProcess:
     """Run torchrun training job, return CompletedProcess."""
-    resolved_config = _resolve_config_paths(config)
+    resolved_config = _resolve_config_paths(config, single_gpu=single_gpu)
     cmd = (TORCHRUN_CMD_SINGLE if single_gpu else TORCHRUN_CMD) + [
         "-m",
         "ironcore",

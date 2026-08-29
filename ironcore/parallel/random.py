@@ -21,6 +21,22 @@ class TensorParallelRNGTracker:
     def reset(self) -> None:
         self._states.clear()
 
+    def snapshot(self) -> dict[tuple[str, int, str, int | None], torch.Tensor]:
+        """Copy every tracked stream position."""
+        return {key: state.clone() for key, state in self._states.items()}
+
+    def restore(self, states: dict[tuple[str, int, str, int | None], torch.Tensor]) -> None:
+        """Rewind to exactly the positions captured by `snapshot`.
+
+        Replaces rather than merges. A key missing from the snapshot means the
+        stream had not been seeded yet at that point, so it must go back to not
+        existing — merging would leave it wherever a later `fork` advanced it,
+        and the next draw would continue that stream instead of the fresh
+        lazily-seeded one the original run made.
+        """
+        self._states.clear()
+        self._states.update({key: state.clone() for key, state in states.items()})
+
     @staticmethod
     def _ranks() -> tuple[int, int]:
         try:
@@ -78,6 +94,32 @@ _TP_RNG_TRACKER = TensorParallelRNGTracker()
 
 def reset_tensor_parallel_rng_tracker() -> None:
     _TP_RNG_TRACKER.reset()
+
+
+def snapshot_tensor_parallel_rng_tracker() -> dict[tuple[str, int, str, int | None], torch.Tensor]:
+    """Capture the shared tracker's stream positions."""
+    return _TP_RNG_TRACKER.snapshot()
+
+
+@contextmanager
+def tensor_parallel_rng_rewound_to(
+    states: dict[tuple[str, int, str, int | None], torch.Tensor],
+) -> Iterator[None]:
+    """Run a block with the shared tracker rewound to `states`, then put it back.
+
+    The counterpart to `torch.random.fork_rng` for the tracker's streams, which
+    live outside the ambient generators and so survive that context manager
+    untouched. Activation spill and gradient checkpointing need this: their
+    backward recompute must redraw the dropout masks its forward drew, which
+    means rewinding — but the rewind has to be undone afterwards, or the next
+    microbatch's forward would replay masks instead of continuing the stream.
+    """
+    saved = _TP_RNG_TRACKER.snapshot()
+    _TP_RNG_TRACKER.restore(states)
+    try:
+        yield
+    finally:
+        _TP_RNG_TRACKER.restore(saved)
 
 
 @contextmanager

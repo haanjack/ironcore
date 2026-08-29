@@ -19,7 +19,6 @@ are unavailable (e.g., missing flash_attn in CI).
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,14 +33,23 @@ CONFIGS_DIR = REPO_ROOT / "configs"
 # ---------------------------------------------------------------------------
 
 
+# Config-group names. A YAML is a *fragment* — included by a top-level config
+# rather than loaded on its own — if it sits in a directory with one of these
+# names at any depth (configs/model/, configs/sanity_offload/model/) or is named
+# after the group it fills in (configs/experiments/nanogpt/model.yaml).
+_FRAGMENT_GROUPS = {"data", "model", "optim", "trainer", "alignment"}
+
+# Directories holding partial overlays and sub-objects that are merged into a
+# top-level config, never loaded standalone.
+_FRAGMENT_DIRS = _FRAGMENT_GROUPS | {"peft", "rewards", "profile"}
+
+
 def _collect_shipped_configs() -> list[Path]:
     """Collect every standalone YAML under configs/ for table-driven testing.
 
-    Only top-level configs and ``configs/experiments/`` are included — the
-    per-group files under ``configs/{data,model,optim,trainer,alignment}/``
-    are *fragments* meant to be included by a top-level config, not loaded
-    on their own, so loading them via ``load_full_config`` is expected to
-    fail and would produce false positives.
+    Fragments are excluded: loading one through ``load_full_config`` is
+    *expected* to fail (it has no trainer/model/data blocks of its own), so
+    including them would be pure false positives rather than coverage.
     """
     if not CONFIGS_DIR.exists():
         return []
@@ -50,12 +58,21 @@ def _collect_shipped_configs() -> list[Path]:
         if not p.is_file():
             continue
         rel = p.relative_to(CONFIGS_DIR)
-        # Include: top-level configs/*.yaml and configs/experiments/**/*.yaml
-        # Exclude: fragment dirs data/, model/, optim/, trainer/, alignment/
-        if rel.parts[0] in {"data", "model", "optim", "trainer", "alignment"}:
+        if set(rel.parts[:-1]) & _FRAGMENT_DIRS:
+            continue
+        if p.stem in _FRAGMENT_GROUPS:
             continue
         standalone.append(p)
     return standalone
+
+
+# World sizes a shipped config might be written for. Batch-block validation
+# (`micro * grad_accum * dp_world_size == train_batch_size`) and the tp-vs-world
+# check both depend on WORLD_SIZE, which `ironcore.train` reads from the
+# environment — so a 2-GPU config cannot validate at world size 1 no matter how
+# well formed it is. Trying a ladder asserts "this config is coherent at *some*
+# plausible GPU count" without restating the invariant here, where it would rot.
+_CANDIDATE_WORLD_SIZES = (1, 2, 4, 8)
 
 
 @pytest.mark.skipif(
@@ -85,20 +102,36 @@ class TestShippedConfigsParse:
         ids=lambda p: str(p.relative_to(CONFIGS_DIR)),
     )
     def test_config_loads(self, config_path: Path, monkeypatch) -> None:
-        # load_full_config validates WORLD_SIZE/tp consistency; default to a
-        # single-rank environment so configs that assume tp=1 load cleanly.
-        monkeypatch.setenv("WORLD_SIZE", os.environ.get("WORLD_SIZE", "1"))
+        import torch
+        import yaml
+
         from ironcore.train import load_full_config
 
-        try:
-            config = load_full_config(str(config_path))
+        # Validation rejects tensor_model_parallel_size > 1 without CUDA, so a
+        # TP config is unverifiable on the CPU runner however well formed it is.
+        # The GPU job covers these.
+        raw = yaml.safe_load(config_path.read_text()) or {}
+        tp_size = (raw.get("trainer") or {}).get("tensor_model_parallel_size", 1)
+        if tp_size > 1 and not torch.cuda.is_available():
+            pytest.skip(f"tensor_model_parallel_size={tp_size} requires CUDA")
+
+        failures: list[str] = []
+        for world_size in _CANDIDATE_WORLD_SIZES:
+            monkeypatch.setenv("WORLD_SIZE", str(world_size))
+            try:
+                config = load_full_config(str(config_path))
+            except (FileNotFoundError, ValueError, KeyError) as exc:
+                failures.append(f"  WORLD_SIZE={world_size}: {type(exc).__name__}: {exc}")
+                continue
             assert config is not None
-        except (FileNotFoundError, ValueError, KeyError) as exc:
-            # Surface the offending file in the assertion message so the
-            # table-driven failure identifies which YAML broke.
-            raise AssertionError(
-                f"Shipped config failed to load: {config_path}\n  {type(exc).__name__}: {exc}"
-            ) from exc
+            return
+
+        # Surface the offending file plus every attempt, so a table-driven
+        # failure says which YAML broke and whether it was world-size specific.
+        raise AssertionError(
+            "Shipped config failed to load at any world size: "
+            f"{config_path.relative_to(CONFIGS_DIR)}\n" + "\n".join(failures)
+        )
 
 
 # ---------------------------------------------------------------------------

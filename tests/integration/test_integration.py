@@ -150,13 +150,7 @@ class TestModelInitialization:
             input_ids = torch.randint(0, VOCAB_SIZE, (batch_size, seq_len))
 
             with torch.no_grad():
-                output = model(input_ids)
-
-            # Handle tuple output (with cache) vs tensor output
-            if isinstance(output, tuple):
-                logits = output[0]
-            else:
-                logits = output
+                logits, _ = model(input_ids)
 
             # Verify output shape (batch, seq, vocab)
             assert logits.shape[0] == batch_size
@@ -216,7 +210,7 @@ class TestTrainingStep:
             labels = input_ids.clone()
 
             # Forward pass (without labels to get logits)
-            logits = model(input_ids)
+            logits, _ = model(input_ids)
 
             # Compute loss manually
             loss = compute_lm_loss(logits, labels)
@@ -251,7 +245,7 @@ class TestTrainingStep:
             input_ids = torch.randint(0, VOCAB_SIZE, (batch_size, seq_len))
             labels = input_ids.clone()
 
-            logits = model(input_ids)
+            logits, _ = model(input_ids)
             loss = compute_lm_loss(logits, labels)
             loss.backward()
 
@@ -288,7 +282,7 @@ class TestTrainingStep:
 
             losses = []
             for _ in range(10):
-                logits = model(input_ids)
+                logits, _ = model(input_ids)
                 loss = compute_lm_loss(logits, labels)
 
                 optimizer.zero_grad()
@@ -333,7 +327,7 @@ class TestCheckpointing:
             input_ids = torch.randint(0, VOCAB_SIZE, (2, 16))
             labels = input_ids.clone()
 
-            logits = model(input_ids)
+            logits, _ = model(input_ids)
             loss = compute_lm_loss(logits, labels)
             optimizer.zero_grad()
             loss.backward()
@@ -363,14 +357,8 @@ class TestCheckpointing:
                 model.eval()
                 model2.eval()
                 with torch.no_grad():
-                    out1 = model(input_ids)
-                    out2 = model2(input_ids)
-
-                # Handle tuple output (with cache) vs tensor output
-                if isinstance(out1, tuple):
-                    out1 = out1[0]
-                if isinstance(out2, tuple):
-                    out2 = out2[0]
+                    out1, _ = model(input_ids)
+                    out2, _ = model2(input_ids)
 
                 assert torch.allclose(out1, out2, atol=1e-6)
         finally:
