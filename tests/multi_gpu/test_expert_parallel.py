@@ -431,8 +431,9 @@ def test_ep_plus_tp_combined():
     rank, world_size = setup_distributed()
 
     if world_size < 4:
-        print(f"[Rank {rank}] Skipping EP+TP test - needs 4 GPUs, have {world_size}")
-        return
+        # A bare return here reported as a pass, so this test has silently
+        # provided no EP+TP coverage on every 2-GPU run — which is every run.
+        pytest.skip(f"EP+TP needs 4 ranks, have {world_size}")
 
     # Initialize with TP=2, then EP=2
     initialize_model_parallel(

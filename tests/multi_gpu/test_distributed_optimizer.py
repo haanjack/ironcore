@@ -102,16 +102,28 @@ class TestDistributedOptimizerMultiGPU:
         base_optimizer = AdamW(model.parameters(), lr=1e-3)
         optimizer = DistributedOptimizer(base_optimizer)
 
+        before = [p.detach().clone() for p in model.parameters()]
+
         # Create input
         x = torch.randn(4, 64).cuda(local_rank)
         loss = model(x).sum()
 
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
 
-        # Verify no errors occurred
-        assert True
+        # `assert True` used to stand here, which is weaker than no assertion at
+        # all — pytest already fails on an exception. Check the step did
+        # something: every parameter moved, and the gradients are then cleared.
+        after = [p.detach().clone() for p in model.parameters()]
+        assert all(not torch.equal(b, a) for b, a in zip(before, after, strict=True)), (
+            "optimizer.step() left parameters unchanged"
+        )
+        assert torch.isfinite(loss), f"loss is not finite: {loss}"
+
+        optimizer.zero_grad()
+        assert all(p.grad is None or not p.grad.any() for p in model.parameters()), (
+            "zero_grad() left gradients behind"
+        )
 
     def test_parameter_consistency_after_step(self, distributed_setup_module):
         """Test that parameters are consistent across ranks after step."""

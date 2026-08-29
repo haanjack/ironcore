@@ -11,6 +11,7 @@ Tests:
 4. Gradient flow with chunking
 """
 
+import os
 import random
 
 import numpy as np
@@ -94,8 +95,12 @@ class TestLoRAAsyncChunking:
 
     def _run_chunking_test(self, tp_size=1):
         """Core test logic for chunked vs non-chunked comparison."""
-        if tp_size > 1:
-            pytest.skip("TP > 1 requires torchrun")
+        # Skip on the environment, not on the argument. Keying it off tp_size
+        # alone meant the TP=2 case skipped itself even under a correct
+        # `torchrun --nproc_per_node=2`, which is how CI runs this file — so it
+        # has never executed anywhere.
+        if tp_size > 1 and int(os.environ.get("WORLD_SIZE", "1")) < tp_size:
+            pytest.skip(f"TP={tp_size} requires torchrun with {tp_size} ranks")
 
         rank = 0
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
