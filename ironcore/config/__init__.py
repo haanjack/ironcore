@@ -47,9 +47,14 @@ class MainConfig(BaseConfig):
 
 def _config_validation(config: MainConfig):
     """Validate arguments and update internal enum if necessary"""
-    # train steps
-    if config.operation.train_steps <= 0:
-        raise ValueError("operation.train_steps should be larger than 0")
+    # train steps. Allow train_steps == 0 only in eval-only mode (eval datasets
+    # present). This supports `ironcore evaluate`, which sets train_steps=0.
+    has_eval = bool(getattr(config.data, "eval_datasets", None))
+    if config.operation.train_steps < 0 or (config.operation.train_steps == 0 and not has_eval):
+        raise ValueError(
+            "operation.train_steps should be larger than 0, "
+            "or 0 with eval datasets configured (eval-only mode)."
+        )
 
     dp_group_size = config.trainer.tensor_model_parallel_size
     dp_world_size = config.parallel.world_size // dp_group_size

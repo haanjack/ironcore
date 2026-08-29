@@ -11,6 +11,7 @@ from ironcore.layers import BaseModule
 from ironcore.layers.attention import Attention
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.mlp import MLP
+from ironcore.parallel.random import tensor_parallel_rng_fork
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 from ironcore.peft import wrap_with_lora_if_target
 
@@ -129,7 +130,8 @@ class TransformerLayer(BaseModule):
         attention_output = self.attn_output(attn_output)
 
         if self.config.model.dropout_attn > 0.0:
-            attention_output = self.residual_dropout(attention_output)
+            with tensor_parallel_rng_fork(self.config.init.seed, attention_output.device):
+                attention_output = self.residual_dropout(attention_output)
 
         return hidden_states + attention_output
 
@@ -304,7 +306,8 @@ class TransformerLayer(BaseModule):
         attention_output = self.attn_output(attn_output)
 
         if self.config.model.dropout_attn > 0.0:
-            attention_output = self.residual_dropout(attention_output)
+            with tensor_parallel_rng_fork(self.config.init.seed, attention_output.device):
+                attention_output = self.residual_dropout(attention_output)
 
         residual = hidden_states
         norm_input = residual + attention_output

@@ -13,6 +13,7 @@ Reference:
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 
 import torch
 from torch import distributed as dist
@@ -526,6 +527,7 @@ class GRPOTrainer(BaseTrainer):
 
             for i in range(0, total_samples, micro_batch_size):
                 stop = min(i + micro_batch_size, total_samples)
+                is_last_micro_batch = stop == total_samples
                 mb_indices = perm[i:stop]
 
                 # Create a temporary micro-batch buffer
@@ -544,7 +546,17 @@ class GRPOTrainer(BaseTrainer):
 
                 # Scale loss by micro-batch fraction (accumulation is defined by rollout batch size)
                 scaled_loss = loss * (len(mb_indices) / total_samples)
-                self.scaler.scale(scaled_loss).backward()
+
+                # Disable gradient sync for intermediate micro-batches (DDP/FSDP),
+                # matching BaseTrainer._run_gradient_accumulation: only the last
+                # micro-batch in this epoch needs to all-reduce gradients.
+                backward_sync_ctx = (
+                    self.model.no_sync
+                    if not is_last_micro_batch and hasattr(self.model, "no_sync")
+                    else nullcontext
+                )
+                with backward_sync_ctx():
+                    self.scaler.scale(scaled_loss).backward()
 
                 # Accumulate metrics (average over epochs and samples)
                 for k, v in mb_metrics.items():
@@ -614,7 +626,11 @@ class GRPOTrainer(BaseTrainer):
             policy_log_probs_full = _compute_log_softmax_tp_safe(policy_logits)
             entropy = compute_entropy(policy_log_probs_full, response_mask)  # [batch]
 
-        # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates
+        # GRPO loss — pass old_log_probs for IS when doing offline multi-epoch updates.
+        # response_lengths enables length normalisation of the IS ratio and KL
+        # (Fable issues #68 / #69): longer completions no longer mechanically
+        # dominate the gradient or inflate the clip fraction.
+        response_lengths = response_mask.sum(dim=-1).clamp(min=1)
         loss, metrics = grpo_loss(
             policy_log_probs=policy_log_probs_seq,
             ref_log_probs=ref_log_probs_seq,
@@ -625,6 +641,7 @@ class GRPOTrainer(BaseTrainer):
             clip_eps=self.clip_eps,
             entropy=entropy,
             entropy_coef=self.entropy_coef,
+            response_lengths=response_lengths,
         )
 
         return loss, metrics
@@ -671,8 +688,7 @@ class GRPOTrainer(BaseTrainer):
 
     def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
         """Compute gradient and parameter norms."""
-        from ironcore.parallel import parallel_states
-        from ironcore.parallel.grad_norm import clip_grad_norm
+        from ironcore.parallel.grad_norm import clip_grad_norm, compute_param_norm
 
         self.scaler.unscale_(self.optimizer)
 
@@ -693,83 +709,9 @@ class GRPOTrainer(BaseTrainer):
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
-            # Compute local squared norms for expert and non-expert parameters
-            # (No .item() in loop to avoid CPU-GPU sync)
-            expert_params = [
-                p
-                for p in self.model.parameters()
-                if p.data is not None and getattr(p, "is_expert", False)
-            ]
-            non_expert_params = [
-                p
-                for p in self.model.parameters()
-                if p.data is not None and not getattr(p, "is_expert", False)
-            ]
-
-            expert_norm_sq = (
-                torch.stack([p.data.norm() ** 2 for p in expert_params]).sum()
-                if expert_params
-                else torch.tensor(0.0, device=self._get_compute_device())
+            param_norm = compute_param_norm(
+                self.model.parameters(), is_fsdp=isinstance(self.model, FSDP)
             )
-            non_expert_norm_sq = (
-                torch.stack([p.data.norm() ** 2 for p in non_expert_params]).sum()
-                if non_expert_params
-                else torch.tensor(0.0, device=self._get_compute_device())
-            )
-
-            if dist.is_initialized():
-                # Step 1: TP/FSDP Reduction (parameters are sharded across these groups)
-                # FSDP uses DP group for sharding
-                if isinstance(self.model, FSDP):
-                    dist.all_reduce(
-                        expert_norm_sq,
-                        op=dist.ReduceOp.SUM,
-                        group=parallel_states.get_data_parallel_group(),
-                    )
-                    dist.all_reduce(
-                        non_expert_norm_sq,
-                        op=dist.ReduceOp.SUM,
-                        group=parallel_states.get_data_parallel_group(),
-                    )
-
-                # Tensor Parallelism
-                tp_size = parallel_states.get_tensor_model_parallel_world_size()
-                if tp_size > 1:
-                    tp_group = parallel_states.get_tensor_model_parallel_group()
-                    dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=tp_group)
-                    dist.all_reduce(non_expert_norm_sq, op=dist.ReduceOp.SUM, group=tp_group)
-
-                # Step 2: Expert Parallelism Reduction (expert parameters sharded across EP group)
-                try:
-                    from ironcore.parallel.expert_parallel.parallel_states import (
-                        get_expert_model_parallel_group,
-                        get_expert_model_parallel_world_size,
-                    )
-
-                    ep_group = get_expert_model_parallel_group()
-                    if ep_group is not None and get_expert_model_parallel_world_size() > 1:
-                        dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=ep_group)
-                except (ImportError, AttributeError, RuntimeError):
-                    pass
-
-                # Step 3: Global Combine
-                param_norm_sq = expert_norm_sq + non_expert_norm_sq
-
-                # Step 4: DP Average (for replicated parameters in non-FSDP DP)
-                dp_size = parallel_states.get_data_parallel_world_size()
-                if not isinstance(self.model, FSDP) and dp_size > 1:
-                    # Parameters are replicated across DP ranks, so SUM would scale by dp_size.
-                    # Average to maintain consistency.
-                    dist.all_reduce(
-                        param_norm_sq,
-                        op=dist.ReduceOp.SUM,
-                        group=parallel_states.get_data_parallel_group(),
-                    )
-                    param_norm_sq /= dp_size
-
-                param_norm = param_norm_sq.item() ** 0.5
-            else:
-                param_norm = (expert_norm_sq + non_expert_norm_sq).item() ** 0.5
 
         return grad_norm, param_norm
 

@@ -166,30 +166,42 @@ class UniversalCollator:
                     token_ids = token_ids[:available]
                     sample_len = available
 
-                # Copy tokens
-                input_ids[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[:-1]
-                labels[batch_idx, current_pos : current_pos + sample_len - 1] = token_ids[1:]
+                # written_len: number of (input, label) pairs written for this
+                # sample = sample_len - 1. ALL per-sample bookkeeping below
+                # (position_ids, cu_seqlens, attention mask block, current_pos)
+                # must advance by written_len, not sample_len, otherwise a PAD
+                # slot is left inside the sample's attention block with a valid
+                # position id — confusing FlashAttention and inflating cu_seqlens.
+                # (Fable issue #63.)
+                written_len = sample_len - 1
 
-                # Apply masking for user prompts
+                # Copy tokens
+                input_ids[batch_idx, current_pos : current_pos + written_len] = token_ids[:-1]
+                labels[batch_idx, current_pos : current_pos + written_len] = token_ids[1:]
+
+                # Apply masking for user/system prompt tokens. mask_ranges are
+                # token-space indices, but labels are shifted by one relative to
+                # input_ids (labels[j] = token_ids[j+1]: predicting token j+1 from
+                # position j), so the label-space window is [start-1, end-1),
+                # clamped to this sample's own span.
                 for start, end in mask_ranges:
-                    # Adjust for position in packed sequence
-                    mask_start = current_pos + start
-                    mask_end = current_pos + min(end, sample_len)
+                    mask_start = current_pos + max(start - 1, 0)
+                    mask_end = current_pos + max(min(end, sample_len) - 1, 0)
                     labels[batch_idx, mask_start:mask_end] = -100
 
-                # Position IDs reset for each sample
-                position_ids[batch_idx, current_pos : current_pos + sample_len] = position_range[
-                    :sample_len
+                # Position IDs reset for each sample — advance by written_len.
+                position_ids[batch_idx, current_pos : current_pos + written_len] = position_range[
+                    :written_len
                 ]
 
                 # Block-diagonal attention mask
                 if self.return_full_attention_mask:
                     # This sample attends only to itself
-                    sample_end = current_pos + sample_len
+                    sample_end = current_pos + written_len
                     attention_mask[batch_idx, current_pos:sample_end, current_pos:sample_end] = True
 
-                # Update cumulative sequence lengths
-                current_pos += sample_len
+                # Update cumulative sequence lengths — advance by written_len.
+                current_pos += written_len
                 cu_seqlens.append(current_pos)
 
             cu_seqlens_list.append(torch.tensor(cu_seqlens, dtype=torch.int32))
@@ -267,7 +279,16 @@ class UniversalCollator:
         """
         Collate DPO batch.
 
-        Groups chosen/rejected pairs and returns separate tensors.
+        Groups chosen/rejected pairs and returns separate tensors, with row i of
+        chosen_* guaranteed to correspond to row i of rejected_* (both sides are
+        sorted by group_id, the pairing key the serializer stamps onto every
+        dpo_chosen/dpo_rejected sample).
+
+        Each side is collated per-row (one sample per row, right-padded) rather
+        than bin-packed: dpo_loss pairs chosen/rejected by row index, and
+        bin-packing (as used for SFT) can both reorder rows independently on
+        each side and merge multiple samples into one row, which breaks that
+        row-index correspondence.
 
         Raises:
             ValueError: If batch doesn't contain paired chosen/rejected samples
@@ -303,9 +324,32 @@ class UniversalCollator:
                 f"Total samples in batch: {len(batch)}"
             )
 
-        # Collate each separately using SFT logic
-        chosen_batch = self._collate_sft(chosen_samples)
-        rejected_batch = self._collate_sft(rejected_samples)
+        # Sort both sides by group_id so row i is the same preference pair on
+        # both sides, regardless of the order samples arrived in this batch.
+        missing_group_id = [s for s in batch if s["metadata"].get("group_id") is None]
+        if missing_group_id:
+            raise ValueError(
+                f"{len(missing_group_id)} DPO sample(s) are missing 'group_id' in metadata, "
+                f"which is required to pair chosen/rejected rows correctly. "
+                f"The serializer stamps group_id on every dpo_chosen/dpo_rejected sample; "
+                f"check the data pipeline that produced this batch."
+            )
+
+        chosen_samples.sort(key=lambda s: s["metadata"]["group_id"])
+        rejected_samples.sort(key=lambda s: s["metadata"]["group_id"])
+
+        chosen_group_ids = [s["metadata"]["group_id"] for s in chosen_samples]
+        rejected_group_ids = [s["metadata"]["group_id"] for s in rejected_samples]
+        if chosen_group_ids != rejected_group_ids:
+            raise ValueError(
+                f"DPO batch chosen/rejected group_ids do not form matching pairs after "
+                f"sorting: chosen={chosen_group_ids} vs rejected={rejected_group_ids}. "
+                f"Each dpo_chosen sample must have exactly one dpo_rejected sample "
+                f"sharing the same group_id."
+            )
+
+        chosen_batch = self._collate_dpo_side(chosen_samples)
+        rejected_batch = self._collate_dpo_side(rejected_samples)
 
         # Prefix keys
         output = {}
@@ -315,6 +359,46 @@ class UniversalCollator:
             output[f"rejected_{k}"] = v
 
         return output
+
+    def _collate_dpo_side(self, samples: list[dict]) -> dict[str, torch.Tensor]:
+        """Per-row (unpacked) collation for one side of a DPO batch.
+
+        Unlike _collate_sft, this never packs multiple samples into one row and
+        never reorders samples — the caller controls row order via group_id so
+        chosen/rejected stay aligned by index.
+        """
+        batch_size = len(samples)
+        position_range = torch.arange(self.max_seq_len, dtype=torch.long)
+
+        input_ids = torch.full((batch_size, self.max_seq_len), self.pad_token_id, dtype=torch.long)
+        labels = torch.full((batch_size, self.max_seq_len), -100, dtype=torch.long)
+        position_ids = torch.zeros((batch_size, self.max_seq_len), dtype=torch.long)
+
+        for row, sample in enumerate(samples):
+            token_ids = sample["token_ids"]
+            mask_ranges = sample["metadata"].get("mask_ranges", [])
+
+            sample_len = len(token_ids)
+            if sample_len > self.max_seq_len:
+                token_ids = token_ids[: self.max_seq_len]
+                sample_len = self.max_seq_len
+
+            input_ids[row, : sample_len - 1] = torch.as_tensor(token_ids[:-1], dtype=torch.long)
+            labels[row, : sample_len - 1] = torch.as_tensor(token_ids[1:], dtype=torch.long)
+
+            # See _collate_sft for why the label-space window is [start-1, end-1).
+            for start, end in mask_ranges:
+                mask_start = max(start - 1, 0)
+                mask_end = max(min(end, sample_len) - 1, 0)
+                labels[row, mask_start:mask_end] = -100
+
+            position_ids[row, :sample_len] = position_range[:sample_len]
+
+        return {
+            "input_ids": input_ids,
+            "labels": labels,
+            "position_ids": position_ids,
+        }
 
 
 def create_collator(

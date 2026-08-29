@@ -109,7 +109,7 @@ class LanguageModelTrainer(BaseTrainer):
         labels = batch["labels"]
 
         with torch.no_grad(), self.context["autocast"]:
-            logits = self.model(input_ids, labels=None)
+            logits, _ = self.model(input_ids, labels=None)
 
         loss_mask = (labels != -100).float()
         accuracy = compute_token_accuracy(logits, labels, loss_mask)

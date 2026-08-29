@@ -212,3 +212,4 @@ wandb/
 *.excalidraw.png
 .local/
 uv.lock
+.omo/

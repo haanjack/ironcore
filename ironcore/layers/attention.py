@@ -126,6 +126,10 @@ class Attention(BaseModule):
             0, (batch_size + 1) * seq_len_kv, step=seq_len_kv, dtype=torch.int32, device=key.device
         )
 
+        # Gate dropout on training mode — matches the SDPA path. Flash attention
+        # was passing dropout unconditionally, applying it during eval/inference.
+        dropout_p = self.config.model.dropout_attn if self.training else 0.0
+
         context_output = flash_attn_varlen_func(  # type: ignore
             query,
             key,
@@ -134,7 +138,7 @@ class Attention(BaseModule):
             cu_seqlens_k,
             seq_len_q,
             seq_len_kv,
-            self.config.model.dropout_attn,
+            dropout_p,
             causal=causal,
         )
 

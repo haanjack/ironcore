@@ -117,8 +117,7 @@ The GitHub Actions workflow (`.github/workflows/lint.yml`) runs `ruff check` and
 Every new public function and method signature must include type annotations on all parameters and the return type:
 
 ```python
-def compute_loss(logits: torch.Tensor, labels: torch.Tensor, beta: float = 0.1) -> torch.Tensor:
-    ...
+def compute_loss(logits: torch.Tensor, labels: torch.Tensor, beta: float = 0.1) -> torch.Tensor: ...
 ```
 
 Use `from __future__ import annotations` at the top of new modules to enable forward references without imports. Follow the style of `ironcore/utils/mfu.py` for dataclass-based APIs.
@@ -199,12 +198,16 @@ Use only the **10 registered markers** (single source of truth in `pyproject.tom
 When the *same* test logic should run at both TP=1 and TP=2, express it as two test **items**, each marked for its own tier — either separate methods (`test_foo_tp1` → `cuda`, `test_foo_tp2` → `mp`) or, when the body is identical, parametrize with per-parameter marks:
 
 ```python
-@pytest.mark.parametrize("tp_size", [
-    pytest.param(1, marks=pytest.mark.cuda),   # test_foo[1] → runs in gpu-tests (1 GPU)
-    pytest.param(2, marks=pytest.mark.mp),     # test_foo[2] → runs in distributed-tests (2 GPUs, torchrun)
-])
-def test_foo(tp_size):
-    ...
+@pytest.mark.parametrize(
+    "tp_size",
+    [
+        pytest.param(1, marks=pytest.mark.cuda),  # test_foo[1] → runs in gpu-tests (1 GPU)
+        pytest.param(
+            2, marks=pytest.mark.mp
+        ),  # test_foo[2] → runs in distributed-tests (2 GPUs, torchrun)
+    ],
+)
+def test_foo(tp_size): ...
 ```
 
 Both tiers get coverage, yet each item stays single-tier. The TP=2 item still needs the `skipif("RANK" not in os.environ …)` guard so it skips cleanly when collected without `torchrun`.
@@ -223,6 +226,7 @@ def test_my_layer_forward_regression():
     # Pin with torch.testing.assert_close or hard-coded expected
     assert out.shape == (2, 16, 64)
     torch.testing.assert_close(out.mean(), torch.tensor(-0.0123), atol=1e-4, rtol=0)
+
 
 def test_my_layer_backward_regression():
     torch.manual_seed(42)
@@ -243,6 +247,7 @@ Use the shared config builders from `tests/fixtures/config_fixtures.py`:
 
 ```python
 from tests.fixtures.config_fixtures import create_small_test_config
+
 
 def test_training_step(create_small_test_config):
     config = create_small_test_config()

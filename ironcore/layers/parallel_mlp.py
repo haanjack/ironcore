@@ -32,6 +32,7 @@ from torch import nn
 from ironcore.config import MainConfig
 from ironcore.layers.activations import GLUActivation, get_activation
 from ironcore.layers.module import BaseModule
+from ironcore.parallel.random import tensor_parallel_rng_fork
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 
 
@@ -165,7 +166,8 @@ class ParallelMLP(BaseModule):
 
         # Dropout (only in training when rate > 0)
         if self.training and self._dropout_rate > 0.0:
-            x = self.dropout(x)
+            with tensor_parallel_rng_fork(self.config.init.seed, x.device):
+                x = self.dropout(x)
 
         return x
 
@@ -194,7 +196,8 @@ class ParallelMLP(BaseModule):
 
         # Dropout (only in training when rate > 0)
         if self.training and self._dropout_rate > 0.0:
-            x = self.dropout(x)
+            with tensor_parallel_rng_fork(self.config.init.seed, x.device):
+                x = self.dropout(x)
 
         return x
 

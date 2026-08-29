@@ -31,10 +31,10 @@ operation:
 
 model:
   name: nanogpt
-  config-path: configs/model/nanogpt-small.yaml
+  config_path: configs/experiments/nanogpt/model.yaml
 
 data:
-  config_path: configs/data/nanogpt_owt.yaml
+  config_path: configs/experiments/nanogpt/data.yaml
   task_type: pretrain
 
 optim:

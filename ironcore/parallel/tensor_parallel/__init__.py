@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .comm import (
-    clip_grad_norm_tp,
     copy_inputs_to_model_parallel_workers,
     reduce_inputs_from_model_parallel_workers,
     scatter_input_to_model_parallel_workers,
@@ -15,7 +14,6 @@ __all__ = [
     "ColumnParallelLinear",
     "RowParallelLinear",
     "VocabParallelEmbedding",
-    "clip_grad_norm_tp",
     "copy_inputs_to_model_parallel_workers",
     "reduce_inputs_from_model_parallel_workers",
     "scatter_input_to_model_parallel_workers",

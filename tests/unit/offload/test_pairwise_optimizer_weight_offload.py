@@ -17,6 +17,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 from tests.fixtures.config_fixtures import create_test_config
+from tests.fixtures.utils import cudnn_determinism
 from tests.integration.offload.conftest import (
     create_mock_data_iterator,
     create_mock_evaluators,
@@ -38,8 +39,12 @@ SEQ_LEN = 256
 torch.manual_seed(42)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(42)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+
+
+@pytest.fixture(autouse=True)
+def _cudnn_determinism():
+    with cudnn_determinism(deterministic=True, benchmark=False):
+        yield
 
 
 def _make_config(**offload_overrides):
@@ -81,7 +86,7 @@ def _create_forward_step_func():
         step_counter[0] += 1
         input_ids = torch.randint(0, 1000, (BATCH_SIZE, SEQ_LEN), device=device)
         labels = input_ids.clone()
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         loss = F.cross_entropy(

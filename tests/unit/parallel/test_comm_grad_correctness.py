@@ -9,20 +9,21 @@ Uses torch.autograd.gradcheck to verify gradient computations are correct.
 Note: These tests use float64 (double precision) for numerical gradient checking.
 """
 
-import os
-
 import pytest
 import torch
-
-# Set up environment for single-GPU testing
-os.environ.setdefault("WORLD_SIZE", "1")
-os.environ.setdefault("RANK", "0")
-os.environ.setdefault("LOCAL_RANK", "0")
+from tests.fixtures.utils import single_gpu_env
 
 from ironcore.parallel.expert_parallel.comm import (
     _AllReduceEP,
     all_reduce_ep_with_grad,
 )
+
+
+@pytest.fixture(autouse=True)
+def _single_gpu_env():
+    """Scope RANK/LOCAL_RANK/WORLD_SIZE to this test's lifetime."""
+    with single_gpu_env():
+        yield
 
 
 class TestAllReduceEPGradient:

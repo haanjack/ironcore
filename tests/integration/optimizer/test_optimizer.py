@@ -76,7 +76,7 @@ def create_mock_forward_step_func(deterministic: bool = False):
         input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=device)
         labels = input_ids.clone()
 
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
 
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
@@ -388,6 +388,12 @@ class TestOptimizerTPIntegration:
                 dist.barrier()
             except Exception:
                 pass
+            # Without this, dist stays initialized (get_tensor_model_parallel_rank()
+            # then takes the dist.get_rank() branch instead of the world_size=1
+            # fast path) but parallel_states is reset to None above — leaking a
+            # broken "initialized but groupless" state into later tests/modules
+            # in the same pytest process (see tests/unit/parallel/test_tp_init_seed.py).
+            dist.destroy_process_group()
 
     @pytest.mark.cuda
     def test_muon_tp1_with_trainer(self):
@@ -766,6 +772,11 @@ class TestDistributedOptimizerIntegration:
             parallel_states.destroy_model_parallel()
         except Exception:
             pass
+        # See _cleanup_tp_distributed above: without this, dist stays
+        # initialized while parallel_states is reset to None, leaking a
+        # broken state into later tests/modules in the same pytest process.
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
     def test_distributed_optimizer_with_trainer(self):
         """Verify DistributedOptimizer works with LanguageModelTrainer."""

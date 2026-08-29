@@ -38,6 +38,7 @@ operation:
 
 ```python
 from ironcore.checkpointing import load_checkpoint
+
 load_checkpoint(config, model, optimizer, lr_scheduler, step=1000)
 ```
 
@@ -93,7 +94,7 @@ export_to_huggingface(
     config=config,
     model=model,
     save_directory="exports/llama-finetuned",
-    format="safetensors",   # 또는 "pytorch"
+    format="safetensors",  # 또는 "pytorch"
     max_shard_size="5GB",
 )
 ```

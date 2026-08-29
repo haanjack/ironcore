@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from tests.fixtures.config_fixtures import create_small_test_config
 
 from ironcore.global_vars import reset_global_states
+from ironcore.parallel.parallel_states import destroy_model_parallel
 
 
 def setup_distributed():
@@ -33,7 +34,7 @@ def create_mock_forward_step_func(batch_size=2, seq_len=16):
         device = next(model.parameters()).device
         input_ids = torch.randint(0, 1000, (batch_size, seq_len), device=device)
         labels = input_ids.clone()
-        logits = model(input_ids, labels=None)
+        logits, _ = model(input_ids, labels=None)
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         loss = F.cross_entropy(
@@ -98,7 +99,15 @@ def run_training_step(config):
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    """Reset global state before and after each test."""
+    """Reset global state before and after each test.
+
+    Also resets ironcore.parallel.parallel_states: run_training_step's
+    trainer._initialize() calls initialize_model_parallel(), which
+    reset_global_states() alone doesn't undo, leaking TP/DP state into
+    later tests/modules in the same pytest process.
+    """
     reset_global_states()
+    destroy_model_parallel()
     yield
     reset_global_states()
+    destroy_model_parallel()

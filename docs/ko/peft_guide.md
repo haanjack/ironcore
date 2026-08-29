@@ -125,16 +125,16 @@ Y_lora = X @ W + (X @ A @ B) * scaling
 
 **Column parallel** (출력 차원 샤딩):
 ```python
-base_output = base_layer(x)           # [batch, seq, out/tp_size]
-lora_output = lora(x)                 # [batch, seq, out] — 복제
-lora_shard = lora_output[..., rank*size:(rank+1)*size]
+base_output = base_layer(x)  # [batch, seq, out/tp_size]
+lora_output = lora(x)  # [batch, seq, out] — 복제
+lora_shard = lora_output[..., rank * size : (rank + 1) * size]
 return base_output + lora_shard
 ```
 
 **Row parallel** (입력 차원 샤딩):
 ```python
 base_partial, handle = base_layer(x, async_communication=True)
-lora_output = lora(x)                 # 전체 입력, 복제
+lora_output = lora(x)  # 전체 입력, 복제
 handle.wait()
 return base_partial + bias + lora_output
 ```

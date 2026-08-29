@@ -18,31 +18,42 @@ class LinearDecayLRScheduler(LRScheduler):
         total_steps: int,
     ):
         """
-        Initializes the CustomLRScheduler.
+        Initializes the linear warmup + linear decay LR scheduler.
 
         Args:
             optimizer: The optimizer for the scheduler.
-            warmup_epochs: The number of warmup epochs.
-            total_epochs: The total number of epochs.
-            last_epoch: The index of the last epoch. Default is -1.
+            warmup_steps: The number of linear warmup steps.
+            total_steps: The total number of training steps (decay reaches 0 here).
 
         Returns:
             None
         """
         self.warmup_steps = warmup_steps
         self.total_steps = total_steps
-        super().__init__(optimizer, last_epoch=total_steps)
+        super().__init__(optimizer, last_epoch=-1)
+        self._step_count = 0
 
     def get_lr(self):
-        if self._step_count <= self.warmup_steps:
+        if self.warmup_steps > 0 and self._step_count <= self.warmup_steps:
             warmup_factor = self._step_count / self.warmup_steps
             lr = [base_lr * warmup_factor for base_lr in self.base_lrs]
         else:
-            decay_factor = 1 - (self._step_count - self.warmup_steps) / (
-                self.total_steps - self.warmup_steps
-            )
+            decay_steps = max(self.total_steps - self.warmup_steps, 1)
+            decay_factor = max(0.0, 1 - (self._step_count - self.warmup_steps) / decay_steps)
             lr = [base_lr * decay_factor for base_lr in self.base_lrs]
         return lr
+
+    def step(self, epoch=None):
+        if epoch is None:
+            self.last_epoch += 1
+        else:
+            self.last_epoch = epoch
+        self._step_count = self.last_epoch + 1
+        lrs = self.get_lr()
+        for param_group, lr in zip(self.optimizer.param_groups, lrs, strict=True):
+            param_group["lr"] = lr
+        # Store _last_lr for get_last_lr() compatibility
+        self._last_lr = lrs
 
 
 class CosineAnnealingLR(LRScheduler):
@@ -56,7 +67,9 @@ class CosineAnnealingLR(LRScheduler):
         min_lr: float = 1e-8,
         last_epoch: int = -1,
     ):
-
+        # max_lr is validation-only here: actual peak LR values come from the
+        # optimizer's own base_lrs (set when the optimizer was constructed from
+        # config.optim.max_lr), not from this parameter.
         if max_lr < min_lr:
             raise ValueError("max_lr should be larger than min_lr")
 
@@ -69,7 +82,7 @@ class CosineAnnealingLR(LRScheduler):
         self._step_count = 0
 
     def get_lr(self):
-        if self._step_count <= self.warmup_steps:
+        if self.warmup_steps > 0 and self._step_count <= self.warmup_steps:
             warmup_factor = self._step_count / self.warmup_steps
             lr = [base_lr * warmup_factor for base_lr in self.base_lrs]
         elif self._step_count >= self.annealing_steps + self.warmup_steps:
@@ -114,7 +127,11 @@ def get_lr_scheduler(config, optimizer):
     if config.optim.lr_scheduler == "cosine":
         scheduler = CosineAnnealingLR(optimizer, **lr_scheduler_kwargs)
     elif config.optim.lr_scheduler == "linear":
-        scheduler = LinearDecayLRScheduler
+        scheduler = LinearDecayLRScheduler(
+            optimizer,
+            warmup_steps=config.optim.warmup_steps,
+            total_steps=config.operation.train_steps,
+        )
     else:
         message = f"lr_scheduler {config.optim.lr_scheduler} is not implemented"
         logger.error(message)

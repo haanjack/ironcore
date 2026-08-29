@@ -18,7 +18,7 @@ Supported checkpoint formats:
 import json
 import re
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import torch
 from torch import nn
@@ -28,6 +28,9 @@ from ironcore.checkpointing.weight_mapping import (
     get_architecture,
 )
 from ironcore.config.config_model import BiasConfig
+
+if TYPE_CHECKING:
+    from ironcore.config import MainConfig
 
 
 def detect_bias_from_hf_state_dict(hf_state_dict: dict) -> "BiasConfig":
@@ -343,6 +346,7 @@ def export_to_huggingface(
     config: dict | None = None,
     use_safetensors: bool = True,
     shard_size: int | None = None,
+    ironcore_config: "MainConfig | None" = None,
 ) -> dict:
     """
     Export an ironcore model to HuggingFace checkpoint format.
@@ -360,6 +364,13 @@ def export_to_huggingface(
         config: HuggingFace config dict. Auto-generated if None.
         use_safetensors: Use safetensors format (recommended)
         shard_size: Max size per shard in bytes. None for single file.
+        ironcore_config: The MainConfig the model was built from, if available.
+            When set (and config.model.hf_model_type/hf_architecture are set),
+            the HF config is generated via HFConfigManager.get_hf_config()
+            from the authoritative training config instead of being guessed
+            from the model's tensor shapes — the two paths previously
+            disagreed (e.g. this function guessed intermediate_size as
+            4*hidden_size regardless of the model's real FFN width).
 
     Returns:
         Dict with export info:
@@ -413,14 +424,6 @@ def export_to_huggingface(
         return {"files": [], "config_file": None}
 
     # Determine number of layers from model
-    num_layers = sum(1 for name in ironcore_state_dict if re.match(r"model\.layers\.\d+\.", name))
-    num_layers = (
-        num_layers // len([k for k in ironcore_state_dict if "layers.0." in k])
-        if num_layers > 0
-        else 12
-    )
-
-    # Count layers properly
     layer_indices = set()
     for name in ironcore_state_dict:
         match = re.match(r"model\.layers\.(\d+)\.", name)
@@ -465,9 +468,20 @@ def export_to_huggingface(
     else:
         saved_files.extend(_save_sharded_pytorch(hf_state_dict, output_path, shard_size))
 
-    # Generate and save config
+    # Generate and save config. Prefer the authoritative training config
+    # (HFConfigManager reads real values like d_ffn/num_attention_heads
+    # directly from it) over guessing from the model's tensor shapes.
     if config is None:
-        config = _generate_hf_config(model, architecture, num_layers)
+        if (
+            ironcore_config is not None
+            and ironcore_config.model.hf_model_type is not None
+            and ironcore_config.model.hf_architecture is not None
+        ):
+            from ironcore.checkpointing.native import HFConfigManager
+
+            config = HFConfigManager.get_hf_config(ironcore_config)
+        else:
+            config = _generate_hf_config(model, architecture, num_layers)
 
     config_file = output_path / "config.json"
     with open(config_file, "w") as f:

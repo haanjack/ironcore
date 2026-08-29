@@ -12,6 +12,8 @@ to isolate exactly where the divergence occurs.
 import pytest
 import torch
 
+from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
+
 cuda_available = torch.cuda.is_available()
 skip_no_cuda = pytest.mark.skipif(not cuda_available, reason="CUDA not available")
 
@@ -152,6 +154,12 @@ class TestActivationSpillGradientParity:
         scheduler.set_gradient_accumulation_steps(1)
 
         # Forward + backward without spill
+        # Reset the TP-replicated dropout RNG tracker (ironcore.parallel.random)
+        # before each model's run: it is a process-wide stream independent of
+        # torch.manual_seed, so without a reset here model_ref's own forward
+        # would leave it advanced and model_spill would draw different masks
+        # from the same nominal seed, making this comparison meaningless.
+        reset_tensor_parallel_rng_tracker()
         model_ref.train()
         torch.manual_seed(99)
         hidden_ref, mask_ref = _make_inputs(DEVICE, DTYPE)
@@ -160,6 +168,7 @@ class TestActivationSpillGradientParity:
         loss_ref.backward()
 
         # Forward + backward with spill
+        reset_tensor_parallel_rng_tracker()
         model_spill.train()
         torch.manual_seed(99)
         hidden_spill, mask_spill = _make_inputs(DEVICE, DTYPE)
@@ -209,6 +218,8 @@ class TestActivationSpillGradientParity:
         scheduler.set_gradient_accumulation_steps(1)
 
         # Forward + backward without spill
+        # See test_backward_gradient_parity_no_dropout for why this reset is needed.
+        reset_tensor_parallel_rng_tracker()
         model_ref.train()
         torch.manual_seed(99)
         hidden_ref, mask_ref = _make_inputs(DEVICE, DTYPE)
@@ -217,6 +228,7 @@ class TestActivationSpillGradientParity:
         loss_ref.backward()
 
         # Forward + backward with spill
+        reset_tensor_parallel_rng_tracker()
         model_spill.train()
         torch.manual_seed(99)
         hidden_spill, mask_spill = _make_inputs(DEVICE, DTYPE)
@@ -303,6 +315,8 @@ class TestActivationSpillGradientParity:
         model_spill._offload_scheduler = scheduler
         scheduler.set_gradient_accumulation_steps(1)
 
+        # See test_backward_gradient_parity_no_dropout for why this reset is needed.
+        reset_tensor_parallel_rng_tracker()
         model_ref.train()
         torch.manual_seed(99)
         hidden_ref, mask_ref = _make_inputs(DEVICE, DTYPE)
@@ -310,6 +324,7 @@ class TestActivationSpillGradientParity:
         loss_ref = out_ref.sum()
         loss_ref.backward()
 
+        reset_tensor_parallel_rng_tracker()
         model_spill.train()
         torch.manual_seed(99)
         hidden_spill, mask_spill = _make_inputs(DEVICE, DTYPE)

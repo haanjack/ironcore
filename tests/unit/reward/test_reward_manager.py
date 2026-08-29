@@ -282,7 +282,7 @@ class TestRewardModelFunction:
         with patch("requests.Session") as mock_session_cls:
             mock_session = MagicMock()
             mock_session_cls.return_value = mock_session
-            mock_session.post.side_effect = Exception("connection refused")
+            mock_session.post.side_effect = OSError("connection refused")
 
             fn = RewardModelFunction(
                 backend="local_endpoint",

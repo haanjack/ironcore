@@ -176,6 +176,13 @@ class MemoryTransferEngine:
         # producing the GPU data before we copy it to host.
         stream.wait_stream(self._get_compute_stream())
 
+        # Record src on the transfer stream so the caching allocator does not
+        # recycle src's memory while the async D2H copy is still in flight.
+        # Without this, a default-stream tensor can be handed the same block
+        # the moment src's Python refcount drops, silently corrupting the
+        # copy. (Fable issue #75.)
+        src.record_stream(stream)
+
         with torch.cuda.stream(stream):
             dst.copy_(src, non_blocking=True)
             event.record(stream)

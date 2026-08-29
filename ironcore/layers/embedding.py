@@ -6,6 +6,7 @@ from torch import nn
 from ironcore import get_tokenizer
 from ironcore.config import MainConfig
 from ironcore.layers.module import BaseModule
+from ironcore.parallel.random import tensor_parallel_rng_fork
 from ironcore.parallel.tensor_parallel import VocabParallelEmbedding
 
 
@@ -46,6 +47,7 @@ class LanguageModelEmbedding(BaseModule):
 
         # Dropout.
         if self.config.model.dropout_embd > 0.0:
-            output = self.embedding_dropout(output)
+            with tensor_parallel_rng_fork(self.config.init.seed, output.device):
+                output = self.embedding_dropout(output)
 
         return output

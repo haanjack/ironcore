@@ -125,16 +125,16 @@ Where `A` is `[in_features, r]` (Kaiming uniform init), `B` is `[r, out_features
 
 **Column parallel** (output dimension sharded):
 ```python
-base_output = base_layer(x)           # [batch, seq, out/tp_size]
-lora_output = lora(x)                 # [batch, seq, out] — replicated
-lora_shard = lora_output[..., rank*size:(rank+1)*size]
+base_output = base_layer(x)  # [batch, seq, out/tp_size]
+lora_output = lora(x)  # [batch, seq, out] — replicated
+lora_shard = lora_output[..., rank * size : (rank + 1) * size]
 return base_output + lora_shard
 ```
 
 **Row parallel** (input dimension sharded):
 ```python
 base_partial, handle = base_layer(x, async_communication=True)
-lora_output = lora(x)                 # full input, replicated
+lora_output = lora(x)  # full input, replicated
 handle.wait()
 return base_partial + bias + lora_output
 ```

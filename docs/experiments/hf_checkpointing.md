@@ -108,8 +108,8 @@ result = load_from_huggingface(
     checkpoint_path="path/to/hf/model",
     model=model,
     architecture=None,  # Auto-detected from config.json
-    strict=False,       # Allow missing/unexpected keys
-    device=None         # Auto-detect from model
+    strict=False,  # Allow missing/unexpected keys
+    device=None,  # Auto-detect from model
 )
 
 # Returns:
@@ -138,9 +138,9 @@ result = export_to_huggingface(
     model=model,
     output_path="output/hf_model",
     architecture="llama",
-    config=None,              # Auto-generated if None
-    use_safetensors=True,     # Recommended format
-    shard_size=None           # Single file if None
+    config=None,  # Auto-generated if None
+    use_safetensors=True,  # Recommended format
+    shard_size=None,  # Single file if None
 )
 
 # Returns:
@@ -195,13 +195,7 @@ checkpoint_dir/
 from ironcore.checkpointing import load_checkpoint, save_checkpoint
 
 # Save checkpoint during training
-save_checkpoint(
-    config=config,
-    model=model,
-    optimizer=optimizer,
-    lr_scheduler=scheduler,
-    step=1000
-)
+save_checkpoint(config=config, model=model, optimizer=optimizer, lr_scheduler=scheduler, step=1000)
 
 # Load checkpoint to resume training
 step = load_checkpoint(
@@ -209,7 +203,7 @@ step = load_checkpoint(
     model=model,
     optimizer=optimizer,
     lr_scheduler=scheduler,
-    step=-1  # Load latest
+    step=-1,  # Load latest
 )
 ```
 
@@ -245,12 +239,14 @@ Based on the evaluation, the trainer can successfully:
 1. **Download GPT-2** from HuggingFace Hub:
    ```python
    from huggingface_hub import snapshot_download
+
    snapshot_download("gpt2", local_dir="./gpt2")
    ```
 
 2. **Load into ironcore model:**
    ```python
    from ironcore.checkpointing import load_from_huggingface
+
    load_from_huggingface("./gpt2", model)
    ```
 

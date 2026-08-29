@@ -172,9 +172,12 @@ class LanguageModel(BaseModule):
                 logits_parallel,
                 {"column_parallel": True, "concatenated_weights": 1},
             )
-            if has_cache:
-                return logits, new_key_values
-            return logits
+            # Always return a (logits, new_key_values) tuple, regardless of
+            # whether a KV cache is active. Callers that do not need the cache
+            # simply ignore the second element. Returning a bare tensor when
+            # has_cache is False breaks callers (DPO trainer, eval loop) that
+            # always unpack the cache — see Fable issue #56.
+            return logits, new_key_values
 
         losses = self.compute_loss_from_logits(
             logits_parallel, labels, loss_mask, self.fp16_lm_cross_entropy, self.padding_start_idx
@@ -290,6 +293,14 @@ class LanguageModel(BaseModule):
                 next_logits = gather_from_model_parallel_workers(
                     next_logits, attrib={"column_parallel": True, "row_parallel": False}
                 )
+
+            # Restrict sampling to the real vocabulary. The tied output embedding
+            # is padded to `padded_vocab_size` for TP alignment; those padding
+            # rows are zero-initialised and would otherwise dominate argmax /
+            # skew softmax probabilities. Mask them to -inf so sampling can never
+            # emit a token id >= vocab_size.
+            if next_logits.size(-1) > self.padding_start_idx:
+                next_logits = next_logits[..., : self.padding_start_idx]
 
             next_token = self._sample(next_logits, temperature, top_p, top_k, do_sample)
 

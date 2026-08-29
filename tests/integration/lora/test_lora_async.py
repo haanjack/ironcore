@@ -120,7 +120,7 @@ class TestLoRAAsyncChunking:
 
             model_no_chunk.eval()
             with torch.no_grad():
-                output_no_chunk = model_no_chunk(input_ids)
+                output_no_chunk, _ = model_no_chunk(input_ids)
 
             parallel_states.destroy_model_parallel()
             reset_global_states()
@@ -142,12 +142,7 @@ class TestLoRAAsyncChunking:
             input_ids = torch.randint(0, 100, (batch_size, seq_len), device=device)
 
             with torch.no_grad():
-                output_chunked = model_chunked(input_ids)
-                # Handle tuple return (logits, past_kv) when in eval mode with KV cache
-                if isinstance(output_chunked, tuple):
-                    output_chunked = output_chunked[0]
-                if isinstance(output_no_chunk, tuple):
-                    output_no_chunk = output_no_chunk[0]
+                output_chunked, _ = model_chunked(input_ids)
 
             # Compare outputs
             if rank == 0:
@@ -162,7 +157,7 @@ class TestLoRAAsyncChunking:
             torch.manual_seed(42)
             input_ids = torch.randint(0, 100, (batch_size, seq_len), device=device)
 
-            output = model_chunked(input_ids)
+            output, _ = model_chunked(input_ids)
             loss = output.mean()
             loss.backward()
 

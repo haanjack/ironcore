@@ -54,7 +54,7 @@ To get equal representation regardless of dataset size, use inverse-size weights
 ```python
 # For 50/50 split between size-10000 and size-2000 datasets:
 ratio_a = 1 / 10000  # 0.0001
-ratio_b = 1 / 2000   # 0.0005
+ratio_b = 1 / 2000  # 0.0005
 # normalize: ratio_a=0.17, ratio_b=0.83
 ```
 

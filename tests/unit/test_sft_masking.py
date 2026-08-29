@@ -19,6 +19,20 @@ from ironcore.parallel import parallel_states
 pytestmark = pytest.mark.sft
 
 
+@pytest.fixture(autouse=True)
+def _teardown_global_state():
+    """Undo the global state _make_model() lazily initializes, if this test was
+    the one that initialized it — avoids leaking TP=1 parallel state and
+    GLOBAL_STATES into later tests/modules in the same pytest process."""
+    tp_already_initialized = parallel_states._TENSOR_MODEL_PARALLEL_GROUP is not None
+    states_already_set = global_vars.GLOBAL_STATES is not None
+    yield
+    if not tp_already_initialized:
+        parallel_states.destroy_model_parallel()
+    if not states_already_set:
+        global_vars.reset_global_states()
+
+
 def _make_model():
     """Create a LanguageModel with all required global state."""
     config = create_small_test_config()

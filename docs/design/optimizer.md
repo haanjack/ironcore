@@ -168,7 +168,7 @@ Key relationship to Muon: `DistributedOptimizer` wraps any inner optimizer, so
 `MuonOptimizer` can be ZeRO-1-sharded transparently:
 
 ```python
-optimizer = get_muon_optimizer(config, model)    # MuonOptimizer
+optimizer = get_muon_optimizer(config, model)  # MuonOptimizer
 optimizer = DistributedOptimizer(optimizer, ...)  # ZeRO-1 wrapper
 ```
 

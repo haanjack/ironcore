@@ -47,10 +47,12 @@ def get_evaluators(
                 for cls in vars(module).values()
                 if isinstance(cls, type) and issubclass(cls, Task) and cls != Task
             )
-            evaluators.append(
-                evaluator_class(tokenizer, batch_size, num_samples, cache_dir=cache_dir)
-            )
-        except (ImportError, StopIteration):
-            print(f"Evaluator for task '{task_name}' could not be loaded.")
+        except (ImportError, StopIteration) as e:
+            raise ValueError(
+                f"Evaluator for task '{task_name}' could not be loaded from "
+                f"'{module_name}' (a Task subclass must be defined there). "
+                f"Check for a typo in the task name."
+            ) from e
+        evaluators.append(evaluator_class(tokenizer, batch_size, num_samples, cache_dir=cache_dir))
 
     return evaluators

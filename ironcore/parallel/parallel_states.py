@@ -22,6 +22,9 @@ def initialize_model_parallel(
     timeout_in_minutes: float,
 ):
     """Initialize parallel groups for model parallel communication"""
+    from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
+
+    reset_tensor_parallel_rng_tracker()
     # pylint: disable=global-statement
 
     global _TENSOR_MODEL_PARALLEL_WORLD_SIZE
@@ -101,6 +104,10 @@ def destroy_model_parallel():
     Note: Process groups cannot be destroyed in PyTorch, so we only reset
     our references. The actual groups remain until process exit.
     """
+    from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
+
+    reset_tensor_parallel_rng_tracker()
+
     global _TENSOR_MODEL_PARALLEL_WORLD_SIZE
     global _DATA_PARALLEL_WORLD_SIZE
     global _TENSOR_MODEL_PARALLEL_GROUP

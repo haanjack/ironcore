@@ -5,8 +5,62 @@
 
 from __future__ import annotations
 
+import pathlib
 from pathlib import Path
 from typing import Any
+
+
+def _register_checkpoint_safe_globals() -> None:
+    """Register safe globals so weights_only=True can unpickle the dataclass
+    configs and pathlib.Path objects stored inside native checkpoints.
+
+    Matches the registration in ironcore.checkpointing.native.load_checkpoint.
+    Without this, `ironcore inspect-checkpoint` raises UnpicklingError on
+    checkpoints this project writes. (Fable issue #77.)
+    """
+    import torch
+
+    from ironcore.config import (
+        AlignmentConfig,
+        DataConfig,
+        InitConfig,
+        LoRAConfig,
+        MainConfig,
+        ModelConfig,
+        OffloadConfig,
+        OperationConfig,
+        OptimConfig,
+        ParallelConfig,
+        PEFTConfig,
+        PositionalEmbeddingConfig,
+        ProfilerConfig,
+        TrainerConfig,
+        UtilsConfig,
+    )
+
+    torch.serialization.add_safe_globals(
+        [
+            MainConfig,
+            ModelConfig,
+            InitConfig,
+            OptimConfig,
+            DataConfig,
+            ParallelConfig,
+            TrainerConfig,
+            OperationConfig,
+            UtilsConfig,
+            ProfilerConfig,
+            PositionalEmbeddingConfig,
+            PEFTConfig,
+            LoRAConfig,
+            AlignmentConfig,
+            OffloadConfig,
+            pathlib.PosixPath,
+            pathlib.WindowsPath,
+            pathlib.PurePosixPath,
+            pathlib.PureWindowsPath,
+        ]
+    )
 
 
 def inspect_checkpoint(
@@ -105,6 +159,7 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
     if checkpoint_path.is_file():
         import torch
 
+        _register_checkpoint_safe_globals()
         info["format"] = "native"
         state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
         return state_dict.get("model_state_dict", state_dict)
@@ -113,6 +168,7 @@ def _load_state_dict(checkpoint_path: Path, info: dict) -> dict:
     if latest_file.exists():
         import torch
 
+        _register_checkpoint_safe_globals()
         info["format"] = "native"
         with open(latest_file) as f:
             step = f.read().strip()

@@ -12,17 +12,10 @@ Unit tests for the MoE expert component:
 - Dropout behavior
 """
 
-import os
-
 import pytest
 import torch
-
-# Set up environment for single-GPU testing
-os.environ.setdefault("WORLD_SIZE", "1")
-os.environ.setdefault("RANK", "0")
-os.environ.setdefault("LOCAL_RANK", "0")
-
 from tests.fixtures.config_fixtures import create_moe_test_config
+from tests.fixtures.utils import single_gpu_env
 
 from ironcore.layers.moe.expert import ExpertMLP
 from ironcore.parallel.parallel_states import initialize_model_parallel
@@ -31,15 +24,16 @@ from ironcore.parallel.parallel_states import initialize_model_parallel
 @pytest.fixture(autouse=True)
 def setup_parallel_states():
     """Initialize parallel states before each test."""
-    initialize_model_parallel(
-        tensor_model_parallel_size=1,
-        timeout_in_minutes=10.0,
-    )
-    yield
-    # Cleanup to prevent state leakage
-    from ironcore.parallel.parallel_states import destroy_model_parallel
+    with single_gpu_env():
+        initialize_model_parallel(
+            tensor_model_parallel_size=1,
+            timeout_in_minutes=10.0,
+        )
+        yield
+        # Cleanup to prevent state leakage
+        from ironcore.parallel.parallel_states import destroy_model_parallel
 
-    destroy_model_parallel()
+        destroy_model_parallel()
 
 
 class TestExpertMLP:

@@ -3,7 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import dataclasses
+import os
 import pathlib
+import random
 from pathlib import Path
 from typing import Union
 
@@ -256,8 +258,8 @@ def load_checkpoint(
     timer.start("ckpt-load")
     logger.info(f"Loading checkpoint from {init_ckpt_path}")
 
-    # Register safe globals for future use with weights_only=True
-    # Note: Currently using weights_only=False to support optimizer states
+    # Register safe globals needed to unpickle the dataclass configs stored in
+    # the checkpoint under weights_only=True (the secure loading mode).
     torch.serialization.add_safe_globals(
         [
             MainConfig,
@@ -465,6 +467,42 @@ def load_checkpoint(
     if config.optim.load_checkpoint_lr_scheduler and lr_scheduler is not None:
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
 
+    # Restore RNG state so a resumed run continues the original trajectory
+    # instead of diverging. Old checkpoints (pre-fix) don't have this key.
+    # (Fable issue #61.)
+    rng_state = checkpoint.get("rng_state")
+    if rng_state is not None:
+        try:
+            torch.set_rng_state(rng_state["torch_cpu"])
+            if torch.cuda.is_available():
+                cuda_states = rng_state.get("torch_cuda")
+                if cuda_states is not None:
+                    torch.cuda.set_rng_state_all(cuda_states)
+            py_rs = rng_state.get("python_random")
+            if py_rs is not None:
+                random.setstate(py_rs)
+            np_rs = rng_state.get("numpy")
+            if np_rs is not None:
+                try:
+                    import numpy as np
+
+                    keys = (
+                        np_rs["keys"].numpy() if hasattr(np_rs["keys"], "numpy") else np_rs["keys"]
+                    )
+                    np.random.set_state(
+                        (
+                            np_rs["name"],
+                            keys,
+                            np_rs["pos"],
+                            np_rs["has_gauss"],
+                            np_rs["cached_gaussian"],
+                        )
+                    )
+                except (ImportError, KeyError, TypeError) as rng_err:
+                    logger.warning(f"Could not restore numpy RNG state: {rng_err}")
+        except (KeyError, TypeError, RuntimeError) as rng_err:
+            logger.warning(f"Could not restore RNG state from checkpoint: {rng_err}")
+
     timer.stop("ckpt-load")
     logger.info(
         f"Checkpoint loaded successfully. Resuming training at step {last_step}. Total time: {timer.get('ckpt-load'):.2f}s"
@@ -571,6 +609,23 @@ def save_checkpoint(
 
         model_state_dict[name] = output_param
 
+    # When PEFT (LoRA) is active, save only adapter weights by default. Base
+    # weights are frozen and can be reloaded from the pretrained checkpoint,
+    # so including them bloats the file ~100x and prevents the artifact from
+    # being distributed as a standalone adapter. An explicit
+    # operation.save_full_model opt-in restores the previous behaviour.
+    # (Fable issue #65.)
+    is_peft_active = any("lora_" in name for name, _ in save_model.named_parameters())
+    if is_peft_active and not getattr(config.operation, "save_full_model", False):
+        adapter_only = {name: t for name, t in model_state_dict.items() if "lora_" in name}
+        if adapter_only:
+            model_state_dict = adapter_only
+            logger.info(
+                f"PEFT active: saving adapter-only checkpoint "
+                f"({len(model_state_dict)} tensors). Set operation.save_full_model=true "
+                f"to include base weights."
+            )
+
     # optimizer state - build dict keyed by parameter name (not integer index)
     is_dist_opt = _is_distributed_optimizer(optimizer)
 
@@ -586,7 +641,15 @@ def save_checkpoint(
             "state": {},
             "param_groups": optimizer.state_dict()["param_groups"],
         }
+        # Frozen parameters (e.g. LoRA base_layer weights) were never registered
+        # with the optimizer. optimizer.state is a defaultdict, so indexing it
+        # with a param that was never registered silently inserts a stray
+        # entry into the live optimizer's state — corrupting it for any later
+        # optimizer.state_dict() call (e.g. the universal-checkpoint merge
+        # below, or the next checkpoint save).
         for _i, (name, param) in enumerate(save_model.named_parameters()):
+            if not param.requires_grad:
+                continue
             optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
 
     # For universal checkpoints, gather TP-sharded optimizer states
@@ -597,13 +660,17 @@ def save_checkpoint(
             "param_groups": optimizer.state_dict()["param_groups"],
         }
 
+        # Frozen parameters (e.g. LoRA base_layer weights) are never registered
+        # with the optimizer, so optimizer.state_dict()["state"] only has one
+        # entry per *trainable* parameter. Filter before zipping with
+        # strict=True, rather than after — zip(..., strict=True) raises on a
+        # length mismatch before the loop body ever runs.
+        trainable_named_parameters = [
+            (name, param) for name, param in save_model.named_parameters() if param.requires_grad
+        ]
         for _i, ((name, param), optim_state_id) in enumerate(
-            zip(save_model.named_parameters(), optimizer.state_dict()["state"], strict=True)
+            zip(trainable_named_parameters, optimizer.state_dict()["state"], strict=True)
         ):
-            # Skip frozen parameters
-            if not param.requires_grad:
-                continue
-
             module_name = ".".join(name.split(".")[:-1])
             optim_state = optimizer.state_dict()["state"][optim_state_id]
 
@@ -657,6 +724,26 @@ def save_checkpoint(
             hf_config_dict = hf_config
 
     logger.info(f"Saving checkpoint to {str(init_ckpt_path)}")
+    # Capture full RNG state so a resumed run continues the original trajectory
+    # instead of diverging. (Fable issue #61.) np.random.get_state() returns
+    # a tuple whose second element is an ndarray — convert to a (dtype, bytes)
+    # pair so weights_only=True loading works without registering numpy
+    # internals as safe globals.
+    np_state = None
+    try:
+        import numpy as np
+
+        raw = np.random.get_state()
+        np_state = {
+            "name": raw[0],
+            "keys": torch.as_tensor(raw[1]),
+            "pos": int(raw[2]),
+            "has_gauss": int(raw[3]),
+            "cached_gaussian": float(raw[4]),
+        }
+    except ImportError:
+        pass
+
     checkpoint = {
         "model_state_dict": model_state_dict,
         "optimizer_state_dict": final_optimizer_state,
@@ -664,16 +751,34 @@ def save_checkpoint(
         "step": step,
         "config": model_config_dict,
         "hf_config": hf_config_dict,
+        "rng_state": {
+            "torch_cpu": torch.get_rng_state(),
+            "torch_cuda": torch.cuda.get_rng_state_all(),
+            "numpy": np_state,
+            "python_random": random.getstate(),
+        },
     }
 
-    # save checkpoint
+    # save checkpoint — atomic write via .tmp + fsync + os.replace so an
+    # interrupted save cannot leave a truncated pytorch_model.bin that would
+    # permanently break resume. (Fable issue #58.)
     if parallel_states.get_data_parallel_group_rank() == 0 and (
         config.operation.save_dist_ckpt or parallel_states.get_tensor_model_parallel_rank() == 0
     ):
-        with open(ckpt_path, "wb") as f:
+        tmp_path = ckpt_path.with_suffix(ckpt_path.suffix + ".tmp")
+        with open(tmp_path, "wb") as f:
             torch.save(checkpoint, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, ckpt_path)
 
-    # save latest_step file
+    timer.stop("ckpt-save")
+    # Barrier BEFORE writing latest_step.txt so readers never see a step
+    # number pointing at a half-written TP shard on another rank.
+    if parallel_states.get_tensor_model_parallel_world_size() > 1:
+        dist.barrier(group=parallel_states.get_tensor_model_parallel_group())
+
+    # latest_step.txt — atomic, written after all shard writers finished.
     if is_first_rank():
         with open(
             Path(config.trainer.model_path) / _LATEST_STEP_FILENAME,
@@ -681,12 +786,11 @@ def save_checkpoint(
             encoding="utf-8",
         ) as f:
             f.write(f"{step}\n")
+            f.flush()
+            os.fsync(f.fileno())
 
         # Save HuggingFace compatible config (only if HF fields are set)
         if config.model.hf_model_type is not None and config.model.hf_architecture is not None:
             HFConfigManager.save_hf_config(config, config.trainer.model_path)
 
-    timer.stop("ckpt-save")
-    if parallel_states.get_tensor_model_parallel_world_size() > 1:
-        dist.barrier(group=parallel_states.get_tensor_model_parallel_group())
     logger.info(f"Checkpoint saved successfully. Checkpoint saved in {timer.get('ckpt-save'):.3f}s")

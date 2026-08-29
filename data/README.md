@@ -25,12 +25,12 @@ data/
 - NumPy structured arrays (`.npy` format)
 - Schema:
   ```python
-  dtype=[
-      ('offset', np.uint64),      # Start position in .bin file
-      ('length', np.uint32),      # Number of tokens
-      ('type', 'U20'),            # Sample type (e.g., "pretrain", "sft_sample")
-      ('group_id', np.int64),     # Group ID (for DPO pairs, -1 otherwise)
-      ('mask_ranges', 'U500'),    # JSON string: [[start, end], ...] for masking
+  dtype = [
+      ("offset", np.uint64),  # Start position in .bin file
+      ("length", np.uint32),  # Number of tokens
+      ("type", "U20"),  # Sample type (e.g., "pretrain", "sft_sample")
+      ("group_id", np.int64),  # Group ID (for DPO pairs, -1 otherwise)
+      ("mask_ranges", "U500"),  # JSON string: [[start, end], ...] for masking
   ]
   ```
 

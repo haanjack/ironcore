@@ -74,6 +74,7 @@ ignore = [
     "PLR0912", # Too many branches
     "PLR0913", # Too many arguments
     "PLR0915", # Too many statements
+    "PLR0917", # Too many positional arguments (sibling of PLR0913; pre-existing in scripts/ and tests/fixtures/)
     "PLR2004", # Magic value used in comparison
     "PLR5501", # Allow else: if: instead of elif:
     "PLW0603", # Using global statement

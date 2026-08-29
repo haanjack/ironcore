@@ -32,10 +32,6 @@ from ironcore.language_model import LanguageModel
 from ironcore.optimizer import get_optimizer
 from ironcore.optimizer.lr_scheduler import get_lr_scheduler
 from ironcore.parallel import initialize_parallelism, initialize_process
-from ironcore.parallel.expert_parallel.parallel_states import (
-    get_expert_model_parallel_group,
-    get_expert_model_parallel_world_size,
-)
 from ironcore.parallel.parallel_states import (
     get_data_parallel_group,
     get_data_parallel_world_size,
@@ -426,13 +422,28 @@ class BaseTrainer(ABC):
 
         return model, optimizer
 
-    @staticmethod
-    def average_loss(loss):
-        """Average loss across data parallel ranks."""
-        if dist.is_initialized() and get_data_parallel_world_size() > 1:
-            dist.all_reduce(loss, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
-            loss /= get_data_parallel_world_size()
-        return loss.item()
+    def _skip_consumed_train_samples(self, last_step: int) -> None:
+        """Advance the train iterator past samples already seen before resume.
+
+        Without this, a resumed run replays the dataset from the start,
+        re-training on samples the original run already consumed. We compute
+        consumed samples as ``last_step * train_batch_size`` and burn through
+        that many micro-batches. The streaming dataset is seeded deterministically
+        so this reproduces the original trajectory. (Fable issue #62.)
+        """
+        if last_step <= 0 or not self.data_iterator or "train" not in self.data_iterator:
+            return
+        batch_size = self.config.trainer.train_batch_size
+        if not batch_size:
+            return
+        skip = last_step * batch_size
+        self.logger.info(f"Skipping {skip} consumed training samples to resume data position.")
+        train_iter = self.data_iterator["train"]
+        for _ in range(skip):
+            try:
+                next(train_iter)
+            except StopIteration:
+                break
 
     def _pre_train_setup(self) -> int:
         """Hook for setup before training starts.
@@ -442,8 +453,7 @@ class BaseTrainer(ABC):
 
         Returns:
             Starting step number (0 for fresh training, or checkpoint step + 1)
-        """
-        # Default implementation: load checkpoint if available
+        """  # Default implementation: load checkpoint if available
         try:
             last_step = load_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler)
             if last_step > -1:
@@ -451,6 +461,7 @@ class BaseTrainer(ABC):
                     f"Successfully loaded checkpoint: {self.config.trainer.model_path} "
                     f"(resuming from step {last_step})"
                 )
+                self._skip_consumed_train_samples(last_step)
             else:
                 self.logger.info("Training start from scratch")
                 last_step = 0
@@ -557,6 +568,12 @@ class BaseTrainer(ABC):
         # Final checkpoint if needed
         if self.control.do_final_checkpoint(step, last_step):
             save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
+
+        # Eval-only mode: train_steps == 0 means skip training, run eval once.
+        if self.config.operation.train_steps == 0 and self.config.trainer.do_eval_subtask:
+            self.logger.info("Eval-only mode (train_steps=0): running evaluation.")
+            self.evaluate(step=0)
+            self.model.train()
 
         if self.config.trainer.do_test:
             self.test()
@@ -682,8 +699,7 @@ class BaseTrainer(ABC):
             Tuple of (grad_norm, param_norm)
         """
 
-        from ironcore.parallel import parallel_states
-        from ironcore.parallel.grad_norm import clip_grad_norm
+        from ironcore.parallel.grad_norm import clip_grad_norm, compute_param_norm
 
         # Unscale gradients before clipping/norm computation
         self.scaler.unscale_(self.optimizer)
@@ -706,108 +722,9 @@ class BaseTrainer(ABC):
 
         param_norm = 0.0
         if self.control.do_param_norm(step):
-            # Compute local squared norms for expert and non-expert parameters
-            expert_params = [
-                p
-                for p in self.model.parameters()
-                if p.data is not None and getattr(p, "is_expert", False)
-            ]
-            non_expert_params = [
-                p
-                for p in self.model.parameters()
-                if p.data is not None and not getattr(p, "is_expert", False)
-            ]
-
-            # Separate TP-sharded and replicated for correct all-reduce SUM
-            expert_sharded = [p for p in expert_params if getattr(p, "is_tp_sharded", False)]
-            expert_repl = [p for p in expert_params if not getattr(p, "is_tp_sharded", False)]
-            non_expert_sharded = [
-                p for p in non_expert_params if getattr(p, "is_tp_sharded", False)
-            ]
-            non_expert_repl = [
-                p for p in non_expert_params if not getattr(p, "is_tp_sharded", False)
-            ]
-
-            expert_sharded_norm_sq = (
-                sum(p.data.norm() ** 2 for p in expert_sharded)
-                if expert_sharded
-                else torch.tensor(0.0)
+            param_norm = compute_param_norm(
+                self.model.parameters(), is_fsdp=isinstance(self.model, FSDP)
             )
-            expert_repl_norm_sq = (
-                sum(p.data.norm() ** 2 for p in expert_repl) if expert_repl else torch.tensor(0.0)
-            )
-            non_expert_sharded_norm_sq = (
-                sum(p.data.norm() ** 2 for p in non_expert_sharded)
-                if non_expert_sharded
-                else torch.tensor(0.0)
-            )
-            non_expert_repl_norm_sq = (
-                sum(p.data.norm() ** 2 for p in non_expert_repl)
-                if non_expert_repl
-                else torch.tensor(0.0)
-            )
-
-            # Step 1: FSDP Reduction (parameters are sharded across DP group)
-            if isinstance(self.model, FSDP):
-                # Assume all FSDP parameters are sharded across DP
-                combined = torch.stack(
-                    [
-                        expert_sharded_norm_sq.to(get_device()),
-                        non_expert_sharded_norm_sq.to(get_device()),
-                    ]
-                )
-                dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=get_data_parallel_group())
-                expert_sharded_norm_sq, non_expert_sharded_norm_sq = combined
-
-            # Step 2: Tensor Parallelism Reduction
-            tp_size = parallel_states.get_tensor_model_parallel_world_size()
-            if tp_size > 1:
-                tp_group = parallel_states.get_tensor_model_parallel_group()
-                combined = torch.stack(
-                    [
-                        expert_sharded_norm_sq.to(get_device()),
-                        expert_repl_norm_sq.to(get_device()),
-                        non_expert_sharded_norm_sq.to(get_device()),
-                        non_expert_repl_norm_sq.to(get_device()),
-                    ]
-                )
-                dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=tp_group)
-
-                # For replicated parameters, SUM across TP over-counts
-                (
-                    expert_sharded_norm_sq,
-                    expert_repl_norm_sq,
-                    non_expert_sharded_norm_sq,
-                    non_expert_repl_norm_sq,
-                ) = combined
-                expert_repl_norm_sq /= tp_size
-                non_expert_repl_norm_sq /= tp_size
-
-            expert_norm_sq = expert_sharded_norm_sq + expert_repl_norm_sq
-            non_expert_norm_sq = non_expert_sharded_norm_sq + non_expert_repl_norm_sq
-
-            # Step 3: Expert Parallelism Reduction (expert parameters sharded across EP group)
-            try:
-                ep_group = get_expert_model_parallel_group()
-                if ep_group is not None and get_expert_model_parallel_world_size() > 1:
-                    dist.all_reduce(expert_norm_sq, op=dist.ReduceOp.SUM, group=ep_group)
-            except (ImportError, AttributeError):
-                pass
-
-            # Step 4: Global Combine
-            param_norm_sq = expert_norm_sq + non_expert_norm_sq
-
-            # Step 5: DP Average (for replicated parameters in non-FSDP DP)
-            dp_size = get_data_parallel_world_size()
-            if dist.is_initialized() and not isinstance(self.model, FSDP) and dp_size > 1:
-                # Parameters are replicated across DP ranks, so SUM would scale by dp_size.
-                # Average to maintain consistency.
-                dist.all_reduce(
-                    param_norm_sq, op=dist.ReduceOp.SUM, group=get_data_parallel_group()
-                )
-                param_norm_sq /= dp_size
-
-            param_norm = param_norm_sq.item() ** 0.5
 
         return grad_norm, param_norm
 
@@ -844,40 +761,6 @@ class BaseTrainer(ABC):
                 f"Possible causes: learning rate too high, gradient explosion, or data issues. "
                 f"Consider enabling `torch.autograd.set_detect_anomaly(True)` for more debugging information."
             )
-
-    def _handle_training_error(self, error: Exception, step: int) -> None:
-        """Handle training errors with appropriate logging and cleanup.
-
-        Args:
-            error: The exception that occurred
-            step: Current training step
-
-        Raises:
-            The original error after logging and cleanup
-        """
-        import torch.cuda
-
-        self.logger.error(f"Training error at step {step}: {error}")
-
-        # Log GPU memory state if CUDA is available
-        if torch.cuda.is_available():
-            for i in range(torch.cuda.device_count()):
-                allocated = torch.cuda.memory_allocated(i) / 1024**3
-                reserved = torch.cuda.memory_reserved(i) / 1024**3
-                self.logger.error(
-                    f"GPU {i}: allocated={allocated:.2f}GB, reserved={reserved:.2f}GB"
-                )
-
-        # Try to save emergency checkpoint
-        try:
-            emergency_path = f"{self.config.trainer.model_path}_emergency_step{step}"
-            self.logger.info(f"Attempting to save emergency checkpoint to {emergency_path}")
-            # Note: We intentionally don't save here to avoid overwriting good checkpoints
-            # Users can manually save if needed
-        except Exception as e:
-            self.logger.error(f"Failed to save emergency checkpoint: {e}")
-
-        raise error
 
     def log_training(
         self,

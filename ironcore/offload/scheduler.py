@@ -870,13 +870,33 @@ class ExecutionScheduler:
 
         self._weight_groups.clear()
         self._layer_on_gpu.clear()
+
+        # Break TileManager's reference to the GPU pool before nulling the
+        # scheduler's own ref — TileManager holds its own _gpu_pool pointer
+        # (tile_manager.py:121), so nulling only the scheduler's ref left the
+        # pool alive via TileManager. (Fable issue #74.)
+        if self._tile_manager is not None and hasattr(self._tile_manager, "_gpu_pool"):
+            self._tile_manager._gpu_pool = None
         self._gpu_pool = None
+        # Drop the pinned host pool reference too — it was never nulled before.
+        self._pool = None  # type: ignore[assignment]
+
         if self._spill_manager is not None:
             self._spill_manager.shutdown()
             self._spill_manager = None
 
         # Release model reference
         self._model = None  # type: ignore[assignment]
+
+        # Ask CUDA to reclaim freed blocks so memory_allocated returns to
+        # baseline without relying on GC. (Fable issue #74.)
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except RuntimeError:
+            pass
 
     def __repr__(self) -> str:
         return (

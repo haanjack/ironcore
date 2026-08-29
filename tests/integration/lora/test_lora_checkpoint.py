@@ -130,6 +130,11 @@ class TestLoRACheckpointTP1:
 
             scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
+            # This test round-trips base weights through save/load, so we need
+            # the full model in the checkpoint (the default is adapter-only
+            # since the Fable #65 fix).
+            config.operation.save_full_model = True
+
             # Save initial state
             save_checkpoint(config, model, optimizer, scheduler, step=0)
 
@@ -204,6 +209,7 @@ class TestLoRAUniversalCheckpoint:
                 from torch.optim.lr_scheduler import StepLR
 
                 scheduler_tp1 = StepLR(optimizer_tp1, step_size=10, gamma=0.1)
+                config_tp1.operation.save_full_model = True
                 save_checkpoint(config_tp1, model_tp1, optimizer_tp1, scheduler_tp1, step=0)
 
                 tp1_lora_params = {

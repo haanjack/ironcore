@@ -28,6 +28,7 @@ from torch import distributed as dist
 from ironcore.config import MainConfig
 from ironcore.layers.activations import GLUActivation, get_activation
 from ironcore.layers.parallel_mlp import ParallelMLP
+from ironcore.parallel.random import tensor_parallel_rng_fork
 from ironcore.peft import wrap_with_lora_if_target
 
 
@@ -105,7 +106,8 @@ class MLP(ParallelMLP):
 
         x = self.down_proj(x)
         if self.dropout_mlp > 0.0:
-            x = self.dropout(x)
+            with tensor_parallel_rng_fork(self.config.init.seed, x.device):
+                x = self.dropout(x)
         return x
 
     def finalize(
@@ -138,5 +140,6 @@ class MLP(ParallelMLP):
                 x = x + self.down_proj.bias
 
         if self.dropout_mlp > 0.0:
-            x = self.dropout(x)
+            with tensor_parallel_rng_fork(self.config.init.seed, x.device):
+                x = self.dropout(x)
         return x

@@ -17,6 +17,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
+from ironcore.parallel import parallel_states
 from ironcore.utils import profile_context
 
 from .buffer import RolloutBuffer
@@ -49,7 +50,12 @@ def _build_rollout_output(
     log_probs_stacked = torch.stack(log_probs_list, dim=1)
     old_log_probs = log_probs_stacked.sum(dim=1)
 
-    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1)
+    # Offset by dp_rank * B so group_ids are globally unique across the data-parallel
+    # group. compute_advantages() all-gathers rewards/group_ids across ranks and
+    # normalizes per unique group_id; without this offset, group 0 on rank 0 and
+    # group 0 on rank 1 (different prompts) would be pooled together.
+    dp_rank = parallel_states.get_data_parallel_group_rank()
+    group_ids = torch.arange(B, device=device).unsqueeze(1).expand(B, G).reshape(-1) + dp_rank * B
 
     expanded_metadata = []
     for meta in metadata:
@@ -193,6 +199,36 @@ def _sample_tokens_batched(
     return sampled
 
 
+def _filter_logits(
+    logits: torch.Tensor,
+    temperature: float,
+    top_p: float,
+    top_k: int,
+) -> torch.Tensor:
+    """Apply the same temperature / top-k / top-p filtering used at sample time.
+
+    ``_compute_token_log_probs_batched`` MUST be called on these filtered
+    logits so the recorded ``old_log_probs`` correspond to the behaviour
+    policy that actually generated the tokens (temperature-scaled, top-p
+    filtered). Using raw logits makes the IS-ratio denominator describe a
+    different distribution. (Fable issue #70.)
+    """
+    if temperature != 1.0:
+        logits = logits / temperature
+    if top_k > 0:
+        top_k = min(top_k, logits.size(-1))
+        kth_vals = logits.topk(top_k, dim=-1).values[:, -1].unsqueeze(-1)
+        logits = logits.masked_fill(logits < kth_vals, float("-inf"))
+    if top_p < 1.0:
+        sorted_logits, sorted_idx = logits.sort(dim=-1, descending=True)
+        sorted_probs = sorted_logits.softmax(dim=-1)
+        cumprobs = sorted_probs.cumsum(dim=-1)
+        remove = cumprobs - sorted_probs > top_p
+        sorted_logits = sorted_logits.masked_fill(remove, float("-inf"))
+        logits = logits.scatter(-1, sorted_idx, sorted_logits)
+    return logits
+
+
 def _compute_token_log_probs_batched(
     logits: torch.Tensor,
     token_ids: torch.Tensor,
@@ -200,7 +236,8 @@ def _compute_token_log_probs_batched(
     """Compute log probability of token_ids from logits.
 
     Args:
-        logits: [batch, vocab] logits
+        logits: [batch, vocab] logits (already temperature/top-p/top-k filtered
+            by the sampling path — see _filter_logits)
         token_ids: [batch] token IDs
 
     Returns:
@@ -263,17 +300,12 @@ def generate_rollouts_batched(
 
     # Get TP group if applicable
     tp_group = None
-    if dist.is_initialized():
-        try:
-            from ironcore.parallel.parallel_states import (
-                get_tensor_model_parallel_group,
-                get_tensor_model_parallel_world_size,
-            )
-
-            if get_tensor_model_parallel_world_size() > 1:
-                tp_group = get_tensor_model_parallel_group()
-        except (AssertionError, ImportError):
-            pass
+    if (
+        dist.is_initialized()
+        and parallel_states.is_model_parallel_initialized()
+        and parallel_states.get_tensor_model_parallel_world_size() > 1
+    ):
+        tp_group = parallel_states.get_tensor_model_parallel_group()
 
     # === Step 1: Prefill all prompts ===
     with profile_context("grpo_prefill"):
@@ -302,9 +334,12 @@ def generate_rollouts_batched(
         )
         # first_tokens: [B×G, 1]
 
-        # Compute log probs for first tokens
+        # Compute log probs for first tokens — use the SAME filtered logits
+        # that sampling used, so old_log_probs describe the behaviour policy.
+        # (Fable issue #70.)
+        filtered_logits = _filter_logits(expanded_logits, temperature, top_p, top_k)
         first_log_probs = _compute_token_log_probs_batched(
-            expanded_logits, first_tokens.squeeze(-1)
+            filtered_logits, first_tokens.squeeze(-1)
         )
 
     # === Step 4: Autoregressive generation (batched) ===
@@ -362,8 +397,12 @@ def generate_rollouts_batched(
             )
             # next_tokens: [B×G, 1]
 
-            # Compute log probs
-            next_log_probs = _compute_token_log_probs_batched(next_logits, next_tokens.squeeze(-1))
+            # Compute log probs from filtered logits matching the sampling
+            # distribution. (Fable issue #70.)
+            filtered_next = _filter_logits(next_logits, temperature, top_p, top_k)
+            next_log_probs = _compute_token_log_probs_batched(
+                filtered_next, next_tokens.squeeze(-1)
+            )
 
             # Mask log probs for sequences that are already done
             if eos_token_id is not None:
@@ -456,17 +495,12 @@ def generate_rollouts_paged(
 
         # Get TP group if applicable
         tp_group = None
-        if dist.is_initialized():
-            try:
-                from ironcore.parallel.parallel_states import (
-                    get_tensor_model_parallel_group,
-                    get_tensor_model_parallel_world_size,
-                )
-
-                if get_tensor_model_parallel_world_size() > 1:
-                    tp_group = get_tensor_model_parallel_group()
-            except (AssertionError, ImportError):
-                pass
+        if (
+            dist.is_initialized()
+            and parallel_states.is_model_parallel_initialized()
+            and parallel_states.get_tensor_model_parallel_world_size() > 1
+        ):
+            tp_group = parallel_states.get_tensor_model_parallel_group()
 
         block_size = bkv.block_size
 
@@ -512,8 +546,9 @@ def generate_rollouts_paged(
             first_tokens = _sample_tokens_batched(
                 expanded_logits, temperature, top_p, top_k, do_sample, tp_group
             )
+            filtered_prefill = _filter_logits(expanded_logits, temperature, top_p, top_k)
             first_log_probs = _compute_token_log_probs_batched(
-                expanded_logits, first_tokens.squeeze(-1)
+                filtered_prefill, first_tokens.squeeze(-1)
             )
 
         # === Step 4: Autoregressive decode (all B×G in parallel) ===
@@ -568,8 +603,9 @@ def generate_rollouts_paged(
                     next_logits, temperature, top_p, top_k, do_sample, tp_group
                 )
 
+                filtered_next = _filter_logits(next_logits, temperature, top_p, top_k)
                 next_log_probs = _compute_token_log_probs_batched(
-                    next_logits, next_tokens.squeeze(-1)
+                    filtered_next, next_tokens.squeeze(-1)
                 )
 
                 # Always mask log probs for done sequences

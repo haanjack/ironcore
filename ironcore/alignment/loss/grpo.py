@@ -120,10 +120,10 @@ def compute_advantages(
                     zip(gathered_rewards, gathered_group_ids, strict=True)
                 ):
                     size = all_sizes[i]
-                    # Extract active portion.
-                    # Note: We assume group_ids are already globally consistent if prompts
-                    # are shared across ranks. If prompts are unique per rank, normalization
-                    # will still be correct as unique group IDs remain unique.
+                    # Extract active portion. group_ids are offset by dp_rank * B when
+                    # built (see rollout._build_rollout_output), so they are globally
+                    # unique across the DP group and different ranks' groups are never
+                    # pooled together here.
                     rank_group_ids = g_g[:size]
 
                     if i == rank:
@@ -173,46 +173,52 @@ def grpo_loss(
     clip_eps: float = 0.0,  # PPO-style IS ratio clip (0 = no clipping)
     entropy: torch.Tensor | None = None,  # [B*G] mean token entropy per sequence
     entropy_coef: float = 0.0,  # entropy bonus coefficient (0 = disabled)
+    response_lengths: torch.Tensor | None = None,  # [B*G] valid token counts
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute GRPO loss with optional importance sampling for offline/multi-epoch training.
 
+    Length normalisation (Fable #68/#69): when ``response_lengths`` is provided,
+    per-sequence log-prob sums are divided by valid token counts before the
+    ratio is formed. This converts the sequence-level ratio (whose variance
+    grows with completion length, causing 12–100% clip fractions) into a
+    per-token-mean ratio whose variance is roughly constant in length. KL is
+    similarly normalised so longer completions do not mechanically dominate
+    the gradient. (Fable issues #68 and #69.)
+
     Online  (old_log_probs=None):
-        L = -mean(A * log π_θ(y|x)) + β * KL - entropy_coef * H
+        L = -mean(A * log π_θ(y|x) / T) + β * KL/T - entropy_coef * H
 
     Offline (old_log_probs provided):
-        ratio = π_θ(y|x) / π_old(y|x)  =  exp(log_π_θ - log_π_old)
-        L = -mean(clip(ratio, 1±ε) * A) + β * KL - entropy_coef * H   if clip_eps > 0
-        L = -mean(ratio * A) + β * KL - entropy_coef * H               if clip_eps == 0
-
-    Args:
-        policy_log_probs: Sequence log probs from current policy [B*G]
-        ref_log_probs: Sequence log probs from reference policy [B*G]
-        advantages: Normalized advantages [B*G]
-        kl_per_seq: KL divergence per sequence [B*G]
-        beta: KL penalty coefficient
-        old_log_probs: Log probs at rollout time (None = online, use IS when provided)
-        clip_eps: PPO clip range for IS ratio (0.0 = disabled)
-        entropy: Mean token entropy per sequence [B*G] (None = skip entropy bonus)
-        entropy_coef: Entropy bonus coefficient (0.0 = disabled)
-
-    Returns:
-        Tuple of (loss_tensor, metrics_dict)
+        ratio = exp((log_π_θ - log_π_old) / T)
+        L = -mean(clip(ratio, 1±ε) * A) + β * KL/T - entropy_coef * H
     """
     adv = advantages.detach()
 
+    # Length normaliser: per-sequence valid token count, clamped to >=1.
+    # When response_lengths is None (old callers), norm is 1.0 — preserves
+    # legacy behaviour exactly.
+    if response_lengths is not None:
+        norm = response_lengths.float().clamp(min=1.0).to(policy_log_probs.device)
+    else:
+        norm = torch.ones_like(policy_log_probs)
+
     if old_log_probs is None:
-        # Online: standard policy gradient, ratio implicitly 1
-        policy_loss = -(adv * policy_log_probs).mean()
+        # Online: standard policy gradient, ratio implicitly 1.
+        # Length-normalise so each completion contributes equally regardless
+        # of length. (Fable #69.)
+        policy_loss = -(adv * policy_log_probs / norm).mean()
         mean_ratio = 1.0
         clip_fraction = 0.0
     else:
-        # Offline: importance-sampling correction
-        log_ratio = policy_log_probs - old_log_probs.detach()
+        # Offline: importance-sampling correction, length-normalised.
+        # Dividing both log-prob sums by T converts the sequence-level ratio
+        # into a per-token-mean ratio, dramatically reducing variance.
+        # (Fable #68.)
+        log_ratio = (policy_log_probs - old_log_probs.detach()) / norm
         ratio = log_ratio.exp()
 
         if clip_eps > 0.0:
             clipped_ratio = ratio.clamp(1.0 - clip_eps, 1.0 + clip_eps)
-            # PPO surrogate: take the pessimistic (min) objective
             policy_loss = -torch.min(ratio * adv, clipped_ratio * adv).mean()
             with torch.no_grad():
                 clip_fraction = ((ratio - clipped_ratio).abs() > 1e-6).float().mean().item()
@@ -223,8 +229,9 @@ def grpo_loss(
         with torch.no_grad():
             mean_ratio = ratio.mean().item()
 
-    # KL penalty term
-    kl_loss = beta * kl_per_seq.mean()
+    # KL penalty term — length-normalised so longer completions do not
+    # mechanically contribute larger KL. (Fable #69.)
+    kl_loss = beta * (kl_per_seq / norm).mean()
 
     total_loss = policy_loss + kl_loss
 

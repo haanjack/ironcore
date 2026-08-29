@@ -150,13 +150,7 @@ class TestModelInitialization:
             input_ids = torch.randint(0, VOCAB_SIZE, (batch_size, seq_len))
 
             with torch.no_grad():
-                output = model(input_ids)
-
-            # Handle tuple output (with cache) vs tensor output
-            if isinstance(output, tuple):
-                logits = output[0]
-            else:
-                logits = output
+                logits, _ = model(input_ids)
 
             # Verify output shape (batch, seq, vocab)
             assert logits.shape[0] == batch_size
@@ -216,7 +210,7 @@ class TestTrainingStep:
             labels = input_ids.clone()
 
             # Forward pass (without labels to get logits)
-            logits = model(input_ids)
+            logits, _ = model(input_ids)
 
             # Compute loss manually
             loss = compute_lm_loss(logits, labels)
@@ -251,7 +245,7 @@ class TestTrainingStep:
             input_ids = torch.randint(0, VOCAB_SIZE, (batch_size, seq_len))
             labels = input_ids.clone()
 
-            logits = model(input_ids)
+            logits, _ = model(input_ids)
             loss = compute_lm_loss(logits, labels)
             loss.backward()
 
@@ -288,7 +282,7 @@ class TestTrainingStep:
 
             losses = []
             for _ in range(10):
-                logits = model(input_ids)
+                logits, _ = model(input_ids)
                 loss = compute_lm_loss(logits, labels)
 
                 optimizer.zero_grad()
@@ -333,7 +327,7 @@ class TestCheckpointing:
             input_ids = torch.randint(0, VOCAB_SIZE, (2, 16))
             labels = input_ids.clone()
 
-            logits = model(input_ids)
+            logits, _ = model(input_ids)
             loss = compute_lm_loss(logits, labels)
             optimizer.zero_grad()
             loss.backward()
@@ -363,14 +357,8 @@ class TestCheckpointing:
                 model.eval()
                 model2.eval()
                 with torch.no_grad():
-                    out1 = model(input_ids)
-                    out2 = model2(input_ids)
-
-                # Handle tuple output (with cache) vs tensor output
-                if isinstance(out1, tuple):
-                    out1 = out1[0]
-                if isinstance(out2, tuple):
-                    out2 = out2[0]
+                    out1, _ = model(input_ids)
+                    out2, _ = model2(input_ids)
 
                 assert torch.allclose(out1, out2, atol=1e-6)
         finally:
@@ -440,7 +428,13 @@ class TestMemoryEfficiency:
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_no_memory_leak(self):
-        """Verify no memory leak over multiple forward passes."""
+        """Verify memory doesn't grow across repeated forward passes.
+
+        Measures growth in live allocated memory after a warmup pass (which can
+        legitimately allocate more due to lazy buffer init / allocator caching)
+        rather than an absolute peak, so this isn't sensitive to whatever else
+        ran earlier in the same pytest process.
+        """
         from ironcore.global_vars import reset_global_states, set_global_states
         from ironcore.language_model import LanguageModel
 
@@ -452,19 +446,34 @@ class TestMemoryEfficiency:
             model = LanguageModel(config).cuda()
             model.eval()
 
-            torch.cuda.synchronize()
-            torch.cuda.reset_peak_memory_stats()
-
-            for _ in range(10):
+            def _run_forward():
                 input_ids = torch.randint(0, VOCAB_SIZE, (2, 16), device="cuda")
                 with torch.no_grad():
                     _ = model(input_ids)
+                torch.cuda.synchronize()
 
-            torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
+
+            # Warmup: absorbs one-time allocations (lazy buffers, allocator caching)
+            # that would otherwise look like "growth" against the very first call.
+            _run_forward()
+            mem_after_warmup = torch.cuda.memory_allocated() / 1024**2
+
+            for _ in range(9):
+                _run_forward()
+
+            mem_after_last = torch.cuda.memory_allocated() / 1024**2
             peak_memory = torch.cuda.max_memory_allocated() / 1024**2
 
-            # Should be under 500MB for small model
-            assert peak_memory < 500, f"Peak memory too high: {peak_memory:.1f} MB"
+            growth = mem_after_last - mem_after_warmup
+            assert growth < 5, (
+                f"Memory grew {growth:.2f} MB over 9 forward passes after warmup "
+                f"(after warmup: {mem_after_warmup:.1f} MB, after 10th: {mem_after_last:.1f} MB) "
+                "— possible leak"
+            )
+            # Generous sanity cap — not the primary leak check, just catches
+            # something wildly wrong (e.g. accidentally training-sized model).
+            assert peak_memory < 2048, f"Peak memory implausibly high: {peak_memory:.1f} MB"
         finally:
             reset_global_states()
 

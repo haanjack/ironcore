@@ -30,11 +30,48 @@ RUN_PROFILER=false
 NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l || echo 0)
 PYTHON="python"
 PYTEST="pytest"
-TORCHRUN="torchrun"
 
 # Dynamic port allocation to avoid EADDRINUSE when tests run in parallel
 get_free_port() {
     python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()"
+}
+
+# Shared torchrun file lists (DIST_TEST_FILES_NP1, DIST_TEST_FILES_NP2) — see
+# that file's header for why this is factored out.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./distributed_test_files.sh
+source "$SCRIPT_DIR/distributed_test_files.sh"
+
+# Run a pytest invocation whose exit code isn't swallowed by `|| true`, and
+# treat abnormal termination (crash, segfault, collection error — anything
+# other than "ran cleanly" or "some tests failed") or a 0/0/0 result as a
+# failure. Without this, a host-environment crash before pytest's summary
+# line prints looks identical to "0 tests passed" and exits 0.
+# Sets PYTEST_OUTPUT, PASSED, FAILED, SKIPPED, PYTEST_HEALTHY (0=ok, 1=bad).
+run_pytest_capture() {
+    set +e
+    PYTEST_OUTPUT=$("$@" 2>&1)
+    PYTEST_EXIT=$?
+    set -e
+
+    PASSED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
+    PASSED=${PASSED:-0}
+    FAILED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
+    FAILED=${FAILED:-0}
+    SKIPPED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
+    SKIPPED=${SKIPPED:-0}
+
+    PYTEST_HEALTHY=0
+    if [ "$PYTEST_EXIT" -ne 0 ] && [ "$PYTEST_EXIT" -ne 1 ]; then
+        echo -e "${RED}pytest exited abnormally (code $PYTEST_EXIT) — crash or collection error, not a normal test failure.${NC}"
+        PYTEST_HEALTHY=1
+    elif [ "$((PASSED + FAILED + SKIPPED))" -eq 0 ]; then
+        echo -e "${RED}0 tests reported (passed+failed+skipped=0) — treating as a failure.${NC}"
+        PYTEST_HEALTHY=1
+    fi
+    if [ "$PYTEST_HEALTHY" -ne 0 ]; then
+        FAILED=$((FAILED > 0 ? FAILED : 1))
+    fi
 }
 
 # Parse arguments
@@ -112,17 +149,9 @@ else
     print_header "Running Unit + Integration + Regression Tests"
 
     UNIT_START=$(date +%s)
-    PYTEST_OUTPUT=$($PYTEST tests/ -v --tb=short 2>&1 || true)
+    run_pytest_capture $PYTEST tests/ -v --tb=short
     UNIT_END=$(date +%s)
     UNIT_DURATION=$((UNIT_END - UNIT_START))
-
-    # Parse pytest output for results (default to 0 if no match)
-    PASSED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
-    PASSED=${PASSED:-0}
-    FAILED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
-    FAILED=${FAILED:-0}
-    SKIPPED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
-    SKIPPED=${SKIPPED:-0}
 
     TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
     TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
@@ -139,53 +168,23 @@ else
     fi
 fi
 
-# Integration tests that require torchrun --nproc_per_node=1 (single GPU)
-INTEGRATION_NP1_FILES=(
-    "tests/integration/alignment/test_dpo_integration.py"
-    "tests/integration/attention/test_chunked_parallel.py"
-    "tests/integration/attention/test_flash_attention_cache.py"
-    "tests/integration/eval/test_eval_integration.py"
-    "tests/integration/kvcache/test_kv_cache.py"
-    "tests/integration/kvcache/test_kv_cache_stateful.py"
-    "tests/integration/lora/test_lora_async.py"
-    "tests/integration/lora/test_lora_checkpoint.py"
-    "tests/integration/moe/test_moe_correctness.py"
-    "tests/integration/moe/test_moe_functional.py"
-    "tests/integration/moe/test_moe_layer.py"
-    "tests/integration/optimizer/test_optimizer.py"
-    "tests/integration/test_integration.py"
-)
-
-# Integration tests that require torchrun --nproc_per_node=2 (TP=2)
-INTEGRATION_NP2_FILES=(
-    "tests/integration/attention/test_attention_multi_gpu.py"
-    "tests/integration/kvcache/test_kv_cache.py"
-    "tests/integration/lora/test_lora_correctness.py"
-)
-
-# Multi-GPU tests that require torchrun --nproc_per_node=2
-MULTI_GPU_NP2_FILES=(
-    "tests/multi_gpu/test_expert_parallel.py"
-    "tests/multi_gpu/test_grad_norm.py"
-    "tests/multi_gpu/test_all_to_all_ep.py"
-    "tests/multi_gpu/test_distributed_optimizer.py"
-    "tests/multi_gpu/test_distributed_optimizer_checkpoint.py"
-)
+# Local copies so --quick/insufficient-GPU handling below doesn't mutate the
+# shared arrays sourced from distributed_test_files.sh.
+INTEGRATION_NP1_FILES=("${DIST_TEST_FILES_NP1[@]}")
+INTEGRATION_NP2_FILES=("${DIST_TEST_FILES_NP2[@]}")
 
 # Check if we should skip multi-GPU tests
 if [ "$QUICK_MODE" = true ]; then
     echo ""
     echo -e "${YELLOW}Skipping multi-GPU tests (--quick mode)${NC}"
     INTEGRATION_NP2_FILES=()
-    MULTI_GPU_NP2_FILES=()
 elif [ "$NUM_GPUS" -lt 2 ]; then
     echo ""
     echo -e "${YELLOW}Skipping multi-GPU tests (need 2+ GPUs, found $NUM_GPUS)${NC}"
     INTEGRATION_NP2_FILES=()
-    MULTI_GPU_NP2_FILES=()
 fi
 
-if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 0 ] || [ ${#MULTI_GPU_NP2_FILES[@]} -gt 0 ]; then
+if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 0 ]; then
     print_header "Running Integration Tests (torchrun)"
 
     GPU_START=$(date +%s)
@@ -193,92 +192,39 @@ if [ ${#INTEGRATION_NP1_FILES[@]} -gt 0 ] || [ ${#INTEGRATION_NP2_FILES[@]} -gt 
     GPU_FAILED=0
     GPU_SKIPPED=0
 
-    # Run single-GPU integration tests
+    # Run one torchrun-launched pytest file, accumulating into GPU_{PASSED,FAILED,SKIPPED}.
+    run_torchrun_file() {
+        local nproc=$1
+        local test_file=$2
+
+        if [ ! -f "$test_file" ]; then
+            echo -e "${YELLOW}  Skipping: $test_file (not found)${NC}"
+            return
+        fi
+
+        echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=$nproc)${NC}"
+        run_pytest_capture torchrun --nproc_per_node="$nproc" --master_port="$(get_free_port)" -m pytest "$test_file" -v --tb=short
+
+        GPU_PASSED=$((GPU_PASSED + PASSED))
+        GPU_FAILED=$((GPU_FAILED + FAILED))
+        GPU_SKIPPED=$((GPU_SKIPPED + SKIPPED))
+
+        if [ "$FAILED" -gt 0 ]; then
+            echo -e "${RED}  ✗ Failed: $FAILED tests${NC}"
+            echo "$PYTEST_OUTPUT" | grep -E "(FAILED|ERROR)" | head -10
+        else
+            echo -e "${GREEN}  ✓ Passed: $PASSED tests${NC}"
+        fi
+    }
+
+    # Run single-GPU (torchrun-launched) integration tests
     for test_file in "${INTEGRATION_NP1_FILES[@]}"; do
-        if [ -f "$test_file" ]; then
-            echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=1)${NC}"
-
-            TEST_OUTPUT=$(torchrun --nproc_per_node=1 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
-
-            T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
-            T_PASSED=${T_PASSED:-0}
-            T_FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
-            T_FAILED=${T_FAILED:-0}
-            T_SKIPPED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
-            T_SKIPPED=${T_SKIPPED:-0}
-
-            GPU_PASSED=$((GPU_PASSED + T_PASSED))
-            GPU_FAILED=$((GPU_FAILED + T_FAILED))
-            GPU_SKIPPED=$((GPU_SKIPPED + T_SKIPPED))
-
-            if [ "$T_FAILED" -gt 0 ]; then
-                echo -e "${RED}  ✗ Failed: $T_FAILED tests${NC}"
-                echo "$TEST_OUTPUT" | grep -E "(FAILED|ERROR)" | head -10
-            else
-                echo -e "${GREEN}  ✓ Passed: $T_PASSED tests${NC}"
-            fi
-        else
-            echo -e "${YELLOW}  Skipping: $test_file (not found)${NC}"
-        fi
+        run_torchrun_file 1 "$test_file"
     done
 
-    # Run TP=2 integration tests
+    # Run 2-GPU integration + multi_gpu tests
     for test_file in "${INTEGRATION_NP2_FILES[@]}"; do
-        if [ -f "$test_file" ]; then
-            echo -e "\n${YELLOW}Running: $test_file (nproc_per_node=2)${NC}"
-
-            TEST_OUTPUT=$(torchrun --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
-
-            T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
-            T_PASSED=${T_PASSED:-0}
-            T_FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
-            T_FAILED=${T_FAILED:-0}
-            T_SKIPPED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
-            T_SKIPPED=${T_SKIPPED:-0}
-
-            GPU_PASSED=$((GPU_PASSED + T_PASSED))
-            GPU_FAILED=$((GPU_FAILED + T_FAILED))
-            GPU_SKIPPED=$((GPU_SKIPPED + T_SKIPPED))
-
-            if [ "$T_FAILED" -gt 0 ]; then
-                echo -e "${RED}  ✗ Failed: $T_FAILED tests${NC}"
-                echo "$TEST_OUTPUT" | grep -E "(FAILED|ERROR)" | head -10
-            else
-                echo -e "${GREEN}  ✓ Passed: $T_PASSED tests${NC}"
-            fi
-        else
-            echo -e "${YELLOW}  Skipping: $test_file (not found)${NC}"
-        fi
-    done
-
-    # Run multi-GPU tests
-    for test_file in "${MULTI_GPU_NP2_FILES[@]}"; do
-        if [ -f "$test_file" ]; then
-            echo -e "\n${YELLOW}Running: $test_file${NC}"
-
-            TEST_OUTPUT=$($TORCHRUN --nproc_per_node=2 --master_port=$(get_free_port) -m pytest "$test_file" -v --tb=short 2>&1 || true)
-
-            # Parse results
-            T_PASSED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
-            T_PASSED=${T_PASSED:-0}
-            T_FAILED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
-            T_FAILED=${T_FAILED:-0}
-            T_SKIPPED=$(echo "$TEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
-            T_SKIPPED=${T_SKIPPED:-0}
-
-            GPU_PASSED=$((GPU_PASSED + T_PASSED))
-            GPU_FAILED=$((GPU_FAILED + T_FAILED))
-            GPU_SKIPPED=$((GPU_SKIPPED + T_SKIPPED))
-
-            if [ "$T_FAILED" -gt 0 ]; then
-                echo -e "${RED}  ✗ Failed: $T_FAILED tests${NC}"
-                echo "$TEST_OUTPUT" | grep -E "(FAILED|ERROR)" | head -10
-            else
-                echo -e "${GREEN}  ✓ Passed: $T_PASSED tests${NC}"
-            fi
-        else
-            echo -e "${YELLOW}  Skipping: $test_file (not found)${NC}"
-        fi
+        run_torchrun_file 2 "$test_file"
     done
 
     GPU_END=$(date +%s)
@@ -297,16 +243,9 @@ if [ "$RUN_E2E" = true ]; then
     print_header "Running E2E Smoke Tests (rlvr+e2e, ~10 min, 2 GPUs)"
     E2E_START=$(date +%s)
 
-    PYTEST_OUTPUT=$($PYTEST tests/ -v -m "e2e" --tb=short 2>&1 || true)
+    run_pytest_capture $PYTEST tests/ -v -m "e2e" --tb=short
     E2E_END=$(date +%s)
     E2E_DURATION=$((E2E_END - E2E_START))
-
-    PASSED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
-    PASSED=${PASSED:-0}
-    FAILED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
-    FAILED=${FAILED:-0}
-    SKIPPED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
-    SKIPPED=${SKIPPED:-0}
 
     TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
     TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
@@ -326,16 +265,9 @@ if [ "$RUN_PROFILER" = true ]; then
     PROF_START=$(date +%s)
     
     # Run profiler directory explicitly
-    PYTEST_OUTPUT=$($PYTEST tests/unit/profiler/ -v --tb=short 2>&1 || true)
+    run_pytest_capture $PYTEST tests/unit/profiler/ -v --tb=short
     PROF_END=$(date +%s)
     PROF_DURATION=$((PROF_END - PROF_START))
-
-    PASSED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= passed)' | tail -1)
-    PASSED=${PASSED:-0}
-    FAILED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= failed)' | tail -1)
-    FAILED=${FAILED:-0}
-    SKIPPED=$(echo "$PYTEST_OUTPUT" | grep -oP '\d+(?= skipped)' | tail -1)
-    SKIPPED=${SKIPPED:-0}
 
     TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
     TOTAL_FAILED=$((TOTAL_FAILED + FAILED))

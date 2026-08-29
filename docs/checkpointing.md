@@ -40,6 +40,7 @@ To resume from a specific step rather than the latest:
 
 ```python
 from ironcore.checkpointing import load_checkpoint
+
 load_checkpoint(config, model, optimizer, lr_scheduler, step=1000)
 ```
 
@@ -96,7 +97,7 @@ export_to_huggingface(
     config=config,
     model=model,
     save_directory="exports/llama-finetuned",
-    format="safetensors",   # or "pytorch"
+    format="safetensors",  # or "pytorch"
     max_shard_size="5GB",
 )
 ```

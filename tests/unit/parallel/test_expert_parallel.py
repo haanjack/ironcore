@@ -10,15 +10,9 @@ These tests verify:
 3. Communication primitives (when EP=1, should be no-ops)
 """
 
-import os
-
 import pytest
 import torch
-
-# Set up environment for single-GPU testing
-os.environ.setdefault("WORLD_SIZE", "1")
-os.environ.setdefault("RANK", "0")
-os.environ.setdefault("LOCAL_RANK", "0")
+from tests.fixtures.utils import single_gpu_env
 
 from ironcore.parallel.expert_parallel import (
     all_reduce_ep,
@@ -29,6 +23,13 @@ from ironcore.parallel.expert_parallel import (
     get_expert_model_parallel_world_size,
     initialize_expert_parallel,
 )
+
+
+@pytest.fixture(autouse=True)
+def _single_gpu_env():
+    """Scope RANK/LOCAL_RANK/WORLD_SIZE to this test's lifetime."""
+    with single_gpu_env():
+        yield
 
 
 class TestExpertParallelStates:

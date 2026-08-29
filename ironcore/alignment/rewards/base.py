@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 class RewardFunction(ABC):
@@ -55,6 +58,14 @@ class RewardWorkerPool:
         self.timeout = timeout
         self.default_reward = default_reward
         self._executor = ThreadPoolExecutor(max_workers=num_workers)
+        # Failure tracking — exposes visibility into reward computation errors
+        # so a poisoned run is observable instead of silently degrading the
+        # GRPO advantage signal. (Fable issue #67.)
+        self._failure_count: int = 0
+
+    def get_failure_count(self) -> int:
+        """Number of reward computations that failed or timed out since start."""
+        return self._failure_count
 
     def score_batch(
         self,
@@ -86,17 +97,40 @@ class RewardWorkerPool:
         done, not_done = wait(futures, timeout=self.timeout)
 
         rewards = []
-        for future in futures:
+        for idx, future in enumerate(futures):
             if future in done:
                 try:
                     result = future.result()
                     rewards.append(float(result))
-                except Exception:
-                    # Any computation error - return default reward
+                except (
+                    ValueError,
+                    RuntimeError,
+                    TypeError,
+                    OSError,
+                    KeyError,
+                    AttributeError,
+                ) as exc:
+                    # Narrow catch: only the exception types a reward backend
+                    # is realistically expected to raise. Log with context so
+                    # a poisoned run is observable. (Fable issue #67.)
+                    preview = (prompts[idx][:40] + "…") if len(prompts[idx]) > 40 else prompts[idx]
+                    logger.warning(
+                        "reward compute failed for prompt='%s': %s: %s",
+                        preview,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    self._failure_count += 1
                     rewards.append(self.default_reward)
             else:
-                # Timeout - cancel the future if possible and return default
+                # Timeout — cancel the future if possible and return default
                 future.cancel()
+                logger.warning(
+                    "reward compute timed out after %.1fs for prompt='%s'",
+                    self.timeout,
+                    (prompts[idx][:40] + "…") if len(prompts[idx]) > 40 else prompts[idx],
+                )
+                self._failure_count += 1
                 rewards.append(self.default_reward)
 
         return torch.tensor(rewards, dtype=torch.float32)
