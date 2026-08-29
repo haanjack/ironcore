@@ -30,6 +30,20 @@ TORCHRUN_CMD = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node
 TORCHRUN_CMD_SINGLE = [sys.executable, "-m", "torch.distributed.run", "--nproc_per_node=1"]
 
 
+def _free_port() -> int:
+    """Port for the nested torchrun.
+
+    Without one it takes torchrun's default 29500, which on a shared runner is
+    the port most likely to be busy — and the collision reports as
+    "Training failed with exit code 1" rather than as a busy host.
+    """
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("", 0))
+        return sock.getsockname()[1]
+
+
 def _resolve_config_paths(config_path: str, single_gpu: bool = False) -> str:
     """Resolve relative configs/... paths to absolute paths in YAML.
 
@@ -98,7 +112,9 @@ def _resolve_config_paths(config_path: str, single_gpu: bool = False) -> str:
 def _run_training(config: str, single_gpu: bool = False) -> subprocess.CompletedProcess:
     """Run torchrun training job, return CompletedProcess."""
     resolved_config = _resolve_config_paths(config, single_gpu=single_gpu)
-    cmd = (TORCHRUN_CMD_SINGLE if single_gpu else TORCHRUN_CMD) + [
+    cmd = (
+        (TORCHRUN_CMD_SINGLE if single_gpu else TORCHRUN_CMD) + [f"--master_port={_free_port()}"]
+    ) + [
         "-m",
         "ironcore",
         "train",

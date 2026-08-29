@@ -81,11 +81,18 @@ Register your GPU machine so GitHub Actions automatically runs GPU tests.
 | Job | Runner labels | GPU requirement |
 |---|---|---|
 | `gpu-tests` (every PR) | `self-hosted, gpu` | 1+ GPU |
-| `distributed-tests` (push to main) | `self-hosted, gpu, mp` | 2+ GPUs |
-| `e2e-tests` (manual) | `self-hosted, gpu, mp` | 2+ GPUs |
+| `distributed-tests` (push to main) | `self-hosted, mp` | 2+ GPUs |
+| `e2e-tests` (manual) | `self-hosted, mp` | 2+ GPUs |
 
-Register a **single-GPU machine** with `--labels gpu` — it will serve PR tests.
-Register a **multi-GPU machine** with `--labels gpu,mp` — it serves all GPU jobs including distributed.
+The two labels name **job pools, not capabilities**, so a machine serves one or the
+other and never both:
+
+- `--labels gpu` — the single-GPU pool: PR `gpu-tests`.
+- `--labels mp` — the multi-GPU pool: `distributed-tests` and `e2e-tests`.
+
+Give a multi-GPU machine `mp` only. Labelling it `gpu,mp` also volunteers it for
+every PR's single-GPU job, which is how `gpu-tests` ended up competing with other
+work on the 2-GPU box and failing on OOM while a free single-GPU runner sat idle.
 
 ### Prerequisites
 
