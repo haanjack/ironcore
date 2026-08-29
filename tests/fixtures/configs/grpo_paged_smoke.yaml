@@ -3,14 +3,14 @@
 # Uses keyword reward (binary: 1.0 if "ironcore" in completion) for simplicity.
 
 model:
-  num_attention_heads: 14
+  num_attention_heads: 2
   num_attention_groups: 2
   attention_head_size: 64
   head_dim: 64
-  max_seq_len: 1024
-  num_layers: 24
-  d_model: 896
-  d_ffn: 4864
+  max_seq_len: 128
+  num_layers: 2
+  d_model: 128
+  d_ffn: 512
   untie_embed: false
   reset_position_ids: false
   reset_attention_mask: false
@@ -41,7 +41,7 @@ model:
     use_paged: true
     block_size: 16
     max_batch_size: 16
-    max_seq_length: 1024
+    max_seq_length: 128
     gpu_memory_utilization: 0.9
 
 trainer:
@@ -51,7 +51,6 @@ trainer:
   tensor_model_parallel_size: 1
   log_interval: 1
   use_flash_attn: true
-  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
 
 data:
   config_path: configs/data/grpo_qwen_keyword_toy.yaml
@@ -86,7 +85,7 @@ alignment:
   grpo_num_epochs: 1
   grpo_clip_eps: 0.0
   generation:
-    max_new_tokens: 64
+    max_new_tokens: 8
     temperature: 1.0
     top_p: 0.95
     top_k: 50
