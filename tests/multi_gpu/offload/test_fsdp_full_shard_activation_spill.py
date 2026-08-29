@@ -49,11 +49,11 @@ if torch.cuda.is_available():
 def _make_config(**overrides):
     """GPT-small architecture config with FSDP+activation spill."""
     config = create_test_config(
-        d_model=768,
-        d_ffn=3072,
+        d_model=384,
+        d_ffn=1536,
         num_layers=4,  # Same as single-GPU tests
-        num_attention_heads=12,
-        num_attention_groups=12,
+        num_attention_heads=6,
+        num_attention_groups=6,
         head_dim=64,
         max_seq_len=SEQ_LEN,
         dropout_attn=0.0,

@@ -53,11 +53,11 @@ def _cudnn_determinism():
 def _make_config(**overrides):
     """GPT-small config with TP=2 + weight_offload."""
     config = create_test_config(
-        d_model=768,
-        d_ffn=3072,
+        d_model=384,
+        d_ffn=1536,
         num_layers=2,
-        num_attention_heads=12,
-        num_attention_groups=12,
+        num_attention_heads=6,
+        num_attention_groups=6,
         head_dim=64,
         max_seq_len=SEQ_LEN,
         dropout_attn=0.0,
