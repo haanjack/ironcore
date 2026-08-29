@@ -60,12 +60,18 @@ jobs:
     steps:
       - name: Checkout repository
         run: |
-          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          # Authenticate per fetch rather than via `git config --global`, which
+          # writes the ephemeral token into the runner account's ~/.gitconfig.
+          # These runners are persistent, so that rewrite outlives the job and
+          # hijacks every later git operation by that user — including ones
+          # unrelated to CI — until the token expires and they all 403.
+          AUTH_URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           if [ ! -d .git ]; then
-            git clone https://github.com/${{ github.repository }}.git .
+            git init -q .
+            git remote add origin "https://github.com/${{ github.repository }}.git"
           fi
-          git fetch origin ${{ github.sha }}
-          git checkout ${{ github.sha }}
+          git fetch --no-tags "$AUTH_URL" ${{ github.sha }}
+          git checkout --detach FETCH_HEAD
           git clean -fd
 
       - name: Build docker image (skips if unchanged)
@@ -85,12 +91,18 @@ jobs:
     steps:
       - name: Checkout repository
         run: |
-          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          # Authenticate per fetch rather than via `git config --global`, which
+          # writes the ephemeral token into the runner account's ~/.gitconfig.
+          # These runners are persistent, so that rewrite outlives the job and
+          # hijacks every later git operation by that user — including ones
+          # unrelated to CI — until the token expires and they all 403.
+          AUTH_URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           if [ ! -d .git ]; then
-            git clone https://github.com/${{ github.repository }}.git .
+            git init -q .
+            git remote add origin "https://github.com/${{ github.repository }}.git"
           fi
-          git fetch origin ${{ github.sha }}
-          git checkout ${{ github.sha }}
+          git fetch --no-tags "$AUTH_URL" ${{ github.sha }}
+          git checkout --detach FETCH_HEAD
           git clean -fd
 
       - name: Build docker image (skips if unchanged)
@@ -109,12 +121,18 @@ jobs:
     steps:
       - name: Checkout repository
         run: |
-          git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
+          # Authenticate per fetch rather than via `git config --global`, which
+          # writes the ephemeral token into the runner account's ~/.gitconfig.
+          # These runners are persistent, so that rewrite outlives the job and
+          # hijacks every later git operation by that user — including ones
+          # unrelated to CI — until the token expires and they all 403.
+          AUTH_URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           if [ ! -d .git ]; then
-            git clone https://github.com/${{ github.repository }}.git .
+            git init -q .
+            git remote add origin "https://github.com/${{ github.repository }}.git"
           fi
-          git fetch origin ${{ github.sha }}
-          git checkout ${{ github.sha }}
+          git fetch --no-tags "$AUTH_URL" ${{ github.sha }}
+          git checkout --detach FETCH_HEAD
           git clean -fd
 
       - name: Build docker image (skips if unchanged)
