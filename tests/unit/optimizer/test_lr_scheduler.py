@@ -78,6 +78,24 @@ class TestGetLrScheduler:
 
         assert all(torch.isfinite(torch.tensor(lr)) for lr in scheduler.get_last_lr())
 
+    @pytest.mark.parametrize("name", ["cosine", "linear"])
+    def test_config_min_lr_reaches_the_scheduler(self, name):
+        """The linear branch used to build its scheduler from an explicit subset
+        of the kwargs, silently dropping optim.min_lr — so a run configured to
+        floor at min_lr decayed to 0 instead, but only with lr_scheduler=linear."""
+        cfg = _make_config()
+        cfg.optim.lr_scheduler = name
+        cfg.optim.min_lr = 0.25
+        cfg.optim.max_lr = 1.0
+        optimizer = _make_optimizer(lr=1.0)
+
+        scheduler = get_lr_scheduler(cfg, optimizer)
+        for _ in range(cfg.operation.train_steps):
+            optimizer.step()
+            scheduler.step()
+
+        assert scheduler.get_last_lr()[0] == pytest.approx(0.25)
+
     def test_cosine_returns_an_instance(self):
         cfg = _make_config()
         cfg.optim.lr_scheduler = "cosine"
@@ -97,7 +115,7 @@ class TestGetLrScheduler:
 
 
 class TestLinearDecayLRScheduler:
-    def test_warmup_then_decay_to_zero(self):
+    def test_warmup_then_decay(self):
         optimizer = _make_optimizer(lr=1.0)
         scheduler = LinearDecayLRScheduler(optimizer, warmup_steps=5, total_steps=10)
 
@@ -107,10 +125,45 @@ class TestLinearDecayLRScheduler:
             scheduler.step()
             lrs.append(scheduler.get_last_lr()[0])
 
-        # Warms up to the base LR, then decays toward 0 by total_steps.
+        # Warms up to the base LR, then decays toward min_lr by total_steps.
         assert lrs[4] > lrs[0]
         assert lrs[-1] < lrs[4]
         assert all(lr >= -1e-9 for lr in lrs)
+
+    def test_decays_to_min_lr_not_zero(self):
+        """Linear used to ignore min_lr and bottom out at 0, unlike cosine."""
+        optimizer = _make_optimizer(lr=1.0)
+        scheduler = LinearDecayLRScheduler(
+            optimizer, warmup_steps=0, total_steps=10, max_lr=1.0, min_lr=0.1
+        )
+
+        for _ in range(10):
+            optimizer.step()
+            scheduler.step()
+
+        assert scheduler.get_last_lr()[0] == pytest.approx(0.1)
+
+    def test_overrunning_total_steps_holds_at_min_lr(self):
+        optimizer = _make_optimizer(lr=1.0)
+        scheduler = LinearDecayLRScheduler(
+            optimizer, warmup_steps=0, total_steps=5, max_lr=1.0, min_lr=0.1
+        )
+
+        for _ in range(20):
+            optimizer.step()
+            scheduler.step()
+            assert scheduler.get_last_lr()[0] >= 0.1
+
+    def test_max_lr_less_than_min_lr_raises(self):
+        """Parity with CosineAnnealingLR, which has always validated this."""
+        with pytest.raises(ValueError):
+            LinearDecayLRScheduler(
+                _make_optimizer(),
+                warmup_steps=1,
+                total_steps=10,
+                max_lr=1e-6,
+                min_lr=1e-3,
+            )
 
     def test_zero_warmup_steps_does_not_raise(self):
         """warmup_steps=0 is the OptimConfig default; must not divide by zero."""
