@@ -223,9 +223,10 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
             else config.trainer.model_path
         ),
         "vocab_padding_unit": config.trainer.vocab_padding_unit,
-        "special_tokens_config": (
-            special_tokens_config if hasattr(config.trainer, "special_tokens_config") else None
-        ),
+        # The field is special_tokens_config_path; the old guard checked for an
+        # attribute named special_tokens_config, which TrainerConfig has never had,
+        # so this was always None and the YAML loaded just above was discarded.
+        "special_tokens_config": special_tokens_config,
     }
 
     # tokenizer types

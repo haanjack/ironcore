@@ -34,6 +34,27 @@ __all__ = [
 _DATA_CONFIG_BASE_DIR = Path("configs/data").resolve()
 
 
+def _resolve_pad_token_id(data_config) -> int:
+    """Padding id for the collator: the configured one, else the tokenizer's EOS.
+
+    This used to be the literal 0 with the comment "GPT-2 uses 0 as pad token",
+    which ignored `data.pad_token_id` entirely. For any tokenizer where 0 is real
+    vocabulary rather than a pad slot — LLaMA and Qwen both ship here — every
+    padded position was silently filled with a real token instead.
+    """
+    configured = getattr(data_config, "pad_token_id", None)
+    if configured is not None:
+        return configured
+
+    try:
+        from ironcore.global_vars import get_tokenizer
+
+        eos = get_tokenizer().eos_token_id
+    except Exception:  # tokenizer not built yet (unit tests, preprocessing paths)
+        eos = None
+    return eos if eos is not None else 0
+
+
 def get_data_iterator(config):
     """
     Create data iterators for train/eval/test splits.
@@ -110,7 +131,7 @@ def get_data_iterator(config):
         collator = UniversalCollator(
             mode=task_type,  # type: ignore
             max_seq_len=data_config.seq_length,
-            pad_token_id=0,  # GPT-2 uses 0 as pad token
+            pad_token_id=_resolve_pad_token_id(data_config),
             use_flash_attention=getattr(config.trainer, "use_flash_attn", False),
             return_full_attention_mask=True,
         )

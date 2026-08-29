@@ -52,7 +52,7 @@ echo ""
 
 torchrun --nproc_per_node=${NUM_GPUS} \
     -m pytest \
-    "${SCRIPT_DIR}/test_kv_cache_tp2.py" \
+    "${SCRIPT_DIR}/../multi_gpu/kvcache/test_kv_cache_tp.py" \
     -v \
     --tb=short \
     ${EXTRA_ARGS}

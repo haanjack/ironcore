@@ -234,12 +234,28 @@ class ProfileManager:
         self.logger = get_logger()
         self.rank = dist.get_rank() if dist.is_initialized() else 0
 
-        # Check if this rank should profile
-        self.should_profile = self.rank in self.config.ranks
+        # Check if this rank should profile. Rank membership alone is not enough:
+        # every capture defaults to off, so gating on it made a default run announce
+        # "Starting hardware capture" while capturing nothing, and — because that
+        # still flipped is_active — silently retired the OOM monitor from then on.
+        self._any_capture_enabled = any(
+            (
+                self.config.gpu_profiler,
+                self.config.torch_profiler,
+                self.config.comm_profiler,
+                self.config.memory_snapshot,
+                self.config.layer_timing,
+                self.config.data_load_profiler,
+                self.config.oom_monitor,
+            )
+        )
+        self.should_profile = self.rank in self.config.ranks and self._any_capture_enabled
 
         self.torch_profiler: profile | None = None
         self.current_version = self._get_next_version()
         self.is_active = False
+        # Set once stop() has run, so the step trigger cannot restart a finished capture.
+        self._finished = False
 
         self._comm_profiler = CommProfiler()
         self._layer_timing = LayerTimingCollector()
@@ -311,7 +327,7 @@ class ProfileManager:
             return
 
         # 1. Step Trigger
-        if step == self.config.start:
+        if not self.is_active and not self._finished and step >= self.config.start:
             self.start()
 
         # 2. OOM / Memory Trigger
@@ -332,7 +348,7 @@ class ProfileManager:
                     )
 
         # 4. End Trigger
-        if step == self.config.end:
+        if self.is_active and step >= self.config.end:
             self.stop()
 
     def _check_memory_threshold(self):
@@ -436,6 +452,7 @@ class ProfileManager:
             self._comm_profiler.disable()
 
         self.is_active = False
+        self._finished = True
 
     def _export_trace_formats(self):
         """Export Chrome Tracing JSON and/or CSV after the torch profiler stops."""

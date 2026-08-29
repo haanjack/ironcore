@@ -435,10 +435,14 @@ class TestExecutionScheduler:
             "ironcore.config.config_model", fromlist=["ModelConfig"]
         ).ModelConfig()
         model_config.num_layers = num_layers
-        model_config.hidden_size = hidden
+        # ModelConfig has no hidden_size/ffn_hidden_size fields; assigning those only
+        # created stray attributes and left d_model at its 512 default, so this
+        # "minimal" model was 16x wider than intended and dominated the suite's peak.
+        model_config.d_model = hidden
         model_config.num_attention_heads = 4
         model_config.num_attention_groups = 4
-        model_config.ffn_hidden_size = hidden * 4
+        model_config.head_dim = hidden // 4
+        model_config.d_ffn = hidden * 4
 
         config = MainConfig(
             model=model_config,
@@ -626,10 +630,14 @@ class TestWeightStreamingCPUResidentParams:
             "ironcore.config.config_model", fromlist=["ModelConfig"]
         ).ModelConfig()
         model_config.num_layers = num_layers
-        model_config.hidden_size = hidden
+        # ModelConfig has no hidden_size/ffn_hidden_size fields; assigning those only
+        # created stray attributes and left d_model at its 512 default, so this
+        # "minimal" model was 16x wider than intended and dominated the suite's peak.
+        model_config.d_model = hidden
         model_config.num_attention_heads = 4
         model_config.num_attention_groups = 4
-        model_config.ffn_hidden_size = hidden * 4
+        model_config.head_dim = hidden // 4
+        model_config.d_ffn = hidden * 4
 
         config = MainConfig(
             model=model_config,

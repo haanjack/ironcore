@@ -216,7 +216,9 @@ class TestSchedulerActivationSpill:
         model_config.num_layers = num_layers
         model_config.num_attention_heads = 4
         model_config.num_attention_groups = 4
-        model_config.ffn_hidden_size = 512 * 4
+        # d_ffn, not ffn_hidden_size — the latter is not a ModelConfig field. Same
+        # value as the default here, so this only ever looked like it was setting it.
+        model_config.d_ffn = 512 * 4
 
         config = MainConfig(
             model=model_config,
