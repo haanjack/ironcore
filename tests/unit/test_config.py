@@ -250,6 +250,7 @@ class TestTokenizerAgreement:
         except Exception:  # noqa: BLE001
             pass
 
+
 class TestRemovedDuplicateFields:
     """model.attention_head_size and model.attention_dropout are gone.
 

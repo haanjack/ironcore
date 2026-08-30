@@ -483,46 +483,5 @@ class TestMemoryEfficiency:
 # =============================================================================
 
 
-def test_holistic_summary():
-    """Print summary of holistic test coverage."""
-    summary = """
-    IronCore Holistic Integration Test Summary
-    ==========================================
-
-    1. Configuration Validation: 3 tests
-       - Config creation (3 variants)
-       - Serialization
-       - Validation errors
-
-    2. Model Initialization: 2 tests
-       - Forward pass (MHA/GQA/MQA)
-       - Parameter count
-
-    3. Training Step: 3 tests
-       - Single step
-       - Gradient flow
-       - Loss decrease
-
-    4. Checkpointing: 1 test
-       - Save/load roundtrip
-
-    5. Data Pipeline: 1 test
-       - Module import
-
-    6. GRPO Integration: 1 test
-       - Loss computation
-
-    7. Memory Efficiency: 1 test
-       - No memory leak
-
-    Total: 12 holistic integration tests
-
-    Note: These tests cover the core training pipeline:
-    - Config -> Model -> Forward -> Loss -> Backward -> Optimizer -> Checkpoint
-    """
-    print(summary)
-    assert True
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
