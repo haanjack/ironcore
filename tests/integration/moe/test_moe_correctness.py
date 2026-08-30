@@ -214,6 +214,13 @@ class TestMoECorrectness:
 
     def test_load_balance_improves_with_training(self):
         """Test that load balance loss encourages even expert utilization."""
+        # Seeded: model init and all 20 input batches were drawn from the ambient
+        # RNG, so the result depended on whatever ran before it in the same pytest
+        # process. It passed standalone and failed inside the full suite
+        # (first=0.0208, second=0.0249, 9% over the tolerance). The assertion
+        # itself is sound — it holds for all of seeds 0-7, 42 and 123 — so this
+        # pins the draw rather than loosening the check.
+        torch.manual_seed(42)
         hidden_size = 256
         batch_size, seq_len = 4, 32
         num_experts, top_k = 8, 2
