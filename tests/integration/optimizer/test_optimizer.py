@@ -383,17 +383,26 @@ class TestOptimizerTPIntegration:
             parallel_states.destroy_model_parallel()
         except Exception:
             pass
-        if dist.is_initialized():
-            try:
-                dist.barrier()
-            except Exception:
-                pass
-            # Without this, dist stays initialized (get_tensor_model_parallel_rank()
-            # then takes the dist.get_rank() branch instead of the world_size=1
-            # fast path) but parallel_states is reset to None above — leaking a
-            # broken "initialized but groupless" state into later tests/modules
-            # in the same pytest process (see tests/unit/parallel/test_tp_init_seed.py).
-            dist.destroy_process_group()
+        if not dist.is_initialized():
+            return
+
+        if tp_size > 1:
+            # Under torchrun the process group is session scoped. Tearing it down
+            # per test and rebuilding it in the next setup deadlocks the run: the
+            # rank that gets there first re-enters the rendezvous while the other
+            # is still in the previous test's collective, and from then on they
+            # are one test apart. Which rank errors and which blocks forever
+            # varies run to run. Only the parallel_states above are per test.
+            dist.barrier()
+            return
+
+        # Single process: safe to tear down, and necessary — otherwise dist stays
+        # initialized (get_tensor_model_parallel_rank() then takes the
+        # dist.get_rank() branch instead of the world_size=1 fast path) while
+        # parallel_states is reset to None above, leaking a broken "initialized
+        # but groupless" state into later tests in the same pytest process
+        # (see tests/unit/parallel/test_tp_init_seed.py).
+        dist.destroy_process_group()
 
     @pytest.mark.cuda
     def test_muon_tp1_with_trainer(self):
@@ -772,11 +781,11 @@ class TestDistributedOptimizerIntegration:
             parallel_states.destroy_model_parallel()
         except Exception:
             pass
-        # See _cleanup_tp_distributed above: without this, dist stays
-        # initialized while parallel_states is reset to None, leaking a
-        # broken state into later tests/modules in the same pytest process.
+        # These run under torchrun, so the process group is session scoped for the
+        # same reason as _cleanup_tp_distributed: destroying it here desynchronises
+        # the ranks against the next test's setup.
         if dist.is_initialized():
-            dist.destroy_process_group()
+            dist.barrier()
 
     def test_distributed_optimizer_with_trainer(self):
         """Verify DistributedOptimizer works with LanguageModelTrainer."""
