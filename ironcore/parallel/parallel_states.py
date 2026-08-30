@@ -48,7 +48,14 @@ def initialize_model_parallel(
     )
 
     timeout = timedelta(minutes=timeout_in_minutes)
-    backend = "nccl" if torch.cuda.is_available() else "gloo"
+    # Follow whatever the world group was built with. Hardcoding "nccl" here
+    # ignored parallel.dist_backend, which parallel.py does honour — so setting
+    # it to gloo produced a gloo world group with nccl TP/DP subgroups, and the
+    # collectives that matter stayed on the backend the config asked to avoid.
+    try:
+        backend = dist.get_backend()
+    except (RuntimeError, ValueError):
+        backend = "nccl" if torch.cuda.is_available() else "gloo"
 
     dp_world_size = world_size // tensor_model_parallel_size
 
