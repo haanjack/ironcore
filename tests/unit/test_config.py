@@ -5,6 +5,7 @@
 
 import dataclasses
 from pathlib import Path
+from types import SimpleNamespace
 
 from ironcore.config.config_alignment import AlignmentConfig
 from ironcore.config.config_model import ModelConfig
@@ -139,3 +140,69 @@ class TestNestedConfigOverrideMerges:
 
         with pytest.raises((KeyError, TypeError)):
             ModelConfig()(moe={"definitely_not_a_moe_field": 1})
+
+
+class TestGrpoDisablesDropout:
+    """GRPO's KL penalty must not end up measuring dropout noise.
+
+    The reference model is a deep copy of the policy run in eval(), while the
+    policy's log-prob pass runs in train(). With dropout on, the two disagree on
+    identical weights and that disagreement is charged as divergence — measured
+    at kl_loss 1.31/2.18/1.47/3.94 over four steps on Qwen2.5-0.5B, against
+    0.0000 for the same config at dropout 0.
+    """
+
+    @staticmethod
+    def _config(method):
+        from ironcore.config.config_alignment import RewardManagerConfig
+        from ironcore.config.config_trainer import OperationConfig
+
+        extra = {}
+        if method == "grpo":
+            # AlignmentConfig.__post_init__ requires this for GRPO.
+            extra["reward_manager"] = RewardManagerConfig()
+
+        from ironcore.config.config_data import DataConfig
+
+        return SimpleNamespace(
+            model=ModelConfig(dropout_attn=0.1, dropout_mlp=0.1, dropout_embd=0.1),
+            alignment=AlignmentConfig(method=method, **extra),
+            trainer=TrainerConfig(micro_batch_size=1, train_batch_size=1),
+            operation=OperationConfig(train_steps=1),
+            data=DataConfig(),
+        )
+
+    @staticmethod
+    def _validate(cfg):
+        """Run validation far enough to reach the dropout rule.
+
+        The stub config omits fields later checks need, so the exception those
+        raise is expected and not what is under test here.
+        """
+        from ironcore.config import _config_validation
+
+        try:
+            _config_validation(cfg)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def test_grpo_disables_dropout_and_says_so(self):
+        import warnings
+
+        cfg = self._config("grpo")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self._validate(cfg)
+
+        assert cfg.model.dropout_attn == 0.0
+        assert cfg.model.dropout_mlp == 0.0
+        assert cfg.model.dropout_embd == 0.0
+        assert any("dropout" in str(w.message).lower() for w in caught), (
+            "changing the config silently would be its own bug"
+        )
+
+    def test_dpo_keeps_dropout(self):
+        cfg = self._config("dpo")
+        self._validate(cfg)
+        assert cfg.model.dropout_attn == 0.1
+        assert cfg.model.dropout_mlp == 0.1
