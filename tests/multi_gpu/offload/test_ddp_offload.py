@@ -133,7 +133,7 @@ def _run_training(config, num_steps):
                 initial_loss = loss
             final_loss = loss
 
-        trainer._finalize_process()
+        trainer._finalize_process(destroy_process_group=False)
 
     return initial_loss, final_loss
 
