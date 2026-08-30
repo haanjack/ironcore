@@ -3,7 +3,40 @@
 #
 # Used for E2E test: verifies GRPO training works with standard DDP.
 
-model: qwen2.5-0.5B
+model:
+  num_attention_heads: 2
+  num_attention_groups: 2
+  attention_head_size: 64
+  head_dim: 64
+  max_seq_len: 128
+  num_layers: 2
+  d_model: 128
+  d_ffn: 512
+  untie_embed: false
+  reset_position_ids: false
+  reset_attention_mask: false
+  eod_mask_loss: false
+  precision: bf16
+  ln_type: rmsnorm
+  ln_eps: 1.0e-6
+  bias:
+    q: true
+    k: true
+    v: true
+    o: false
+    gate: false
+    up: false
+    down: false
+  layernorm_bias: false
+  post_ln: false
+  activation_type: swiglu
+  vocab_name_or_path: Qwen/Qwen2.5-0.5B-Instruct
+  tokenizer_type: sentencepiece
+  positional_embedding:
+    type: rope
+    base: 1000000.0
+  hf_model_type: qwen2
+  hf_architecture: Qwen2ForCausalLM
 
 trainer:
   micro_batch_size: 2
@@ -11,7 +44,6 @@ trainer:
   gradient_accumulation_steps: 1
   log_interval: 1
   use_flash_attn: true
-  load_from_hf: Qwen/Qwen2.5-0.5B-Instruct
 
 data:
   config_path: data/grpo_gsm8k
