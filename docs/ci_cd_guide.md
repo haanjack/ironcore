@@ -58,11 +58,11 @@ git push origin feature/xyz
 **Command:** `pytest tests/ -m "cuda and not mp and not e2e"`
 **Duration:** ~10-15 min | **Cost:** Your hardware
 
-### Distributed Tests (Push to main + manual dispatch)
+### Distributed Tests (manual dispatch only — no runner currently serves it)
 
 **Runner:** `[self-hosted, gpu, mp]`
 **Command:** per-file `torchrun --nproc_per_node=2 -m pytest <file>` for all `mp`-marked files
-**Duration:** ~10 min | **Note:** Not run on PRs to keep feedback fast
+**Duration:** ~10 min | **Note:** see "No multi-GPU runner" below
 
 ### E2E Tests (Manual dispatch only)
 
@@ -71,6 +71,45 @@ git push origin feature/xyz
 **Duration:** ~10 min | **Note:** Tests self-spawn `torchrun` internally; triggered via `workflow_dispatch` with `test_mode=e2e`
 
 ---
+
+## No multi-GPU runner
+
+Nothing serves the `mp` pool right now, so `distributed-tests` and `e2e-tests`
+only run on `workflow_dispatch` and will queue until an `mp` runner exists. The
+2-GPU box was withdrawn because its memory is committed to other work; single-GPU
+runners cannot stand in, because RCCL refuses two ranks on one device:
+
+```
+ncclInvalidUsage: Duplicate GPU detected : rank 0 and rank 1 both on CUDA device
+```
+
+They are left queueing rather than pointed at a single-GPU runner, where
+`tests/conftest.py` would skip every `mp` test and the job would report green
+having verified nothing. The multi-GPU suite is unverified, and the CI status
+should say so.
+
+### Running mp tests on one GPU, locally
+
+gloo does allow two ranks to share a device, including allreduce on CUDA
+tensors, so the suite can be partially exercised on a single-GPU host. This
+found two real deadlocks (#104, #105) that only reproduced with two ranks.
+
+Force gloo for both `init_process_group` and `new_group` — subgroups follow the
+world group's backend as of #106, so `parallel.dist_backend: gloo` reaches them
+— report two devices so the `device_count() < 2` guards pass, and pin both ranks
+to `cuda:0`.
+
+Coverage is partial. Of the 21 files in `DIST_TEST_FILES_NP2`:
+
+| | files | what |
+| --- | --- | --- |
+| pass | 7 (30 tests) | TP attention, TP KV cache, LoRA TP, Muon TP/FSDP, DistributedOptimizer + checkpoint |
+| fail | 8 | DDP/FSDP/offload paths — `ProcessGroupGloo` has no `perform_nocolor_split` |
+| hang | 5 | EP, grad-norm, TP-equivalence |
+
+This is a debugging technique, not a CI substitute: faking `device_count` can let
+a test pass that would fail on two real devices, and gloo orders collectives
+differently from NCCL.
 
 ## Setup Self-Hosted Runner (Optional)
 
@@ -81,7 +120,7 @@ Register your GPU machine so GitHub Actions automatically runs GPU tests.
 | Job | Runner labels | GPU requirement |
 |---|---|---|
 | `gpu-tests` (every PR) | `self-hosted, gpu` | 1+ GPU |
-| `distributed-tests` (push to main) | `self-hosted, mp` | 2+ GPUs |
+| `distributed-tests` (manual only) | `self-hosted, mp` | 2+ GPUs |
 | `e2e-tests` (manual) | `self-hosted, mp` | 2+ GPUs |
 
 The two labels name **job pools, not capabilities**, so a machine serves one or the

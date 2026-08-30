@@ -80,13 +80,21 @@ jobs:
       - name: Run single-GPU tests
         run: bash scripts/docker/launch.sh bash scripts/run_gpu_tests.sh
 
-  # Multi-GPU distributed tests — push to main and manual dispatch only (not PR)
+  # Multi-GPU distributed tests.
+  #
+  # NO RUNNER CURRENTLY SERVES THE `mp` POOL. The 2-GPU box was withdrawn because
+  # its memory is committed to other work, and the single-GPU runner cannot take
+  # its place: RCCL refuses two ranks on one device ("Duplicate GPU detected").
+  #
+  # This is deliberately left as workflow_dispatch only rather than pointed at a
+  # runner that would skip everything and report green. A job that queues until
+  # someone registers an `mp` runner is honest about the gap; a green check that
+  # ran nothing is not — see docs/ci_cd_guide.md.
   distributed-tests:
     name: Distributed Tests
     runs-on: [self-hosted, mp]
     if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'distributed' || github.event.inputs.test_mode == 'all'))
+      github.event_name == 'workflow_dispatch' && (github.event.inputs.test_mode == 'distributed' || github.event.inputs.test_mode == 'all')
 
     steps:
       - name: Checkout repository
@@ -111,7 +119,8 @@ jobs:
       - name: Run distributed tests (torchrun per file)
         run: bash scripts/docker/launch.sh bash scripts/run_distributed_tests.sh
 
-  # E2E smoke tests — manual dispatch only (~10 min per test, 2 GPUs)
+  # E2E smoke tests — manual dispatch only (~10 min per test, 2 GPUs).
+  # Same as distributed-tests: needs an `mp` runner, and none is registered.
   e2e-tests:
     name: E2E Tests
     runs-on: [self-hosted, mp]
