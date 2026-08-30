@@ -241,8 +241,17 @@ class BaseTrainer(ABC):
         if self._initialized:
             self._finalize_process()
 
-    def _finalize_process(self):
-        """Cleanup resources."""
+    def _finalize_process(self, destroy_process_group: bool = True):
+        """Cleanup resources.
+
+        Args:
+            destroy_process_group: Tear the global process group down as well.
+                True for a real run, which exits straight afterwards. Tests that
+                call this between cases in one torchrun session must pass False:
+                the next case re-creates the group on the same MASTER_PORT, and
+                a rank that gets there before rank 0 has re-hosted the TCPStore
+                fails with "Connection refused" while its peer sails on.
+        """
         # Shutdown weight streaming scheduler (releases GPU staging buffers)
         if hasattr(self, "_offload_scheduler") and self._offload_scheduler is not None:
             self._offload_scheduler.shutdown()
@@ -253,7 +262,8 @@ class BaseTrainer(ABC):
 
         if dist.is_initialized():
             dist.barrier()
-            dist.destroy_process_group()
+            if destroy_process_group:
+                dist.destroy_process_group()
 
         self._initialized = False
 

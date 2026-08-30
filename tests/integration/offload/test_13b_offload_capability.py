@@ -148,7 +148,7 @@ def _run_training(config, num_steps, tmp_path):
     finally:
         if trainer is not None:
             try:
-                trainer._finalize_process()
+                trainer._finalize_process(destroy_process_group=False)
             except Exception:
                 pass
             del trainer
