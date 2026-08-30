@@ -82,6 +82,22 @@ def _config_validation(config: MainConfig):
             for name in active:
                 setattr(config.model, name, 0.0)
 
+    # Preprocessing tokenizes with data.vocab_name_or_path (ironcore/preprocess.py
+    # takes a DataConfig and never sees the model section); training, eval and
+    # generation all embed and decode with model.vocab_name_or_path. Nothing
+    # reconciled them, so the two could name different vocabularies and token ids
+    # would be silently reinterpreted — worst for added special tokens, which is
+    # exactly what configs/data/fim_pretrain.yaml walks a user into.
+    data_vocab = getattr(config.data, "vocab_name_or_path", None)
+    model_vocab = getattr(config.model, "vocab_name_or_path", None)
+    if data_vocab and model_vocab and data_vocab != model_vocab:
+        raise ValueError(
+            f"data.vocab_name_or_path ({data_vocab!r}) and model.vocab_name_or_path "
+            f"({model_vocab!r}) name different tokenizers. Preprocessing uses the "
+            "first and training the second, so the ids written by one would be "
+            "read under the other's vocabulary. Set them to the same value."
+        )
+
     dp_group_size = config.trainer.tensor_model_parallel_size
     dp_world_size = config.parallel.world_size // dp_group_size
     if dp_world_size <= 0:

@@ -206,3 +206,46 @@ class TestGrpoDisablesDropout:
         self._validate(cfg)
         assert cfg.model.dropout_attn == 0.1
         assert cfg.model.dropout_mlp == 0.1
+
+
+class TestTokenizerAgreement:
+    """Preprocessing and training must not name different vocabularies.
+
+    ironcore/preprocess.py takes a DataConfig and tokenizes with
+    data.vocab_name_or_path; build_tokenizer embeds and decodes with
+    model.vocab_name_or_path. Nothing reconciled the two, so a config could
+    write ids under one vocabulary and train under another.
+    """
+
+    @staticmethod
+    def _config(data_vocab, model_vocab):
+        from ironcore.config.config_data import DataConfig
+        from ironcore.config.config_trainer import OperationConfig
+
+        return SimpleNamespace(
+            model=ModelConfig(vocab_name_or_path=model_vocab),
+            alignment=AlignmentConfig(),
+            trainer=TrainerConfig(micro_batch_size=1, train_batch_size=1),
+            operation=OperationConfig(train_steps=1),
+            data=DataConfig(vocab_name_or_path=data_vocab),
+        )
+
+    def test_mismatch_is_rejected(self):
+        import pytest
+
+        from ironcore.config import _config_validation
+
+        cfg = self._config("./tokenizers/gpt2-fim", "gpt2")
+        with pytest.raises(ValueError, match="different tokenizers"):
+            _config_validation(cfg)
+
+    def test_matching_values_are_accepted(self):
+        from ironcore.config import _config_validation
+
+        cfg = self._config("./tokenizers/gpt2-fim", "./tokenizers/gpt2-fim")
+        try:
+            _config_validation(cfg)
+        except ValueError as exc:  # later checks need fields this stub omits
+            assert "different tokenizers" not in str(exc)
+        except Exception:  # noqa: BLE001
+            pass

@@ -13,10 +13,14 @@
 #   })
 #   tokenizer.save_pretrained("./tokenizers/gpt2-fim")
 #
-# Then update vocab_name_or_path below to point to the tokenizer with FIM tokens.
+# Then point BOTH vocab_name_or_path settings at the tokenizer with FIM tokens:
+# the one below, which preprocessing uses, and model.vocab_name_or_path, which
+# training and generation use. Config validation rejects a mismatch, because
+# tokenizing with one vocabulary and training under another silently
+# reinterprets every id — the FIM special tokens worst of all.
 
 # Tokenizer configuration (MUST have FIM tokens added if fim_rate > 0)
-vocab_name_or_path: gpt2  # Update to path with FIM tokens added
+vocab_name_or_path: gpt2  # Update to path with FIM tokens added (and model.vocab_name_or_path too)
 tokenizer_type: bbpe
 
 # Sequence parameters
