@@ -9,7 +9,6 @@ d_ffn: 3072
 num_layers: 12
 max_seq_len: 1024
 max_position_embeddings: 1024
-attention_head_size: 64
 # Must equal d_model / num_attention_heads: the QKV projection is sized from head_dim
 # while the attention reshape derives the head size from d_model, and the default (128)
 # makes the two disagree.

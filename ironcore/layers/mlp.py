@@ -15,9 +15,11 @@ When async_communication=True, down_proj returns (partial_output, handle) tuple.
 Caller must call finalize() to wait for handle and apply bias/dropout.
 This allows overlapping expert computation with communication.
 
-Note: Sequence chunking (sequence_chunk_size) is handled at the transformer
-block level, not in this layer. The transformer splits sequences and calls
-MLP on each chunk separately.
+Note: trainer.sequence_chunk_size is not implemented anywhere. This comment
+previously said chunking was handled at the transformer block level; it is not.
+models/transformer.py has no chunking logic, and the tensor-parallel layer
+forwards take no chunk-size argument, so the field has no consumers and
+configs/profile/tp_async.yaml vs tp_standard.yaml run identical code.
 """
 
 from typing import Union

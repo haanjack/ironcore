@@ -234,7 +234,10 @@ def build_tokenizer(config: MainConfig) -> Tokenizer:
     sentencepiece_tyeps = {"sentencepiece", "llama", "t5"}
 
     if tokenizer_type in bbpe_types or tokenizer_type in tiktoken.list_encoding_names():
-        return BbpeTokenizer(**kwargs)
+        # Only BbpeTokenizer accepts merge_file_path, so it cannot go in the shared
+        # kwargs above — which is why it was dropped entirely and the tiktoken BPE
+        # branch of that constructor was unreachable from a config.
+        return BbpeTokenizer(merge_file_path=config.model.merge_file_path, **kwargs)
     elif tokenizer_type in sentencepiece_tyeps:
         return SentencePieceTokenizer(**kwargs)
     else:

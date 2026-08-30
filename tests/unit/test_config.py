@@ -249,3 +249,28 @@ class TestTokenizerAgreement:
             assert "different tokenizers" not in str(exc)
         except Exception:  # noqa: BLE001
             pass
+
+
+class TestRemovedDuplicateFields:
+    """model.attention_head_size and model.attention_dropout are gone.
+
+    Neither had a consumer: head_dim and dropout_attn are what the model reads.
+    attention_head_size defaulted to 64 against head_dim's 128, so they did not
+    even agree out of the box — resizing a model by editing the more
+    natural-sounding name did nothing, silently. Removing them means the loader's
+    unknown-key check reports the mistake instead.
+    """
+
+    def test_fields_no_longer_exist(self):
+        assert not hasattr(ModelConfig(), "attention_head_size")
+        assert not hasattr(ModelConfig(), "attention_dropout")
+
+    def test_constructing_with_a_removed_key_is_rejected(self):
+        """The loader checks YAML keys against these fields, so a config setting
+        one now gets "not defined in model config" instead of silent acceptance."""
+        import pytest
+
+        with pytest.raises(TypeError):
+            ModelConfig(attention_head_size=64)
+        with pytest.raises(TypeError):
+            ModelConfig(attention_dropout=0.2)
