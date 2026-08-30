@@ -13,7 +13,8 @@ The async communication mechanism allows overlapping EP computation with
 communication by returning (partial_output, handle) and requiring finalize()
 to be called.
 
-Note: Sequence chunking (sequence_chunk_size) is handled at the transformer
+Note: trainer.sequence_chunk_size is NOT implemented. This comment used to say
+chunking was handled at the transformer
 block level, not in this layer.
 
 Usage:

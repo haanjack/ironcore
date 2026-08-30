@@ -52,7 +52,10 @@ class TrainerConfig(BaseConfig):
     )
 
     num_workers: int = field(
-        default=8, metadata={"help": "number of workers in dataset processing"}
+        default=8,
+        metadata={
+            "help": "NOT IMPLEMENTED - the training DataLoader hardcodes num_workers=0. Number of workers in dataset processing"
+        },
     )
 
     # model parallelism
@@ -77,14 +80,16 @@ class TrainerConfig(BaseConfig):
     # KV Cache for evaluation
     use_kv_cache_in_eval: bool = field(
         default=True,
-        metadata={"help": "Use KV cache during evaluation for faster inference"},
+        metadata={
+            "help": "NOT IMPLEMENTED - evaluation does single-pass scoring, never generation. Use KV cache during evaluation for faster inference"
+        },
     )
 
     # Async Tensor Parallelism
     sequence_chunk_size: int | None = field(
         default=None,
         metadata={
-            "help": "Target chunk size (in tokens) for async tensor parallelism. If set, sequence is split into chunks of this size."
+            "help": "NOT IMPLEMENTED - no consumers; see the note in layers/mlp.py. Target chunk size (in tokens) for async tensor parallelism."
         },
     )
 

@@ -112,7 +112,6 @@ class ModelConfig(BaseConfig):
     dropout_embd: float = field(default=0.1, metadata={"help": "dropout ratio in embedding"})
     dropout_attn: float = field(default=0.1, metadata={"help": "dropout ratio in attention"})
     dropout_mlp: float = field(default=0.1, metadata={"help": "dropout ratio in mlp"})
-    attention_head_size: int = field(default=64, metadata={"help": "attention head size"})
     precision: str = field(default="bfloat16", metadata={"help": "model dtype"})
 
     reset_position_ids: bool = field(
@@ -163,7 +162,6 @@ class ModelConfig(BaseConfig):
         default=1,
         metadata={"help": "number of key-value groups in grouped query attention"},
     )
-    attention_dropout: float = field(default=0.1, metadata={"help": "dropout ratio in attention"})
 
     # HuggingFace compatibility
     hf_model_type: str | None = field(
@@ -198,12 +196,10 @@ class ModelConfig(BaseConfig):
                 "d_ffn",
                 "num_layers",
                 "max_seq_len",
-                "attention_head_size",
                 "num_attention_heads",
                 "head_dim",
             ]
         ), "Configs must be positive"
         assert all(
-            0 <= getattr(self, k) <= 1
-            for k in ["dropout_embd", "dropout_attn", "dropout_mlp", "attention_dropout"]
+            0 <= getattr(self, k) <= 1 for k in ["dropout_embd", "dropout_attn", "dropout_mlp"]
         ), "Dropouts must be [0, 1]"

@@ -1,6 +1,5 @@
 num_attention_heads: 20
 num_attention_groups: 20
-attention_head_size: 64
 head_dim: 64
 max_seq_len: 1024
 num_layers: 36

@@ -5,7 +5,6 @@
 model:
   num_attention_heads: 2
   num_attention_groups: 2
-  attention_head_size: 64
   head_dim: 64
   max_seq_len: 128
   num_layers: 2
