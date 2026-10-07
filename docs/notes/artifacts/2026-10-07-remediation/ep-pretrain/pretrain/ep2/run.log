@@ -1,0 +1,17 @@
+[2026-10-07 19:52:00,397] Acquiring training resources...
+[2026-10-07 19:52:00,397] Initialize torch distributed ... 
+[2026-10-07 19:52:00,654] Loading evaluation tasks
+[2026-10-07 19:52:00,655] Set random seed to 42 for model initialization
+[2026-10-07 19:52:00,666] Created Language Model
+[2026-10-07 19:52:00,673] Trainable parameters: 29,728 / 29,728 (100.00%)
+[2026-10-07 19:52:00,673] Created Optimizer
+[2026-10-07 19:52:00,716] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 19:52:00,716] Resources acquired successfully.
+[2026-10-07 19:52:00,802] Training start from scratch
+[2026-10-07 19:52:00,803] Training start from step: 0
+[2026-10-07 19:52:01,287] step: 1, loss: 3.7385, lr: 0.000550, grad_norm: 1.9726, step_time: 0.484s (avg: 0.484s), tok/s: 264.6 (avg: 264.5)
+[2026-10-07 19:52:01,311] step: 2, loss: 3.6737, lr: 0.000232, grad_norm: 1.9528, step_time: 0.024s (avg: 0.254s), tok/s: 5320.8 (avg: 503.8)
+[2026-10-07 19:52:01,367] step: 3, loss: 3.6244, lr: 0.000100, grad_norm: 1.8988, step_time: 0.022s (avg: 0.188s), tok/s: 5709.9 (avg: 680.9)
+[2026-10-07 19:52:01,388] step: 4, loss: 3.6129, lr: 0.000100, grad_norm: 1.9153, step_time: 0.022s (avg: 0.146s), tok/s: 5874.3 (avg: 874.0)
+[2026-10-07 19:52:01,419] Total training time: 0.00 hours
+[2026-10-07 19:52:01,419] Finishing training

@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "config": "configs/experiments/cs336_130m_long_context_dp2.yaml",
+  "context": 8192,
+  "backend": "loop",
+  "steps": 2,
+  "weights_dtype": "torch.float32",
+  "peak_allocated_bytes": 9864359936
+}

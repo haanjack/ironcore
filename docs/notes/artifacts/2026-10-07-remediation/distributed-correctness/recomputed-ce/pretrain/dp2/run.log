@@ -1,0 +1,22 @@
+[2026-10-07 20:24:11,088] Acquiring training resources...
+[2026-10-07 20:24:11,088] Initialize torch distributed ... 
+[2026-10-07 20:24:11,370] Loading evaluation tasks
+[2026-10-07 20:24:11,371] Set random seed to 42 for model initialization
+[2026-10-07 20:24:11,380] Created Language Model
+[2026-10-07 20:24:11,380] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:24:11,380] Created Optimizer
+[2026-10-07 20:24:11,417] Resources acquired successfully.
+[2026-10-07 20:24:11,446] Training start from scratch
+[2026-10-07 20:24:11,446] Training start from step: 0
+[2026-10-07 20:24:11,804] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0650, step_time: 0.358s (avg: 0.358s), tok/s: 357.5 (avg: 357.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:24:11,824] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0249, step_time: 0.019s (avg: 0.189s), tok/s: 6737.4 (avg: 678.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:24:11,830] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:24:11,830] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/recomputed-ce/pretrain/dp2/checkpoint/step_2
+[2026-10-07 20:24:11,841] Checkpoint saved successfully. Checkpoint saved in 0.007s
+[2026-10-07 20:24:11,858] step: 3, loss: 3.3477, lr: 0.000100, grad_norm: 1.9695, step_time: 0.018s (avg: 0.137s), tok/s: 7247.3 (avg: 931.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:24:11,876] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9660, step_time: 0.017s (avg: 0.107s), tok/s: 7415.3 (avg: 1192.1), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:24:11,889] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:24:11,889] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/recomputed-ce/pretrain/dp2/checkpoint/step_4
+[2026-10-07 20:24:11,903] Checkpoint saved successfully. Checkpoint saved in 0.007s
+[2026-10-07 20:24:11,903] Total training time: 0.00 hours
+[2026-10-07 20:24:11,903] Finishing training

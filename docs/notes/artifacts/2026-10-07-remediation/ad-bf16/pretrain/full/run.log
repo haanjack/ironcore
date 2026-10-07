@@ -1,0 +1,23 @@
+[2026-10-07 19:35:41,714] Acquiring training resources...
+[2026-10-07 19:35:41,714] Initialize torch distributed ... 
+[2026-10-07 19:35:41,938] Loading evaluation tasks
+[2026-10-07 19:35:41,939] Set random seed to 42 for model initialization
+[2026-10-07 19:35:41,948] Created Language Model
+[2026-10-07 19:35:41,948] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 19:35:41,948] Created Optimizer
+[2026-10-07 19:35:41,948] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 19:35:41,948] Resources acquired successfully.
+[2026-10-07 19:35:41,950] Training start from scratch
+[2026-10-07 19:35:41,950] Training start from step: 0
+[2026-10-07 19:35:42,343] step: 1, loss: 3.7391, lr: 0.000550, grad_norm: 1.9689, step_time: 0.393s (avg: 0.393s), tok/s: 325.6 (avg: 325.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:35:42,351] step: 2, loss: 3.6757, lr: 0.000232, grad_norm: 1.9492, step_time: 0.008s (avg: 0.201s), tok/s: 16466.9 (avg: 638.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:35:42,358] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:35:42,358] Saving checkpoint to /tmp/ironcore-remediation-ad-bf16/pretrain/full/checkpoint/step_2
+[2026-10-07 19:35:42,368] Checkpoint saved successfully. Checkpoint saved in 0.007s
+[2026-10-07 19:35:42,375] step: 3, loss: 3.6272, lr: 0.000100, grad_norm: 1.8977, step_time: 0.007s (avg: 0.142s), tok/s: 19159.6 (avg: 904.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:35:42,381] step: 4, loss: 3.6159, lr: 0.000100, grad_norm: 1.9126, step_time: 0.006s (avg: 0.108s), tok/s: 21043.9 (avg: 1188.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:35:42,385] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:35:42,385] Saving checkpoint to /tmp/ironcore-remediation-ad-bf16/pretrain/full/checkpoint/step_4
+[2026-10-07 19:35:42,395] Checkpoint saved successfully. Checkpoint saved in 0.007s
+[2026-10-07 19:35:42,395] Total training time: 0.00 hours
+[2026-10-07 19:35:42,395] Finishing training

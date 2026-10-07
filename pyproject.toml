@@ -23,6 +23,7 @@ dependencies = [
     "tensorboard",
     "tqdm",
     "transformers>=4.30.0",
+    "torchdata>=0.11,<0.12",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +55,8 @@ include = ["ironcore*"]
 target-version = "py312"
 line-length = 100
 src = ["ironcore", "tests", "examples"]
+# Preserve verbatim experiment drivers and source provenance in archived evidence.
+extend-exclude = ["docs/notes/artifacts"]
 
 [tool.ruff.lint]
 # Combined rules for comprehensive checking

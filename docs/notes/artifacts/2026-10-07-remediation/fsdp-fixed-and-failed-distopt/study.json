@@ -1,0 +1,45 @@
+{
+  "status": "failed",
+  "jobs": [
+    {
+      "label": "fsdp-alignment",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-remediation-distributed-v2-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--steps",
+        "4",
+        "--output",
+        "/tmp/ironcore-remediation-distributed-v2/fsdp-alignment",
+        "--fsdp",
+        "--cases",
+        "full,dp2",
+        "--tasks",
+        "sft,dpo,grpo"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "distributed-optimizer",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-remediation-distributed-v2-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--steps",
+        "4",
+        "--output",
+        "/tmp/ironcore-remediation-distributed-v2/distributed-optimizer",
+        "--distributed-optimizer",
+        "--cases",
+        "full,dp2"
+      ],
+      "returncode": 1
+    }
+  ]
+}

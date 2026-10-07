@@ -1,0 +1,290 @@
+{
+  "scope": "Stages A-I: implementation and bounded CPU/CUDA experiments, not full CS336 curriculum or long-horizon quality proof",
+  "source_snapshot": "sources/ironcore-remediation-final-v8-src/source.tar.gz",
+  "passed_reports": {
+    "ad-bf16/report.json": "passed",
+    "ep-layer/report.json": "passed",
+    "ep-pretrain/report.json": "passed",
+    "fsdp-pretrain/report.json": "passed",
+    "distributed-correctness/batched-moe/report.json": "passed",
+    "distributed-correctness/batched-moe-idle/report.json": "passed",
+    "distributed-correctness/distributed-optimizer/report.json": "passed",
+    "distributed-correctness/moe-ep-all/report.json": "passed",
+    "distributed-correctness/recomputed-ce/report.json": "passed",
+    "final-training/distopt-bf16/report.json": "passed",
+    "final-training/fsdp-bf16/report.json": "passed",
+    "final-training/grpo-token-bf16/report.json": "passed",
+    "final-training/stateful-workers2/report.json": "passed"
+  },
+  "cpu_regression": {
+    "passed": 532,
+    "skipped": 12,
+    "deselected": 42
+  },
+  "profiler_mfu_regression": {
+    "passed": 80
+  },
+  "final_distributed_contract": {
+    "rank0": {
+      "status": "passed",
+      "checks": [
+        {
+          "check": "loss_func_unequal_dp_update",
+          "max_weight_error": 6.984919309616089e-10,
+          "loss_error": 1.390775046239412e-07
+        },
+        {
+          "check": "loss_func_sft_unequal_dp_update",
+          "max_weight_error": 1.5133991837501526e-09,
+          "loss_error": 6.811959396557654e-08
+        },
+        {
+          "check": "repeated_unequal_finite_evaluation",
+          "status": "restarted_and_stopped_together"
+        },
+        {
+          "check": "one_rank_empty_evaluation",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_nonfinite_gradient_nan",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_nonfinite_gradient_inf",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_nonfinite_reward",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_checksum_failure",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_save_failure",
+          "status": "all_stopped"
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_False_scale_1.0",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_False_scale_1e-08",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_False_scale_1e-10",
+          "max_weight_error": 1.4551915228366852e-11
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_True_scale_1.0",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_True_scale_1e-08",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_True_scale_1e-10",
+          "max_weight_error": 1.4551915228366852e-11
+        }
+      ]
+    },
+    "rank1": {
+      "status": "passed",
+      "checks": [
+        {
+          "check": "loss_func_unequal_dp_update",
+          "max_weight_error": 6.984919309616089e-10,
+          "loss_error": 1.390775046239412e-07
+        },
+        {
+          "check": "loss_func_sft_unequal_dp_update",
+          "max_weight_error": 1.5133991837501526e-09,
+          "loss_error": 6.811959396557654e-08
+        },
+        {
+          "check": "repeated_unequal_finite_evaluation",
+          "status": "restarted_and_stopped_together"
+        },
+        {
+          "check": "one_rank_empty_evaluation",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_nonfinite_gradient_nan",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_nonfinite_gradient_inf",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_nonfinite_reward",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_checksum_failure",
+          "status": "all_stopped"
+        },
+        {
+          "check": "one_rank_save_failure",
+          "status": "all_stopped"
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_False_scale_1.0",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_False_scale_1e-08",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_False_scale_1e-10",
+          "max_weight_error": 1.4551915228366852e-11
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_True_scale_1.0",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_True_scale_1e-08",
+          "max_weight_error": 0.0
+        },
+        {
+          "check": "gpu_params_cpu_offload_amsgrad_True_scale_1e-10",
+          "max_weight_error": 1.4551915228366852e-11
+        }
+      ]
+    }
+  },
+  "alignment_pilots": {
+    "sft": {
+      "before": {
+        "loss": 1.1758556459099054,
+        "accuracy": 0.71534195356071
+      },
+      "after": {
+        "loss": 0.9604788906872272,
+        "accuracy": 0.756461838260293
+      },
+      "steps": 32,
+      "parameters": 134515008,
+      "status": "completed"
+    },
+    "dpo": {
+      "before": {
+        "loss": 0.6931471824645996,
+        "accuracy": 0.0
+      },
+      "after": {
+        "loss": 0.6809677537530661,
+        "accuracy": 0.53125
+      },
+      "steps": 24,
+      "parameters": 134515008,
+      "status": "completed"
+    },
+    "grpo_paired": {
+      "before": {
+        "eval/mean_reward": 0.0,
+        "eval/positive_reward_rate": 0.0
+      },
+      "after": {
+        "eval/mean_reward": 0.0,
+        "eval/positive_reward_rate": 0.0
+      },
+      "steps": 8,
+      "parameters": 134515008,
+      "status": "completed"
+    }
+  },
+  "performance_three_repeats": [
+    {
+      "workload": "dense-full",
+      "parameters": 130433920,
+      "context": 2048,
+      "global_batch": 8,
+      "micro_batch": 2,
+      "mean_step_seconds": 0.22342100518910835,
+      "tokens_per_second": 73332.40662010373,
+      "trial_min_tps": 72869.21924687148,
+      "trial_max_tps": 73715.76564980118,
+      "peak_allocated_gib": 6.89371395111084,
+      "repeats": 3,
+      "warmup_excluded": 10,
+      "measured_steps_per_repeat": 25
+    },
+    {
+      "workload": "dense-recomputed",
+      "parameters": 130433920,
+      "context": 2048,
+      "global_batch": 8,
+      "micro_batch": 2,
+      "mean_step_seconds": 0.29489142099550614,
+      "tokens_per_second": 55559.43250125841,
+      "trial_min_tps": 55326.11817214237,
+      "trial_max_tps": 55887.264512030386,
+      "peak_allocated_gib": 4.649251461029053,
+      "repeats": 3,
+      "warmup_excluded": 10,
+      "measured_steps_per_repeat": 25
+    },
+    {
+      "workload": "moe-loop",
+      "parameters": 55167360,
+      "context": 1024,
+      "global_batch": 8,
+      "micro_batch": 2,
+      "mean_step_seconds": 0.10826129093300552,
+      "tokens_per_second": 75668.78179080084,
+      "trial_min_tps": 74860.88602504159,
+      "trial_max_tps": 76540.95781203738,
+      "peak_allocated_gib": 2.793051242828369,
+      "repeats": 3,
+      "warmup_excluded": 10,
+      "measured_steps_per_repeat": 25
+    },
+    {
+      "workload": "moe-batched",
+      "parameters": 55167360,
+      "context": 1024,
+      "global_batch": 8,
+      "micro_batch": 2,
+      "mean_step_seconds": 0.09092894599307329,
+      "tokens_per_second": 90092.32330290119,
+      "trial_min_tps": 89331.11286471804,
+      "trial_max_tps": 90686.04089005434,
+      "peak_allocated_gib": 2.9142518043518066,
+      "repeats": 3,
+      "warmup_excluded": 10,
+      "measured_steps_per_repeat": 25
+    }
+  ],
+  "html_browser": {
+    "status": "passed",
+    "checks": [
+      "run0/rank0 table/timeline",
+      "run0/rank1 table/timeline",
+      "run1/rank0 table/timeline",
+      "run1/rank1 table/timeline",
+      "run2/rank0 table/timeline",
+      "run2/rank1 table/timeline",
+      "run3/rank0 table/timeline",
+      "run3/rank1 table/timeline",
+      "filters/search/zoom/offset",
+      "responsive 390",
+      "responsive 768"
+    ],
+    "javascript_errors": [],
+    "external_requests": []
+  },
+  "limitations": [
+    "GRPO paired held-out exact reward 0 to 0: no reasoning quality improvement demonstrated",
+    "FSDP/EP/optimizer combinations and same-topology resume support are bounded by stage 15",
+    "Negative intermediate runs are retained in separate directories",
+    "No absolute hardware optimum, full-corpus run or scaling-law proof"
+  ]
+}

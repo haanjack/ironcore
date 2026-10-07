@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/hanjack/ironcore/ironcore
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, langsmith-0.9.7, timeout-2.4.0, typeguard-4.5.1, hypothesis-6.151.5, cov-7.0.0, anyio-4.12.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 72 items
+
+tests/unit/trainers/test_training_correctness.py ...................     [ 26%]
+tests/unit/moe/test_expert.py .........                                  [ 38%]
+tests/unit/moe/test_load_balance_loss.py .....................           [ 68%]
+tests/unit/moe/test_moe_utils.py ............                            [ 84%]
+tests/unit/moe/test_router.py ........                                   [ 95%]
+tests/unit/moe/test_training_contract.py ..F                             [100%]
+
+=================================== FAILURES ===================================
+____ test_unverified_ep_trainer_rejected_before_distributed_initialization _____
+tests/unit/moe/test_training_contract.py:96: in test_unverified_ep_trainer_rejected_before_distributed_initialization
+    trainer._initialize()
+ironcore/trainers/base_trainer.py:125: in _initialize
+    raise ValueError(
+E   ValueError: EP>1 trainer requires EP=2, TP=1, world=2 without FSDP/distributed optimizer/offload
+
+During handling of the above exception, another exception occurred:
+tests/unit/moe/test_training_contract.py:95: in test_unverified_ep_trainer_rejected_before_distributed_initialization
+    with pytest.raises(ValueError, match="EP>1 trainer execution is unsupported"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: 'EP>1 trainer execution is unsupported'
+E     Actual message: 'EP>1 trainer requires EP=2, TP=1, world=2 without FSDP/distributed optimizer/offload'
+=========================== short test summary info ============================
+FAILED tests/unit/moe/test_training_contract.py::test_unverified_ep_trainer_rejected_before_distributed_initialization
+========================= 1 failed, 71 passed in 0.40s =========================

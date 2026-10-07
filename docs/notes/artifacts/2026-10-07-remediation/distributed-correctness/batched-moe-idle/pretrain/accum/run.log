@@ -1,0 +1,24 @@
+[2026-10-07 20:34:08,629] Acquiring training resources...
+[2026-10-07 20:34:08,629] Initialize torch distributed ... 
+[2026-10-07 20:34:08,853] Loading evaluation tasks
+[2026-10-07 20:34:08,854] Set random seed to 42 for model initialization
+[2026-10-07 20:34:08,865] Created Language Model
+[2026-10-07 20:34:08,866] Trainable parameters: 41,384 / 41,384 (100.00%)
+[2026-10-07 20:34:08,866] Created Optimizer
+[2026-10-07 20:34:08,866] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:34:08,866] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:34:08,866] Resources acquired successfully.
+[2026-10-07 20:34:08,869] Training start from scratch
+[2026-10-07 20:34:08,869] Training start from step: 0
+[2026-10-07 20:34:09,299] step: 1, loss: 3.4675, lr: 0.000550, grad_norm: 2.0616, step_time: 0.430s (avg: 0.430s), tok/s: 297.7 (avg: 297.7)
+[2026-10-07 20:34:09,333] step: 2, loss: 3.3998, lr: 0.000232, grad_norm: 2.0198, step_time: 0.033s (avg: 0.232s), tok/s: 3845.8 (avg: 552.4)
+[2026-10-07 20:34:09,340] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:34:09,340] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe-idle/pretrain/accum/checkpoint/step_2
+[2026-10-07 20:34:09,357] Checkpoint saved successfully. Checkpoint saved in 0.010s
+[2026-10-07 20:34:09,389] step: 3, loss: 3.3491, lr: 0.000100, grad_norm: 1.9679, step_time: 0.032s (avg: 0.173s), tok/s: 4006.0 (avg: 739.0)
+[2026-10-07 20:34:09,421] step: 4, loss: 3.3377, lr: 0.000100, grad_norm: 1.9611, step_time: 0.031s (avg: 0.138s), tok/s: 4072.7 (avg: 929.0)
+[2026-10-07 20:34:09,426] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:34:09,426] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe-idle/pretrain/accum/checkpoint/step_4
+[2026-10-07 20:34:09,448] Checkpoint saved successfully. Checkpoint saved in 0.010s
+[2026-10-07 20:34:09,448] Total training time: 0.00 hours
+[2026-10-07 20:34:09,449] Finishing training

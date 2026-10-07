@@ -1,0 +1,24 @@
+[2026-10-07 20:28:17,144] Acquiring training resources...
+[2026-10-07 20:28:17,144] Initialize torch distributed ... 
+[2026-10-07 20:28:17,365] Loading evaluation tasks
+[2026-10-07 20:28:17,366] Set random seed to 42 for model initialization
+[2026-10-07 20:28:17,378] Created Language Model
+[2026-10-07 20:28:17,378] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:28:17,378] Created Optimizer
+[2026-10-07 20:28:17,378] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:28:17,379] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:28:17,379] Resources acquired successfully.
+[2026-10-07 20:28:17,381] Training start from scratch
+[2026-10-07 20:28:17,382] Training start from step: 0
+[2026-10-07 20:28:17,783] step: 1, loss: 3.4556, lr: 0.000550, grad_norm: 2.0960, step_time: 0.401s (avg: 0.401s), tok/s: 319.0 (avg: 318.9)
+[2026-10-07 20:28:17,796] step: 2, loss: 3.4053, lr: 0.000232, grad_norm: 2.1302, step_time: 0.013s (avg: 0.207s), tok/s: 9930.7 (avg: 617.8)
+[2026-10-07 20:28:17,806] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:28:17,806] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/full/checkpoint/step_2
+[2026-10-07 20:28:17,823] Checkpoint saved successfully. Checkpoint saved in 0.015s
+[2026-10-07 20:28:17,835] step: 3, loss: 3.3442, lr: 0.000100, grad_norm: 2.0310, step_time: 0.012s (avg: 0.151s), tok/s: 10597.1 (avg: 846.4)
+[2026-10-07 20:28:17,847] step: 4, loss: 3.3418, lr: 0.000100, grad_norm: 2.0830, step_time: 0.011s (avg: 0.116s), tok/s: 11391.5 (avg: 1101.1)
+[2026-10-07 20:28:17,858] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:28:17,858] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/full/checkpoint/step_4
+[2026-10-07 20:28:17,875] Checkpoint saved successfully. Checkpoint saved in 0.014s
+[2026-10-07 20:28:17,875] Total training time: 0.00 hours
+[2026-10-07 20:28:17,875] Finishing training

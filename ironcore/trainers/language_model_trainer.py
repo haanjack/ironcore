@@ -106,25 +106,26 @@ class LanguageModelTrainer(BaseTrainer):
             Tuple of (loss, accuracy)
         """
         input_ids = batch["input_ids"]
-        labels = batch["labels"]
-
+        model_kwargs = {
+            key: batch[key] for key in ("position_ids", "attention_mask") if key in batch
+        }
         with torch.no_grad(), self.context["autocast"]:
-            logits, _ = self.model(input_ids, labels=None)
+            logits, _ = self.model(input_ids, labels=None, **model_kwargs)
 
+        labels = batch["labels"].to(logits.device, non_blocking=True)
         loss_mask = (labels != -100).float()
-        accuracy = compute_token_accuracy(logits, labels, loss_mask)
-
-        shifted_logits = logits[..., :-1, :].contiguous().float()
-        shifted_labels = labels[..., 1:].contiguous()
-        shifted_mask = loss_mask[..., 1:]
-
+        # LanguageModel returns gathered vocabulary logits. The collator has
+        # already shifted labels to the next token, just as in training.
+        accuracy = compute_token_accuracy(logits, labels, loss_mask, logits_are_parallel=False)
         per_token_losses = torch.nn.functional.cross_entropy(
-            shifted_logits.view(-1, shifted_logits.size(-1)),
-            shifted_labels.view(-1),
+            logits.float().reshape(-1, logits.size(-1)),
+            labels.reshape(-1),
             reduction="none",
-        ).view(shifted_labels.shape)
-        mask_sum = shifted_mask.sum()
-        loss = (per_token_losses * shifted_mask).sum() / (mask_sum if mask_sum > 0 else 1.0)
+        ).view(labels.shape)
+        if "loss_sample_ids" in batch:
+            loss = self.loss_fn(per_token_losses, loss_mask, sample_ids=batch["loss_sample_ids"])
+        else:
+            loss = self.loss_fn(per_token_losses, loss_mask)
 
         return loss.item(), accuracy
 

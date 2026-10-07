@@ -88,3 +88,30 @@ class TestSFTLossMasking:
         _, _, loss_mask = model.get_masks_and_position_ids(input_ids, labels=labels)
 
         assert (loss_mask == 1.0).all(), "No masked tokens means all ones"
+
+
+def test_packed_sft_keeps_documents_isolated_and_causal():
+    """Packed outputs must match two independent causal documents."""
+    model = _make_model()
+    model.config.trainer.use_flash_attn = False
+    first = torch.tensor([[11, 12, 13, 14]])
+    second = torch.tensor([[21, 22, 23, 24]])
+    with torch.no_grad():
+        first_logits, _ = model(first)
+        second_logits, _ = model(second)
+        packed = torch.cat([first, second], dim=1)
+        positions = torch.tensor([[0, 1, 2, 3, 0, 1, 2, 3]])
+        blocks = torch.zeros(1, 8, 8, dtype=torch.bool)
+        blocks[:, :4, :4] = True
+        blocks[:, 4:, 4:] = True
+        # The explicit mask must be respected even if FlashAttention was requested.
+        model.config.trainer.use_flash_attn = True
+        packed_logits, _ = model(packed, position_ids=positions, attention_mask=blocks)
+        torch.testing.assert_close(packed_logits[:, :4], first_logits, atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(packed_logits[:, 4:], second_logits, atol=1e-5, rtol=1e-5)
+        # Future tokens and the preceding packed document cannot affect position 4.
+        changed = packed.clone()
+        changed[:, :4] = 31
+        changed[:, 5:] = 32
+        changed_logits, _ = model(changed, position_ids=positions, attention_mask=blocks)
+        torch.testing.assert_close(changed_logits[:, 4], packed_logits[:, 4], atol=1e-5, rtol=1e-5)

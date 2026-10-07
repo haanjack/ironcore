@@ -1,0 +1,27 @@
+........................................................................ [ 13%]
+........................................................................ [ 26%]
+............................................s..........................s [ 39%]
+........................................................................ [ 52%]
+........................................................s............... [ 66%]
+.........................ss.ssss..............s............... [ 77%]
+........................................................................ [ 90%]
+.............................................ss...                       [100%]
+=============================== warnings summary ===============================
+tests/unit/offload/test_config.py::TestOffloadWithDP::test_weight_offload_dp2_tp1_allowed
+  /home/hanjack/ironcore/ironcore/tests/unit/offload/test_config.py:198: UserWarning: offload.weight_offload requires activation spilling for weight eviction (no_autograd_graph). Enabling offload.activation_spill automatically.
+    _config_validation(config)
+
+tests/unit/offload/test_config.py::TestOffloadWithDP::test_weight_offload_dp4_tp1_allowed
+  /home/hanjack/ironcore/ironcore/tests/unit/offload/test_config.py:225: UserWarning: offload.weight_offload requires activation spilling for weight eviction (no_autograd_graph). Enabling offload.activation_spill automatically.
+    _config_validation(config)
+
+tests/unit/dataloader/test_stateful_resume.py::test_consumed_batch_checkpoint_includes_worker_prefetch_and_packing[0]
+tests/unit/dataloader/test_stateful_resume.py::test_consumed_batch_checkpoint_includes_worker_prefetch_and_packing[2]
+tests/unit/dataloader/test_stateful_resume.py::test_grpo_loader_resumes_shuffled_epochs_and_prefetched_prompts[0]
+tests/unit/dataloader/test_stateful_resume.py::test_grpo_loader_resumes_shuffled_epochs_and_prefetched_prompts[2]
+  /tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+    torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+532 passed, 12 skipped, 42 deselected, 6 warnings, 10 subtests passed in 41.16s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

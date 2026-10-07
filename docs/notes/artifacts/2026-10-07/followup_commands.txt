@@ -1,0 +1,45 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+root=Path('/home/hanjack/ironcore/ironcore')
+for precision in ['float32','bfloat16']:
+    output='/tmp/ironcore-validation-cs336-'+precision
+    cmd=[sys.executable,'scripts/validate_trainers.py','--device','cuda',
+         '--architecture','cs336','--precision',precision,'--steps','4','--output',output]
+    print('Running:', ' '.join(cmd),flush=True)
+    subprocess.run(cmd, cwd=root, check=True)
+# Verify both token/sample averaging through real CUDA/NCCL trainers when chunking.
+subprocess.run([sys.executable,'scripts/validate_trainers.py','--device','cuda',
+    '--architecture','cs336','--tasks','pretrain,sft','--loss-chunk-size','7',
+    '--steps','4','--output','/tmp/ironcore-validation-chunked'], cwd=root, check=True)
+
+jobs=[('130m_matched_plain','130m',8,16,[]),
+      ('130m_matched_compile','130m',8,16,['--compile']),
+      ('130m_mb16_chunk4096','130m',16,64,['--loss-chunk-size','4096']),
+      ('50m_mb32_chunk4096','50m',32,64,['--loss-chunk-size','4096']),
+      ('130m_mb32_chunk4096','130m',32,64,['--loss-chunk-size','4096']),
+      ('130m_profile_fixed','130m',8,16,['--profile'])]
+out=Path('/tmp/ironcore-optimization');out.mkdir()
+for label,model,micro,batch,opts in jobs:
+    path=out/label;path.mkdir()
+    cmd=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=2',
+         'scripts/benchmark_training.py','--data-dir','/tmp/ironcore-corpus','--output',str(path),
+         '--model-size',model,'--context','1024','--micro-batch',str(micro),
+         '--global-batch',str(batch),'--steps','20',*opts]
+    print('Running:',label,flush=True)
+    with (path/'run.log').open('w') as log:
+        monitor_output=(path/'telemetry.csv').open('w')
+        monitor=subprocess.Popen(['nvidia-smi','--query-gpu=timestamp,index,name,temperature.gpu,power.draw,power.limit,clocks.sm,clocks.mem,utilization.gpu,memory.used','--format=csv,noheader,nounits','--loop-ms=1000'],stdout=monitor_output)
+        try:
+            result=subprocess.run(cmd,cwd=root,stdout=log,stderr=log,timeout=900)
+        finally:
+            monitor.terminate();monitor.wait(timeout=10);monitor_output.close()
+    if result.returncode:
+        contents=(path/'run.log').read_text()
+        if 'out of memory' in contents.lower():
+            print(label,'OOM',flush=True)
+        else:
+            raise RuntimeError(label+' failed; see '+str(path/'run.log'))
+print('All follow-up validations completed',flush=True)

@@ -1,0 +1,50 @@
+[2026-10-07 19:39:06,711] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 19:39:06,711] Acquiring training resources...
+[2026-10-07 19:39:06,711] Initialize torch distributed ... 
+[2026-10-07 19:39:06,946] Loading evaluation tasks
+[2026-10-07 19:39:06,947] Set random seed to 42 for model initialization
+[2026-10-07 19:39:06,955] Created Language Model
+[2026-10-07 19:39:06,955] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 19:39:06,956] Created Optimizer
+[2026-10-07 19:39:06,957] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 19:39:06,957] Resources acquired successfully.
+[2026-10-07 19:39:06,958] Training start from scratch
+[2026-10-07 19:39:06,958] Creating reference model with beta=0.5
+[2026-10-07 19:39:06,958] Creating reference model from policy weights...
+[2026-10-07 19:39:06,961] Training start from step: 0
+[2026-10-07 19:39:07,393] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.2438, step_time: 0.432s (avg: 0.432s), tok/s: 296.4 (avg: 296.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:39:07,403] step: 1, dpo_loss: 0.4647, margin: 1.1727, accuracy: 1.0000
+[2026-10-07 19:39:07,403] step: 2, loss: 0.4647, lr: 0.000232, grad_norm: 6.9137, step_time: 0.009s (avg: 0.221s), tok/s: 13535.8 (avg: 579.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:39:07,413] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:39:07,413] Saving checkpoint to /tmp/ironcore-remediation-ad-bf16/dpo/full_resume/checkpoint/step_2
+[2026-10-07 19:39:07,424] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 19:39:07,424] Training stopped by exit interval: 2
+[2026-10-07 19:39:07,424] Total training time: 0.00 hours
+[2026-10-07 19:39:07,424] Finishing training
+[2026-10-07 19:39:15,007] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 19:39:15,007] Acquiring training resources...
+[2026-10-07 19:39:15,007] Initialize torch distributed ... 
+[2026-10-07 19:39:15,235] Loading evaluation tasks
+[2026-10-07 19:39:15,236] Set random seed to 42 for model initialization
+[2026-10-07 19:39:15,244] Created Language Model
+[2026-10-07 19:39:15,244] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 19:39:15,245] Created Optimizer
+[2026-10-07 19:39:15,246] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 19:39:15,246] Resources acquired successfully.
+[2026-10-07 19:39:15,247] Loading checkpoint from /tmp/ironcore-remediation-ad-bf16/dpo/full_resume/checkpoint/step_2
+[2026-10-07 19:39:15,256] Loading optimizer state dict.
+[2026-10-07 19:39:15,256] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.01s
+[2026-10-07 19:39:15,256] Successfully loaded checkpoint: /tmp/ironcore-remediation-ad-bf16/dpo/full_resume/checkpoint (resuming from step 2)
+[2026-10-07 19:39:15,256] Skipping 2 consumed micro-batches to resume data position (16 samples on this rank).
+[2026-10-07 19:39:15,257] Creating reference model with beta=0.5
+[2026-10-07 19:39:15,257] Creating reference model from policy weights...
+[2026-10-07 19:39:15,261] Training start from step: 2
+[2026-10-07 19:39:15,684] step: 2, dpo_loss: 0.3305, margin: 2.0233, accuracy: 1.0000
+[2026-10-07 19:39:15,684] step: 3, loss: 0.3305, lr: 0.000100, grad_norm: 5.1979, step_time: 0.423s (avg: 0.423s), tok/s: 302.9 (avg: 302.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:39:15,694] step: 3, dpo_loss: 0.3081, margin: 2.1619, accuracy: 1.0000
+[2026-10-07 19:39:15,694] step: 4, loss: 0.3081, lr: 0.000100, grad_norm: 4.9302, step_time: 0.010s (avg: 0.216s), tok/s: 12875.8 (avg: 591.3), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:39:15,705] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:39:15,705] Saving checkpoint to /tmp/ironcore-remediation-ad-bf16/dpo/full_resume/checkpoint/step_4
+[2026-10-07 19:39:15,715] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 19:39:15,715] Total training time: 0.00 hours
+[2026-10-07 19:39:15,715] Finishing training

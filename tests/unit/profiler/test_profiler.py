@@ -330,20 +330,20 @@ class TestProfileManager:
 
     # B1 — manual start activates
     def test_start_sets_is_active(self, tmp_path):
-        pm = _make_profile_manager(tmp_path)
+        pm = _make_profile_manager(tmp_path, comm_profiler=True)
         pm.start()
         assert pm.is_active is True
 
     # B1 — stop deactivates
     def test_stop_clears_is_active(self, tmp_path):
-        pm = _make_profile_manager(tmp_path)
+        pm = _make_profile_manager(tmp_path, comm_profiler=True)
         pm.start()
         pm.stop()
         assert pm.is_active is False
 
     # B1 — step() triggers start at configured step
     def test_step_triggers_start_at_configured_step(self, tmp_path):
-        pm = _make_profile_manager(tmp_path, start=2, end=10)
+        pm = _make_profile_manager(tmp_path, comm_profiler=True, start=2, end=10)
         pm.step(1)
         assert pm.is_active is False
         pm.step(2)
@@ -351,7 +351,7 @@ class TestProfileManager:
 
     # B1 — step() triggers stop at configured end
     def test_step_triggers_stop_at_configured_end(self, tmp_path):
-        pm = _make_profile_manager(tmp_path, start=2, end=4)
+        pm = _make_profile_manager(tmp_path, comm_profiler=True, start=2, end=4)
         pm.step(2)
         assert pm.is_active is True
         pm.step(4)
@@ -359,7 +359,7 @@ class TestProfileManager:
 
     # B1 — active between start and end, inactive before and after
     def test_active_window_is_correct(self, tmp_path):
-        pm = _make_profile_manager(tmp_path, start=3, end=5)
+        pm = _make_profile_manager(tmp_path, comm_profiler=True, start=3, end=5)
         for step in [1, 2]:
             pm.step(step)
             assert pm.is_active is False
@@ -370,9 +370,25 @@ class TestProfileManager:
         pm.step(5)
         assert pm.is_active is False
 
+    def test_torch_schedule_does_not_advance_before_start_or_after_stop(self, tmp_path):
+        pm = _make_profile_manager(tmp_path, comm_profiler=True, start=3, end=5)
+        pm.torch_profiler = mock.MagicMock()
+        pm.step(0)
+        pm.step(2)
+        pm.torch_profiler.step.assert_not_called()
+        with mock.patch.object(pm, "_export_trace_formats"):
+            pm.step(3)
+            pm.step(4)
+            pm.step(5)
+        assert pm.torch_profiler.step.call_count == 3
+        pm.torch_profiler.start.assert_called_once()
+        pm.torch_profiler.stop.assert_called_once()
+        pm.step(6)
+        assert pm.torch_profiler.step.call_count == 3
+
     # B9 — CUDA synchronize called in start()
     def test_cuda_synchronize_called_before_capture(self, tmp_path):
-        pm = _make_profile_manager(tmp_path)
+        pm = _make_profile_manager(tmp_path, comm_profiler=True)
         with (
             mock.patch("torch.cuda.is_available", return_value=True),
             mock.patch("torch.cuda.synchronize") as mock_sync,
@@ -442,6 +458,7 @@ class TestProfileManager:
 
         with (
             mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.synchronize"),
             mock.patch("torch.cuda.memory._record_memory_history"),
             mock.patch("torch.cuda.memory._dump_snapshot", side_effect=fake_dump),
         ):
@@ -464,6 +481,7 @@ class TestProfileManager:
         pm = _make_profile_manager(tmp_path, memory_snapshot=True)
         with (
             mock.patch("torch.cuda.is_available", return_value=True),
+            mock.patch("torch.cuda.synchronize"),
             mock.patch("torch.cuda.memory._record_memory_history"),
             mock.patch("torch.cuda.memory._dump_snapshot", side_effect=RuntimeError("disk full")),
         ):
@@ -557,7 +575,7 @@ class TestProfileManager:
     def test_version_increments_when_previous_exists(self, tmp_path):
         (tmp_path / "myrun_v0.json").touch()
         (tmp_path / "myrun_v1.json").touch()
-        pm = _make_profile_manager(tmp_path, name="myrun")
+        pm = _make_profile_manager(tmp_path, comm_profiler=True, name="myrun")
         assert pm.current_version == "v2"
 
 
@@ -699,3 +717,27 @@ class TestBaseModuleHooks:
         m.register_profile_hooks(layer_timing=True)
         assert m._timing_collector is not None
         assert m._timing_collector is get_layer_timing_collector()
+
+
+def test_csv_export_accepts_modern_device_time_attribute(tmp_path):
+    import csv
+    from types import SimpleNamespace
+
+    manager = _make_profile_manager(tmp_path, export_csv=True)
+    event = SimpleNamespace(
+        key="operator", cpu_time_total=20, device_time_total=10, count=2, flops=0
+    )
+    manager.torch_profiler = SimpleNamespace(key_averages=lambda: [event])
+    manager._export_trace_formats()
+    path = next(tmp_path.glob("*_key_averages.csv"))
+    with path.open() as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert int(rows[0]["cuda_time_total_us"]) == 10
+    assert int(rows[0]["cuda_time_avg_us"]) == 5
+
+
+def test_version_tracks_ranked_chrome_exports(tmp_path):
+    (tmp_path / "myrun_v2_rank0_chrome.json").touch()
+    manager = _make_profile_manager(tmp_path, name="myrun", comm_profiler=True)
+    assert manager.current_version == "v3"

@@ -1,0 +1,23 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/hanjack/ironcore/ironcore
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, langsmith-0.9.7, timeout-2.4.0, typeguard-4.5.1, hypothesis-6.151.5, cov-7.0.0, anyio-4.12.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+tests/unit/trainers/test_alignment_data_boundaries.py F                  [100%]
+
+=================================== FAILURES ===================================
+_______ test_response_mask_includes_bpe_token_crossing_template_boundary _______
+tests/unit/trainers/test_alignment_data_boundaries.py:28: in test_response_mask_includes_bpe_token_crossing_template_boundary
+    assert full[: len(prefix)] != prefix  # Actual BPE merge, not a mocked encoding.
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   assert [23, 1, 24, 13, 29, 1, ...] != [23, 1, 24, 13, 29, 1, ...]
+----------------------------- Captured stdout call -----------------------------
+
+
+
+=========================== short test summary info ============================
+FAILED tests/unit/trainers/test_alignment_data_boundaries.py::test_response_mask_includes_bpe_token_crossing_template_boundary
+============================== 1 failed in 0.12s ===============================

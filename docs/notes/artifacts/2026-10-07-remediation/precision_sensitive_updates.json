@@ -1,0 +1,19 @@
+{
+  "float32": {
+    "initial": 1.0,
+    "final": 0.9499917030334473,
+    "steps": 1000,
+    "moment_dtype": "torch.float32"
+  },
+  "bfloat16": {
+    "initial": 1.0,
+    "final": 1.0,
+    "steps": 1000,
+    "moment_dtype": "torch.float32"
+  },
+  "epsilon_oracle": {
+    "gradient": 1e-08,
+    "old_update": 3.0653430031715525e-05,
+    "correct_update": 0.0005000000000000001
+  }
+}

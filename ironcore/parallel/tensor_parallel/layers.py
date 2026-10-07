@@ -79,6 +79,7 @@ class VocabParallelEmbedding(ParallelLinear):
             input_dim // parallel_states.get_tensor_model_parallel_world_size()
         )
         super().__init__(config, input_size=self.parallel_input_dim, output_size=embedding_dim)
+        self.weight.tp_shard_dim = 0
 
         self.padding_start_idx = padding_start_idx
         self.parallel_input = parallel_input
@@ -187,6 +188,8 @@ class ColumnParallelLinear(ParallelLinear):
         self.weight.tp_concatenated_weights = concatenated_weights
         if self.bias is not None:
             self.bias.is_tp_sharded = True
+            self.bias.tp_shard_dim = 0
+            self.bias.tp_concatenated_weights = concatenated_weights
 
     def forward(self, x):
         parallel_x = comm.copy_inputs_to_model_parallel_workers(x)

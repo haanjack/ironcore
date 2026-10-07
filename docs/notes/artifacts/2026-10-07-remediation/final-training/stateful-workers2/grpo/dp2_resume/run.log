@@ -1,0 +1,75 @@
+[2026-10-07 21:01:23,283] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 21:01:23,283] Acquiring training resources...
+[2026-10-07 21:01:23,283] Initialize torch distributed ... 
+/tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+  torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+[2026-10-07 21:01:23,533] Loading evaluation tasks
+/tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+  torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+[2026-10-07 21:01:23,534] Set random seed to 42 for model initialization
+[2026-10-07 21:01:23,542] Created Language Model
+[2026-10-07 21:01:23,542] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:01:23,542] Created Optimizer
+[2026-10-07 21:01:23,579] Resources acquired successfully.
+[2026-10-07 21:01:23,610] Training start from scratch
+[2026-10-07 21:01:23,610] Creating reference model for GRPO...
+[2026-10-07 21:01:23,610] Creating reference model from policy weights...
+[2026-10-07 21:01:23,614] Reference model created on GPU (device=cuda:0)
+[2026-10-07 21:01:23,614] [VRAM] After ref model creation: allocated=0.00 GB, reserved=0.00 GB
+[2026-10-07 21:01:23,614] Initializing reward worker via RewardManager...
+[2026-10-07 21:01:23,614] Training start from step: 0
+[2026-10-07 21:01:27,315] [VRAM] After rollout: peak=0.03 GB
+[2026-10-07 21:01:27,364] [VRAM] After ref log probs: peak=0.03 GB
+[2026-10-07 21:01:27,502] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:01:27,502] step: 1, loss: -0.0533, lr: 0.000232, grad_norm: 3.7941, step_time: 3.887s (avg: 3.888s), tok/s: 32.9 (avg: 32.9), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:01:27,507] [VRAM] After rollout: peak=0.06 GB
+[2026-10-07 21:01:27,514] [VRAM] After ref log probs: peak=0.06 GB
+[2026-10-07 21:01:27,540] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:01:27,541] step: 1, grpo_loss: -0.0098, policy_loss: -0.0119, kl_loss: 0.0021, mean_reward: 0.7500, mean_ratio: 1.0056, clip_frac: 0.000
+[2026-10-07 21:01:27,541] step: 2, loss: -0.0098, lr: 0.000100, grad_norm: 3.5414, step_time: 0.038s (avg: 1.963s), tok/s: 3359.8 (avg: 65.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:01:31,033] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:01:31,033] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/stateful-workers2/grpo/dp2_resume/checkpoint/step_2
+[2026-10-07 21:01:31,048] Checkpoint saved successfully. Checkpoint saved in 0.012s
+[2026-10-07 21:01:31,049] Training stopped by exit interval: 2
+[2026-10-07 21:01:31,049] Total training time: 0.00 hours
+[2026-10-07 21:01:31,049] Finishing training
+[2026-10-07 21:01:31,057] GRPO evaluation at step 4: {'eval/mean_reward': 0.75, 'eval/positive_reward_rate': 1.0}
+[2026-10-07 21:01:40,157] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 21:01:40,157] Acquiring training resources...
+[2026-10-07 21:01:40,157] Initialize torch distributed ... 
+/tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+  torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+/tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+  torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+[2026-10-07 21:01:40,397] Loading evaluation tasks
+[2026-10-07 21:01:40,398] Set random seed to 42 for model initialization
+[2026-10-07 21:01:40,405] Created Language Model
+[2026-10-07 21:01:40,405] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:01:40,405] Created Optimizer
+[2026-10-07 21:01:40,442] Resources acquired successfully.
+[2026-10-07 21:01:40,472] Loading checkpoint from /tmp/ironcore-remediation-final-validation-v2/stateful-workers2/grpo/dp2_resume/checkpoint/step_2
+[2026-10-07 21:01:40,480] Loading optimizer state dict.
+[2026-10-07 21:01:40,481] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.01s
+[2026-10-07 21:01:40,481] Successfully loaded checkpoint: /tmp/ironcore-remediation-final-validation-v2/stateful-workers2/grpo/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 21:01:40,483] Creating reference model for GRPO...
+[2026-10-07 21:01:40,483] Creating reference model from policy weights...
+[2026-10-07 21:01:40,486] Reference model created on GPU (device=cuda:0)
+[2026-10-07 21:01:40,486] [VRAM] After ref model creation: allocated=0.00 GB, reserved=0.00 GB
+[2026-10-07 21:01:40,486] Initializing reward worker via RewardManager...
+[2026-10-07 21:01:47,421] Training start from step: 2
+[2026-10-07 21:01:47,643] [VRAM] After rollout: peak=0.03 GB
+[2026-10-07 21:01:47,692] [VRAM] After ref log probs: peak=0.03 GB
+[2026-10-07 21:01:47,830] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:01:47,831] step: 2, grpo_loss: -0.0024, policy_loss: -0.0053, kl_loss: 0.0029, mean_reward: 0.7500, mean_ratio: 1.0023, clip_frac: 0.000
+[2026-10-07 21:01:47,831] step: 3, loss: -0.0024, lr: 0.000100, grad_norm: 3.5114, step_time: 0.408s (avg: 0.409s), tok/s: 313.3 (avg: 312.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:01:47,836] [VRAM] After rollout: peak=0.06 GB
+[2026-10-07 21:01:47,843] [VRAM] After ref log probs: peak=0.06 GB
+[2026-10-07 21:01:47,869] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:01:47,869] step: 3, grpo_loss: -0.0016, policy_loss: -0.0050, kl_loss: 0.0034, mean_reward: 0.7500, mean_ratio: 1.0022, clip_frac: 0.000
+[2026-10-07 21:01:47,869] step: 4, loss: -0.0016, lr: 0.000100, grad_norm: 3.4733, step_time: 0.038s (avg: 0.224s), tok/s: 3360.8 (avg: 571.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:01:47,885] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:01:47,885] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/stateful-workers2/grpo/dp2_resume/checkpoint/step_4
+[2026-10-07 21:01:47,906] Checkpoint saved successfully. Checkpoint saved in 0.016s
+[2026-10-07 21:01:47,906] Total training time: 0.00 hours
+[2026-10-07 21:01:47,906] Finishing training
+[2026-10-07 21:01:47,914] GRPO evaluation at step 4: {'eval/mean_reward': 0.75, 'eval/positive_reward_rate': 1.0}

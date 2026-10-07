@@ -1,0 +1,108 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+[2026-10-07 21:15:03,883] Acquiring training resources...
+[2026-10-07 21:15:03,883] Initialize torch distributed ... 
+[2026-10-07 21:15:04,195] Loading evaluation tasks
+[2026-10-07 21:15:04,196] Set random seed to 42 for model initialization
+[2026-10-07 21:15:05,037] Created Language Model
+[2026-10-07 21:15:05,038] Trainable parameters: 130,433,920 / 130,433,920 (100.00%)
+[2026-10-07 21:15:05,038] Created Optimizer
+[2026-10-07 21:15:05,665] Compiled model with options: {'backend': 'inductor', 'dynamic': False, 'fullgraph': False, 'mode': 'default'}
+[2026-10-07 21:15:05,702] Resources acquired successfully.
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] Graph break from `Tensor.item()`, consider setting:
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     torch._dynamo.config.capture_scalar_outputs = True
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] or:
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     env TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS=1
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] to include these operations in the captured graph.
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] 
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] Graph break: from user code at:
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/language_model.py", line 151, in forward
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     model_out = self.model(
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/models/transformer.py", line 447, in forward
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     layer_out = layer(
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/models/transformer.py", line 335, in forward
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     return self.custom_forward(
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/models/transformer.py", line 244, in custom_forward
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     query = rotary_pos_emb.forward(query, position_ids)
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/layers/positional_embedding/rotary.py", line 56, in forward
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     max_pos = position_ids.max().item()
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] 
+[rank1]:W1007 21:15:05.900000 1999669 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] 
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] Graph break from `Tensor.item()`, consider setting:
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     torch._dynamo.config.capture_scalar_outputs = True
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] or:
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     env TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS=1
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] to include these operations in the captured graph.
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] 
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] Graph break: from user code at:
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/language_model.py", line 151, in forward
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     model_out = self.model(
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/models/transformer.py", line 447, in forward
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     layer_out = layer(
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/models/transformer.py", line 335, in forward
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     return self.custom_forward(
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/models/transformer.py", line 244, in custom_forward
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     query = rotary_pos_emb.forward(query, position_ids)
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]   File "/tmp/ironcore-remediation-final-v6-src/ironcore/layers/positional_embedding/rotary.py", line 56, in forward
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0]     max_pos = position_ids.max().item()
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] 
+[rank0]:W1007 21:15:05.900000 1999668 site-packages/torch/_dynamo/variables/tensor.py:1612] [0/0] 
+[2026-10-07 21:15:09,418] Training start from scratch
+[2026-10-07 21:15:09,419] Training start from step: 0
+[2026-10-07 21:15:15,874] step: 10, loss: 8.2841, lr: 0.000299, grad_norm: 13.5547, step_time: 0.636s (avg: 0.646s), tok/s: 12889.4 (avg: 12689.9), TFLOPS/s/GPU: 5.04 (avg: 4.97)
+[2026-10-07 21:15:17,131] step: 20, loss: 6.3166, lr: 0.000190, grad_norm: 2.0298, step_time: 0.116s (avg: 0.386s), tok/s: 70908.2 (avg: 21243.6), TFLOPS/s/GPU: 27.75 (avg: 8.31)
+[2026-10-07 21:15:18,390] step: 30, loss: 5.5681, lr: 0.000047, grad_norm: 8.3392, step_time: 0.116s (avg: 0.299s), tok/s: 70800.4 (avg: 27395.1), TFLOPS/s/GPU: 27.71 (avg: 10.72)
+[2026-10-07 21:15:19,017] Skip checkpoint saving since no-save flag is set
+[2026-10-07 21:15:19,017] Total training time: 0.00 hours
+[2026-10-07 21:15:19,017] Finishing training
+{
+  "model_size_label": "130m",
+  "parameters_local": 130433920,
+  "parameters_full": 130433920,
+  "active_parameters_per_token_estimate": 130433920,
+  "moe": false,
+  "moe_config": null,
+  "expert_stats": {},
+  "world_size": 2,
+  "tp": 1,
+  "ep": 1,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "context": 1024,
+  "micro_batch": 2,
+  "global_batch": 8,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "attention": "sdpa",
+  "compile": true,
+  "activation_recompute": false,
+  "loss_chunk_size": null,
+  "seed": 42,
+  "torch": "2.12.0+cu130",
+  "recompute_linear_ce": false,
+  "moe_backend": "loop",
+  "profile": false,
+  "profile_ranks": [
+    0
+  ],
+  "profiler_schedule": {
+    "start": 11,
+    "end": 15,
+    "wait": 1,
+    "warmup": 1,
+    "active": 2
+  },
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "steps": 35,
+  "warmup_steps_excluded": 10,
+  "mean_step_seconds": 0.12558081944938748,
+  "median_step_seconds": 0.12551445001736283,
+  "p95_step_seconds": 0.12689100799616426,
+  "global_tokens_per_second": 65232.89174189217,
+  "peak_allocated_bytes": 4958752256,
+  "peak_reserved_bytes": 5471469568,
+  "initial_heldout_loss": 10.946521759033203,
+  "final_heldout_loss": 5.509336471557617
+}

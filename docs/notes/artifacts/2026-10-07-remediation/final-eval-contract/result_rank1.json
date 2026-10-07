@@ -1,0 +1,67 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "check": "loss_func_unequal_dp_update",
+      "max_weight_error": 6.984919309616089e-10,
+      "loss_error": 1.390775046239412e-07
+    },
+    {
+      "check": "loss_func_sft_unequal_dp_update",
+      "max_weight_error": 1.5133991837501526e-09,
+      "loss_error": 6.811959396557654e-08
+    },
+    {
+      "check": "repeated_unequal_finite_evaluation",
+      "status": "restarted_and_stopped_together"
+    },
+    {
+      "check": "one_rank_empty_evaluation",
+      "status": "all_stopped"
+    },
+    {
+      "check": "one_rank_nonfinite_gradient_nan",
+      "status": "all_stopped"
+    },
+    {
+      "check": "one_rank_nonfinite_gradient_inf",
+      "status": "all_stopped"
+    },
+    {
+      "check": "one_rank_nonfinite_reward",
+      "status": "all_stopped"
+    },
+    {
+      "check": "one_rank_checksum_failure",
+      "status": "all_stopped"
+    },
+    {
+      "check": "one_rank_save_failure",
+      "status": "all_stopped"
+    },
+    {
+      "check": "gpu_params_cpu_offload_amsgrad_False_scale_1.0",
+      "max_weight_error": 0.0
+    },
+    {
+      "check": "gpu_params_cpu_offload_amsgrad_False_scale_1e-08",
+      "max_weight_error": 0.0
+    },
+    {
+      "check": "gpu_params_cpu_offload_amsgrad_False_scale_1e-10",
+      "max_weight_error": 1.4551915228366852e-11
+    },
+    {
+      "check": "gpu_params_cpu_offload_amsgrad_True_scale_1.0",
+      "max_weight_error": 0.0
+    },
+    {
+      "check": "gpu_params_cpu_offload_amsgrad_True_scale_1e-08",
+      "max_weight_error": 0.0
+    },
+    {
+      "check": "gpu_params_cpu_offload_amsgrad_True_scale_1e-10",
+      "max_weight_error": 1.4551915228366852e-11
+    }
+  ]
+}

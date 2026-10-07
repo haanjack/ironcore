@@ -1,0 +1,127 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": true,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "grpo_objective": "grpo",
+  "stateful_data": false,
+  "data_workers": 0,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "recompute_linear_ce": false,
+  "moe_backend": "loop",
+  "baseline_case": "full",
+  "checks": [
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0014207735657691956,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0017412863671779633,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "online": {
+        "task": "grpo",
+        "case": "full",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 41376,
+        "losses": [
+          -0.006206556223332882,
+          -0.0007600980807183078
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5625,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.6808366508921608,
+        "peak_allocated_bytes": 75032064,
+        "peak_reserved_bytes": 94371840,
+        "max_weight_change": 0.0017513521015644073
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "online": {
+        "task": "grpo",
+        "case": "dp2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 41376,
+        "losses": [
+          -0.006495568435639143,
+          -0.002307713031768799
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.65625,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.8322930280119181,
+        "peak_allocated_bytes": 72094208,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.0017508678138256073
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "online": {
+        "task": "grpo",
+        "case": "tp2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 41376,
+        "losses": [
+          -0.00860326737165451,
+          -0.0018584709614515305
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5625,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.904749822919257,
+        "peak_allocated_bytes": 71669760,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.001751430332660675
+      }
+    }
+  ]
+}

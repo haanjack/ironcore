@@ -1,0 +1,38 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[2026-10-07 15:41:04,857] Acquiring training resources...
+[2026-10-07 15:41:05,210] Initialize torch distributed ... 
+[2026-10-07 15:41:05,422] Loading evaluation tasks
+[2026-10-07 15:41:05,423] Set random seed to 42 for model initialization
+[2026-10-07 15:41:06,365] Created Language Model
+[2026-10-07 15:41:06,366] Trainable parameters: 130,433,920 / 130,433,920 (100.00%)
+[2026-10-07 15:41:06,366] Created Optimizer
+[2026-10-07 15:41:06,402] Resources acquired successfully.
+[2026-10-07 15:41:06,436] Training start from scratch
+[2026-10-07 15:41:06,437] Training start from step: 0
+
+==================================================
+  Memory Breakdown
+==================================================
+  Model Parameters:
+    Trainable:         248.0 MiB
+    Frozen:              0.0 MiB
+  Gradients:              0.0 MiB
+  Optimizer States:      995.0 MiB (188 tensors)
+  Activations:          286.0 MiB (estimated)
+  ----------------------------------------
+  Current Allocated:   1529.0 MiB
+  Peak Allocated:     18009.0 MiB
+  Reserved:           21178.0 MiB
+==================================================
+
+[2026-10-07 15:41:07,384] step: 1, loss: 10.9453, lr: 0.000232, grad_norm: 1.4663, step_time: 0.945s (avg: 0.946s), tok/s: 69316.3 (avg: 69310.9), TFLOPS/s/GPU: 27.13 (avg: 27.13)
+[2026-10-07 15:41:08,061] step: 2, loss: 10.9458, lr: 0.000098, grad_norm: 1.0528, step_time: 0.678s (avg: 0.812s), tok/s: 96728.5 (avg: 80697.4), TFLOPS/s/GPU: 37.86 (avg: 31.58)
+[2026-10-07 15:41:08,762] step: 3, loss: 10.9438, lr: 0.000030, grad_norm: 0.8578, step_time: 0.701s (avg: 0.775s), tok/s: 93531.9 (avg: 84558.3), TFLOPS/s/GPU: 36.60 (avg: 33.09)
+[2026-10-07 15:41:09,459] step: 4, loss: 10.9373, lr: 0.000030, grad_norm: 0.7934, step_time: 0.697s (avg: 0.756s), tok/s: 94062.7 (avg: 86744.9), TFLOPS/s/GPU: 36.81 (avg: 33.95)
+[2026-10-07 15:41:09,459] Skip checkpoint saving since no-save flag is set
+[2026-10-07 15:41:09,459] Total training time: 0.00 hours
+[2026-10-07 15:41:09,459] Finishing training

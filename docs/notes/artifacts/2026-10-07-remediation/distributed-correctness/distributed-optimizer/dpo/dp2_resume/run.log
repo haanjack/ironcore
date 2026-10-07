@@ -1,0 +1,50 @@
+[2026-10-07 20:18:10,128] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:18:10,128] Acquiring training resources...
+[2026-10-07 20:18:10,129] Initialize torch distributed ... 
+[2026-10-07 20:18:10,368] Loading evaluation tasks
+[2026-10-07 20:18:10,369] Set random seed to 42 for model initialization
+[2026-10-07 20:18:10,378] Created Language Model
+[2026-10-07 20:18:10,378] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:18:10,378] Created Optimizer
+[2026-10-07 20:18:10,378] Wrapped optimizer with DistributedOptimizer (bucket_cap=25.0MB)
+[2026-10-07 20:18:10,415] Resources acquired successfully.
+[2026-10-07 20:18:10,444] Training start from scratch
+[2026-10-07 20:18:10,444] Creating reference model with beta=0.5
+[2026-10-07 20:18:10,444] Creating reference model from policy weights...
+[2026-10-07 20:18:10,448] Training start from step: 0
+[2026-10-07 20:18:10,821] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.5699, step_time: 0.374s (avg: 0.374s), tok/s: 342.7 (avg: 342.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:10,836] step: 1, dpo_loss: 0.4640, margin: 0.6419, accuracy: 1.0000
+[2026-10-07 20:18:10,836] step: 2, loss: 0.4640, lr: 0.000232, grad_norm: 7.1181, step_time: 0.015s (avg: 0.194s), tok/s: 8823.3 (avg: 659.1), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:10,868] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:18:10,868] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/dpo/dp2_resume/checkpoint/step_2
+[2026-10-07 20:18:10,885] Checkpoint saved successfully. Checkpoint saved in 0.032s
+[2026-10-07 20:18:10,885] Training stopped by exit interval: 2
+[2026-10-07 20:18:10,885] Total training time: 0.00 hours
+[2026-10-07 20:18:10,885] Finishing training
+[2026-10-07 20:18:18,396] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:18:18,396] Acquiring training resources...
+[2026-10-07 20:18:18,396] Initialize torch distributed ... 
+[2026-10-07 20:18:18,636] Loading evaluation tasks
+[2026-10-07 20:18:18,637] Set random seed to 42 for model initialization
+[2026-10-07 20:18:18,645] Created Language Model
+[2026-10-07 20:18:18,646] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:18:18,646] Created Optimizer
+[2026-10-07 20:18:18,646] Wrapped optimizer with DistributedOptimizer (bucket_cap=25.0MB)
+[2026-10-07 20:18:18,682] Resources acquired successfully.
+[2026-10-07 20:18:18,712] Loading checkpoint from /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/dpo/dp2_resume/checkpoint/step_2
+[2026-10-07 20:18:18,720] Loading optimizer state dict.
+[2026-10-07 20:18:18,721] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.01s
+[2026-10-07 20:18:18,721] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/dpo/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:18:18,721] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:18:18,721] Creating reference model with beta=0.5
+[2026-10-07 20:18:18,721] Creating reference model from policy weights...
+[2026-10-07 20:18:18,727] Training start from step: 2
+[2026-10-07 20:18:19,096] step: 2, dpo_loss: 0.3253, margin: 1.6600, accuracy: 1.0000
+[2026-10-07 20:18:19,096] step: 3, loss: 0.3253, lr: 0.000100, grad_norm: 5.2673, step_time: 0.369s (avg: 0.369s), tok/s: 346.9 (avg: 346.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:19,111] step: 3, dpo_loss: 0.3024, margin: 1.6713, accuracy: 1.0000
+[2026-10-07 20:18:19,111] step: 4, loss: 0.3024, lr: 0.000100, grad_norm: 5.0185, step_time: 0.015s (avg: 0.192s), tok/s: 8690.0 (avg: 666.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:19,139] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:18:19,139] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/dpo/dp2_resume/checkpoint/step_4
+[2026-10-07 20:18:19,153] Checkpoint saved successfully. Checkpoint saved in 0.025s
+[2026-10-07 20:18:19,153] Total training time: 0.00 hours
+[2026-10-07 20:18:19,153] Finishing training

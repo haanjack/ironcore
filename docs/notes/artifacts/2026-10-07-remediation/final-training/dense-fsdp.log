@@ -1,0 +1,74 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+[2026-10-07 21:14:22,144] Acquiring training resources...
+[2026-10-07 21:14:22,144] Initialize torch distributed ... 
+[2026-10-07 21:14:22,408] Loading evaluation tasks
+[2026-10-07 21:14:22,409] Set random seed to 42 for model initialization
+[2026-10-07 21:14:23,239] Created Language Model
+[2026-10-07 21:14:23,240] Trainable parameters: 130,433,920 / 130,433,920 (100.00%)
+[2026-10-07 21:14:23,241] Created Optimizer
+[2026-10-07 21:14:23,241] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/tmp/ironcore-remediation-final-v6-src/ironcore/parallel/parallel.py:251: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+/tmp/ironcore-remediation-final-v6-src/ironcore/parallel/parallel.py:251: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+[2026-10-07 21:14:23,262] Resources acquired successfully.
+[2026-10-07 21:14:23,577] Training start from scratch
+[2026-10-07 21:14:23,577] Training start from step: 0
+[2026-10-07 21:14:25,155] step: 10, loss: 8.2836, lr: 0.000299, grad_norm: 13.9006, step_time: 0.154s (avg: 0.158s), tok/s: 53288.5 (avg: 51919.9), TFLOPS/s/GPU: 20.85 (avg: 20.32)
+[2026-10-07 21:14:26,682] step: 20, loss: 6.2911, lr: 0.000190, grad_norm: 1.9120, step_time: 0.148s (avg: 0.155s), tok/s: 55174.2 (avg: 52781.9), TFLOPS/s/GPU: 21.59 (avg: 20.66)
+[2026-10-07 21:14:28,036] step: 30, loss: 5.5371, lr: 0.000047, grad_norm: 4.0403, step_time: 0.131s (avg: 0.149s), tok/s: 62397.5 (avg: 55119.0), TFLOPS/s/GPU: 24.42 (avg: 21.57)
+[2026-10-07 21:14:28,714] Skip checkpoint saving since no-save flag is set
+[2026-10-07 21:14:28,714] Total training time: 0.00 hours
+[2026-10-07 21:14:28,714] Finishing training
+{
+  "model_size_label": "130m",
+  "parameters_local": 65216960,
+  "parameters_full": 130433920,
+  "active_parameters_per_token_estimate": 130433920,
+  "moe": false,
+  "moe_config": null,
+  "expert_stats": {},
+  "world_size": 2,
+  "tp": 1,
+  "ep": 1,
+  "fsdp": true,
+  "distributed_optimizer": false,
+  "context": 1024,
+  "micro_batch": 2,
+  "global_batch": 8,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "attention": "sdpa",
+  "compile": false,
+  "activation_recompute": false,
+  "loss_chunk_size": null,
+  "seed": 42,
+  "torch": "2.12.0+cu130",
+  "recompute_linear_ce": false,
+  "moe_backend": "loop",
+  "profile": false,
+  "profile_ranks": [
+    0
+  ],
+  "profiler_schedule": {
+    "start": 11,
+    "end": 15,
+    "wait": 1,
+    "warmup": 1,
+    "active": 2
+  },
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "steps": 35,
+  "warmup_steps_excluded": 10,
+  "mean_step_seconds": 0.1422056272951886,
+  "median_step_seconds": 0.13526776002254337,
+  "p95_step_seconds": 0.13657672808039933,
+  "global_tokens_per_second": 57606.72172976076,
+  "peak_allocated_bytes": 4075450368,
+  "peak_reserved_bytes": 5028970496,
+  "initial_heldout_loss": 10.946586608886719,
+  "final_heldout_loss": 5.483371257781982
+}

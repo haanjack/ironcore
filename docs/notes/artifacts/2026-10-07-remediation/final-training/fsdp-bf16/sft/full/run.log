@@ -1,0 +1,23 @@
+[2026-10-07 21:03:06,048] Acquiring training resources...
+[2026-10-07 21:03:06,048] Initialize torch distributed ... 
+[2026-10-07 21:03:06,272] Loading evaluation tasks
+[2026-10-07 21:03:06,273] Set random seed to 42 for model initialization
+[2026-10-07 21:03:06,282] Created Language Model
+[2026-10-07 21:03:06,283] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:03:06,283] Created Optimizer
+[2026-10-07 21:03:06,283] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 21:03:06,283] Resources acquired successfully.
+[2026-10-07 21:03:06,284] Training start from scratch
+[2026-10-07 21:03:06,284] Training start from step: 0
+[2026-10-07 21:03:06,711] step: 1, loss: 3.4574, lr: 0.000550, grad_norm: 2.1003, step_time: 0.426s (avg: 0.426s), tok/s: 300.3 (avg: 300.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:03:06,719] step: 2, loss: 3.4067, lr: 0.000232, grad_norm: 2.1329, step_time: 0.008s (avg: 0.217s), tok/s: 16515.0 (avg: 589.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:03:06,731] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:03:06,732] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/fsdp-bf16/sft/full/checkpoint/step_2
+[2026-10-07 21:03:06,752] Checkpoint saved successfully. Checkpoint saved in 0.018s
+[2026-10-07 21:03:06,759] step: 3, loss: 3.3471, lr: 0.000100, grad_norm: 2.0435, step_time: 0.007s (avg: 0.158s), tok/s: 18941.3 (avg: 808.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:03:06,765] step: 4, loss: 3.3439, lr: 0.000100, grad_norm: 2.0870, step_time: 0.006s (avg: 0.120s), tok/s: 20727.8 (avg: 1064.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:03:06,770] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:03:06,770] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/fsdp-bf16/sft/full/checkpoint/step_4
+[2026-10-07 21:03:06,787] Checkpoint saved successfully. Checkpoint saved in 0.016s
+[2026-10-07 21:03:06,787] Total training time: 0.00 hours
+[2026-10-07 21:03:06,787] Finishing training

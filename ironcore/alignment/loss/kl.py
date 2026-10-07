@@ -47,7 +47,9 @@ def kl_divergence_approx(
     """Compute memory-efficient approximation of KL divergence.
 
     Uses the Schulman estimator: KL = exp(ref - policy) - (ref - policy) - 1.
-    This estimator is non-negative and unbiased.
+    The unclipped estimator is non-negative and unbiased for tokens sampled
+    from the current policy. This implementation clamps the log ratio and
+    may receive off-policy/warped samples, so its practical estimate is biased.
 
     Args:
         policy_log_probs: Log probs of response tokens from current policy [batch, seq_len]

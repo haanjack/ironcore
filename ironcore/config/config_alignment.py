@@ -27,6 +27,17 @@ class GenerationConfig(BaseConfig):
     use_chat_template: bool = False
     system_prompt: str | None = None
 
+    def __post_init__(self):
+        if (
+            self.max_new_tokens <= 0
+            or self.temperature <= 0
+            or not 0 < self.top_p <= 1
+            or self.top_k < 0
+        ):
+            raise ValueError(
+                "Generation requires positive max_new_tokens/temperature, top_p in (0,1], nonnegative top_k"
+            )
+
 
 @dataclass
 class RewardFunctionEntry(BaseConfig):
@@ -58,9 +69,12 @@ class RewardManagerConfig(BaseConfig):
     functions: list[RewardFunctionEntry] = field(default_factory=list)
     num_workers: int = 4
     timeout: int = 30
+    failure_policy: str = "error"  # error (collective fail-fast) | fallback
 
     def __post_init__(self):
         """Convert function dicts to RewardFunctionEntry instances."""
+        if self.failure_policy not in ("error", "fallback"):
+            raise ValueError("reward failure_policy must be error or fallback")
         converted = []
         for entry in self.functions:
             if isinstance(entry, dict):
@@ -92,6 +106,8 @@ class AlignmentConfig(BaseConfig):
     grpo_eps: float = 1e-8  # Advantage normalization epsilon
     grpo_num_epochs: int = 1  # Gradient steps per rollout batch (>1 = offline/multi-epoch)
     grpo_clip_eps: float = 0.2  # PPO-style IS ratio clip range (0.0 = no clipping)
+    grpo_objective: str = "gspo"  # sequence-level gspo | token-level grpo
+    moe_aux_loss: str = "include"  # include | disable, applies to policy only
 
     # GRPO generation and reward config
     generation: GenerationConfig = field(default_factory=GenerationConfig)
@@ -108,6 +124,10 @@ class AlignmentConfig(BaseConfig):
 
     def __post_init__(self):
         """Validate alignment configuration parameters."""
+        if self.grpo_objective not in ("grpo", "gspo"):
+            raise ValueError("grpo_objective must be grpo or gspo")
+        if self.moe_aux_loss not in ("include", "disable"):
+            raise ValueError("moe_aux_loss must be include or disable")
         # Convert reward_manager dict to RewardManagerConfig if needed
         if isinstance(self.reward_manager, dict):
             self.reward_manager = RewardManagerConfig(**self.reward_manager)

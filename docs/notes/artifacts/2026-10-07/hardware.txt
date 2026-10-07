@@ -1,0 +1,19 @@
+index, name, uuid, memory.total [MiB], driver_version, power.limit [W]
+0, NVIDIA GeForce RTX 3090, GPU-2f4eaf1d-bc5f-f890-94b6-91fcb675c523, 24576 MiB, 590.48.01, 240.00 W
+1, NVIDIA GeForce RTX 3090, GPU-eba1d408-1cde-c2cb-5f08-0b700c5deb5a, 24576 MiB, 590.48.01, 240.00 W
+2, NVIDIA TITAN RTX, GPU-b335f0e1-364e-31cd-590c-70cb0bf5b3bb, 24576 MiB, 590.48.01, 240.00 W
+
+	GPU0	GPU1	GPU2	CPU Affinity	NUMA Affinity	GPU NUMA ID
+GPU0	 X 	NV4	PHB	0-23	0		N/A
+GPU1	NV4	 X 	PHB	0-23	0		N/A
+GPU2	PHB	PHB	 X 	0-23	0		N/A
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks

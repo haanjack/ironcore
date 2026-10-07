@@ -1,0 +1,227 @@
+{
+  "command": [
+    "/tmp/ironcore-validation-env/bin/python",
+    "-m",
+    "torch.distributed.run",
+    "--standalone",
+    "--nproc_per_node=2",
+    "/home/hanjack/ironcore/ironcore/scripts/validate_moe_ep.py",
+    "--worker",
+    "--output",
+    "/tmp/ironcore-moe-ep-oracle"
+  ],
+  "returncode": 0,
+  "status": "failed",
+  "ranks": [
+    {
+      "rank": 0,
+      "checks": [
+        {
+          "mode": "all_reduce",
+          "identical_inputs": true,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 0.0,
+            "input_gradient": 7.169150921981782e-05,
+            "parameter_gradient": 0.005200210493057966
+          },
+          "missing_gradients": [],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.005200210493057966,
+            "shared_experts.0.down_proj.weight": 0.003124770475551486,
+            "routed_experts.0.up_proj.weight": 0.004327687434852123,
+            "routed_experts.0.down_proj.weight": 0.0017487158766016364,
+            "routed_experts.1.up_proj.weight": 0.0014904065756127238,
+            "routed_experts.1.down_proj.weight": 0.0011728424578905106,
+            "router.weight": 0.00011318658653181046
+          }
+        },
+        {
+          "mode": "all_reduce",
+          "identical_inputs": false,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 3.057512003579177e-05,
+            "input_gradient": 7.169150921981782e-05,
+            "parameter_gradient": 0.005200210493057966
+          },
+          "missing_gradients": [],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.005200210493057966,
+            "shared_experts.0.down_proj.weight": 0.003124770475551486,
+            "routed_experts.0.up_proj.weight": 0.004327687434852123,
+            "routed_experts.0.down_proj.weight": 0.0017487158766016364,
+            "routed_experts.1.up_proj.weight": 0.0014904065756127238,
+            "routed_experts.1.down_proj.weight": 0.0011728424578905106,
+            "router.weight": 0.00011318658653181046
+          }
+        },
+        {
+          "mode": "all_to_all",
+          "identical_inputs": true,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 4.522452218225226e-05,
+            "input_gradient": 3.760788240469992e-05,
+            "parameter_gradient": 0.004327687434852123
+          },
+          "missing_gradients": [
+            "routed_experts.0.up_proj.weight",
+            "routed_experts.0.down_proj.weight",
+            "routed_experts.1.up_proj.weight",
+            "routed_experts.1.down_proj.weight"
+          ],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.0,
+            "shared_experts.0.down_proj.weight": 0.0,
+            "routed_experts.0.up_proj.weight": 0.004327687434852123,
+            "routed_experts.0.down_proj.weight": 0.0017487158766016364,
+            "routed_experts.1.up_proj.weight": 0.0014904065756127238,
+            "routed_experts.1.down_proj.weight": 0.0011728424578905106,
+            "router.weight": 0.00010791914246510714
+          }
+        },
+        {
+          "mode": "all_to_all",
+          "identical_inputs": false,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 4.267191980034113e-05,
+            "input_gradient": 3.789393667830154e-05,
+            "parameter_gradient": 0.004327687434852123
+          },
+          "missing_gradients": [
+            "routed_experts.0.up_proj.weight",
+            "routed_experts.0.down_proj.weight",
+            "routed_experts.1.up_proj.weight",
+            "routed_experts.1.down_proj.weight"
+          ],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.0,
+            "shared_experts.0.down_proj.weight": 0.0,
+            "routed_experts.0.up_proj.weight": 0.004327687434852123,
+            "routed_experts.0.down_proj.weight": 0.0017487158766016364,
+            "routed_experts.1.up_proj.weight": 0.0014904065756127238,
+            "routed_experts.1.down_proj.weight": 0.0011728424578905106,
+            "router.weight": 0.00011011166498064995
+          }
+        },
+        {
+          "mode": "trainer_ep_wrapping",
+          "status": "passed",
+          "max_abs_errors": {
+            "routed_experts.0.up_proj.weight": 0.0,
+            "routed_experts.0.down_proj.weight": 0.0,
+            "routed_experts.1.up_proj.weight": 0.0,
+            "routed_experts.1.down_proj.weight": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "rank": 1,
+      "checks": [
+        {
+          "mode": "all_reduce",
+          "identical_inputs": true,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 0.0,
+            "input_gradient": 5.691691330866888e-05,
+            "parameter_gradient": 0.005200210493057966
+          },
+          "missing_gradients": [],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.005200210493057966,
+            "shared_experts.0.down_proj.weight": 0.003124770475551486,
+            "routed_experts.0.up_proj.weight": 0.0029553824570029974,
+            "routed_experts.0.down_proj.weight": 0.000878037535585463,
+            "routed_experts.1.up_proj.weight": 0.0018342091934755445,
+            "routed_experts.1.down_proj.weight": 0.0013458200264722109,
+            "router.weight": 0.00011318658653181046
+          }
+        },
+        {
+          "mode": "all_reduce",
+          "identical_inputs": false,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 3.9409300370607525e-05,
+            "input_gradient": 5.544473242480308e-05,
+            "parameter_gradient": 0.009897849522531033
+          },
+          "missing_gradients": [],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.009897849522531033,
+            "shared_experts.0.down_proj.weight": 0.0038607728201895952,
+            "routed_experts.0.up_proj.weight": 0.0028139359783381224,
+            "routed_experts.0.down_proj.weight": 0.0010746864136308432,
+            "routed_experts.1.up_proj.weight": 0.002241408219560981,
+            "routed_experts.1.down_proj.weight": 0.0011249673552811146,
+            "router.weight": 0.00011150226055178791
+          }
+        },
+        {
+          "mode": "all_to_all",
+          "identical_inputs": true,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 4.6198263589758426e-05,
+            "input_gradient": 3.789393667830154e-05,
+            "parameter_gradient": 0.0029553824570029974
+          },
+          "missing_gradients": [
+            "routed_experts.0.up_proj.weight",
+            "routed_experts.0.down_proj.weight",
+            "routed_experts.1.up_proj.weight",
+            "routed_experts.1.down_proj.weight"
+          ],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.0,
+            "shared_experts.0.down_proj.weight": 0.0,
+            "routed_experts.0.up_proj.weight": 0.0029553824570029974,
+            "routed_experts.0.down_proj.weight": 0.000878037535585463,
+            "routed_experts.1.up_proj.weight": 0.0018342091934755445,
+            "routed_experts.1.down_proj.weight": 0.0013458200264722109,
+            "router.weight": 0.00010575976921245456
+          }
+        },
+        {
+          "mode": "all_to_all",
+          "identical_inputs": false,
+          "status": "failed",
+          "max_abs_errors": {
+            "output": 4.110133886570111e-05,
+            "input_gradient": 2.7287460397928953e-05,
+            "parameter_gradient": 0.0028139359783381224
+          },
+          "missing_gradients": [
+            "routed_experts.0.up_proj.weight",
+            "routed_experts.0.down_proj.weight",
+            "routed_experts.1.up_proj.weight",
+            "routed_experts.1.down_proj.weight"
+          ],
+          "gradient_errors": {
+            "shared_experts.0.up_proj.weight": 0.0,
+            "shared_experts.0.down_proj.weight": 0.0,
+            "routed_experts.0.up_proj.weight": 0.0028139359783381224,
+            "routed_experts.0.down_proj.weight": 0.0010746864136308432,
+            "routed_experts.1.up_proj.weight": 0.002241408219560981,
+            "routed_experts.1.down_proj.weight": 0.0011249673552811146,
+            "router.weight": 0.0001005825906759128
+          }
+        },
+        {
+          "mode": "trainer_ep_wrapping",
+          "status": "failed",
+          "max_abs_errors": {
+            "routed_experts.0.up_proj.weight": 0.033453911542892456,
+            "routed_experts.0.down_proj.weight": 0.024607505649328232,
+            "routed_experts.1.up_proj.weight": 0.027568187564611435,
+            "routed_experts.1.down_proj.weight": 0.020497143268585205
+          }
+        }
+      ]
+    }
+  ]
+}

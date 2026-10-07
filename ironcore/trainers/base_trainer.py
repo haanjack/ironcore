@@ -7,6 +7,7 @@
 import time
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
+from pathlib import Path
 from typing import Union
 
 import torch
@@ -111,6 +112,25 @@ class BaseTrainer(ABC):
         """
         if self._initialized:
             return
+        if self.config.parallel.use_fsdp and self.config.parallel.use_distributed_optimizer:
+            raise ValueError(
+                "FSDP and DistributedOptimizer cannot partition the same optimizer states"
+            )
+
+        if self.config.parallel.use_fsdp and self.config.trainer.tensor_model_parallel_size != 1:
+            raise ValueError("FSDP native trainer checkpoints currently require TP=1")
+        if self.config.model.moe.use_moe and self.config.model.moe.expert_model_parallel_size > 1:
+            if (
+                self.config.model.moe.expert_model_parallel_size != 2
+                or self.config.trainer.tensor_model_parallel_size != 1
+                or self.config.parallel.world_size != 2
+                or self.config.parallel.use_fsdp
+                or self.config.parallel.use_distributed_optimizer
+                or self.config.offload.enabled
+            ):
+                raise ValueError(
+                    "EP>1 trainer requires EP=2, TP=1, world=2 without FSDP/distributed optimizer/offload"
+                )
 
         self.logger.info("Acquiring training resources...")
 
@@ -163,9 +183,10 @@ class BaseTrainer(ABC):
             "autocast": nullcontext(),
         }
 
-        if self.model.device != "mps":
+        device_type = torch.device(get_device()).type
+        if device_type != "mps" and get_model_dtype(self.config) != torch.float32:
             self.context["autocast"] = torch.autocast(
-                device_type=get_device(), dtype=get_model_dtype(self.config)
+                device_type=device_type, dtype=get_model_dtype(self.config)
             )
 
         self.scaler = torch.amp.GradScaler(enabled=(get_model_dtype(self.config) == torch.float16))
@@ -277,6 +298,10 @@ class BaseTrainer(ABC):
 
     def _init_mfu_calculator(self):
         """Initialize MFU calculator for TFLOPS/s/GPU reporting."""
+        if self.config.model.moe.use_moe:
+            self.mfu_calculator = None
+            self.logger.info("Dense FLOP estimate disabled for MoE; use measured tokens/s.")
+            return
         try:
             tokenizer = get_tokenizer()
             self.mfu_calculator = MFUCalculator.from_config(
@@ -308,13 +333,18 @@ class BaseTrainer(ABC):
         self.logger.info(f"Set random seed to {seed} for model initialization")
 
         device = get_device()
+        parameter_dtype = (
+            torch.float32
+            if self.config.trainer.parameter_precision == "float32"
+            else get_model_dtype(self.config)
+        )
         weight_streaming = self.config.offload.enabled and self.config.offload.weight_offload
 
         if weight_streaming:
             # Weight streaming: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
             # This avoids OOM for models whose weights exceed GPU memory (e.g. 13B on 24GB).
             model = LanguageModel(self.config, self.loss_fn)
-            model = model.to(dtype=get_model_dtype(self.config))
+            model = model.to(dtype=parameter_dtype)
 
             # With TP > 1, the embedding and output head must stay on GPU because
             # VocabParallelEmbedding and vocab_parallel_cross_entropy call dist.all_reduce
@@ -334,8 +364,25 @@ class BaseTrainer(ABC):
             self.logger.info("Created Language Model on CPU (weight streaming mode)")
         else:
             model = LanguageModel(self.config, self.loss_fn).to(device=device)
-            model = model.to(dtype=get_model_dtype(self.config))
+            model = model.to(dtype=parameter_dtype)
             self.logger.info("Created Language Model")
+        if self.config.model.moe.use_moe and self.config.model.moe.expert_model_parallel_size > 1:
+            import copy
+
+            from ironcore.checkpointing.expert import global_parameter_names
+
+            full_config = copy.deepcopy(self.config)
+            full_config.model.moe.expert_model_parallel_size = 1
+            torch.manual_seed(seed)
+            full_model = LanguageModel(full_config, self.loss_fn).to(
+                device=device, dtype=parameter_dtype
+            )
+            full_state = full_model.state_dict()
+            names = global_parameter_names(model)
+            model.load_state_dict(
+                {name: full_state[global_name] for name, global_name in names.items()}
+            )
+            del full_state, full_model
 
         # Load pretrained weights from HuggingFace if specified
         if self.config.trainer.load_from_hf:
@@ -347,7 +394,11 @@ class BaseTrainer(ABC):
             # Download checkpoint if needed (handled by huggingface_hub)
             from huggingface_hub import snapshot_download
 
-            cache_dir = snapshot_download(hf_model_name)
+            cache_dir = (
+                str(Path(hf_model_name).resolve())
+                if Path(hf_model_name).is_dir()
+                else snapshot_download(hf_model_name)
+            )
             self.logger.info(f"Downloaded/loaded from cache: {cache_dir}")
 
             # Load weights into ironcore model
@@ -363,6 +414,9 @@ class BaseTrainer(ABC):
                 f"{len(result['missing_keys'])} missing, "
                 f"{len(result['unexpected_keys'])} unexpected"
             )
+            from ironcore.checkpointing.hf_interop import validate_imported_base_parameters
+
+            validate_imported_base_parameters(model, result["missing_keys"])
 
         optimizer = get_optimizer(self.config, model)
         self.logger.info("Created Optimizer")
@@ -426,7 +480,7 @@ class BaseTrainer(ABC):
                 except Exception as e:
                     self.logger.warning(f"torch.compile failed: {e}. Running without compilation.")
 
-        if device not in ["cpu", "mps"] and not weight_streaming:
+        if device != "mps" and not weight_streaming:
             model = initialize_parallelism(self.config, model)
         self.rank = dist.get_rank()
 
@@ -447,6 +501,17 @@ class BaseTrainer(ABC):
         """
         if last_step <= 0 or not self.data_iterator or "train" not in self.data_iterator:
             return
+        if hasattr(self.data_iterator["train"], "load_state_dict"):
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            path = (
+                Path(self.config.trainer.model_path)
+                / f"step_{last_step}"
+                / f"trainer_rank{rank}.pt"
+            )
+            if path.exists() and "train" in torch.load(
+                path, map_location="cpu", weights_only=True
+            ).get("data", {}):
+                return
         accum_steps = self.config.trainer.gradient_accumulation_steps
         if not accum_steps:
             return
@@ -494,6 +559,9 @@ class BaseTrainer(ABC):
             ) from e
 
         self._post_checkpoint_load(last_step)
+        from .checkpoint_state import load_trainer_state
+
+        load_trainer_state(self, last_step)
         return last_step
 
     def _post_checkpoint_load(self, last_step: int) -> None:  # noqa: B027
@@ -527,6 +595,8 @@ class BaseTrainer(ABC):
         Subclasses should override _pre_train_setup() and _post_checkpoint_load()
         for custom behavior rather than overriding this method.
         """
+        from .checkpoint_state import save_trainer_state
+
         # Ensure resources are acquired if not using context manager
         self._initialize()
 
@@ -566,6 +636,7 @@ class BaseTrainer(ABC):
 
             if self.control.do_checkpoint(step):
                 self._on_checkpoint_save(step)
+                save_trainer_state(self, step)
                 save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
                 if self.control.do_eval_subtask(step):
@@ -584,12 +655,14 @@ class BaseTrainer(ABC):
 
         # Final checkpoint if needed
         if self.control.do_final_checkpoint(step, last_step):
+            self._on_checkpoint_save(step)
+            save_trainer_state(self, step)
             save_checkpoint(self.config, self.model, self.optimizer, self.lr_scheduler, step)
 
         # Eval-only mode: train_steps == 0 means skip training, run eval once.
         if self.config.operation.train_steps == 0 and self.config.trainer.do_eval_subtask:
             self.logger.info("Eval-only mode (train_steps=0): running evaluation.")
-            self.evaluate(step=0)
+            self.evaluate(global_step=0)
             self.model.train()
 
         if self.config.trainer.do_test:
@@ -632,14 +705,33 @@ class BaseTrainer(ABC):
             - total_loss: Sum of losses over all micro-batches
             - additional_metrics: Dict of metrics to average over accumulation steps
         """
-        total_loss = 0.0
+        from ironcore.training_utils import batch_objective_count
+
+        accumulation = self.config.trainer.gradient_accumulation_steps
+        source_iterator = self.data_iterator["train"]
+        batches = [next(source_iterator) for _ in range(accumulation)]
+        task = getattr(getattr(self.config, "data", None), "task_type", None)
+        if task is None:
+            task = "sft" if self.loss_fn.__name__ == "loss_func_sft" else "pretrain"
+        counts = [batch_objective_count(batch, task) for batch in batches]
+        dp_size = get_data_parallel_world_size() if dist.is_initialized() else 1
+        denominator = torch.tensor(sum(counts), dtype=torch.float64, device=get_device())
+        if dp_size > 1:
+            dist.all_reduce(denominator, group=get_data_parallel_group())
+        denominator = denominator.item()
+        if denominator == 0:
+            raise ValueError("Training update contains no valid objective tokens/samples")
+        total_loss = torch.zeros((), dtype=torch.float64, device=get_device())
         total_metrics: dict[str, float] = {}
 
         # Weight streaming: prefetch first layers before forward pass
         if self._offload_scheduler is not None:
             self._offload_scheduler.on_training_step_start()
 
-        for i in range(self.config.trainer.gradient_accumulation_steps):
+        for i in range(accumulation):
+            # Prefetch inputs only, not activation graphs. Global denominators
+            # account for unequal token/sample counts across microbatches/ranks.
+            self.data_iterator["train"] = iter([batches[i]])
             is_last_accum_step = i == self.config.trainer.gradient_accumulation_steps - 1
 
             # Notify spill manager of micro-batch forward start
@@ -655,15 +747,19 @@ class BaseTrainer(ABC):
 
             with backward_sync_ctx():
                 with self.context["autocast"]:
-                    loss, metrics = self._forward_micro_batch(step)
+                    try:
+                        loss, metrics = self._forward_micro_batch(step)
+                    finally:
+                        self.data_iterator["train"] = source_iterator
 
-                    total_loss += loss.item()
-                    scaled_loss = loss / self.config.trainer.gradient_accumulation_steps
+                    weight = counts[i] * dp_size / denominator
+                    total_loss += loss.detach().to(total_loss) * weight * accumulation
+                    scaled_loss = loss * weight
 
                     # Accumulate metrics if provided
                     if metrics:
                         for k, v in metrics.items():
-                            total_metrics[k] = total_metrics.get(k, 0.0) + v
+                            total_metrics[k] = total_metrics.get(k, 0.0) + v * weight * accumulation
 
                 # Notify spill manager that forward is done for this micro-batch
                 if self._offload_scheduler is not None:
@@ -680,12 +776,49 @@ class BaseTrainer(ABC):
                 if self._offload_scheduler is not None:
                     self._offload_scheduler.on_microbatch_backward_end()
 
+        self.data_iterator["train"] = source_iterator
+
         # Weight streaming: zero GPU staging buffers after all micro-batches' backward passes.
         # Actual param.data stays on GPU until next step's on_layer_start overwrites it.
         if self._offload_scheduler is not None:
             self._offload_scheduler.on_backward_pass_end()
 
+        # Report the objective averaged over DP workers, matching DDP's
+        # gradient averaging. TP ranks are evaluating the same objective.
+        if dist.is_initialized():
+            loss_tensor = total_loss
+            if get_data_parallel_world_size() > 1:
+                dist.all_reduce(loss_tensor, group=get_data_parallel_group())
+                loss_tensor /= get_data_parallel_world_size()
+            total_loss = loss_tensor
+        total_loss = total_loss.item()
+        self._validate_distributed_loss(total_loss, step)
+        total_metrics = self._average_dp_metrics(total_metrics)
+
         return total_loss, total_metrics
+
+    def _average_dp_metrics(self, metrics: dict[str, float]) -> dict[str, float]:
+        """Average metrics from equally sized local batches across DP workers."""
+        if not metrics or not dist.is_initialized() or get_data_parallel_world_size() == 1:
+            return metrics
+        keys = sorted(metrics)
+        values = torch.tensor(
+            [metrics[key] for key in keys], device=get_device(), dtype=torch.float64
+        )
+        dist.all_reduce(values, group=get_data_parallel_group())
+        values /= get_data_parallel_world_size()
+        return dict(zip(keys, values.tolist(), strict=True))
+
+    def _validate_distributed_loss(self, loss: float, step: int) -> None:
+        """Stop all workers before an update if any worker saw a bad loss."""
+        import math
+
+        if dist.is_initialized():
+            invalid = torch.tensor(int(not math.isfinite(loss)), device=get_device())
+            dist.all_reduce(invalid, op=dist.ReduceOp.MAX)
+            if invalid.item():
+                loss = float("nan")
+        self._check_loss_for_nan(loss, step)
 
     def _forward_micro_batch(self, step: int) -> tuple[torch.Tensor, dict[str, float] | None]:
         """Forward pass for a single micro-batch.
@@ -704,6 +837,31 @@ class BaseTrainer(ABC):
         loss = self.forward_step_func(self.model, self.data_iterator["train"])
         return loss, None
 
+    def _prepare_gradients(self):
+        if getattr(self, "_gradients_prepared", False):
+            return
+        # Unscale gradients before clipping/norm computation
+        self.scaler.unscale_(self.optimizer)
+        if hasattr(self.model, "synchronize_gradients"):
+            self.model.synchronize_gradients()
+        # A finite objective can have a nonfinite derivative. BF16 has no
+        # GradScaler, so loss checks alone cannot protect the optimizer state.
+        invalid = torch.zeros((), dtype=torch.int32, device=get_device())
+        for parameter in self.model.parameters():
+            if parameter.grad is not None:
+                invalid.copy_(
+                    torch.maximum(invalid, (~torch.isfinite(parameter.grad).all()).to(invalid))
+                )
+        if dist.is_initialized():
+            dist.all_reduce(invalid, op=dist.ReduceOp.MAX)
+        if invalid.item():
+            self.optimizer.zero_grad()
+            raise RuntimeError(
+                "NaN/Inf gradient detected; optimizer and scheduler were not updated"
+            )
+
+        self._gradients_prepared = True
+
     def _compute_grad_and_param_norms(self, step: int) -> tuple[float, float]:
         """Compute gradient and parameter norms after gradient accumulation.
 
@@ -718,8 +876,7 @@ class BaseTrainer(ABC):
 
         from ironcore.parallel.grad_norm import clip_grad_norm, compute_param_norm
 
-        # Unscale gradients before clipping/norm computation
-        self.scaler.unscale_(self.optimizer)
+        self._prepare_gradients()
 
         grad_norm = 0.0
         if self.config.optim.clip_grad > 0.0:
@@ -748,11 +905,15 @@ class BaseTrainer(ABC):
     def _optimizer_step(self):
         """Perform optimizer step after gradient accumulation."""
         try:
+            scale_before = self.scaler.get_scale()
             self.scaler.step(self.optimizer)
             self.scaler.update()
             self.optimizer.zero_grad()
-            self.lr_scheduler.step()
+            # GradScaler reduces its scale when it skips an overflowing update.
+            if self.scaler.get_scale() >= scale_before:
+                self.lr_scheduler.step()
         finally:
+            self._gradients_prepared = False
             # Weight streaming: synchronize all transfers, prepare for next step.
             # Must run even on exception to free pinned grad buffers and
             # prevent pool budget exhaustion.
@@ -845,6 +1006,7 @@ class BaseTrainer(ABC):
 
             if self.mfu_calculator is not None:
                 dp_world_size = get_data_parallel_world_size() if dist.is_initialized() else 1
+                gpu_world_size = dist.get_world_size() if dist.is_initialized() else 1
                 micro_batch_size = self.config.trainer.micro_batch_size or 1
                 gradient_accumulation_steps = self.config.trainer.gradient_accumulation_steps or 1
                 global_batch_size = micro_batch_size * gradient_accumulation_steps * dp_world_size
@@ -854,14 +1016,14 @@ class BaseTrainer(ABC):
                         batch_size=global_batch_size,
                         seq_len=self.config.model.max_seq_len,
                         step_time_seconds=iter_time,
-                        num_gpus=dp_world_size,
+                        num_gpus=gpu_world_size,
                     )
                 if avg_iter_time > 0:
                     metrics["avg_tflops_per_gpu"] = self.mfu_calculator.compute_tflops(
                         batch_size=global_batch_size,
                         seq_len=self.config.model.max_seq_len,
                         step_time_seconds=avg_iter_time,
-                        num_gpus=dp_world_size,
+                        num_gpus=gpu_world_size,
                     )
 
         # Offload metrics: log when scheduler is active
@@ -967,6 +1129,23 @@ class BaseTrainer(ABC):
         """
         pass
 
+    def _evaluation_batches(self, count):
+        """Restart held-out data and stop all ranks together at its finite end."""
+        iterator = self._get_data_iterator()["eval"]
+        self.data_iterator["eval"] = iterator
+        for _ in range(count):
+            try:
+                batch = next(iterator)
+                present = 1
+            except StopIteration:
+                batch, present = None, 0
+            available = torch.tensor(present, device=get_device())
+            if dist.is_initialized():
+                dist.all_reduce(available, op=dist.ReduceOp.MIN)
+            if not available.item():
+                break
+            yield batch
+
     def evaluate(self, global_step: int):
         """Run evaluation on eval datasets.
 
@@ -980,33 +1159,35 @@ class BaseTrainer(ABC):
 
         # Evaluation using data iterator (built-in evaluation)
         if "eval" in self.data_iterator:
-            total_loss = 0.0
-            total_accuracy = 0.0
-            num_batches = self.config.operation.eval_samples // self.config.trainer.eval_batch_size
-            if num_batches == 0:
-                num_batches = 1
+            from ironcore.training_utils import batch_objective_count
 
+            task = self.config.data.task_type
+            totals = torch.zeros(4, dtype=torch.float64, device=get_device())
+            num_batches = max(
+                1,
+                self.config.operation.eval_samples
+                // (self.config.trainer.eval_batch_size * get_data_parallel_world_size()),
+            )
             with torch.no_grad():
-                for _ in range(num_batches):
-                    batch = next(self.data_iterator["eval"])
+                for batch in self._evaluation_batches(num_batches):
                     loss, accuracy = self._eval_step(batch)
-                    total_loss += loss
-                    total_accuracy += accuracy
-
-            avg_loss = total_loss / num_batches
-            avg_accuracy = total_accuracy / num_batches
-
-            # Aggregate across data parallel ranks
-            metrics = {"eval_loss": avg_loss, "eval_accuracy": avg_accuracy}
-            if dist.is_initialized() and get_data_parallel_world_size() > 1:
-                for k, v in metrics.items():
-                    v_tensor = torch.tensor(v, device=get_device())
-                    dist.all_reduce(
-                        v_tensor,
-                        op=dist.ReduceOp.SUM,
-                        group=get_data_parallel_group(),
+                    units = batch_objective_count(batch, task)
+                    accuracy_units = (
+                        int((batch["labels"] != -100).sum()) if task != "dpo" else units
                     )
-                    metrics[k] = v_tensor.item() / get_data_parallel_world_size()
+                    totals += torch.tensor(
+                        [loss * units, units, accuracy * accuracy_units, accuracy_units],
+                        device=get_device(),
+                        dtype=torch.float64,
+                    )
+            if dist.is_initialized() and get_data_parallel_world_size() > 1:
+                dist.all_reduce(totals, group=get_data_parallel_group())
+            if not totals[1].item():
+                raise ValueError("Evaluation produced no valid objective units")
+            metrics = {
+                "eval_loss": (totals[0] / totals[1].clamp(min=1)).item(),
+                "eval_accuracy": (totals[2] / totals[3].clamp(min=1)).item(),
+            }
 
             if is_first_rank():
                 self.logger.info(
@@ -1022,26 +1203,24 @@ class BaseTrainer(ABC):
             if is_first_rank():
                 self.logger.info(f"Evaluating {evaluator_name}")
 
-            total_loss = 0.0
-            num_batches = 0
+            from ironcore.training_utils import batch_objective_count
+
+            totals = torch.zeros(2, dtype=torch.float64, device=get_device())
 
             with torch.no_grad():
                 for batch in evaluator.data_loader:
                     loss, _ = self._eval_step(batch)
-                    total_loss += loss
-                    num_batches += 1
-
-            avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+                    units = batch_objective_count(batch, self.config.data.task_type)
+                    totals += totals.new_tensor([loss * units, units])
 
             # Aggregate across data parallel ranks
             if dist.is_initialized() and get_data_parallel_world_size() > 1:
-                v_tensor = torch.tensor(avg_loss, device=get_device())
                 dist.all_reduce(
-                    v_tensor,
+                    totals,
                     op=dist.ReduceOp.SUM,
                     group=get_data_parallel_group(),
                 )
-                avg_loss = v_tensor.item() / get_data_parallel_world_size()
+            avg_loss = (totals[0] / totals[1].clamp(min=1)).item()
 
             if is_first_rank():
                 self.logger.info(f"{evaluator_name} - loss: {avg_loss:.4f}")

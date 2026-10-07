@@ -100,6 +100,9 @@ class MoEMLP(BaseModule):
         # Expert parallelism parameters
         self.ep_size = moe_config.expert_model_parallel_size
         self.tp_size = config.trainer.tensor_model_parallel_size
+        self.expert_backend = moe_config.expert_backend
+        if self.expert_backend == "batched" and (self.ep_size > 1 or model_config.dropout_mlp != 0):
+            raise ValueError("Batched expert backend requires EP=1 and zero MLP dropout")
 
         # Calculate expert intermediate size
         self.expert_intermediate_size = (
@@ -210,6 +213,9 @@ class MoEMLP(BaseModule):
         # Input validation
         validate_moe_input(x, self.hidden_size, "MoEMLP")
 
+        if self.ep_size > 1:
+            return self._forward_allreduce(x, async_communication)
+
         if self.communication_mode == CommunicationMode.ALL_TO_ALL:
             return self._forward_alltoall(x, async_communication)
         else:
@@ -257,12 +263,11 @@ class MoEMLP(BaseModule):
                 router_probs = torch.softmax(
                     router_output.router_logits, dim=-1
                 )  # [batch, seq, num_experts]
-                self._router_probs = router_probs.detach().cpu()  # Store for logging
+                # Defer device-to-host copies until diagnostics are requested.
+                self._router_probs = router_probs.detach()
 
                 # Selected indices: flatten the top-k indices
-                self._selected_indices = (
-                    router_output.topk_indices.flatten().detach().cpu()
-                )  # [batch*seq*top_k]
+                self._selected_indices = router_output.topk_indices.flatten().detach()
 
         # Compute and store auxiliary loss for training
         if self.training:
@@ -382,6 +387,23 @@ class MoEMLP(BaseModule):
         batch_size, seq_len, hidden_size = x.shape
 
         # Flatten for processing using helper
+        if self.expert_backend == "batched":
+            from .batched import batched_experts
+
+            return batched_experts(x, topk_indices, topk_weights, self.routed_experts)
+        if self.ep_size > 1:
+            from ironcore.parallel.expert_parallel.training import route_expert_tokens
+
+            return route_expert_tokens(
+                x,
+                topk_indices,
+                topk_weights,
+                self.routed_experts,
+                self.expert_start_idx,
+                self.local_num_experts,
+                self.ep_size,
+            )
+
         x_flat, topk_weights_flat, topk_indices_flat, num_tokens, _ = flatten_moe_inputs(
             x, topk_weights, topk_indices
         )
@@ -396,11 +418,10 @@ class MoEMLP(BaseModule):
             # Find tokens routed to this expert
             expert_mask = topk_indices_flat == global_expert_idx
 
-            if not expert_mask.any():
-                continue
-
             # Get tokens for this expert
             token_indices, k_indices = torch.where(expert_mask)
+            if token_indices.numel() == 0:
+                continue
             expert_input = x_flat[token_indices]
 
             # Process through expert
@@ -518,7 +539,7 @@ class MoEMLP(BaseModule):
         Returns:
             [batch*seq, num_experts] tensor of average probabilities per token, or None
         """
-        return self._router_probs
+        return self._router_probs.cpu() if self._router_probs is not None else None
 
     def get_selected_indices(self) -> torch.Tensor | None:
         """Get flattened selected expert indices.
@@ -526,7 +547,7 @@ class MoEMLP(BaseModule):
         Returns:
             [batch*seq*top_k] tensor of selected expert indices, or None
         """
-        return self._selected_indices
+        return self._selected_indices.cpu() if self._selected_indices is not None else None
 
     def reset_expert_stats(self):
         """Reset expert selection statistics."""

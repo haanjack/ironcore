@@ -219,6 +219,9 @@ class TimedDataIterator:
         self._call_count += 1
         return batch
 
+    def __getattr__(self, name):
+        return getattr(self._iterator, name)
+
     def get_and_reset_stats(self) -> dict[str, float]:
         stats = {"total_ms": self._total_ms, "count": float(self._call_count)}
         self._total_ms = 0.0
@@ -282,7 +285,7 @@ class ProfileManager:
         existing_versions = []
 
         for f in output_dir.glob(f"{prefix}_v*.json"):
-            match = re.search(r"_v(\d+)\.json$", f.name)
+            match = re.search(r"_v(\d+)(?:_|\.json$)", f.name)
             if match:
                 existing_versions.append(int(match.group(1)))
 
@@ -335,7 +338,7 @@ class ProfileManager:
             self._check_memory_threshold()
 
         # 3. Advance Torch Profiler
-        if self.torch_profiler:
+        if self.torch_profiler and self.is_active:
             self.torch_profiler.step()
 
         # 3b. Log per-step comm stats if enabled
@@ -490,14 +493,17 @@ class ProfileManager:
                         ]
                     )
                     for e in events:
+                        device_time = getattr(
+                            e, "device_time_total", getattr(e, "cuda_time_total", 0)
+                        )
                         writer.writerow(
                             [
                                 e.key,
                                 int(e.cpu_time_total),
-                                int(e.cuda_time_total),
+                                int(device_time),
                                 e.count,
                                 int(e.cpu_time_total / max(e.count, 1)),
-                                int(e.cuda_time_total / max(e.count, 1)),
+                                int(device_time / max(e.count, 1)),
                                 getattr(e, "flops", 0) or 0,
                             ]
                         )

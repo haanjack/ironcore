@@ -1,0 +1,174 @@
+[2026-10-07 15:12:13,664] Acquiring training resources...
+[2026-10-07 15:12:13,664] Initialize torch distributed ... 
+[2026-10-07 15:12:13,885] Loading evaluation tasks
+[2026-10-07 15:12:13,886] Set random seed to 42 for model initialization
+[2026-10-07 15:12:14,716] Created Language Model
+[2026-10-07 15:12:14,717] Trainable parameters: 130,433,920 / 130,433,920 (100.00%)
+[2026-10-07 15:12:14,717] Created Optimizer
+[2026-10-07 15:12:14,754] Resources acquired successfully.
+[2026-10-07 15:12:15,053] Training start from scratch
+[2026-10-07 15:12:15,053] Training start from step: 0
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 333, in <module>
+[rank1]:     main()
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 329, in main
+[rank1]:     (prepare if args.prepare else benchmark)(args)
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 252, in benchmark
+[rank1]:     trainer.train()
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 559, in train
+[rank1]:     loss, grad_norm, param_norm = self.train_step(step)
+[rank1]:                                   ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 211, in train_step
+[rank1]:     result = super().train_step(step)
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/language_model_trainer.py", line 79, in train_step
+[rank1]:     total_loss, _ = self._run_gradient_accumulation(step)
+[rank1]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 667, in _run_gradient_accumulation
+[rank1]:     loss, metrics = self._forward_micro_batch(step)
+[rank1]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 745, in _forward_micro_batch
+[rank1]:     loss = self.forward_step_func(self.model, self.data_iterator["train"])
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/training_utils.py", line 223, in forward_step
+[rank1]:     loss = model(batch["input_ids"], batch["labels"], **model_kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/parallel/distributed.py", line 1832, in forward
+[rank1]:     else self._run_ddp_forward(*inputs, **kwargs)
+[rank1]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/parallel/distributed.py", line 1657, in _run_ddp_forward
+[rank1]:     return self.module(*inputs, **kwargs)  # type: ignore[index]
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/language_model.py", line 196, in forward
+[rank1]:     losses = self.compute_loss_from_logits(
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/language_model.py", line 223, in compute_loss_from_logits
+[rank1]:     per_token_losses = vocab_parallel_cross_entropy(
+[rank1]:                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/parallel/tensor_parallel/cross_entropy.py", line 157, in vocab_parallel_cross_entropy
+[rank1]:     return torch.compiler.disable(_VocabParallelCrossEntropyWorkers.apply)(
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1298, in _fn
+[rank1]:     return fn(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank1]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/parallel/tensor_parallel/cross_entropy.py", line 37, in forward
+[rank1]:     vocab_parallel_logits = vocab_parallel_logits - logits_max.unsqueeze(dim=-1)
+[rank1]:                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[rank1]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 6.14 GiB. GPU 1 has a total capacity of 23.56 GiB of which 580.31 MiB is free. Including non-PyTorch memory, this process has 22.99 GiB memory in use. Of the allocated memory 21.89 GiB is allocated by PyTorch, and 163.37 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 333, in <module>
+[rank0]:     main()
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 329, in main
+[rank0]:     (prepare if args.prepare else benchmark)(args)
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 252, in benchmark
+[rank0]:     trainer.train()
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 559, in train
+[rank0]:     loss, grad_norm, param_norm = self.train_step(step)
+[rank0]:                                   ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 211, in train_step
+[rank0]:     result = super().train_step(step)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/language_model_trainer.py", line 79, in train_step
+[rank0]:     total_loss, _ = self._run_gradient_accumulation(step)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 667, in _run_gradient_accumulation
+[rank0]:     loss, metrics = self._forward_micro_batch(step)
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 745, in _forward_micro_batch
+[rank0]:     loss = self.forward_step_func(self.model, self.data_iterator["train"])
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/training_utils.py", line 223, in forward_step
+[rank0]:     loss = model(batch["input_ids"], batch["labels"], **model_kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/parallel/distributed.py", line 1832, in forward
+[rank0]:     else self._run_ddp_forward(*inputs, **kwargs)
+[rank0]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/parallel/distributed.py", line 1657, in _run_ddp_forward
+[rank0]:     return self.module(*inputs, **kwargs)  # type: ignore[index]
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/language_model.py", line 196, in forward
+[rank0]:     losses = self.compute_loss_from_logits(
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/language_model.py", line 223, in compute_loss_from_logits
+[rank0]:     per_token_losses = vocab_parallel_cross_entropy(
+[rank0]:                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/parallel/tensor_parallel/cross_entropy.py", line 157, in vocab_parallel_cross_entropy
+[rank0]:     return torch.compiler.disable(_VocabParallelCrossEntropyWorkers.apply)(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/_dynamo/eval_frame.py", line 1298, in _fn
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/autograd/function.py", line 596, in apply
+[rank0]:     return super().apply(*args, **kwargs)  # type: ignore[misc]
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/parallel/tensor_parallel/cross_entropy.py", line 37, in forward
+[rank0]:     vocab_parallel_logits = vocab_parallel_logits - logits_max.unsqueeze(dim=-1)
+[rank0]:                             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 6.14 GiB. GPU 0 has a total capacity of 23.56 GiB of which 580.31 MiB is free. Including non-PyTorch memory, this process has 22.99 GiB memory in use. Of the allocated memory 21.89 GiB is allocated by PyTorch, and 163.37 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+E1007 15:12:17.213000 888603 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 1) local_rank: 0 (pid: 888723) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_15:12:17
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 888724) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_15:12:17
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 888723) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

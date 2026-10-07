@@ -1,0 +1,208 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+[2026-10-07 20:45:49,059] Acquiring training resources...
+[2026-10-07 20:45:49,059] Initialize torch distributed ... 
+[2026-10-07 20:45:49,341] Loading evaluation tasks
+[2026-10-07 20:45:49,342] Set random seed to 42 for model initialization
+[2026-10-07 20:45:49,736] Created Language Model
+[2026-10-07 20:45:49,737] Trainable parameters: 55,167,360 / 55,167,360 (100.00%)
+[2026-10-07 20:45:49,737] Created Optimizer
+[2026-10-07 20:45:49,778] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:45:49,778] Resources acquired successfully.
+[2026-10-07 20:45:50,150] Training start from scratch
+[2026-10-07 20:45:50,151] Training start from step: 0
+[rank0]:[W1007 20:45:50.950357013 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank1]:[W1007 20:45:50.954288155 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 20:45:51,275] step: 10, loss: 9.4604, lr: 0.000299, grad_norm: 2.5123, step_time: 0.110s (avg: 0.112s), tok/s: 74771.2 (avg: 72901.2)
+[2026-10-07 20:45:52,180] step: 20, loss: 7.8489, lr: 0.000190, grad_norm: 2.1615, step_time: 0.088s (avg: 0.101s), tok/s: 93522.9 (avg: 80764.8)
+[2026-10-07 20:45:53,084] step: 30, loss: 7.1924, lr: 0.000047, grad_norm: 9.7263, step_time: 0.088s (avg: 0.098s), tok/s: 93581.7 (avg: 83792.0)
+[2026-10-07 20:45:53,536] Skip checkpoint saving since no-save flag is set
+[2026-10-07 20:45:53,536] Total training time: 0.00 hours
+[2026-10-07 20:45:53,536] Finishing training
+{
+  "model_size_label": "50m",
+  "parameters_local": 55167360,
+  "parameters_full": 55167360,
+  "active_parameters_per_token_estimate": 50448768,
+  "moe": true,
+  "moe_config": {
+    "use_moe": true,
+    "expert_backend": "batched",
+    "num_shared_experts": 1,
+    "num_routed_experts": 4,
+    "num_experts_per_token": 2,
+    "expert_intermediate_size": 256,
+    "aux_loss_alpha": 0.01,
+    "router_jitter_noise": 0.0,
+    "expert_model_parallel_size": 1,
+    "expert_tensor_parallel_size": 1,
+    "router_dtype": "float32",
+    "router_bias": false,
+    "expert_capacity_factor": null,
+    "drop_tokens": false
+  },
+  "expert_stats": {
+    "model.layers.0.mlp": {
+      "counts": [
+        133035,
+        173380,
+        118295,
+        148730
+      ],
+      "fractions": [
+        0.23199462890625,
+        0.30235072544642855,
+        0.20629010881696427,
+        0.25936453683035715
+      ],
+      "max_over_mean": 1.2094029017857142
+    },
+    "model.layers.1.mlp": {
+      "counts": [
+        149454,
+        135457,
+        143415,
+        145114
+      ],
+      "fractions": [
+        0.2606270926339286,
+        0.23621826171875,
+        0.25009591238839285,
+        0.2530587332589286
+      ],
+      "max_over_mean": 1.0425083705357143
+    },
+    "model.layers.2.mlp": {
+      "counts": [
+        127528,
+        166064,
+        138728,
+        141120
+      ],
+      "fractions": [
+        0.22239118303571428,
+        0.28959263392857143,
+        0.24192243303571428,
+        0.24609375
+      ],
+      "max_over_mean": 1.1583705357142857
+    },
+    "model.layers.3.mlp": {
+      "counts": [
+        136312,
+        98432,
+        165371,
+        173325
+      ],
+      "fractions": [
+        0.23770926339285714,
+        0.17165178571428572,
+        0.2883841378348214,
+        0.3022548130580357
+      ],
+      "max_over_mean": 1.2090192522321428
+    },
+    "model.layers.4.mlp": {
+      "counts": [
+        116847,
+        170577,
+        146402,
+        139614
+      ],
+      "fractions": [
+        0.20376499720982144,
+        0.29746268136160714,
+        0.2553048270089286,
+        0.24346749441964285
+      ],
+      "max_over_mean": 1.1898507254464286
+    },
+    "model.layers.5.mlp": {
+      "counts": [
+        128860,
+        162254,
+        146102,
+        136224
+      ],
+      "fractions": [
+        0.22471400669642858,
+        0.28294852120535713,
+        0.2547816685267857,
+        0.23755580357142858
+      ],
+      "max_over_mean": 1.1317940848214285
+    },
+    "model.layers.6.mlp": {
+      "counts": [
+        160419,
+        134500,
+        127809,
+        150712
+      ],
+      "fractions": [
+        0.27974853515625,
+        0.23454938616071427,
+        0.22288120814732143,
+        0.2628208705357143
+      ],
+      "max_over_mean": 1.118994140625
+    },
+    "model.layers.7.mlp": {
+      "counts": [
+        157018,
+        115394,
+        136205,
+        164823
+      ],
+      "fractions": [
+        0.27381766183035716,
+        0.20123116629464285,
+        0.23752267020089285,
+        0.28742850167410716
+      ],
+      "max_over_mean": 1.1497140066964286
+    }
+  },
+  "world_size": 2,
+  "tp": 1,
+  "ep": 1,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "context": 1024,
+  "micro_batch": 2,
+  "global_batch": 8,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "attention": "sdpa",
+  "compile": false,
+  "activation_recompute": false,
+  "loss_chunk_size": null,
+  "seed": 42,
+  "torch": "2.12.0+cu130",
+  "recompute_linear_ce": false,
+  "moe_backend": "batched",
+  "profile": false,
+  "profile_ranks": [
+    0
+  ],
+  "profiler_schedule": {
+    "start": 11,
+    "end": 15,
+    "wait": 1,
+    "warmup": 1,
+    "active": 2
+  },
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "steps": 35,
+  "warmup_steps_excluded": 10,
+  "mean_step_seconds": 0.09033363811671734,
+  "median_step_seconds": 0.09021600999403745,
+  "p95_step_seconds": 0.09149229200556874,
+  "global_tokens_per_second": 90686.04089005434,
+  "peak_allocated_bytes": 3124587008,
+  "peak_reserved_bytes": 3210739712,
+  "initial_heldout_loss": 10.877521514892578,
+  "final_heldout_loss": 6.982352256774902
+}

@@ -1,0 +1,48 @@
+[2026-10-07 19:39:58,407] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 19:39:58,407] Acquiring training resources...
+[2026-10-07 19:39:58,407] Initialize torch distributed ... 
+[2026-10-07 19:39:58,640] Loading evaluation tasks
+[2026-10-07 19:39:58,641] Set random seed to 42 for model initialization
+[2026-10-07 19:39:58,649] Created Language Model
+[2026-10-07 19:39:58,649] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 19:39:58,650] Created Optimizer
+[2026-10-07 19:39:58,687] Resources acquired successfully.
+[2026-10-07 19:39:58,717] Training start from scratch
+[2026-10-07 19:39:58,717] Creating reference model with beta=0.5
+[2026-10-07 19:39:58,717] Creating reference model from policy weights...
+[2026-10-07 19:39:58,721] Training start from step: 0
+[2026-10-07 19:39:59,159] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.2444, step_time: 0.438s (avg: 0.438s), tok/s: 292.3 (avg: 292.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:39:59,175] step: 1, dpo_loss: 0.4648, margin: 1.1721, accuracy: 1.0000
+[2026-10-07 19:39:59,175] step: 2, loss: 0.4648, lr: 0.000232, grad_norm: 6.9151, step_time: 0.017s (avg: 0.227s), tok/s: 7731.8 (avg: 562.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:39:59,185] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:39:59,185] Saving checkpoint to /tmp/ironcore-remediation-ad-bf16/dpo/dp2_resume/checkpoint/step_2
+[2026-10-07 19:39:59,199] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 19:39:59,199] Training stopped by exit interval: 2
+[2026-10-07 19:39:59,199] Total training time: 0.00 hours
+[2026-10-07 19:39:59,199] Finishing training
+[2026-10-07 19:40:06,661] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 19:40:06,661] Acquiring training resources...
+[2026-10-07 19:40:06,661] Initialize torch distributed ... 
+[2026-10-07 19:40:06,911] Loading evaluation tasks
+[2026-10-07 19:40:06,912] Set random seed to 42 for model initialization
+[2026-10-07 19:40:06,920] Created Language Model
+[2026-10-07 19:40:06,920] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 19:40:06,920] Created Optimizer
+[2026-10-07 19:40:06,957] Resources acquired successfully.
+[2026-10-07 19:40:06,987] Loading checkpoint from /tmp/ironcore-remediation-ad-bf16/dpo/dp2_resume/checkpoint/step_2
+[2026-10-07 19:40:06,995] Loading optimizer state dict.
+[2026-10-07 19:40:06,995] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.01s
+[2026-10-07 19:40:06,995] Successfully loaded checkpoint: /tmp/ironcore-remediation-ad-bf16/dpo/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 19:40:06,995] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 19:40:06,996] Creating reference model with beta=0.5
+[2026-10-07 19:40:06,996] Creating reference model from policy weights...
+[2026-10-07 19:40:07,001] Training start from step: 2
+[2026-10-07 19:40:07,439] step: 2, dpo_loss: 0.3304, margin: 2.0240, accuracy: 1.0000
+[2026-10-07 19:40:07,439] step: 3, loss: 0.3304, lr: 0.000100, grad_norm: 5.1965, step_time: 0.438s (avg: 0.438s), tok/s: 292.1 (avg: 292.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:40:07,456] step: 3, dpo_loss: 0.3082, margin: 2.1617, accuracy: 1.0000
+[2026-10-07 19:40:07,456] step: 4, loss: 0.3082, lr: 0.000100, grad_norm: 4.9323, step_time: 0.016s (avg: 0.227s), tok/s: 7776.7 (avg: 562.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:40:07,464] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:40:07,464] Saving checkpoint to /tmp/ironcore-remediation-ad-bf16/dpo/dp2_resume/checkpoint/step_4
+[2026-10-07 19:40:07,484] Checkpoint saved successfully. Checkpoint saved in 0.013s
+[2026-10-07 19:40:07,484] Total training time: 0.00 hours
+[2026-10-07 19:40:07,484] Finishing training

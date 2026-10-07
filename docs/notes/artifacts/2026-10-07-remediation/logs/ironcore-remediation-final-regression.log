@@ -1,0 +1,73 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/hanjack/ironcore/ironcore
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, langsmith-0.9.7, timeout-2.4.0, typeguard-4.5.1, hypothesis-6.151.5, cov-7.0.0, anyio-4.12.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 700 items / 157 deselected / 543 selected
+
+tests/unit/optimizer/test_adamw_oracle.py ....................           [  3%]
+tests/unit/optimizer/test_distributed_optimizer.py ..........            [  5%]
+tests/unit/optimizer/test_lr_scheduler.py ...............                [  8%]
+tests/unit/optimizer/test_muon_optimizer.py ............................ [ 13%]
+.                                                                        [ 13%]
+tests/unit/offload/test_config.py ......................                 [ 17%]
+tests/unit/offload/test_system_info.py .......                           [ 18%]
+tests/unit/trainers/test_alignment_data_boundaries.py .                  [ 19%]
+tests/unit/trainers/test_checkpoint_contract.py ...                      [ 19%]
+tests/unit/trainers/test_resume_state.py ......                          [ 20%]
+tests/unit/trainers/test_trainer_norm.py .........                       [ 22%]
+tests/unit/trainers/test_training_correctness.py ...................     [ 25%]
+tests/unit/alignment/test_buffer.py .....                                [ 26%]
+tests/unit/alignment/test_dpo_loss.py ......................             [ 30%]
+tests/unit/alignment/test_grpo_math.py ...................s              [ 34%]
+tests/unit/alignment/test_remediation_contract.py ............           [ 36%]
+tests/unit/alignment/test_rollout_group_ids.py ..                        [ 37%]
+tests/unit/alignment/test_rollout_sanity.py ............s                [ 39%]
+tests/unit/dataloader/test_collator.py .......                           [ 40%]
+tests/unit/dataloader/test_fim_config.py ..........                      [ 42%]
+tests/unit/dataloader/test_fim_token_lookup.py ..                        [ 43%]
+tests/unit/dataloader/test_fim_transformation.py .............           [ 45%]
+tests/unit/dataloader/test_stateful_resume.py ........                   [ 46%]
+tests/unit/dataloader/test_streaming_shuffle.py .....                    [ 47%]
+tests/unit/moe/test_expert.py .........                                  [ 49%]
+tests/unit/moe/test_load_balance_loss.py .....................           [ 53%]
+tests/unit/moe/test_moe_utils.py ............                            [ 55%]
+tests/unit/moe/test_router.py ........                                   [ 57%]
+tests/unit/moe/test_training_contract.py ............                    [ 59%]
+tests/unit/checkpointing/test_export_hf_config_unification.py .          [ 59%]
+tests/unit/checkpointing/test_hf_import_contract.py .                    [ 59%]
+tests/unit/checkpointing/test_hf_interop.py ..............               [ 62%]
+tests/unit/checkpointing/test_universal_checkpoint_lora.py .             [ 62%]
+tests/unit/parallel/test_comm_grad_correctness.py ....s......            [ 64%]
+tests/unit/parallel/test_expert_parallel.py ........                     [ 65%]
+tests/unit/parallel/test_grad_norm.py .....                              [ 66%]
+tests/unit/parallel/test_tp_init_seed.py ...                             [ 67%]
+tests/unit/attention/test_attention.py ..................ss.ssss         [ 72%]
+tests/unit/attention/test_rotary.py ..............s.........             [ 76%]
+tests/unit/reward/test_reward_manager.py ............................... [ 82%]
+.....................................................                    [ 91%]
+tests/unit/test_sft_masking.py ....                                      [ 92%]
+tests/unit/test_config.py ..................                             [ 95%]
+tests/unit/test_fable_regression.py .................ss                  [ 99%]
+tests/unit/peft/test_merge_lora_weights.py ...                           [100%]
+
+=============================== warnings summary ===============================
+tests/unit/offload/test_config.py::TestOffloadWithDP::test_weight_offload_dp2_tp1_allowed
+  /home/hanjack/ironcore/ironcore/tests/unit/offload/test_config.py:198: UserWarning: offload.weight_offload requires activation spilling for weight eviction (no_autograd_graph). Enabling offload.activation_spill automatically.
+    _config_validation(config)
+
+tests/unit/offload/test_config.py::TestOffloadWithDP::test_weight_offload_dp4_tp1_allowed
+  /home/hanjack/ironcore/ironcore/tests/unit/offload/test_config.py:225: UserWarning: offload.weight_offload requires activation spilling for weight eviction (no_autograd_graph). Enabling offload.activation_spill automatically.
+    _config_validation(config)
+
+tests/unit/dataloader/test_stateful_resume.py::test_consumed_batch_checkpoint_includes_worker_prefetch_and_packing[0]
+tests/unit/dataloader/test_stateful_resume.py::test_consumed_batch_checkpoint_includes_worker_prefetch_and_packing[2]
+tests/unit/dataloader/test_stateful_resume.py::test_grpo_loader_resumes_shuffled_epochs_and_prefetched_prompts[0]
+tests/unit/dataloader/test_stateful_resume.py::test_grpo_loader_resumes_shuffled_epochs_and_prefetched_prompts[2]
+  /tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+    torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========= 531 passed, 12 skipped, 157 deselected, 6 warnings in 42.02s =========
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

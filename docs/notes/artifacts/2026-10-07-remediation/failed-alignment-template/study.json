@@ -1,0 +1,43 @@
+{
+  "status": "failed",
+  "jobs": [
+    {
+      "label": "fault-contracts",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-src/scripts/validate_distributed_contracts.py",
+        "--output",
+        "/tmp/ironcore-remediation-followup/fault-contracts"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "alignment-sft",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-src/scripts/benchmark_alignment.py",
+        "--task",
+        "sft",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--gsm8k",
+        "/tmp/ironcore-gsm8k",
+        "--preferences",
+        "/tmp/ironcore-ultrafeedback",
+        "--output",
+        "/tmp/ironcore-remediation-followup/alignment-sft",
+        "--steps",
+        "32"
+      ],
+      "returncode": 1
+    }
+  ]
+}

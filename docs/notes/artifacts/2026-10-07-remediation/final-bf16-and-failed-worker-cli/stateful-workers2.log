@@ -1,0 +1,12 @@
+Running pretrain/dp2
+Traceback (most recent call last):
+  File "/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py", line 729, in <module>
+    main()
+  File "/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py", line 725, in main
+    (worker if args.worker else run)(args)
+  File "/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py", line 617, in run
+    state = launch(task, case, run_dir)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py", line 606, in launch
+    raise RuntimeError(
+RuntimeError: pretrain/dp2 failed (1); see /tmp/ironcore-remediation-final-validation/stateful-workers2/pretrain/dp2/run.log

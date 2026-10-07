@@ -11,6 +11,7 @@ Key improvements over universal_dataset.py:
 4. Deterministic shuffling with block-based approach
 """
 
+import copy
 import json
 from pathlib import Path
 from typing import Literal
@@ -94,6 +95,12 @@ class StreamingBinaryDataset:
     def total_tokens(self) -> int:
         """Total number of tokens in dataset."""
         return len(self.data)
+
+    def __getstate__(self):
+        return {"bin_path": self.bin_path, "idx_path": self.idx_path}
+
+    def __setstate__(self, state):
+        self.__init__(state["bin_path"], state["idx_path"])
 
 
 class StreamingDataset(IterableDataset):
@@ -298,193 +305,165 @@ class StreamingDataset(IterableDataset):
             # (SFT samples are more memory-intensive, so lower cap)
             self.shuffle_buffer_size = max(1000, min(50000, total_samples // 100))
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_serialized_ranges"] = [self.split_ranges[id(d)] for d in self.datasets]
+        state.pop("split_ranges")
+        return state
+
+    def __setstate__(self, state):
+        ranges = state.pop("_serialized_ranges")
+        self.__dict__.update(state)
+        self.split_ranges = {id(d): r for d, r in zip(self.datasets, ranges, strict=True)}
+
+    def _signature(self):
+        return {
+            "mode": self.mode,
+            "split": self.split,
+            "seed": self.seed,
+            "seq_length": self.seq_length,
+            "rank": self.rank,
+            "world_size": self.world_size,
+            "shuffle_buffer_size": self.shuffle_buffer_size,
+            "weights": self.weights,
+            "files": [
+                (
+                    str(d.bin_path.resolve()),
+                    d.bin_path.stat().st_size,
+                    d.bin_path.stat().st_mtime_ns,
+                    str(d.idx_path.resolve()),
+                    d.idx_path.stat().st_size,
+                    d.idx_path.stat().st_mtime_ns,
+                )
+                for d in self.datasets
+            ],
+        }
+
+    def state_dict(self):
+        return {
+            "version": 1,
+            "signature": self._signature(),
+            "cursor": copy.deepcopy(getattr(self, "_stream_state", None)),
+        }
+
+    def load_state_dict(self, state):
+        if state["version"] != 1 or state["signature"] != self._signature():
+            raise ValueError("Dataset cursor requires the same files, seed, split and DP topology")
+        self._restore_state = copy.deepcopy(state["cursor"])
+
     def __iter__(self):
-        """
-        Iterate over dataset based on mode.
-
-        For pretrain: Yields token slices with block-based shuffling
-        For SFT/DPO: Yields individual samples with lazy generation
-        """
+        worker = torch.utils.data.get_worker_info()
+        workers = worker.num_workers if worker is not None else 1
+        worker_id = worker.id if worker is not None else 0
+        rank = self.rank * workers + worker_id
+        world = self.world_size * workers
+        state = getattr(self, "_restore_state", None)
+        self._restore_state = None
         if self.mode == "pretrain":
-            return self._iter_pretrain_streaming()
-        else:
-            return self._iter_sft_streaming()
+            return self._iter_pretrain_streaming(state, rank, world)
+        return self._iter_sft_streaming(state, rank, world)
 
-    def _iter_pretrain_streaming(self):
-        """
-        Pretrain mode: True streaming with block-based shuffling.
-
-        Strategy:
-            1. Compute total positions (don't store them)
-            2. Process positions in blocks of shuffle_buffer_size
-            3. Shuffle each block and yield
-            4. Infinite iteration by cycling epochs
-
-        Memory: O(shuffle_buffer_size) instead of O(total_positions)
-        """
-        # Build token ranges metadata (lightweight)
-        token_ranges = []
-        for ds_idx, dataset in enumerate(self.datasets):
-            start, end = self.split_ranges[id(dataset)]
-            token_ranges.append((ds_idx, start, end))
-
-        # Compute total tokens and number of positions
-        total_tokens = sum(end - start for _, start, end in token_ranges)
-        num_positions = total_tokens // self.seq_length
-
-        # Infinite loop for continuous pretraining
-        epoch = 0
-        while True:
-            # Create RNG with epoch-specific seed for reproducibility
-            rng = np.random.default_rng(seed=self.seed + epoch)
-
-            # Generate position permutation block-by-block
-            for block_start in range(0, num_positions, self.shuffle_buffer_size):
-                block_end = min(block_start + self.shuffle_buffer_size, num_positions)
-
-                # Generate positions for this block only
-                block_positions = np.arange(block_start, block_end) * self.seq_length
-
-                # Shuffle block
-                rng.shuffle(block_positions)
-
-                # Shard across data parallel ranks
-                if self.world_size > 1:
-                    rank_positions = [
-                        pos
-                        for i, pos in enumerate(block_positions)
-                        if (block_start + i) % self.world_size == self.rank
-                    ]
-                else:
-                    rank_positions = block_positions
-
-                # Yield slices from this block
-                for global_pos in rank_positions:
-                    # Find which dataset this position belongs to
-                    current_offset = 0
-                    for ds_idx, start, end in token_ranges:
-                        ds_length = end - start
-                        if global_pos < current_offset + ds_length:
-                            # Extract slice
-                            local_pos = global_pos - current_offset + start
-                            dataset = self.datasets[ds_idx]
-
-                            slice_end = min(local_pos + self.seq_length + 1, end)
-                            token_ids = dataset.data[local_pos:slice_end]
-
-                            # Handle wrap-around
-                            if len(token_ids) < self.seq_length + 1:
-                                needed = (self.seq_length + 1) - len(token_ids)
-                                wrap_tokens = dataset.data[start : start + needed]
-                                token_ids = np.concatenate([token_ids, wrap_tokens])
-
-                            yield torch.from_numpy(token_ids.astype(np.int64))
-                            break
-
-                        current_offset += ds_length
-
-            epoch += 1
-
-    def _iter_sft_streaming(self):
-        """
-        SFT/DPO mode: True streaming with lazy index generation.
-
-        Strategy:
-            1. Compute total samples (don't store indices)
-            2. Pick which dataset each yielded sample comes from via weighted
-               sampling, and shuffle *within* each dataset via a fixed-size
-               streaming shuffle buffer (samples are read from each dataset in
-               file order, but yielded out of order)
-            3. Only sample from non-exhausted datasets (prevents division by zero)
-            4. Yield samples lazily
-
-        Memory: O(shuffle_buffer_size) instead of O(num_samples)
-        """
-        # Compute sample counts per dataset
-        dataset_info = []
-        total_samples = 0
-
-        for ds_idx, dataset in enumerate(self.datasets):
-            start, end = self.split_ranges[id(dataset)]
-            num_samples = end - start
-            dataset_info.append(
-                {
-                    "ds_idx": ds_idx,
-                    "start": start,
-                    "end": end,
-                    "num_samples": num_samples,
-                    "weight": self.weights[ds_idx],
-                }
-            )
-            total_samples += num_samples
-
-        # Create RNG
-        rng = np.random.default_rng(seed=self.seed)
-
-        # Generate weighted sampling probabilities
-        # Effective probability = (num_samples * weight) / total_weighted_samples
-        weighted_counts = np.array(
-            [info["num_samples"] * info["weight"] for info in dataset_info], dtype=np.float64
+    def _iter_pretrain_streaming(self, state=None, rank=None, world=None):
+        rank = self.rank if rank is None else rank
+        world = self.world_size if world is None else world
+        ranges = [(i, *self.split_ranges[id(d)]) for i, d in enumerate(self.datasets)]
+        positions = sum(end - start for _, start, end in ranges) // self.seq_length
+        if positions == 0:
+            raise ValueError("Pretraining split has no complete context window")
+        cursor = (
+            copy.deepcopy(state) if state is not None else {"epoch": 0, "block": 0, "offset": 0}
         )
+        while True:
+            epoch, block, offset = cursor["epoch"], cursor["block"], cursor["offset"]
+            # Block-local randomness permits direct seeking without replaying I/O.
+            rng = np.random.default_rng(np.random.SeedSequence([self.seed, epoch, block]))
+            permutation = np.arange(block, min(block + self.shuffle_buffer_size, positions))
+            rng.shuffle(permutation)
+            local = [
+                int(pos) * self.seq_length
+                for i, pos in enumerate(permutation)
+                if (block + i) % world == rank
+            ]
+            for i in range(offset, len(local)):
+                cursor = {"epoch": epoch, "block": block, "offset": i + 1}
+                self._stream_state = cursor
+                global_pos = local[i]
+                base = 0
+                for ds_idx, start, end in ranges:
+                    length = end - start
+                    if global_pos < base + length:
+                        local_pos = start + global_pos - base
+                        data = self.datasets[ds_idx].data
+                        tokens = data[local_pos : min(local_pos + self.seq_length + 1, end)]
+                        if len(tokens) < self.seq_length + 1:
+                            # repeat from this dataset's split without train/eval leakage
+                            needed = self.seq_length + 1 - len(tokens)
+                            tokens = np.concatenate([tokens, np.resize(data[start:end], needed)])
+                        yield torch.from_numpy(tokens.astype(np.int64))
+                        break
+                    base += length
+            block += self.shuffle_buffer_size
+            cursor = {
+                "epoch": epoch + int(block >= positions),
+                "block": 0 if block >= positions else block,
+                "offset": 0,
+            }
+            self._stream_state = cursor
 
-        # For each position, decide which dataset it comes from
-        indices_per_dataset = [0] * len(dataset_info)
-
-        # Per-dataset streaming shuffle buffers: each dataset's own samples are
-        # still read sequentially, but held in a small buffer and yielded in
-        # random order from within it (classic reservoir-style shuffle), so a
-        # single dataset's epoch isn't emitted in strict file order.
-        per_dataset_buffer_size = max(1, self.shuffle_buffer_size // max(1, len(dataset_info)))
-        buffers: list[list[dict]] = [[] for _ in dataset_info]
-
-        def _fetch_next(ds_idx: int):
-            info = dataset_info[ds_idx]
-            fetch_idx = info["start"] + indices_per_dataset[ds_idx]
-            indices_per_dataset[ds_idx] += 1
-            return self.datasets[info["ds_idx"]][fetch_idx]
-
-        for global_idx in range(total_samples):
-            # Shard check: only process if this rank owns this index
-            if self.world_size > 1 and global_idx % self.world_size != self.rank:
-                continue
-
-            # Check if all datasets are exhausted
-            current_weighted_counts_sum = weighted_counts.sum()
-            if current_weighted_counts_sum <= 0:
-                # All available samples have been yielded.
+    def _iter_sft_streaming(self, state=None, rank=None, world=None):
+        rank = self.rank if rank is None else rank
+        world = self.world_size if world is None else world
+        info = [(i, *self.split_ranges[id(d)]) for i, d in enumerate(self.datasets)]
+        counts = [end - start for _, start, end in info]
+        total = sum(counts)
+        rng = np.random.default_rng(self.seed)
+        weighted = np.array(
+            [n * w for n, w in zip(counts, self.weights, strict=True)], dtype=np.float64
+        )
+        indices = [0] * len(info)
+        buffers = [[] for _ in info]  # indices only, no token/metadata materialization
+        begin = 0
+        if state is not None:
+            rng.bit_generator.state = state["rng"]
+            weighted = np.array(state["weighted"], dtype=np.float64)
+            indices, buffers, begin = (
+                copy.deepcopy(state["indices"]),
+                copy.deepcopy(state["buffers"]),
+                state["next"],
+            )
+        size = max(1, self.shuffle_buffer_size // len(info))
+        for global_idx in range(begin, total):
+            if weighted.sum() <= 0:
                 break
-
-            # Weighted random selection of dataset (only from non-exhausted datasets)
-            dataset_probs = weighted_counts / current_weighted_counts_sum
-            selected_ds_idx = rng.choice(len(dataset_info), p=dataset_probs)
-
-            info = dataset_info[selected_ds_idx]
-            buffer = buffers[selected_ds_idx]
-
-            # Top up this dataset's shuffle buffer before drawing from it.
-            while (
-                len(buffer) < per_dataset_buffer_size
-                and indices_per_dataset[selected_ds_idx] < info["num_samples"]
-            ):
-                buffer.append(_fetch_next(selected_ds_idx))
-
-            # Draw a uniformly random sample from the buffer, then refill that
-            # slot from the dataset's sequential cursor (or shrink the buffer
-            # if the dataset has no more samples left to read).
-            pick = rng.integers(0, len(buffer))
-            sample = buffer[pick]
-            if indices_per_dataset[selected_ds_idx] < info["num_samples"]:
-                buffer[pick] = _fetch_next(selected_ds_idx)
+            selected = int(rng.choice(len(info), p=weighted / weighted.sum()))
+            buffer = buffers[selected]
+            while len(buffer) < size and indices[selected] < counts[selected]:
+                buffer.append(indices[selected])
+                indices[selected] += 1
+            pick = int(rng.integers(len(buffer)))
+            sample_idx = buffer[pick]
+            if indices[selected] < counts[selected]:
+                buffer[pick] = indices[selected]
+                indices[selected] += 1
             else:
                 buffer[pick] = buffer[-1]
                 buffer.pop()
-
+            if indices[selected] >= counts[selected] and not buffer:
+                weighted[selected] = 0
+            self._stream_state = {
+                "next": global_idx + 1,
+                "rng": rng.bit_generator.state,
+                "weighted": weighted.tolist(),
+                "indices": indices,
+                "buffers": buffers,
+            }
+            # All ranks advance the same global permutation before sharding.
+            # Previously sharding before RNG advancement duplicated DP samples.
+            if global_idx % world != rank:
+                continue
+            ds_idx, start, _ = info[selected]
+            sample = self.datasets[ds_idx][start + sample_idx]
             yield {
                 "token_ids": torch.from_numpy(sample["token_ids"].astype(np.int64)),
                 "metadata": sample["metadata"],
             }
-
-            # A dataset is only exhausted once its sequential cursor is done
-            # AND its shuffle buffer has been fully drained.
-            if indices_per_dataset[selected_ds_idx] >= info["num_samples"] and not buffer:
-                weighted_counts[selected_ds_idx] = 0

@@ -1,0 +1,41 @@
+[2026-10-07 20:21:53,189] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:21:53,189] Acquiring training resources...
+[2026-10-07 20:21:53,189] Initialize torch distributed ... 
+[2026-10-07 20:21:53,467] Loading evaluation tasks
+[2026-10-07 20:21:53,468] Set random seed to 42 for model initialization
+[2026-10-07 20:21:53,480] Created Language Model
+[2026-10-07 20:21:53,486] Trainable parameters: 29,088 / 29,088 (100.00%)
+[2026-10-07 20:21:53,486] Created Optimizer
+[2026-10-07 20:21:53,577] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:21:53,577] Resources acquired successfully.
+[2026-10-07 20:21:53,619] Training start from scratch
+[2026-10-07 20:21:53,619] Creating reference model with beta=0.5
+[2026-10-07 20:21:53,619] Creating reference model from policy weights...
+[2026-10-07 20:21:53,623] Training start from step: 0
+[2026-10-07 20:21:54,120] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.5674, step_time: 0.497s (avg: 0.497s), tok/s: 257.7 (avg: 257.7)
+[2026-10-07 20:21:54,152] step: 1, dpo_loss: 0.4599, margin: 0.7038, accuracy: 1.0000
+[2026-10-07 20:21:54,152] step: 2, loss: 0.4599, lr: 0.000232, grad_norm: 7.0702, step_time: 0.031s (avg: 0.264s), tok/s: 4085.1 (avg: 484.5)
+[2026-10-07 20:21:54,190] Training stopped by exit interval: 2
+[2026-10-07 20:21:54,190] Total training time: 0.00 hours
+[2026-10-07 20:21:54,190] Finishing training
+[2026-10-07 20:22:02,262] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:22:02,263] Acquiring training resources...
+[2026-10-07 20:22:02,263] Initialize torch distributed ... 
+[2026-10-07 20:22:02,512] Loading evaluation tasks
+[2026-10-07 20:22:02,513] Set random seed to 42 for model initialization
+[2026-10-07 20:22:02,524] Created Language Model
+[2026-10-07 20:22:02,531] Trainable parameters: 29,088 / 29,088 (100.00%)
+[2026-10-07 20:22:02,531] Created Optimizer
+[2026-10-07 20:22:02,562] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:22:02,562] Resources acquired successfully.
+[2026-10-07 20:22:02,611] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed-v3/moe-ep-all/dpo/ep2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:22:02,611] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:22:02,611] Creating reference model with beta=0.5
+[2026-10-07 20:22:02,611] Creating reference model from policy weights...
+[2026-10-07 20:22:02,619] Training start from step: 2
+[2026-10-07 20:22:03,126] step: 2, dpo_loss: 0.3205, margin: 1.7259, accuracy: 1.0000
+[2026-10-07 20:22:03,126] step: 3, loss: 0.3205, lr: 0.000100, grad_norm: 5.2068, step_time: 0.507s (avg: 0.507s), tok/s: 252.6 (avg: 252.5)
+[2026-10-07 20:22:03,160] step: 3, dpo_loss: 0.2976, margin: 1.7476, accuracy: 1.0000
+[2026-10-07 20:22:03,160] step: 4, loss: 0.2976, lr: 0.000100, grad_norm: 4.9518, step_time: 0.033s (avg: 0.270s), tok/s: 3864.5 (avg: 473.9)
+[2026-10-07 20:22:03,201] Total training time: 0.00 hours
+[2026-10-07 20:22:03,201] Finishing training

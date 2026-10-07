@@ -33,6 +33,30 @@ if TYPE_CHECKING:
 _cpu_threads_configured = False
 
 
+def restore_optimizer_state_storage(optimizer, saved):
+    """Keep moment precision/offload placement across PyTorch's parameter cast."""
+    mapping = {
+        old_id: parameter
+        for old_group, group in zip(saved["param_groups"], optimizer.param_groups, strict=True)
+        for old_id, parameter in zip(old_group["params"], group["params"], strict=True)
+    }
+    for key, state in saved["state"].items():
+        parameter = mapping.get(key, key if isinstance(key, torch.Tensor) else None)
+        if parameter is None or parameter not in optimizer.state:
+            continue
+        device = parameter.device
+        if optimizer.offload_enabled and _should_offload_param(
+            parameter, optimizer.offload_min_param_elements
+        ):
+            device = torch.device("cpu")
+        for name in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq", "momentum_buffer"):
+            if name in state:
+                optimizer.state[parameter][name] = state[name].to(
+                    device=parameter.device if name == "momentum_buffer" else device,
+                    dtype=optimizer.state_dtype,
+                )
+
+
 def configure_cpu_threads(num_threads: int) -> None:
     """Set the number of CPU threads for optimizer compute during offload."""
     global _cpu_threads_configured
@@ -108,9 +132,9 @@ def _adamw_offloaded_step_cpu_compute(
 
     if amsgrad and max_exp_avg_sq is not None:
         torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-        denom = max_exp_avg_sq.sqrt().add_(eps)
+        denom = max_exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
     else:
-        denom = exp_avg_sq.sqrt().add_(eps)
+        denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
 
     bias_correction1 = 1.0 - beta1 ** state["step"]
     bias_correction2 = 1.0 - beta2 ** state["step"]
@@ -193,9 +217,9 @@ def _adamw_offloaded_step(
 
         if amsgrad and max_exp_avg_sq is not None:
             torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-            denom = max_exp_avg_sq.sqrt().add_(eps)
+            denom = max_exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
         else:
-            denom = exp_avg_sq.sqrt().add_(eps)
+            denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
 
         bias_correction1 = 1.0 - beta1 ** state["step"]
         bias_correction2 = 1.0 - beta2 ** state["step"]

@@ -1,0 +1,17 @@
+Running pretrain/full
+Running pretrain/accum
+Running pretrain/dp2
+Running pretrain/tp2
+Traceback (most recent call last):
+  File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 542, in <module>
+    main()
+  File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 538, in main
+    (worker if args.worker else run)(args)
+  File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 466, in run
+    key: compare_tensors(reference[key], state[key], atol, rtol)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 365, in compare_tensors
+    torch.testing.assert_close(left[name], right[name], atol=atol, rtol=rtol, msg=name)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/testing/_comparison.py", line 1631, in assert_close
+    raise error_metas[0].to_error(msg)
+AssertionError: embedding.word_embeddings.weight

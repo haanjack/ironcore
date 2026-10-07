@@ -1,0 +1,285 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": false,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "baseline_case": "full",
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00048828125,
+        "final": 0.0017242729663848877,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0006103515625,
+        "final": 0.0016704518347978592,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00048828125,
+        "final": 0.0017411233857274055,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.000732421875,
+        "final": 0.0017269463278353214,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00048828125,
+        "final": 0.0016730278730392456,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.000732421875,
+        "final": 0.0017309868708252907,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00341796875,
+        "final": 0.0017495129723101854,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00341796875,
+        "final": 0.0017497001681476831,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00341796875,
+        "final": 0.0017463106196373701,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0008586589246988297,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0029296875,
+        "final": 0.0013744831085205078,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.001821279525756836,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "online": {
+        "task": "grpo",
+        "case": "full",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.00870104939713201,
+          -0.001968593243873329
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.53125,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.5609579810407013,
+        "peak_allocated_bytes": 74481152,
+        "peak_reserved_bytes": 94371840,
+        "max_weight_change": 0.0017510652542114258
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "online": {
+        "task": "grpo",
+        "case": "dp2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.008834616746753454,
+          -0.0018948949873447418
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.6578830549260601,
+        "peak_allocated_bytes": 71568896,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.0017506538424640894
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "online": {
+        "task": "grpo",
+        "case": "tp2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.004989299923181534,
+          -0.0014612600207328796
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.6559350889874622,
+        "peak_allocated_bytes": 71390720,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.0017506778240203857
+      }
+    }
+  ]
+}

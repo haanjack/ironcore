@@ -1,0 +1,25 @@
+[2026-10-07 20:29:32,993] Acquiring training resources...
+[2026-10-07 20:29:32,994] Initialize torch distributed ... 
+[2026-10-07 20:29:33,223] Loading evaluation tasks
+[2026-10-07 20:29:33,224] Set random seed to 42 for model initialization
+[2026-10-07 20:29:33,236] Created Language Model
+[2026-10-07 20:29:33,237] Trainable parameters: 20,896 / 20,896 (100.00%)
+[2026-10-07 20:29:33,237] Created Optimizer
+[2026-10-07 20:29:33,243] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:29:33,243] Resources acquired successfully.
+[2026-10-07 20:29:33,340] Training start from scratch
+[2026-10-07 20:29:33,340] Training start from step: 0
+[rank0]:[W1007 20:29:33.323173420 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank1]:[W1007 20:29:33.323207165 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 20:29:33,787] step: 1, loss: 3.4556, lr: 0.000550, grad_norm: 2.0960, step_time: 0.447s (avg: 0.447s), tok/s: 286.6 (avg: 286.5)
+[2026-10-07 20:29:33,831] step: 2, loss: 3.4053, lr: 0.000232, grad_norm: 2.1302, step_time: 0.043s (avg: 0.245s), tok/s: 2958.6 (avg: 522.3)
+[2026-10-07 20:29:33,849] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:29:33,849] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/tp2/checkpoint/step_2
+[2026-10-07 20:29:33,866] Checkpoint saved successfully. Checkpoint saved in 0.026s
+[2026-10-07 20:29:33,911] step: 3, loss: 3.3442, lr: 0.000100, grad_norm: 2.0310, step_time: 0.045s (avg: 0.190s), tok/s: 2840.6 (avg: 672.6)
+[2026-10-07 20:29:33,955] step: 4, loss: 3.3418, lr: 0.000100, grad_norm: 2.0830, step_time: 0.044s (avg: 0.154s), tok/s: 2924.6 (avg: 832.7)
+[2026-10-07 20:29:33,979] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:29:33,979] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/tp2/checkpoint/step_4
+[2026-10-07 20:29:34,004] Checkpoint saved successfully. Checkpoint saved in 0.024s
+[2026-10-07 20:29:34,005] Total training time: 0.00 hours
+[2026-10-07 20:29:34,005] Finishing training

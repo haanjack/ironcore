@@ -1,0 +1,23 @@
+[2026-10-07 20:00:30,658] Acquiring training resources...
+[2026-10-07 20:00:30,658] Initialize torch distributed ... 
+[2026-10-07 20:00:30,927] Loading evaluation tasks
+[2026-10-07 20:00:30,928] Set random seed to 42 for model initialization
+[2026-10-07 20:00:30,938] Created Language Model
+[2026-10-07 20:00:30,938] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:00:30,939] Created Optimizer
+[2026-10-07 20:00:30,939] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:00:30,939] Resources acquired successfully.
+[2026-10-07 20:00:30,941] Training start from scratch
+[2026-10-07 20:00:30,941] Training start from step: 0
+[2026-10-07 20:00:31,284] step: 1, loss: 3.7443, lr: 0.000550, grad_norm: 2.0019, step_time: 0.343s (avg: 0.343s), tok/s: 373.2 (avg: 373.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:31,291] step: 2, loss: 3.6767, lr: 0.000232, grad_norm: 2.0459, step_time: 0.007s (avg: 0.175s), tok/s: 18364.0 (avg: 731.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:31,304] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:00:31,305] Saving checkpoint to /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/full/checkpoint/step_2
+[2026-10-07 20:00:31,321] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 20:00:31,327] step: 3, loss: 3.6307, lr: 0.000100, grad_norm: 1.9968, step_time: 0.006s (avg: 0.129s), tok/s: 22251.9 (avg: 993.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:31,333] step: 4, loss: 3.6213, lr: 0.000100, grad_norm: 2.0153, step_time: 0.006s (avg: 0.098s), tok/s: 22990.4 (avg: 1305.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:31,341] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:00:31,341] Saving checkpoint to /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/full/checkpoint/step_4
+[2026-10-07 20:00:31,351] Checkpoint saved successfully. Checkpoint saved in 0.007s
+[2026-10-07 20:00:31,351] Total training time: 0.00 hours
+[2026-10-07 20:00:31,351] Finishing training

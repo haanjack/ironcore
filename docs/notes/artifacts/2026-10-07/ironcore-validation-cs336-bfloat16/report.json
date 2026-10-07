@@ -1,0 +1,280 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "bfloat16",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0009765625,
+        "final": 0.001708984375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0009765625,
+        "final": 0.001708984375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0009765625,
+        "final": 0.001739501953125,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0009765625,
+        "final": 0.001708984375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0009765625,
+        "final": 0.001678466796875,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0017156600952148438,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0078125,
+        "final": 0.0015106201171875,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0078125,
+        "final": 0.001556396484375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0078125,
+        "final": 0.00238037109375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00390625,
+        "final": 0.0008544921875,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00390625,
+        "final": 0.001708984375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00390625,
+        "final": 0.001708984375,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "online": {
+        "task": "grpo",
+        "case": "full",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.008678140118718147,
+          -0.0020276440773159266
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.53125,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.521349289920181,
+        "peak_allocated_bytes": 74317312,
+        "peak_reserved_bytes": 94371840,
+        "max_weight_change": 0.001953125
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "online": {
+        "task": "grpo",
+        "case": "dp2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.008771601598709822,
+          -0.001867847517132759
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.5998354819603264,
+        "peak_allocated_bytes": 71340032,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.001953125
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "online": {
+        "task": "grpo",
+        "case": "tp2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.004952322691679001,
+          -0.0014670006930828094
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.6442724919179454,
+        "peak_allocated_bytes": 71234048,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.001953125
+      }
+    }
+  ]
+}

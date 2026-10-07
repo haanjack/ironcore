@@ -1,0 +1,23 @@
+[2026-10-07 19:58:08,134] Acquiring training resources...
+[2026-10-07 19:58:08,134] Initialize torch distributed ... 
+[2026-10-07 19:58:08,355] Loading evaluation tasks
+[2026-10-07 19:58:08,356] Set random seed to 42 for model initialization
+[2026-10-07 19:58:08,365] Created Language Model
+[2026-10-07 19:58:08,365] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 19:58:08,365] Created Optimizer
+[2026-10-07 19:58:08,365] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 19:58:08,366] Resources acquired successfully.
+[2026-10-07 19:58:08,367] Training start from scratch
+[2026-10-07 19:58:08,368] Training start from step: 0
+[2026-10-07 19:58:08,707] step: 1, loss: 3.7391, lr: 0.000550, grad_norm: 1.9693, step_time: 0.340s (avg: 0.340s), tok/s: 376.8 (avg: 376.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:58:08,715] step: 2, loss: 3.6757, lr: 0.000232, grad_norm: 1.9485, step_time: 0.007s (avg: 0.174s), tok/s: 17736.7 (avg: 737.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:58:08,721] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:58:08,722] Saving checkpoint to /tmp/ironcore-remediation-fsdp-pretrain/pretrain/full/checkpoint/step_2
+[2026-10-07 19:58:08,735] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 19:58:08,742] step: 3, loss: 3.6272, lr: 0.000100, grad_norm: 1.8978, step_time: 0.006s (avg: 0.125s), tok/s: 20021.3 (avg: 1026.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:58:08,748] step: 4, loss: 3.6160, lr: 0.000100, grad_norm: 1.9127, step_time: 0.006s (avg: 0.095s), tok/s: 21055.4 (avg: 1346.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 19:58:08,758] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 19:58:08,758] Saving checkpoint to /tmp/ironcore-remediation-fsdp-pretrain/pretrain/full/checkpoint/step_4
+[2026-10-07 19:58:08,768] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 19:58:08,768] Total training time: 0.00 hours
+[2026-10-07 19:58:08,768] Finishing training

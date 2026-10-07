@@ -76,7 +76,9 @@ def clear_moe_aux_loss(model: torch.nn.Module) -> None:
             module.clear_aux_loss()
 
 
-def loss_func_sft(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch.Tensor:
+def loss_func_sft(
+    output_tensor: torch.Tensor, loss_mask: torch.Tensor, sample_ids: torch.Tensor | None = None
+) -> torch.Tensor:
     """Per-sample loss averaging for SFT.
 
     Each sample contributes equally regardless of token count.
@@ -92,18 +94,42 @@ def loss_func_sft(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch
     token_losses = output_tensor.float()
     loss_mask = loss_mask.float()
 
-    # Per-sample: sum tokens / count tokens for each row
-    sample_token_sum = (token_losses * loss_mask).sum(dim=1)  # [batch]
-    sample_token_count = loss_mask.sum(dim=1).clamp(min=1)  # [batch]
-    sample_losses = sample_token_sum / sample_token_count  # [batch]
+    if sample_ids is None:
+        sample_token_sum = (token_losses * loss_mask).sum(dim=1)
+        counts = loss_mask.sum(dim=1)
+    else:
+        # IDs belong to original documents, independently of packed row count.
+        ids = sample_ids.to(output_tensor.device).reshape(-1)
+        valid = (ids >= 0) & loss_mask.reshape(-1).bool()
+        # The upper bound avoids GPU->CPU max().item() and dynamic allocation.
+        sample_token_sum = token_losses.new_zeros(ids.numel())
+        counts = token_losses.new_zeros(ids.numel())
+        safe_ids = ids.clamp(min=0)
+        sample_token_sum.scatter_add_(0, safe_ids, (token_losses * loss_mask).reshape(-1) * valid)
+        counts.scatter_add_(0, safe_ids, valid.to(token_losses.dtype))
+    active = counts > 0
+    return ((sample_token_sum / counts.clamp(min=1)) * active).sum() / active.sum().clamp(min=1)
 
-    return sample_losses.mean()
+
+def batch_objective_count(batch, task):
+    """Denominator of the main objective, computed before forward/backward."""
+    if task == "dpo":
+        return batch["chosen_input_ids"].size(0)
+    mask = batch["labels"] != -100
+    if task == "sft":
+        if "loss_sample_ids" in batch:
+            ids = batch["loss_sample_ids"][mask]
+            return int(ids[ids >= 0].unique().numel())
+        return int(mask.any(dim=1).sum())
+    return int(mask.sum())
 
 
 def compute_token_accuracy(
     logits: torch.Tensor,
     labels: torch.Tensor,
     loss_mask: torch.Tensor,
+    *,
+    logits_are_parallel: bool = True,
 ) -> float:
     """Compute next-token prediction accuracy on valid tokens.
 
@@ -115,7 +141,7 @@ def compute_token_accuracy(
     Returns:
         Accuracy as float (0.0 to 1.0)
     """
-    if parallel_states.get_tensor_model_parallel_world_size() > 1:
+    if logits_are_parallel and parallel_states.get_tensor_model_parallel_world_size() > 1:
         # TP mode: logits are sharded along vocab dimension [b, s, vocab/tp_size]
 
         # 1. Get local max and indices
@@ -200,12 +226,12 @@ def get_batch(
 
 # Module-level slot for the most recent MoE aux loss so trainers can log it
 # as a metric after forward_step returns. (Fable issue #78.)
-_last_moe_aux_loss: float = 0.0
+_last_moe_aux_loss: float | torch.Tensor = 0.0
 
 
 def get_last_moe_aux_loss() -> float:
     """Return the aux loss from the most recent forward_step call, or 0.0."""
-    return _last_moe_aux_loss
+    return float(_last_moe_aux_loss)
 
 
 def forward_step(model, data_iterator) -> torch.Tensor:
@@ -216,14 +242,19 @@ def forward_step(model, data_iterator) -> torch.Tensor:
     For non-MoE models, this is essentially a no-op overhead.
     """
     global _last_moe_aux_loss
-    input_ids, labels = get_batch(data_iterator=data_iterator)
-    loss = model(input_ids, labels)
+    batch = next(data_iterator)
+    model_kwargs = {
+        key: batch[key]
+        for key in ("position_ids", "attention_mask", "loss_sample_ids")
+        if key in batch
+    }
+    loss = model(batch["input_ids"], batch["labels"], **model_kwargs)
 
     # Add MoE auxiliary loss if present (no-op for non-MoE models)
     aux_loss = get_moe_aux_loss(model)
     if aux_loss is not None:
         loss = loss + aux_loss
-        _last_moe_aux_loss = float(aux_loss.detach().item())
+        _last_moe_aux_loss = aux_loss.detach()
         # Clear aux loss after accumulation to prevent memory leak
         clear_moe_aux_loss(model)
     else:
@@ -239,6 +270,6 @@ def loss_func(output_tensor: torch.Tensor, loss_mask: torch.Tensor) -> torch.Ten
 
     # Average over ALL valid tokens across the entire batch
     # This matches nanoGPT's F.cross_entropy behavior
-    loss = torch.sum(token_losses * loss_mask) / torch.sum(loss_mask)
+    loss = torch.sum(token_losses * loss_mask) / torch.sum(loss_mask).clamp(min=1)
 
     return loss

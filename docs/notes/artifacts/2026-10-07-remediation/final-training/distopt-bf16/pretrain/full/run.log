@@ -1,0 +1,24 @@
+[2026-10-07 21:05:56,360] Acquiring training resources...
+[2026-10-07 21:05:56,360] Initialize torch distributed ... 
+[2026-10-07 21:05:56,578] Loading evaluation tasks
+[2026-10-07 21:05:56,579] Set random seed to 42 for model initialization
+[2026-10-07 21:05:56,588] Created Language Model
+[2026-10-07 21:05:56,589] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:05:56,589] Created Optimizer
+[2026-10-07 21:05:56,589] Wrapped optimizer with DistributedOptimizer (bucket_cap=25.0MB)
+[2026-10-07 21:05:56,589] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 21:05:56,589] Resources acquired successfully.
+[2026-10-07 21:05:56,590] Training start from scratch
+[2026-10-07 21:05:56,590] Training start from step: 0
+[2026-10-07 21:05:56,980] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0656, step_time: 0.389s (avg: 0.389s), tok/s: 328.7 (avg: 328.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:05:56,988] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0246, step_time: 0.008s (avg: 0.199s), tok/s: 16290.0 (avg: 644.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:05:56,994] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:05:56,994] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/distopt-bf16/pretrain/full/checkpoint/step_2
+[2026-10-07 21:05:57,014] Checkpoint saved successfully. Checkpoint saved in 0.018s
+[2026-10-07 21:05:57,021] step: 3, loss: 3.3476, lr: 0.000100, grad_norm: 1.9698, step_time: 0.007s (avg: 0.144s), tok/s: 18818.4 (avg: 891.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:05:57,028] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9666, step_time: 0.006s (avg: 0.109s), tok/s: 20434.3 (avg: 1171.1), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:05:57,032] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:05:57,032] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/distopt-bf16/pretrain/full/checkpoint/step_4
+[2026-10-07 21:05:57,050] Checkpoint saved successfully. Checkpoint saved in 0.016s
+[2026-10-07 21:05:57,050] Total training time: 0.00 hours
+[2026-10-07 21:05:57,050] Finishing training

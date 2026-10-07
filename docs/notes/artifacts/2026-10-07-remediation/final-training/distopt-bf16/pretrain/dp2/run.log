@@ -1,0 +1,23 @@
+[2026-10-07 21:06:20,801] Acquiring training resources...
+[2026-10-07 21:06:20,801] Initialize torch distributed ... 
+[2026-10-07 21:06:21,066] Loading evaluation tasks
+[2026-10-07 21:06:21,068] Set random seed to 42 for model initialization
+[2026-10-07 21:06:21,076] Created Language Model
+[2026-10-07 21:06:21,076] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:06:21,077] Created Optimizer
+[2026-10-07 21:06:21,077] Wrapped optimizer with DistributedOptimizer (bucket_cap=25.0MB)
+[2026-10-07 21:06:21,113] Resources acquired successfully.
+[2026-10-07 21:06:21,143] Training start from scratch
+[2026-10-07 21:06:21,144] Training start from step: 0
+[2026-10-07 21:06:21,560] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0653, step_time: 0.416s (avg: 0.416s), tok/s: 307.8 (avg: 307.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:06:21,573] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0249, step_time: 0.014s (avg: 0.215s), tok/s: 9465.5 (avg: 595.9), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:06:21,598] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:06:21,598] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/distopt-bf16/pretrain/dp2/checkpoint/step_2
+[2026-10-07 21:06:21,613] Checkpoint saved successfully. Checkpoint saved in 0.030s
+[2026-10-07 21:06:21,626] step: 3, loss: 3.3476, lr: 0.000100, grad_norm: 1.9697, step_time: 0.013s (avg: 0.161s), tok/s: 10099.2 (avg: 797.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:06:21,637] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9667, step_time: 0.011s (avg: 0.123s), tok/s: 11208.9 (avg: 1037.9), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:06:21,647] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:06:21,647] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/distopt-bf16/pretrain/dp2/checkpoint/step_4
+[2026-10-07 21:06:21,664] Checkpoint saved successfully. Checkpoint saved in 0.024s
+[2026-10-07 21:06:21,665] Total training time: 0.00 hours
+[2026-10-07 21:06:21,665] Finishing training

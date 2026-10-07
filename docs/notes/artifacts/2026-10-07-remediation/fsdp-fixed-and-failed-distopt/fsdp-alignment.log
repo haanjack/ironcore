@@ -1,0 +1,7 @@
+Running sft/full
+Running sft/dp2
+Running dpo/full
+Running dpo/dp2
+Running grpo/full
+Running grpo/dp2
+Validation passed: /tmp/ironcore-remediation-distributed-v2/fsdp-alignment/report.json

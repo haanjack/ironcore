@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
@@ -52,11 +53,14 @@ class RewardWorkerPool:
         num_workers: int = 4,
         timeout: float = 30.0,
         default_reward: float = 0.5,
+        failure_policy: str = "fallback",
     ):
         self.reward_fn = reward_fn
         self.num_workers = num_workers
         self.timeout = timeout
-        self.default_reward = default_reward
+        if failure_policy not in ("error", "fallback"):
+            raise ValueError("failure_policy must be error or fallback")
+        self.default_reward = float("nan") if failure_policy == "error" else default_reward
         self._executor = ThreadPoolExecutor(max_workers=num_workers)
         # Failure tracking — exposes visibility into reward computation errors
         # so a poisoned run is observable instead of silently degrading the
@@ -101,18 +105,12 @@ class RewardWorkerPool:
             if future in done:
                 try:
                     result = future.result()
+                    if not math.isfinite(float(result)):
+                        raise ValueError("Reward backend returned NaN/Inf")
                     rewards.append(float(result))
-                except (
-                    ValueError,
-                    RuntimeError,
-                    TypeError,
-                    OSError,
-                    KeyError,
-                    AttributeError,
-                ) as exc:
-                    # Narrow catch: only the exception types a reward backend
-                    # is realistically expected to raise. Log with context so
-                    # a poisoned run is observable. (Fable issue #67.)
+                except Exception as exc:
+                    # A backend failure must reach the trainer's collective
+                    # validity check, so another rank cannot keep training.
                     preview = (prompts[idx][:40] + "…") if len(prompts[idx]) > 40 else prompts[idx]
                     logger.warning(
                         "reward compute failed for prompt='%s': %s: %s",

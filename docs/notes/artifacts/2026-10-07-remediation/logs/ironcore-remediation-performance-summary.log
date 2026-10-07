@@ -1,0 +1,62 @@
+[
+  {
+    "workload": "dense-full",
+    "parameters": 130433920,
+    "context": 2048,
+    "global_batch": 8,
+    "micro_batch": 2,
+    "mean_step_seconds": 0.22342100518910835,
+    "tokens_per_second": 73332.40662010373,
+    "trial_min_tps": 72869.21924687148,
+    "trial_max_tps": 73715.76564980118,
+    "peak_allocated_gib": 6.89371395111084,
+    "repeats": 3,
+    "warmup_excluded": 10,
+    "measured_steps_per_repeat": 25
+  },
+  {
+    "workload": "dense-recomputed",
+    "parameters": 130433920,
+    "context": 2048,
+    "global_batch": 8,
+    "micro_batch": 2,
+    "mean_step_seconds": 0.29489142099550614,
+    "tokens_per_second": 55559.43250125841,
+    "trial_min_tps": 55326.11817214237,
+    "trial_max_tps": 55887.264512030386,
+    "peak_allocated_gib": 4.649251461029053,
+    "repeats": 3,
+    "warmup_excluded": 10,
+    "measured_steps_per_repeat": 25
+  },
+  {
+    "workload": "moe-loop",
+    "parameters": 55167360,
+    "context": 1024,
+    "global_batch": 8,
+    "micro_batch": 2,
+    "mean_step_seconds": 0.10826129093300552,
+    "tokens_per_second": 75668.78179080084,
+    "trial_min_tps": 74860.88602504159,
+    "trial_max_tps": 76540.95781203738,
+    "peak_allocated_gib": 2.793051242828369,
+    "repeats": 3,
+    "warmup_excluded": 10,
+    "measured_steps_per_repeat": 25
+  },
+  {
+    "workload": "moe-batched",
+    "parameters": 55167360,
+    "context": 1024,
+    "global_batch": 8,
+    "micro_batch": 2,
+    "mean_step_seconds": 0.09092894599307329,
+    "tokens_per_second": 90092.32330290119,
+    "trial_min_tps": 89331.11286471804,
+    "trial_max_tps": 90686.04089005434,
+    "peak_allocated_gib": 2.9142518043518066,
+    "repeats": 3,
+    "warmup_excluded": 10,
+    "measured_steps_per_repeat": 25
+  }
+]

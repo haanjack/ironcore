@@ -33,6 +33,7 @@ def _build_rollout_output(
     response_lengths: torch.Tensor,
     group_size: int,
     metadata: list[dict],
+    prompt_attention_mask: torch.Tensor | None = None,
 ) -> RolloutBuffer:
     """Build RolloutBuffer from generation outputs (shared by both rollout paths)."""
     B, prompt_len = prompt_ids.shape
@@ -63,10 +64,13 @@ def _build_rollout_output(
 
     return RolloutBuffer(
         prompt_ids=prompt_ids,
-        prompt_attention_mask=torch.ones_like(prompt_ids),
+        prompt_attention_mask=prompt_attention_mask
+        if prompt_attention_mask is not None
+        else torch.ones_like(prompt_ids),
         completion_ids=completion_ids,
         response_ids=generated,
         old_log_probs=old_log_probs,
+        old_token_log_probs=log_probs_stacked,
         rewards=torch.zeros(total_samples, device=device),
         advantages=torch.zeros(total_samples, device=device),
         group_ids=group_ids,
@@ -170,7 +174,7 @@ def _sample_tokens_batched(
     if top_k > 0:
         top_k = min(top_k, logits.size(-1))
         # Get k-th largest value for each batch element
-        kth_vals = logits.topk(top_k, dim=-1).values[:, -1].unsqueeze(-1)
+        kth_vals = logits.topk(top_k, dim=-1).values[..., -1].unsqueeze(-1)
         logits = logits.masked_fill(logits < kth_vals, float("-inf"))
 
     # Top-p (nucleus) filtering
@@ -217,7 +221,7 @@ def _filter_logits(
         logits = logits / temperature
     if top_k > 0:
         top_k = min(top_k, logits.size(-1))
-        kth_vals = logits.topk(top_k, dim=-1).values[:, -1].unsqueeze(-1)
+        kth_vals = logits.topk(top_k, dim=-1).values[..., -1].unsqueeze(-1)
         logits = logits.masked_fill(logits < kth_vals, float("-inf"))
     if top_p < 1.0:
         sorted_logits, sorted_idx = logits.sort(dim=-1, descending=True)
@@ -259,6 +263,7 @@ def generate_rollouts_batched(
     top_k: int = 0,
     do_sample: bool = True,
     eos_token_id: int | None = None,
+    prompt_attention_mask: torch.Tensor | None = None,
 ) -> RolloutBuffer:
     """Generate G completions per prompt with BATCHED prefix KV-cache.
 
@@ -286,6 +291,17 @@ def generate_rollouts_batched(
     B, prompt_len = prompt_ids.shape
     G = group_size
     device = prompt_ids.device
+    padded = prompt_attention_mask is not None and not bool(prompt_attention_mask.all())
+    prefix_kwargs = {}
+    if padded:
+        mask = prompt_attention_mask.to(device).bool()
+        if (mask[:, 1:].int() < mask[:, :-1].int()).any() or (~mask[:, -1]).any():
+            raise ValueError("Batched rollout requires nonempty, left-padded prompts")
+        prefix_kwargs = {
+            "position_ids": (mask.long().cumsum(-1) - 1).clamp(min=0),
+            "attention_mask": mask[:, None, None, :]
+            & torch.ones(prompt_len, prompt_len, device=device, dtype=torch.bool).tril(),
+        }
     total_samples = B * G
 
     # Initialize KV cache if model supports it
@@ -310,7 +326,7 @@ def generate_rollouts_batched(
     # === Step 1: Prefill all prompts ===
     with profile_context("grpo_prefill"):
         prefill_logits, prefix_kv = model.forward(
-            prompt_ids, labels=None, use_cache=True, past_key_values=None
+            prompt_ids, labels=None, use_cache=True, past_key_values=None, **prefix_kwargs
         )
     # prefill_logits: [B, prompt_len, vocab]
     # prefix_kv: List of (key, value) per layer
@@ -368,16 +384,28 @@ def generate_rollouts_batched(
         # call forward the same number of times.
 
         for t in range(1, max_new_tokens):
+            decode_kwargs = {}
+            if padded:
+                expanded_mask = mask.repeat_interleave(G, dim=0)
+                keys = torch.cat(
+                    [expanded_mask, torch.ones(total_samples, t, device=device, dtype=torch.bool)],
+                    dim=1,
+                )
+                decode_kwargs = {
+                    "attention_mask": keys[:, None, None, :],
+                    "position_ids": expanded_mask.sum(-1, keepdim=True) + t - 1,
+                }
             done_result = _fsdp_done_check(done_mask, device)
             if done_result is True:
                 break
             if done_result is False:
                 # Dummy forward to keep FSDP collective ordering in sync
-                model.forward(
+                _, past_kv = model.forward(
                     generated[:, t - 1 : t],
                     labels=None,
                     use_cache=True,
                     past_key_values=past_kv,
+                    **decode_kwargs,
                 )
                 continue
 
@@ -387,6 +415,7 @@ def generate_rollouts_batched(
                 labels=None,
                 use_cache=True,
                 past_key_values=past_kv,
+                **decode_kwargs,
             )
             # logits: [B×G, 1, vocab]
 
@@ -422,6 +451,7 @@ def generate_rollouts_batched(
         response_lengths,
         group_size,
         metadata,
+        prompt_attention_mask=prompt_attention_mask,
     )
 
 

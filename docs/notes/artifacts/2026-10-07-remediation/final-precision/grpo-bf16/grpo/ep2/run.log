@@ -1,0 +1,205 @@
+[2026-10-07 20:52:29,653] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 20:52:29,654] Acquiring training resources...
+[2026-10-07 20:52:29,654] Initialize torch distributed ... 
+[2026-10-07 20:52:29,908] Loading evaluation tasks
+[2026-10-07 20:52:29,909] Set random seed to 42 for model initialization
+[2026-10-07 20:52:29,919] Created Language Model
+[2026-10-07 20:52:29,925] Trainable parameters: 29,088 / 29,088 (100.00%)
+[2026-10-07 20:52:29,925] Created Optimizer
+[2026-10-07 20:52:29,960] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:52:29,960] Resources acquired successfully.
+[2026-10-07 20:52:30,001] Training start from scratch
+[2026-10-07 20:52:30,001] Creating reference model for GRPO...
+[2026-10-07 20:52:30,001] Creating reference model from policy weights...
+[2026-10-07 20:52:30,006] Reference model created on GPU (device=cuda:0)
+[2026-10-07 20:52:30,006] [VRAM] After ref model creation: allocated=0.00 GB, reserved=0.00 GB
+[2026-10-07 20:52:30,006] Initializing reward worker via RewardManager...
+[2026-10-07 20:52:30,007] Training start from step: 0
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 729, in <module>
+[rank1]:     main()
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 725, in main
+[rank1]:     (worker if args.worker else run)(args)
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 437, in worker
+[rank1]:     trainer.train()
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/trainers/base_trainer.py", line 628, in train
+[rank1]:     loss, grad_norm, param_norm = self.train_step(step)
+[rank1]:                                   ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/trainers/grpo_trainer.py", line 517, in train_step
+[rank1]:     chunk_rollout = generate_rollouts_batched(
+[rank1]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 364, in replay_rollouts
+[rank1]:     logits, _ = model(completion, labels=None, **scoring_kwargs)
+[rank1]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/parallel/expert_parallel/training.py", line 74, in forward
+[rank1]:     return self.module(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/language_model.py", line 151, in forward
+[rank1]:     model_out = self.model(
+[rank1]:                 ^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/models/transformer.py", line 447, in forward
+[rank1]:     layer_out = layer(
+[rank1]:                 ^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/models/transformer.py", line 335, in forward
+[rank1]:     return self.custom_forward(
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/models/transformer.py", line 315, in custom_forward
+[rank1]:     mlp_output = self.mlp(norm_output)
+[rank1]:                  ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank1]:     return self._call_impl(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank1]:     return forward_call(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/layers/moe/moe_layer.py", line 217, in forward
+[rank1]:     return self._forward_allreduce(x, async_communication)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/layers/moe/moe_layer.py", line 280, in _forward_allreduce
+[rank1]:     routed_output = self._route_and_combine_allreduce(
+[rank1]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/layers/moe/moe_layer.py", line 397, in _route_and_combine_allreduce
+[rank1]:     return route_expert_tokens(
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/parallel/expert_parallel/training.py", line 52, in route_expert_tokens
+[rank1]:     output = output.index_copy(0, positions, expert(recv_tokens[positions]))
+[rank1]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: RuntimeError: index_copy_(): self and source expected to have the same dtype, but got (self) Float and (source) BFloat16
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 729, in <module>
+[rank0]:     main()
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 725, in main
+[rank0]:     (worker if args.worker else run)(args)
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 437, in worker
+[rank0]:     trainer.train()
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/trainers/base_trainer.py", line 628, in train
+[rank0]:     loss, grad_norm, param_norm = self.train_step(step)
+[rank0]:                                   ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/trainers/grpo_trainer.py", line 517, in train_step
+[rank0]:     chunk_rollout = generate_rollouts_batched(
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py", line 364, in replay_rollouts
+[rank0]:     logits, _ = model(completion, labels=None, **scoring_kwargs)
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/parallel/expert_parallel/training.py", line 74, in forward
+[rank0]:     return self.module(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/language_model.py", line 151, in forward
+[rank0]:     model_out = self.model(
+[rank0]:                 ^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/models/transformer.py", line 447, in forward
+[rank0]:     layer_out = layer(
+[rank0]:                 ^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/models/transformer.py", line 335, in forward
+[rank0]:     return self.custom_forward(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/models/transformer.py", line 315, in custom_forward
+[rank0]:     mlp_output = self.mlp(norm_output)
+[rank0]:                  ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/layers/moe/moe_layer.py", line 217, in forward
+[rank0]:     return self._forward_allreduce(x, async_communication)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/layers/moe/moe_layer.py", line 280, in _forward_allreduce
+[rank0]:     routed_output = self._route_and_combine_allreduce(
+[rank0]:                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/layers/moe/moe_layer.py", line 397, in _route_and_combine_allreduce
+[rank0]:     return route_expert_tokens(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/tmp/ironcore-remediation-final-v4-src/ironcore/parallel/expert_parallel/training.py", line 52, in route_expert_tokens
+[rank0]:     output = output.index_copy(0, positions, expert(recv_tokens[positions]))
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: RuntimeError: index_copy_(): self and source expected to have the same dtype, but got (self) Float and (source) BFloat16
+E1007 20:52:32.619000 1932407 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 1) local_rank: 0 (pid: 1932459) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_20:52:32
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 1932460) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_20:52:32
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 1932459) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

@@ -1,0 +1,26 @@
+{
+  "status": "failed",
+  "jobs": [
+    {
+      "label": "fsdp-alignment",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--steps",
+        "4",
+        "--output",
+        "/tmp/ironcore-remediation-distributed/fsdp-alignment",
+        "--fsdp",
+        "--cases",
+        "full,dp2",
+        "--tasks",
+        "sft,dpo,grpo"
+      ],
+      "returncode": 1
+    }
+  ]
+}

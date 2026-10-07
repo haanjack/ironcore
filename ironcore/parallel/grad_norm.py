@@ -145,7 +145,7 @@ def clip_grad_norm(
             combined = torch.stack([local_expert_pow, local_non_expert_pow])
             # NCCL requires CUDA tensors; move to GPU temporarily if needed
             combined_device = combined.device
-            if combined_device.type == "cpu":
+            if combined_device.type == "cpu" and dist.get_backend(dp_group) == "nccl":
                 combined = combined.cuda()
             dist.all_reduce(combined, op=dist.ReduceOp.SUM, group=dp_group)
             if combined_device.type == "cpu":

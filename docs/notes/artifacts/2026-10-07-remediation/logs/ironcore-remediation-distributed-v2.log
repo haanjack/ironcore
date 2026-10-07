@@ -1,0 +1,7 @@
+Running fsdp-alignment
+Running distributed-optimizer
+Traceback (most recent call last):
+  File "/tmp/run-remediation-distributed-v2.py", line 24, in <module>
+    report['status']='failed';(output/'study.json').write_text(json.dumps(report,indent=2)+'\n');raise RuntimeError(label)
+                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: distributed-optimizer

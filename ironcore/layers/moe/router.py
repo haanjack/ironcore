@@ -97,20 +97,14 @@ class TopKRouter(BaseModule):
         Returns:
             [batch, seq, num_experts] routing logits
         """
-        # Save original dtype before casting
-        original_dtype = hidden_states.dtype
-        # Cast to router compute dtype for numerical stability
-        hidden_states = hidden_states.to(self.router_dtype)
-        weight = self.weight.to(self.router_dtype)
-
-        # Compute logits: [batch, seq, hidden] @ [hidden, num_experts] -> [batch, seq, num_experts]
-        router_logits = torch.matmul(hidden_states, weight)
-
-        if self.bias is not None:
-            router_logits = router_logits + self.bias.to(self.router_dtype)
-
-        # Cast back to original dtype for consistency with rest of model
-        router_logits = router_logits.to(original_dtype)
+        # An enclosing BF16 autocast would otherwise downcast this matmul even
+        # after explicitly casting its operands to the configured router dtype.
+        with torch.autocast(device_type=hidden_states.device.type, enabled=False):
+            router_logits = torch.matmul(
+                hidden_states.to(self.router_dtype), self.weight.to(self.router_dtype)
+            )
+            if self.bias is not None:
+                router_logits = router_logits + self.bias.to(self.router_dtype)
 
         return router_logits
 
@@ -152,7 +146,7 @@ class TopKRouter(BaseModule):
         original_dtype = hidden_states.dtype
 
         with profile_context("moe_router"):
-            # Compute router logits (already casts back to original_dtype internally)
+            # Keep logits/top-k/softmax in router dtype; cast mixture weights only.
             router_logits = self._compute_router_logits(hidden_states)
 
             # Add jitter noise during training
@@ -166,7 +160,6 @@ class TopKRouter(BaseModule):
 
             # Ensure output is in original dtype
             topk_weights = topk_weights.to(original_dtype)
-            router_logits = router_logits.to(original_dtype)
 
             # Store logits for auxiliary loss (only during training)
             if training:

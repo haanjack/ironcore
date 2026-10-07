@@ -1,0 +1,31 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/hanjack/ironcore/ironcore
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, langsmith-0.9.7, timeout-2.4.0, typeguard-4.5.1, hypothesis-6.151.5, cov-7.0.0, anyio-4.12.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 11 items
+
+tests/unit/moe/test_training_contract.py .......FF..                     [100%]
+
+=================================== FAILURES ===================================
+___ test_alignment_adds_only_policy_auxiliary_loss_and_gradient[dpo-concat] ____
+tests/unit/moe/test_training_contract.py:205: in test_alignment_adds_only_policy_auxiliary_loss_and_gradient
+    included = objective()
+               ^^^^^^^^^^^
+tests/unit/moe/test_training_contract.py:187: in <lambda>
+    objective = lambda: trainer._compute_dpo_loss(batch, compute_metrics=False)[0]
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'DPOTrainer' object has no attribute '_compute_dpo_loss'. Did you mean: '_compute_dpo_logits'?
+__ test_alignment_adds_only_policy_auxiliary_loss_and_gradient[dpo-separate] ___
+tests/unit/moe/test_training_contract.py:205: in test_alignment_adds_only_policy_auxiliary_loss_and_gradient
+    included = objective()
+               ^^^^^^^^^^^
+tests/unit/moe/test_training_contract.py:187: in <lambda>
+    objective = lambda: trainer._compute_dpo_loss(batch, compute_metrics=False)[0]
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'DPOTrainer' object has no attribute '_compute_dpo_loss'. Did you mean: '_compute_dpo_logits'?
+=========================== short test summary info ============================
+FAILED tests/unit/moe/test_training_contract.py::test_alignment_adds_only_policy_auxiliary_loss_and_gradient[dpo-concat]
+FAILED tests/unit/moe/test_training_contract.py::test_alignment_adds_only_policy_auxiliary_loss_and_gradient[dpo-separate]
+========================= 2 failed, 9 passed in 3.83s ==========================

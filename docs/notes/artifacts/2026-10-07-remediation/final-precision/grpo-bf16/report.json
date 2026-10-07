@@ -1,0 +1,59 @@
+{
+  "status": "failed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": true,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "grpo_objective": "grpo",
+  "stateful_data": false,
+  "data_workers": 0,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "recompute_linear_ce": false,
+  "moe_backend": "loop",
+  "baseline_case": "full",
+  "checks": [
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0014207735657691956,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0017412863671779633,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    }
+  ],
+  "error": "grpo/ep2 failed (1); see /tmp/ironcore-remediation-final-precision/grpo-bf16/grpo/ep2/run.log"
+}

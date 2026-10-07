@@ -1,0 +1,19 @@
+{
+  "task": "pretrain",
+  "case": "full",
+  "precision": "float32",
+  "device": "cuda:0",
+  "parameter_count_full": 41376,
+  "losses": [
+    3.345588207244873,
+    3.333709716796875
+  ],
+  "evaluation": {
+    "loss": 3.3281848430633545,
+    "accuracy": 0.1875
+  },
+  "elapsed_seconds": 0.4483170580351725,
+  "peak_allocated_bytes": 68961280,
+  "peak_reserved_bytes": 69206016,
+  "max_weight_change": 0.0017512738704681396
+}

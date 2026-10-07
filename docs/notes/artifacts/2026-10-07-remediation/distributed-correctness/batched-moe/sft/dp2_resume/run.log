@@ -1,0 +1,45 @@
+[2026-10-07 20:29:16,264] Acquiring training resources...
+[2026-10-07 20:29:16,264] Initialize torch distributed ... 
+[2026-10-07 20:29:16,513] Loading evaluation tasks
+[2026-10-07 20:29:16,514] Set random seed to 42 for model initialization
+[2026-10-07 20:29:16,526] Created Language Model
+[2026-10-07 20:29:16,527] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:29:16,527] Created Optimizer
+[2026-10-07 20:29:16,565] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:29:16,565] Resources acquired successfully.
+[2026-10-07 20:29:16,596] Training start from scratch
+[2026-10-07 20:29:16,597] Training start from step: 0
+[rank1]:[W1007 20:29:16.552682893 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank0]:[W1007 20:29:16.552728640 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 20:29:17,010] step: 1, loss: 3.4556, lr: 0.000550, grad_norm: 2.0960, step_time: 0.413s (avg: 0.413s), tok/s: 309.7 (avg: 309.6)
+[2026-10-07 20:29:17,035] step: 2, loss: 3.4053, lr: 0.000232, grad_norm: 2.1302, step_time: 0.025s (avg: 0.219s), tok/s: 5184.4 (avg: 584.2)
+[2026-10-07 20:29:17,042] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:29:17,042] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/dp2_resume/checkpoint/step_2
+[2026-10-07 20:29:17,062] Checkpoint saved successfully. Checkpoint saved in 0.015s
+[2026-10-07 20:29:17,063] Training stopped by exit interval: 2
+[2026-10-07 20:29:17,063] Total training time: 0.00 hours
+[2026-10-07 20:29:17,063] Finishing training
+[2026-10-07 20:29:24,583] Acquiring training resources...
+[2026-10-07 20:29:24,583] Initialize torch distributed ... 
+[2026-10-07 20:29:24,843] Loading evaluation tasks
+[2026-10-07 20:29:24,844] Set random seed to 42 for model initialization
+[2026-10-07 20:29:24,856] Created Language Model
+[2026-10-07 20:29:24,856] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:29:24,857] Created Optimizer
+[2026-10-07 20:29:24,894] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:29:24,894] Resources acquired successfully.
+[2026-10-07 20:29:24,925] Loading checkpoint from /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/dp2_resume/checkpoint/step_2
+[2026-10-07 20:29:24,940] Loading optimizer state dict.
+[2026-10-07 20:29:24,941] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.02s
+[2026-10-07 20:29:24,941] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:29:24,941] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:29:24,943] Training start from step: 2
+[rank1]:[W1007 20:29:25.899545494 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank0]:[W1007 20:29:25.899563929 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 20:29:25,357] step: 3, loss: 3.3442, lr: 0.000100, grad_norm: 2.0310, step_time: 0.414s (avg: 0.414s), tok/s: 309.3 (avg: 309.2)
+[2026-10-07 20:29:25,380] step: 4, loss: 3.3418, lr: 0.000100, grad_norm: 2.0830, step_time: 0.023s (avg: 0.218s), tok/s: 5620.0 (avg: 586.0)
+[2026-10-07 20:29:25,385] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:29:25,385] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/sft/dp2_resume/checkpoint/step_4
+[2026-10-07 20:29:25,411] Checkpoint saved successfully. Checkpoint saved in 0.014s
+[2026-10-07 20:29:25,411] Total training time: 0.00 hours
+[2026-10-07 20:29:25,411] Finishing training

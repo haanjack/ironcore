@@ -1,0 +1,196 @@
+[2026-10-07 20:01:52,160] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:01:52,160] Acquiring training resources...
+[2026-10-07 20:01:52,160] Initialize torch distributed ... 
+[2026-10-07 20:01:52,395] Loading evaluation tasks
+[2026-10-07 20:01:52,396] Set random seed to 42 for model initialization
+[2026-10-07 20:01:52,404] Created Language Model
+[2026-10-07 20:01:52,405] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:01:52,405] Created Optimizer
+[2026-10-07 20:01:52,405] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+[2026-10-07 20:01:52,413] Resources acquired successfully.
+[2026-10-07 20:01:52,476] Training start from scratch
+[2026-10-07 20:01:52,476] Creating reference model with beta=0.5
+[2026-10-07 20:01:52,476] Creating reference model from policy weights...
+[2026-10-07 20:01:52,479] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:732: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  local_shape = tensor.shape
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:732: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  local_shape = tensor.shape
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:749: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.shape,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:749: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.shape,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:751: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.dtype,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:751: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.dtype,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+[2026-10-07 20:01:52,493] Training start from step: 0
+[2026-10-07 20:01:52,871] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.2459, step_time: 0.378s (avg: 0.379s), tok/s: 338.2 (avg: 338.1), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:01:52,893] step: 1, dpo_loss: 0.4649, margin: 1.1719, accuracy: 1.0000
+[2026-10-07 20:01:52,893] step: 2, loss: 0.4649, lr: 0.000232, grad_norm: 6.9162, step_time: 0.022s (avg: 0.200s), tok/s: 5833.0 (avg: 638.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+[2026-10-07 20:01:53,531] Training stopped by exit interval: 2
+[2026-10-07 20:01:53,531] Total training time: 0.00 hours
+[2026-10-07 20:01:53,531] Finishing training
+[2026-10-07 20:02:01,093] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:02:01,093] Acquiring training resources...
+[2026-10-07 20:02:01,093] Initialize torch distributed ... 
+[2026-10-07 20:02:01,334] Loading evaluation tasks
+[2026-10-07 20:02:01,335] Set random seed to 42 for model initialization
+[2026-10-07 20:02:01,343] Created Language Model
+[2026-10-07 20:02:01,344] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:02:01,344] Created Optimizer
+[2026-10-07 20:02:01,344] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+[2026-10-07 20:02:01,352] Resources acquired successfully.
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+[2026-10-07 20:02:01,425] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed/fsdp-alignment/dpo/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:02:01,425] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:02:01,425] Creating reference model with beta=0.5
+[2026-10-07 20:02:01,426] Creating reference model from policy weights...
+[2026-10-07 20:02:01,428] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:732: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  local_shape = tensor.shape
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:732: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  local_shape = tensor.shape
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:749: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.shape,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:749: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.shape,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:751: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.dtype,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:751: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.dtype,
+[2026-10-07 20:02:01,445] Training start from step: 2
+[rank0]:[E1007 20:04:01.114379487 ProcessGroupNCCL.cpp:757] [Rank 0] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=16, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=120000) ran for 120043 milliseconds before timing out.
+[rank0]:[E1007 20:04:01.115940977 ProcessGroupNCCL.cpp:2395] [PG ID 2 PG GUID 3 Rank 0]  failure detected by watchdog at work sequence id: 16 PG status: last enqueued work: 16, last completed work: 15
+[rank0]:[E1007 20:04:01.116176852 ProcessGroupNCCL.cpp:801] Stack trace of the failed collective: 
+#0 all_reduce from /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/distributed_c10d.py:3174
+#1 wrapper from /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/c10d_logger.py:83
+#2 _run_gradient_accumulation from /tmp/ironcore-remediation-distributed-src/ironcore/trainers/base_trainer.py:713
+#3 train_step from /tmp/ironcore-remediation-distributed-src/ironcore/trainers/dpo_trainer.py:359
+#4 train from /tmp/ironcore-remediation-distributed-src/ironcore/trainers/base_trainer.py:616
+#5 worker from /tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py:333
+#6 main from /tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py:603
+#7 <module> from /tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py:607
+
+[rank0]:[E1007 20:04:01.116222911 ProcessGroupNCCL.cpp:2732] [PG ID 2 PG GUID 3 Rank 0] First PG on this rank to signal dumping.
+[rank0]:[E1007 20:04:02.735118779 ProcessGroupNCCL.cpp:1987] [PG ID 0 PG GUID 0(default_pg) Rank 0] Received a dump signal due to a collective timeout from this local rank and we will try our best to dump the debug info. Last enqueued NCCL work: 4, last completed NCCL work: 4.This is most likely caused by incorrect usages of collectives, e.g., wrong sizes used across ranks, the order of collectives is not same for all ranks or the scheduled collective, for some reason, didn't run. Additionally, this can be caused by GIL deadlock or other reasons such as network errors or bugs in the communications library (e.g. NCCL), etc. 
+[rank0]:[E1007 20:04:02.735214183 ProcessGroupNCCL.cpp:1700] [PG ID 0 PG GUID 0(default_pg) Rank 0] ProcessGroupNCCL preparing to dump debug info. Include stack trace: 1, only active collectives: 0
+[rank1]:[E1007 20:04:02.735220696 ProcessGroupNCCL.cpp:1922] [PG ID 0 PG GUID 0(default_pg) Rank 1] Observed flight recorder dump signal from another rank via TCPStore.
+[rank1]:[E1007 20:04:02.735307042 ProcessGroupNCCL.cpp:1987] [PG ID 0 PG GUID 0(default_pg) Rank 1] Received a dump signal due to a collective timeout from  rank 0 and we will try our best to dump the debug info. Last enqueued NCCL work: 4, last completed NCCL work: 4.This is most likely caused by incorrect usages of collectives, e.g., wrong sizes used across ranks, the order of collectives is not same for all ranks or the scheduled collective, for some reason, didn't run. Additionally, this can be caused by GIL deadlock or other reasons such as network errors or bugs in the communications library (e.g. NCCL), etc. 
+[rank1]:[E1007 20:04:02.735376436 ProcessGroupNCCL.cpp:1700] [PG ID 0 PG GUID 0(default_pg) Rank 1] ProcessGroupNCCL preparing to dump debug info. Include stack trace: 1, only active collectives: 0
+[rank0]:[E1007 20:05:01.619059179 ProcessGroupNCCL.cpp:818] [Rank 0] Some NCCL operations have failed or timed out. Due to the asynchronous nature of CUDA kernels, subsequent GPU operations might run on corrupted/incomplete data.
+[rank0]:[E1007 20:05:01.619080760 ProcessGroupNCCL.cpp:832] [Rank 0] To avoid data inconsistency, we are taking the entire process down.
+[rank0]:[E1007 20:05:01.620749192 ProcessGroupNCCL.cpp:2197] [PG ID 2 PG GUID 3 Rank 0] Process group watchdog thread terminated with exception: [Rank 0] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=16, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=120000) ran for 120043 milliseconds before timing out.
+Exception raised from checkTimeout at /pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:760 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x9d (0x7a0829d6afad in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::WorkNCCL::checkTimeout(std::optional<std::chrono::duration<long, std::ratio<1l, 1000l> > >) + 0x2b1 (0x7a077a509611 in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::Watchdog::runLoop() + 0x14f1 (0x7a077a5153b1 in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::Watchdog::run() + 0x157 (0x7a077a516847 in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: <unknown function> + 0xecdb4 (0x7a082a8ecdb4 in /lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #5: <unknown function> + 0x9caa4 (0x7a0836a9caa4 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #6: <unknown function> + 0x129c6c (0x7a0836b29c6c in /lib/x86_64-linux-gnu/libc.so.6)
+
+terminate called after throwing an instance of 'c10::DistBackendError'
+  what():  [PG ID 2 PG GUID 3 Rank 0] Process group watchdog thread terminated with exception: [Rank 0] Watchdog caught collective operation timeout: WorkNCCL(SeqNum=16, OpType=ALLREDUCE, NumelIn=1, NumelOut=1, Timeout(ms)=120000) ran for 120043 milliseconds before timing out.
+Exception raised from checkTimeout at /pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:760 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x9d (0x7a0829d6afad in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: c10d::ProcessGroupNCCL::WorkNCCL::checkTimeout(std::optional<std::chrono::duration<long, std::ratio<1l, 1000l> > >) + 0x2b1 (0x7a077a509611 in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: c10d::ProcessGroupNCCL::Watchdog::runLoop() + 0x14f1 (0x7a077a5153b1 in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #3: c10d::ProcessGroupNCCL::Watchdog::run() + 0x157 (0x7a077a516847 in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #4: <unknown function> + 0xecdb4 (0x7a082a8ecdb4 in /lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #5: <unknown function> + 0x9caa4 (0x7a0836a9caa4 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #6: <unknown function> + 0x129c6c (0x7a0836b29c6c in /lib/x86_64-linux-gnu/libc.so.6)
+
+Exception raised from run at /pytorch/torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:2203 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x9d (0x7a0829d6afad in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x6915eb (0x7a0779c915eb in /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/lib/libtorch_cuda.so)
+frame #2: <unknown function> + 0xecdb4 (0x7a082a8ecdb4 in /lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #3: <unknown function> + 0x9caa4 (0x7a0836a9caa4 in /lib/x86_64-linux-gnu/libc.so.6)
+frame #4: <unknown function> + 0x129c6c (0x7a0836b29c6c in /lib/x86_64-linux-gnu/libc.so.6)
+
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 607, in <module>
+[rank1]:     main()
+[rank1]:   File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 603, in main
+[rank1]:     (worker if args.worker else run)(args)
+[rank1]:   File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 333, in worker
+[rank1]:     trainer.train()
+[rank1]:   File "/tmp/ironcore-remediation-distributed-src/ironcore/trainers/base_trainer.py", line 601, in train
+[rank1]:     last_step = self._pre_train_setup()
+[rank1]:                 ^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/tmp/ironcore-remediation-distributed-src/ironcore/trainers/base_trainer.py", line 557, in _pre_train_setup
+[rank1]:     load_trainer_state(self, last_step)
+[rank1]:   File "/tmp/ironcore-remediation-distributed-src/ironcore/trainers/checkpoint_state.py", line 99, in load_trainer_state
+[rank1]:     reference.load_state_dict(state["reference"], strict=True)
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/nn/modules/module.py", line 2638, in load_state_dict
+[rank1]:     raise RuntimeError(
+[rank1]: RuntimeError: Error(s) in loading state_dict for FullyShardedDataParallel:
+[rank1]: 	Missing key(s) in state_dict: "embedding.word_embeddings.weight", "rotary_pos_emb.theta", "model.layers.0.linear_q.weight", "model.layers.0.linear_kv.weight", "model.layers.0.attn_output.weight", "model.layers.0.input_layernorm.layernorm.weight", "model.layers.0.post_attn_layernorm.layernorm.weight", "model.layers.0.mlp.up_proj.weight", "model.layers.0.mlp.down_proj.weight", "model.layers.1.linear_q.weight", "model.layers.1.linear_kv.weight", "model.layers.1.attn_output.weight", "model.layers.1.input_layernorm.layernorm.weight", "model.layers.1.post_attn_layernorm.layernorm.weight", "model.layers.1.mlp.up_proj.weight", "model.layers.1.mlp.down_proj.weight", "output_layernorm.layernorm.weight", "output_layer.weight". 
+W1007 20:05:03.254000 1806958 site-packages/torch/distributed/elastic/multiprocessing/api.py:1014] Sending process 1807113 closing signal SIGTERM
+E1007 20:05:03.519000 1806958 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: -6) local_rank: 0 (pid: 1807112) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_20:05:03
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : -15 (pid: 1807113)  (SIGTERM)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 1807113
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_20:05:03
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : -6 (pid: 1807112)  (SIGABRT)
+  error_file: <N/A>
+  traceback : Signal 6 (SIGABRT) received by PID 1807112
+============================================================

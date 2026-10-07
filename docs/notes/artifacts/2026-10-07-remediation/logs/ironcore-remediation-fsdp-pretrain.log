@@ -1,0 +1,3 @@
+Running pretrain/full
+Running pretrain/dp2
+Validation passed: /tmp/ironcore-remediation-fsdp-pretrain/report.json

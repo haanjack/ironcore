@@ -1,0 +1,9 @@
+{
+  "status": "completed",
+  "config": "configs/experiments/cs336_55m_moe_batched_dp2.yaml",
+  "context": 2048,
+  "backend": "batched",
+  "steps": 2,
+  "weights_dtype": "torch.float32",
+  "peak_allocated_bytes": 8660858368
+}

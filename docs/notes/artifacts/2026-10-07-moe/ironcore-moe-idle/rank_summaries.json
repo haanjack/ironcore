@@ -1,0 +1,242 @@
+{
+  "pretrain/accum/rank0.json": {
+    "task": "pretrain",
+    "case": "accum",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.738606631755829,
+      3.675035238265991,
+      3.626130759716034,
+      3.6150792837142944
+    ],
+    "evaluation": {
+      "loss": 3.6030125617980957,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.5671169320121408,
+    "peak_allocated_bytes": 67942912,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/accum_resume/rank0.json": {
+    "task": "pretrain",
+    "case": "accum",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.626130759716034,
+      3.6150792837142944
+    ],
+    "evaluation": {
+      "loss": 3.6030125617980957,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.48003389907535166,
+    "peak_allocated_bytes": 67942912,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/dp2/rank0.json": {
+    "task": "pretrain",
+    "case": "dp2",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.738606631755829,
+      3.6750353574752808,
+      3.6261306405067444,
+      3.615079343318939
+    ],
+    "evaluation": {
+      "loss": 3.6029953956604004,
+      "accuracy": 0.21875
+    },
+    "elapsed_seconds": 0.5363765679067001,
+    "peak_allocated_bytes": 68111872,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/dp2/rank1.json": {
+    "task": "pretrain",
+    "case": "dp2",
+    "precision": "float32",
+    "device": "cuda:1",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.738606631755829,
+      3.6750353574752808,
+      3.6261306405067444,
+      3.615079343318939
+    ],
+    "evaluation": {
+      "loss": 3.5987489223480225,
+      "accuracy": 0.21875
+    },
+    "elapsed_seconds": 0.5154379779705778,
+    "peak_allocated_bytes": 68111872,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/dp2_resume/rank0.json": {
+    "task": "pretrain",
+    "case": "dp2",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.6261306405067444,
+      3.615079343318939
+    ],
+    "evaluation": {
+      "loss": 3.6029953956604004,
+      "accuracy": 0.21875
+    },
+    "elapsed_seconds": 0.4931331709958613,
+    "peak_allocated_bytes": 68111872,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/dp2_resume/rank1.json": {
+    "task": "pretrain",
+    "case": "dp2",
+    "precision": "float32",
+    "device": "cuda:1",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.6261306405067444,
+      3.615079343318939
+    ],
+    "evaluation": {
+      "loss": 3.5987489223480225,
+      "accuracy": 0.21875
+    },
+    "elapsed_seconds": 0.4809306029928848,
+    "peak_allocated_bytes": 68111872,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/full/rank0.json": {
+    "task": "pretrain",
+    "case": "full",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.7386064529418945,
+      3.675035238265991,
+      3.6261305809020996,
+      3.615079402923584
+    ],
+    "evaluation": {
+      "loss": 3.6030123233795166,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.46622538997326046,
+    "peak_allocated_bytes": 68727296,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/full_resume/rank0.json": {
+    "task": "pretrain",
+    "case": "full",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.6261305809020996,
+      3.615079402923584
+    ],
+    "evaluation": {
+      "loss": 3.6030123233795166,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.4295303530525416,
+    "peak_allocated_bytes": 68727296,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/tp2/rank0.json": {
+    "task": "pretrain",
+    "case": "tp2",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.738606631755829,
+      3.675035238265991,
+      3.626130759716034,
+      3.6150792837142944
+    ],
+    "evaluation": {
+      "loss": 3.6030125617980957,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.6552030930761248,
+    "peak_allocated_bytes": 67840512,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/tp2/rank1.json": {
+    "task": "pretrain",
+    "case": "tp2",
+    "precision": "float32",
+    "device": "cuda:1",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.738606631755829,
+      3.675035238265991,
+      3.626130759716034,
+      3.6150792837142944
+    ],
+    "evaluation": {
+      "loss": 3.6030125617980957,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.6517574558965862,
+    "peak_allocated_bytes": 67840512,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/tp2_resume/rank0.json": {
+    "task": "pretrain",
+    "case": "tp2",
+    "precision": "float32",
+    "device": "cuda:0",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.626130759716034,
+      3.6150792837142944
+    ],
+    "evaluation": {
+      "loss": 3.6030125617980957,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.5488662730203941,
+    "peak_allocated_bytes": 67878400,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  },
+  "pretrain/tp2_resume/rank1.json": {
+    "task": "pretrain",
+    "case": "tp2",
+    "precision": "float32",
+    "device": "cuda:1",
+    "parameter_count_full": 42024,
+    "losses": [
+      3.626130759716034,
+      3.6150792837142944
+    ],
+    "evaluation": {
+      "loss": 3.6030125617980957,
+      "accuracy": 0.3125
+    },
+    "elapsed_seconds": 0.5452594020171091,
+    "peak_allocated_bytes": 67878400,
+    "peak_reserved_bytes": 69206016,
+    "max_weight_change": 0.001751292496919632
+  }
+}

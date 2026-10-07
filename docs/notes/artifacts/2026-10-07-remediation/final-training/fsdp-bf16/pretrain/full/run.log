@@ -1,0 +1,23 @@
+[2026-10-07 21:02:16,588] Acquiring training resources...
+[2026-10-07 21:02:16,589] Initialize torch distributed ... 
+[2026-10-07 21:02:16,803] Loading evaluation tasks
+[2026-10-07 21:02:16,804] Set random seed to 42 for model initialization
+[2026-10-07 21:02:16,813] Created Language Model
+[2026-10-07 21:02:16,813] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:02:16,813] Created Optimizer
+[2026-10-07 21:02:16,813] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 21:02:16,813] Resources acquired successfully.
+[2026-10-07 21:02:16,814] Training start from scratch
+[2026-10-07 21:02:16,815] Training start from step: 0
+[2026-10-07 21:02:17,207] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0656, step_time: 0.392s (avg: 0.392s), tok/s: 326.5 (avg: 326.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:02:17,215] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0246, step_time: 0.008s (avg: 0.200s), tok/s: 16628.1 (avg: 640.1), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:02:17,222] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:02:17,222] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/fsdp-bf16/pretrain/full/checkpoint/step_2
+[2026-10-07 21:02:17,246] Checkpoint saved successfully. Checkpoint saved in 0.020s
+[2026-10-07 21:02:17,253] step: 3, loss: 3.3476, lr: 0.000100, grad_norm: 1.9698, step_time: 0.007s (avg: 0.146s), tok/s: 18369.0 (avg: 875.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:02:17,259] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9666, step_time: 0.006s (avg: 0.111s), tok/s: 21038.1 (avg: 1151.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:02:17,264] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:02:17,264] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/fsdp-bf16/pretrain/full/checkpoint/step_4
+[2026-10-07 21:02:17,279] Checkpoint saved successfully. Checkpoint saved in 0.016s
+[2026-10-07 21:02:17,279] Total training time: 0.00 hours
+[2026-10-07 21:02:17,279] Finishing training

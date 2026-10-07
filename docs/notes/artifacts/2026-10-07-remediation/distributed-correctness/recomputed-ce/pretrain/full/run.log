@@ -1,0 +1,23 @@
+[2026-10-07 20:23:23,061] Acquiring training resources...
+[2026-10-07 20:23:23,061] Initialize torch distributed ... 
+[2026-10-07 20:23:23,286] Loading evaluation tasks
+[2026-10-07 20:23:23,287] Set random seed to 42 for model initialization
+[2026-10-07 20:23:23,296] Created Language Model
+[2026-10-07 20:23:23,296] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:23:23,296] Created Optimizer
+[2026-10-07 20:23:23,296] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:23:23,296] Resources acquired successfully.
+[2026-10-07 20:23:23,297] Training start from scratch
+[2026-10-07 20:23:23,298] Training start from step: 0
+[2026-10-07 20:23:23,653] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0650, step_time: 0.355s (avg: 0.355s), tok/s: 360.7 (avg: 360.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:23,674] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0249, step_time: 0.022s (avg: 0.188s), tok/s: 5945.7 (avg: 679.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:23,681] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:23:23,681] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/recomputed-ce/pretrain/full/checkpoint/step_2
+[2026-10-07 20:23:23,695] Checkpoint saved successfully. Checkpoint saved in 0.011s
+[2026-10-07 20:23:23,715] step: 3, loss: 3.3477, lr: 0.000100, grad_norm: 1.9695, step_time: 0.020s (avg: 0.139s), tok/s: 6271.9 (avg: 918.9), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:23,736] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9660, step_time: 0.021s (avg: 0.110s), tok/s: 6240.9 (avg: 1167.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:23,741] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:23:23,741] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/recomputed-ce/pretrain/full/checkpoint/step_4
+[2026-10-07 20:23:23,757] Checkpoint saved successfully. Checkpoint saved in 0.009s
+[2026-10-07 20:23:23,757] Total training time: 0.00 hours
+[2026-10-07 20:23:23,757] Finishing training

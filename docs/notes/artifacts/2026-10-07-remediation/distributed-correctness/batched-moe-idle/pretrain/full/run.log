@@ -1,0 +1,24 @@
+[2026-10-07 20:33:44,356] Acquiring training resources...
+[2026-10-07 20:33:44,356] Initialize torch distributed ... 
+[2026-10-07 20:33:44,573] Loading evaluation tasks
+[2026-10-07 20:33:44,574] Set random seed to 42 for model initialization
+[2026-10-07 20:33:44,586] Created Language Model
+[2026-10-07 20:33:44,587] Trainable parameters: 41,384 / 41,384 (100.00%)
+[2026-10-07 20:33:44,587] Created Optimizer
+[2026-10-07 20:33:44,587] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:33:44,587] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:33:44,587] Resources acquired successfully.
+[2026-10-07 20:33:44,590] Training start from scratch
+[2026-10-07 20:33:44,590] Training start from step: 0
+[2026-10-07 20:33:44,987] step: 1, loss: 3.4675, lr: 0.000550, grad_norm: 2.0616, step_time: 0.397s (avg: 0.397s), tok/s: 322.6 (avg: 322.5)
+[2026-10-07 20:33:45,000] step: 2, loss: 3.3998, lr: 0.000232, grad_norm: 2.0198, step_time: 0.013s (avg: 0.205s), tok/s: 9977.2 (avg: 624.6)
+[2026-10-07 20:33:45,010] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:33:45,010] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe-idle/pretrain/full/checkpoint/step_2
+[2026-10-07 20:33:45,025] Checkpoint saved successfully. Checkpoint saved in 0.013s
+[2026-10-07 20:33:45,036] step: 3, loss: 3.3491, lr: 0.000100, grad_norm: 1.9679, step_time: 0.011s (avg: 0.149s), tok/s: 11881.9 (avg: 860.9)
+[2026-10-07 20:33:45,047] step: 4, loss: 3.3377, lr: 0.000100, grad_norm: 1.9611, step_time: 0.011s (avg: 0.114s), tok/s: 12011.9 (avg: 1120.9)
+[2026-10-07 20:33:45,055] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:33:45,055] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe-idle/pretrain/full/checkpoint/step_4
+[2026-10-07 20:33:45,067] Checkpoint saved successfully. Checkpoint saved in 0.011s
+[2026-10-07 20:33:45,067] Total training time: 0.00 hours
+[2026-10-07 20:33:45,067] Finishing training

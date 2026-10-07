@@ -1,0 +1,43 @@
+[2026-10-07 20:54:29,036] Acquiring training resources...
+[2026-10-07 20:54:29,036] Initialize torch distributed ... 
+[2026-10-07 20:54:29,255] Loading evaluation tasks
+[2026-10-07 20:54:29,257] Set random seed to 42 for model initialization
+[2026-10-07 20:54:29,269] Created Language Model
+[2026-10-07 20:54:29,270] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:54:29,270] Created Optimizer
+[2026-10-07 20:54:29,270] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:54:29,270] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:54:29,270] Resources acquired successfully.
+[2026-10-07 20:54:29,273] Training start from scratch
+[2026-10-07 20:54:29,273] Training start from step: 0
+[2026-10-07 20:54:29,769] step: 1, loss: 3.4660, lr: 0.000550, grad_norm: 2.0625, step_time: 0.495s (avg: 0.495s), tok/s: 258.5 (avg: 258.4)
+[2026-10-07 20:54:29,787] step: 2, loss: 3.3969, lr: 0.000232, grad_norm: 2.0187, step_time: 0.018s (avg: 0.257s), tok/s: 6957.5 (avg: 498.2)
+[2026-10-07 20:54:29,799] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:54:29,799] Saving checkpoint to /tmp/ironcore-remediation-final-validation/ep-bf16/pretrain/full_resume/checkpoint/step_2
+[2026-10-07 20:54:29,821] Checkpoint saved successfully. Checkpoint saved in 0.020s
+[2026-10-07 20:54:29,821] Training stopped by exit interval: 2
+[2026-10-07 20:54:29,821] Total training time: 0.00 hours
+[2026-10-07 20:54:29,821] Finishing training
+[2026-10-07 20:54:37,355] Acquiring training resources...
+[2026-10-07 20:54:37,355] Initialize torch distributed ... 
+[2026-10-07 20:54:37,577] Loading evaluation tasks
+[2026-10-07 20:54:37,579] Set random seed to 42 for model initialization
+[2026-10-07 20:54:37,591] Created Language Model
+[2026-10-07 20:54:37,591] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:54:37,591] Created Optimizer
+[2026-10-07 20:54:37,591] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:54:37,591] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:54:37,591] Resources acquired successfully.
+[2026-10-07 20:54:37,596] Loading checkpoint from /tmp/ironcore-remediation-final-validation/ep-bf16/pretrain/full_resume/checkpoint/step_2
+[2026-10-07 20:54:37,612] Loading optimizer state dict.
+[2026-10-07 20:54:37,612] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.02s
+[2026-10-07 20:54:37,612] Successfully loaded checkpoint: /tmp/ironcore-remediation-final-validation/ep-bf16/pretrain/full_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:54:37,612] Skipping 2 consumed micro-batches to resume data position (16 samples on this rank).
+[2026-10-07 20:54:37,614] Training start from step: 2
+[2026-10-07 20:54:38,099] step: 3, loss: 3.3455, lr: 0.000100, grad_norm: 1.9651, step_time: 0.485s (avg: 0.485s), tok/s: 263.9 (avg: 263.8)
+[2026-10-07 20:54:38,118] step: 4, loss: 3.3337, lr: 0.000100, grad_norm: 1.9579, step_time: 0.018s (avg: 0.252s), tok/s: 6963.8 (avg: 508.2)
+[2026-10-07 20:54:38,124] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:54:38,124] Saving checkpoint to /tmp/ironcore-remediation-final-validation/ep-bf16/pretrain/full_resume/checkpoint/step_4
+[2026-10-07 20:54:38,142] Checkpoint saved successfully. Checkpoint saved in 0.015s
+[2026-10-07 20:54:38,142] Total training time: 0.00 hours
+[2026-10-07 20:54:38,142] Finishing training

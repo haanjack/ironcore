@@ -1,0 +1,22 @@
+Running alignment-grpo
+Running dense-full-trial0
+Running dense-recomputed-trial0
+Running moe-loop-trial0
+Running moe-batched-trial0
+Running dense-full-trial1
+Running dense-recomputed-trial1
+Running moe-loop-trial1
+Running moe-batched-trial1
+Running dense-full-trial2
+Running dense-recomputed-trial2
+Running moe-loop-trial2
+Running moe-batched-trial2
+Running dense-recomputed-profile
+Running moe-loop-profile
+Running moe-batched-profile
+Running moe-ep-large
+Traceback (most recent call last):
+  File "/tmp/run-remediation-followup-v3.py", line 37, in <module>
+    report['status']='failed';(output/'study.json').write_text(json.dumps(report,indent=2)+'\n');raise RuntimeError(label)
+                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: moe-ep-large
