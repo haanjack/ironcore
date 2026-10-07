@@ -1,0 +1,8 @@
+{
+  "ironcore/profiler.py": "86550c8c757d208f912a4436ad5b91aa140d335253783981bfedf9b23e59b32a",
+  "scripts/benchmark_training.py": "3d730174b3bca497b07e31fdf9bfef4b0f6e30ac4e368fd33bafd5cb5a2f1a15",
+  "scripts/build_profile_report.py": "24971364a77eae1e4c7aa1fe45f666555056db7f1cbaeca5d148797fd45b39e5",
+  "scripts/templates/profile_report.html": "0fdfa7c802d6e54d1c7462c79e1ebcf48e088a6b78a15b29efe3a487a8e80995",
+  "tests/unit/profiler/test_profiler.py": "3b84e34237da95c712af0015eecc7e24c783f2655f2c9976b405b001ca9ce3c6",
+  "tests/unit/profiler/test_profile_report.py": "148b8226c254c341e62e426d3d09c268e643963e9425ff18ec3cec11f8894798"
+}

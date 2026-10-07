@@ -1,0 +1,21 @@
+{
+  "tokenizer": "gpt2",
+  "splits": {
+    "train": {
+      "url": "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-train.txt",
+      "revision": null,
+      "bytes": 8388591,
+      "tokens": 2062616,
+      "text_sha256": "4aa9df211b8f89c366dacbc3c55e218079e61262701513fcbbae74c15c4c6f7e",
+      "token_sha256": "522e17863b8142889a937ab39f9301f706d1af79d188e2da2c45512acc24611a"
+    },
+    "valid": {
+      "url": "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-valid.txt",
+      "revision": null,
+      "bytes": 1048085,
+      "tokens": 258230,
+      "text_sha256": "f44454fd625aaa76d5c7ba2122801a29e6e9c57e3572189eae9286b82eba82ff",
+      "token_sha256": "a94ff293e76bf64b08989bd1ba966e8678534175e998246293a48314a617445b"
+    }
+  }
+}

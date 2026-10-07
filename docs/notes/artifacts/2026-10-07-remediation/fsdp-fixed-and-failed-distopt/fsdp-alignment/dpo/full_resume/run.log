@@ -1,0 +1,50 @@
+[2026-10-07 20:13:08,298] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:13:08,298] Acquiring training resources...
+[2026-10-07 20:13:08,298] Initialize torch distributed ... 
+[2026-10-07 20:13:08,597] Loading evaluation tasks
+[2026-10-07 20:13:08,598] Set random seed to 42 for model initialization
+[2026-10-07 20:13:08,606] Created Language Model
+[2026-10-07 20:13:08,606] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:13:08,607] Created Optimizer
+[2026-10-07 20:13:08,607] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:13:08,607] Resources acquired successfully.
+[2026-10-07 20:13:08,608] Training start from scratch
+[2026-10-07 20:13:08,608] Creating reference model with beta=0.5
+[2026-10-07 20:13:08,608] Creating reference model from policy weights...
+[2026-10-07 20:13:08,611] Training start from step: 0
+[2026-10-07 20:13:08,981] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.2459, step_time: 0.370s (avg: 0.370s), tok/s: 345.8 (avg: 345.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:13:08,991] step: 1, dpo_loss: 0.4649, margin: 1.1719, accuracy: 1.0000
+[2026-10-07 20:13:08,991] step: 2, loss: 0.4649, lr: 0.000232, grad_norm: 6.9162, step_time: 0.009s (avg: 0.190s), tok/s: 14199.9 (avg: 674.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:13:08,998] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:13:08,998] Saving checkpoint to /tmp/ironcore-remediation-distributed-v2/fsdp-alignment/dpo/full_resume/checkpoint/step_2
+[2026-10-07 20:13:09,014] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 20:13:09,015] Training stopped by exit interval: 2
+[2026-10-07 20:13:09,015] Total training time: 0.00 hours
+[2026-10-07 20:13:09,015] Finishing training
+[2026-10-07 20:13:16,174] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:13:16,175] Acquiring training resources...
+[2026-10-07 20:13:16,175] Initialize torch distributed ... 
+[2026-10-07 20:13:16,394] Loading evaluation tasks
+[2026-10-07 20:13:16,395] Set random seed to 42 for model initialization
+[2026-10-07 20:13:16,404] Created Language Model
+[2026-10-07 20:13:16,404] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:13:16,404] Created Optimizer
+[2026-10-07 20:13:16,404] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:13:16,405] Resources acquired successfully.
+[2026-10-07 20:13:16,406] Loading checkpoint from /tmp/ironcore-remediation-distributed-v2/fsdp-alignment/dpo/full_resume/checkpoint/step_2
+[2026-10-07 20:13:16,415] Loading optimizer state dict.
+[2026-10-07 20:13:16,415] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.01s
+[2026-10-07 20:13:16,415] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed-v2/fsdp-alignment/dpo/full_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:13:16,415] Skipping 2 consumed micro-batches to resume data position (16 samples on this rank).
+[2026-10-07 20:13:16,415] Creating reference model with beta=0.5
+[2026-10-07 20:13:16,415] Creating reference model from policy weights...
+[2026-10-07 20:13:16,421] Training start from step: 2
+[2026-10-07 20:13:16,784] step: 2, dpo_loss: 0.3304, margin: 2.0246, accuracy: 1.0000
+[2026-10-07 20:13:16,784] step: 3, loss: 0.3304, lr: 0.000100, grad_norm: 5.1951, step_time: 0.363s (avg: 0.363s), tok/s: 353.1 (avg: 352.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:13:16,793] step: 3, dpo_loss: 0.3081, margin: 2.1622, accuracy: 1.0000
+[2026-10-07 20:13:16,793] step: 4, loss: 0.3081, lr: 0.000100, grad_norm: 4.9305, step_time: 0.008s (avg: 0.186s), tok/s: 15129.1 (avg: 689.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:13:16,799] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:13:16,799] Saving checkpoint to /tmp/ironcore-remediation-distributed-v2/fsdp-alignment/dpo/full_resume/checkpoint/step_4
+[2026-10-07 20:13:16,809] Checkpoint saved successfully. Checkpoint saved in 0.007s
+[2026-10-07 20:13:16,810] Total training time: 0.00 hours
+[2026-10-07 20:13:16,810] Finishing training

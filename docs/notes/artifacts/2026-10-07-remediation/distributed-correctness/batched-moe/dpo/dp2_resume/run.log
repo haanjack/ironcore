@@ -1,0 +1,54 @@
+[2026-10-07 20:30:55,933] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:30:55,933] Acquiring training resources...
+[2026-10-07 20:30:55,933] Initialize torch distributed ... 
+[2026-10-07 20:30:56,170] Loading evaluation tasks
+[2026-10-07 20:30:56,171] Set random seed to 42 for model initialization
+[2026-10-07 20:30:56,183] Created Language Model
+[2026-10-07 20:30:56,184] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:30:56,184] Created Optimizer
+[2026-10-07 20:30:56,221] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:30:56,221] Resources acquired successfully.
+[2026-10-07 20:30:56,252] Training start from scratch
+[2026-10-07 20:30:56,252] Creating reference model with beta=0.5
+[2026-10-07 20:30:56,252] Creating reference model from policy weights...
+[2026-10-07 20:30:56,258] Training start from step: 0
+[rank0]:[W1007 20:30:56.204509008 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank1]:[W1007 20:30:56.205633228 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 20:30:56,678] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.5674, step_time: 0.420s (avg: 0.421s), tok/s: 304.4 (avg: 304.4)
+[2026-10-07 20:30:56,707] step: 1, dpo_loss: 0.4599, margin: 0.7038, accuracy: 1.0000
+[2026-10-07 20:30:56,707] step: 2, loss: 0.4599, lr: 0.000232, grad_norm: 7.0701, step_time: 0.028s (avg: 0.225s), tok/s: 4509.4 (avg: 569.9)
+[2026-10-07 20:30:56,719] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:30:56,719] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/dpo/dp2_resume/checkpoint/step_2
+[2026-10-07 20:30:56,744] Checkpoint saved successfully. Checkpoint saved in 0.022s
+[2026-10-07 20:30:56,744] Training stopped by exit interval: 2
+[2026-10-07 20:30:56,744] Total training time: 0.00 hours
+[2026-10-07 20:30:56,744] Finishing training
+[2026-10-07 20:31:04,474] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:31:04,474] Acquiring training resources...
+[2026-10-07 20:31:04,474] Initialize torch distributed ... 
+[2026-10-07 20:31:04,707] Loading evaluation tasks
+[2026-10-07 20:31:04,708] Set random seed to 42 for model initialization
+[2026-10-07 20:31:04,720] Created Language Model
+[2026-10-07 20:31:04,721] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:31:04,721] Created Optimizer
+[2026-10-07 20:31:04,759] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:31:04,760] Resources acquired successfully.
+[2026-10-07 20:31:04,791] Loading checkpoint from /tmp/ironcore-remediation-distributed-v3/batched-moe/dpo/dp2_resume/checkpoint/step_2
+[2026-10-07 20:31:04,805] Loading optimizer state dict.
+[2026-10-07 20:31:04,806] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.02s
+[2026-10-07 20:31:04,806] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed-v3/batched-moe/dpo/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:31:04,806] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:31:04,806] Creating reference model with beta=0.5
+[2026-10-07 20:31:04,807] Creating reference model from policy weights...
+[2026-10-07 20:31:04,816] Training start from step: 2
+[rank1]:[W1007 20:31:05.758136686 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank0]:[W1007 20:31:05.761008080 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 20:31:05,235] step: 2, dpo_loss: 0.3205, margin: 1.7259, accuracy: 1.0000
+[2026-10-07 20:31:05,235] step: 3, loss: 0.3205, lr: 0.000100, grad_norm: 5.2068, step_time: 0.418s (avg: 0.418s), tok/s: 306.3 (avg: 306.1)
+[2026-10-07 20:31:05,262] step: 3, dpo_loss: 0.2976, margin: 1.7476, accuracy: 1.0000
+[2026-10-07 20:31:05,262] step: 4, loss: 0.2976, lr: 0.000100, grad_norm: 4.9518, step_time: 0.027s (avg: 0.223s), tok/s: 4681.2 (avg: 574.4)
+[2026-10-07 20:31:05,277] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:31:05,277] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/dpo/dp2_resume/checkpoint/step_4
+[2026-10-07 20:31:05,301] Checkpoint saved successfully. Checkpoint saved in 0.015s
+[2026-10-07 20:31:05,301] Total training time: 0.00 hours
+[2026-10-07 20:31:05,302] Finishing training

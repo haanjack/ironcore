@@ -1,0 +1,23 @@
+[2026-10-07 20:56:29,684] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:56:29,684] Acquiring training resources...
+[2026-10-07 20:56:29,684] Initialize torch distributed ... 
+[2026-10-07 20:56:29,946] Loading evaluation tasks
+[2026-10-07 20:56:29,947] Set random seed to 42 for model initialization
+[2026-10-07 20:56:29,958] Created Language Model
+[2026-10-07 20:56:29,965] Trainable parameters: 29,088 / 29,088 (100.00%)
+[2026-10-07 20:56:29,965] Created Optimizer
+[2026-10-07 20:56:29,996] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:56:29,996] Resources acquired successfully.
+[2026-10-07 20:56:30,037] Training start from scratch
+[2026-10-07 20:56:30,037] Creating reference model with beta=0.5
+[2026-10-07 20:56:30,037] Creating reference model from policy weights...
+[2026-10-07 20:56:30,042] Training start from step: 0
+[2026-10-07 20:56:30,628] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.5695, step_time: 0.586s (avg: 0.586s), tok/s: 218.4 (avg: 218.4)
+[2026-10-07 20:56:30,663] step: 1, dpo_loss: 0.4597, margin: 0.7052, accuracy: 1.0000
+[2026-10-07 20:56:30,663] step: 2, loss: 0.4597, lr: 0.000232, grad_norm: 7.0709, step_time: 0.035s (avg: 0.311s), tok/s: 3686.6 (avg: 412.2)
+[2026-10-07 20:56:30,735] step: 2, dpo_loss: 0.3207, margin: 1.7252, accuracy: 1.0000
+[2026-10-07 20:56:30,735] step: 3, loss: 0.3207, lr: 0.000100, grad_norm: 5.2076, step_time: 0.034s (avg: 0.231s), tok/s: 3738.7 (avg: 553.8)
+[2026-10-07 20:56:30,770] step: 3, dpo_loss: 0.2974, margin: 1.7496, accuracy: 1.0000
+[2026-10-07 20:56:30,770] step: 4, loss: 0.2974, lr: 0.000100, grad_norm: 4.9487, step_time: 0.035s (avg: 0.182s), tok/s: 3662.6 (avg: 702.9)
+[2026-10-07 20:56:30,809] Total training time: 0.00 hours
+[2026-10-07 20:56:30,809] Finishing training

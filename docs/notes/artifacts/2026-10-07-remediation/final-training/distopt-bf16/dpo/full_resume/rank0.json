@@ -1,0 +1,19 @@
+{
+  "task": "dpo",
+  "case": "full",
+  "precision": "bfloat16",
+  "device": "cuda:0",
+  "parameter_count_full": 22688,
+  "losses": [
+    0.3254031538963318,
+    0.30209794640541077
+  ],
+  "evaluation": {
+    "loss": 0.2778923511505127,
+    "accuracy": 1.0
+  },
+  "elapsed_seconds": 0.48807245900388807,
+  "peak_allocated_bytes": 70280192,
+  "peak_reserved_bytes": 90177536,
+  "max_weight_change": 0.0017513036727905273
+}

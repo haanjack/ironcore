@@ -1,0 +1,108 @@
+[
+  {
+    "source": "/home/hanjack/ironcore/ironcore/configs/experiments/cs336_55m_moe_dp2.yaml",
+    "config": {
+      "model": {
+        "name": "cs336-55m-moe",
+        "config-path": "/home/hanjack/ironcore/ironcore/configs/model/cs336-55m-moe.yaml"
+      },
+      "trainer": {
+        "micro_batch_size": 4,
+        "train_batch_size": 32,
+        "gradient_accumulation_steps": 4,
+        "tensor_model_parallel_size": 1,
+        "use_flash_attn": false,
+        "log_interval": 1,
+        "model_path": "/tmp/moe-cli-55m-smoke"
+      },
+      "operation": {
+        "train_steps": 4,
+        "no_save": true
+      },
+      "data": {
+        "task_type": "pretrain",
+        "use_mock_data": true,
+        "seq_length": 1024,
+        "vocab_name_or_path": "gpt2"
+      },
+      "optim": {
+        "max_lr": 0.0003,
+        "min_lr": 3e-05,
+        "warmup_steps": 1,
+        "annealing_steps": 3,
+        "weight_decay": 0.1,
+        "clip_grad": 1.0
+      },
+      "init": {
+        "seed": 42,
+        "init_std": 0.02
+      }
+    },
+    "command": [
+      "/tmp/ironcore-validation-env/bin/python",
+      "-m",
+      "torch.distributed.run",
+      "--standalone",
+      "--nproc_per_node=2",
+      "-m",
+      "ironcore",
+      "train",
+      "--config",
+      "/tmp/moe-cli-55m.yaml"
+    ],
+    "returncode": 0
+  },
+  {
+    "source": "/home/hanjack/ironcore/ironcore/configs/experiments/cs336_134m_moe_dp2.yaml",
+    "config": {
+      "model": {
+        "name": "cs336-134m-moe",
+        "config-path": "/home/hanjack/ironcore/ironcore/configs/model/cs336-134m-moe.yaml"
+      },
+      "trainer": {
+        "micro_batch_size": 4,
+        "train_batch_size": 32,
+        "gradient_accumulation_steps": 4,
+        "tensor_model_parallel_size": 1,
+        "use_flash_attn": false,
+        "log_interval": 1,
+        "model_path": "/tmp/moe-cli-134m-smoke"
+      },
+      "operation": {
+        "train_steps": 4,
+        "no_save": true
+      },
+      "data": {
+        "task_type": "pretrain",
+        "use_mock_data": true,
+        "seq_length": 1024,
+        "vocab_name_or_path": "gpt2"
+      },
+      "optim": {
+        "max_lr": 0.0003,
+        "min_lr": 3e-05,
+        "warmup_steps": 1,
+        "annealing_steps": 3,
+        "weight_decay": 0.1,
+        "clip_grad": 1.0
+      },
+      "init": {
+        "seed": 42,
+        "init_std": 0.02
+      }
+    },
+    "command": [
+      "/tmp/ironcore-validation-env/bin/python",
+      "-m",
+      "torch.distributed.run",
+      "--standalone",
+      "--nproc_per_node=2",
+      "-m",
+      "ironcore",
+      "train",
+      "--config",
+      "/tmp/moe-cli-134m.yaml"
+    ],
+    "returncode": 0
+  }
+]

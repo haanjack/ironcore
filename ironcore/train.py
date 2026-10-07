@@ -139,7 +139,8 @@ def train(config: MainConfig) -> None:
     else:
         raise ValueError(f"Unknown task type: {task_type}")
 
-    trainer.train()
+    with trainer:
+        trainer.train()
 
 
 if __name__ == "__main__":

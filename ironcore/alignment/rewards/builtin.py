@@ -38,7 +38,7 @@ class MathRewardFunction(RewardFunction):
     def compute(self, prompt: str, completion: str, metadata: dict) -> float:
         answer = metadata.get("answer", "")
         if not answer:
-            return 0.5  # No ground truth, neutral score
+            raise ValueError("Math reward requires a ground-truth answer")
 
         # Extract answers from both completion and ground truth
         extracted = self._extract_answer(completion)
@@ -52,7 +52,7 @@ class MathRewardFunction(RewardFunction):
 
         # Partial credit: extracted a number but it's wrong
         # Gives gradient signal that answer extraction is on the right track
-        if extracted:
+        if extracted and not self.strict:
             return 0.1
 
         return 0.0

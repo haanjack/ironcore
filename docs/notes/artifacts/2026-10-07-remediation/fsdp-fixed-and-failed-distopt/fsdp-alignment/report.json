@@ -1,0 +1,122 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "float32",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": false,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "baseline_case": "full",
+  "checks": [
+    {
+      "task": "sft",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.4901161193847656e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 1.7881393432617188e-07,
+        "final": 9.872019290924072e-08,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 5.960464477539063e-08,
+        "final": 1.0617077350616455e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "online": {
+        "task": "grpo",
+        "case": "full",
+        "precision": "float32",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.008703300729393959,
+          -0.0020017271854158025
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.53125,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.4846390360035002,
+        "peak_allocated_bytes": 78881792,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.0017512813210487366
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "online": {
+        "task": "grpo",
+        "case": "dp2",
+        "precision": "float32",
+        "device": "cuda:0",
+        "parameter_count_full": 23328,
+        "losses": [
+          -0.010997133329510689,
+          -0.002140270546078682
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.6295614059781656,
+        "peak_allocated_bytes": 72493568,
+        "peak_reserved_bytes": 79691776,
+        "max_weight_change": 0.0017507467418909073
+      }
+    }
+  ]
+}

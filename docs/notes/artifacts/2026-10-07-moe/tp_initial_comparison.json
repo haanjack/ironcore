@@ -1,0 +1,144 @@
+{
+  "scope": "pre-fix full versus TP=2 MoE SwiGLU shards",
+  "source_sha256": {
+    "/tmp/ironcore-moe-baseline/pretrain/full/rank0.pt": "adc128375cd559f093a32703b568b39d308794c0659b66cbff8ff3fa7c0ee562",
+    "/tmp/ironcore-moe-baseline/pretrain/tp2/rank0.pt": "efe159aca76a77e5633c995ae067d74ea08b280bfa9752d9159d9ecc6a9b7a24"
+  },
+  "comparisons": {
+    "initial": {
+      "max_absolute_error": 0.0,
+      "largest_parameters": [
+        [
+          "embedding.word_embeddings.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.linear_q.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.linear_kv.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.attn_output.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.input_layernorm.layernorm.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.post_attn_layernorm.layernorm.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.mlp.shared_experts.0.up_proj.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.mlp.shared_experts.0.down_proj.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.0.up_proj.weight",
+          0.0
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.0.down_proj.weight",
+          0.0
+        ]
+      ]
+    },
+    "gradient": {
+      "max_absolute_error": 0.013568248599767685,
+      "largest_parameters": [
+        [
+          "embedding.word_embeddings.weight",
+          0.013568248599767685
+        ],
+        [
+          "model.layers.0.mlp.shared_experts.0.down_proj.weight",
+          0.008875822648406029
+        ],
+        [
+          "output_layer.weight",
+          0.008654002100229263
+        ],
+        [
+          "model.layers.1.mlp.shared_experts.0.down_proj.weight",
+          0.008208004757761955
+        ],
+        [
+          "model.layers.0.mlp.shared_experts.0.up_proj.weight",
+          0.007393290288746357
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.3.down_proj.weight",
+          0.006050982046872377
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.1.down_proj.weight",
+          0.004456167109310627
+        ],
+        [
+          "model.layers.1.mlp.routed_experts.2.down_proj.weight",
+          0.004249128978699446
+        ],
+        [
+          "model.layers.1.mlp.shared_experts.0.up_proj.weight",
+          0.0040153516456484795
+        ],
+        [
+          "model.layers.1.mlp.routed_experts.1.down_proj.weight",
+          0.0036456696689128876
+        ]
+      ]
+    },
+    "final": {
+      "max_absolute_error": 0.003500822000205517,
+      "largest_parameters": [
+        [
+          "model.layers.0.mlp.shared_experts.0.down_proj.weight",
+          0.003500822000205517
+        ],
+        [
+          "model.layers.1.mlp.shared_experts.0.down_proj.weight",
+          0.0035004615783691406
+        ],
+        [
+          "model.layers.0.mlp.shared_experts.0.up_proj.weight",
+          0.0035004527308046818
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.0.down_proj.weight",
+          0.003500398015603423
+        ],
+        [
+          "model.layers.1.mlp.shared_experts.0.up_proj.weight",
+          0.003500339575111866
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.2.down_proj.weight",
+          0.003500041551887989
+        ],
+        [
+          "model.layers.1.mlp.routed_experts.1.down_proj.weight",
+          0.003500002436339855
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.3.down_proj.weight",
+          0.0034999558702111244
+        ],
+        [
+          "model.layers.0.mlp.routed_experts.1.down_proj.weight",
+          0.003499838523566723
+        ],
+        [
+          "model.layers.1.mlp.routed_experts.3.down_proj.weight",
+          0.0034998375922441483
+        ]
+      ]
+    }
+  }
+}

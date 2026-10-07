@@ -11,6 +11,7 @@ Supports multiple formats:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from collections.abc import Iterator
@@ -19,7 +20,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset, get_worker_info
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 from ironcore import get_tokenizer
 
@@ -78,6 +80,35 @@ class GRPODataset(IterableDataset):
         self.answer_column = answer_column
 
         self.samples = self._load_data()
+        if not self.samples:
+            raise ValueError("GRPO dataset contains no samples")
+        self.signature = hashlib.sha256(self.data_path.read_bytes()).hexdigest()
+        self.cursor = {"epoch": 0, "offset": 0}
+        self.rank, self.world_size = 0, 1
+        if torch.distributed.is_initialized():
+            from ironcore.parallel import parallel_states
+
+            self.rank = parallel_states.get_data_parallel_group_rank()
+            self.world_size = parallel_states.get_data_parallel_world_size()
+
+    def state_dict(self):
+        return {
+            "signature": self.signature,
+            "seed": self.seed,
+            "shuffle": self.shuffle,
+            "max_prompt_length": self.max_prompt_length,
+            "rank": self.rank,
+            "world_size": self.world_size,
+            "cursor": self.cursor.copy(),
+        }
+
+    def load_state_dict(self, state):
+        for key in ("signature", "seed", "shuffle", "max_prompt_length", "rank", "world_size"):
+            if state[key] != getattr(self, key):
+                raise ValueError(
+                    "GRPO data resume requires the same data and sampling configuration"
+                )
+        self.cursor = state["cursor"].copy()
 
     def _load_data(self) -> list[dict]:
         """Load data from file."""
@@ -103,28 +134,23 @@ class GRPODataset(IterableDataset):
 
     def __iter__(self) -> Iterator[GRPOSample]:
         """Iterate over samples infinitely (cycles through dataset)."""
-        import itertools
         import math
 
-        world_size = 1
-        rank = 0
-        if torch.distributed.is_initialized():
-            try:
-                from ironcore.parallel import parallel_states
+        world_size = self.world_size
+        rank = self.rank
 
-                rank = parallel_states.get_data_parallel_group_rank()
-                world_size = parallel_states.get_data_parallel_world_size()
-            except (AssertionError, ImportError, AttributeError):
-                rank = torch.distributed.get_rank()
-                world_size = torch.distributed.get_world_size()
-
+        worker = get_worker_info()
+        if worker is not None:
+            rank = rank * worker.num_workers + worker.id
+            world_size *= worker.num_workers
         indices = list(range(len(self.samples)))
 
         # Cycle infinitely through samples
-        for _ in itertools.count():
+        while True:
+            epoch = self.cursor["epoch"]
             if self.shuffle:
                 # Re-shuffle each epoch
-                rng = random.Random(self.seed + _)
+                rng = random.Random(self.seed + epoch)
                 shuffled_indices = indices.copy()
                 rng.shuffle(shuffled_indices)
             else:
@@ -145,7 +171,8 @@ class GRPODataset(IterableDataset):
             else:
                 sharded_indices = shuffled_indices
 
-            for idx in sharded_indices:
+            for offset in range(self.cursor["offset"], len(sharded_indices)):
+                idx = sharded_indices[offset]
                 sample = self.samples[idx]
 
                 # Get prompt using configurable column name with fallback
@@ -168,12 +195,14 @@ class GRPODataset(IterableDataset):
                     if key not in (self.prompt_column, "prompt", "input_ids", "attention_mask"):
                         metadata[key] = value
 
+                self.cursor = {"epoch": epoch, "offset": offset + 1}
                 yield GRPOSample(
                     prompt=prompt,
                     input_ids=encoded["input_ids"].squeeze(0),
                     attention_mask=encoded["attention_mask"].squeeze(0),
                     metadata=metadata,
                 )
+            self.cursor = {"epoch": epoch + 1, "offset": 0}
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -222,7 +251,7 @@ def get_grpo_dataloader(
     num_workers: int = 0,
     prompt_column: str = "prompt",
     answer_column: str = "answer",
-) -> DataLoader:
+) -> StatefulDataLoader:
     """Create DataLoader for GRPO training.
 
     Args:
@@ -247,11 +276,14 @@ def get_grpo_dataloader(
         answer_column=answer_column,
     )
 
-    return DataLoader(
+    return StatefulDataLoader(
         dataset,
         batch_size=batch_size,
         collate_fn=collate_grpo_samples,
         num_workers=num_workers,
+        multiprocessing_context="spawn" if num_workers else None,
+        snapshot_every_n_steps=1,
+        generator=torch.Generator().manual_seed(seed),
     )
 
 
@@ -272,6 +304,7 @@ def get_grpo_data_iterator(
 
     from ironcore.config import _validate_path_within_dir
     from ironcore.dataloader.data_config import DataConfig
+    from ironcore.parallel import parallel_states
 
     # Allowed base directory for data config files
     _DATA_CONFIG_BASE_DIR = Path("configs/data").resolve()
@@ -321,13 +354,21 @@ def get_grpo_data_iterator(
 
     dataloader = get_grpo_dataloader(
         data_path=data_path,
-        batch_size=config.trainer.train_batch_size,
-        max_prompt_length=config.model.max_position_embeddings,
+        batch_size=(
+            config.trainer.train_batch_size // parallel_states.get_data_parallel_world_size()
+            if split == "train"
+            else config.trainer.eval_batch_size
+        ),
+        max_prompt_length=(
+            config.model.max_position_embeddings - config.alignment.generation.max_new_tokens
+        ),
         shuffle=(split == "train"),
         seed=config.init.seed,
-        num_workers=getattr(data_config, "num_workers", 0),
+        num_workers=config.trainer.num_workers,
         prompt_column=prompt_column,
         answer_column=answer_column,
     )
 
-    return iter(dataloader)
+    from ironcore.dataloader.stateful import CheckpointableIterator
+
+    return CheckpointableIterator(dataloader)

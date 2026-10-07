@@ -1,0 +1,8 @@
+.....................................................................    [100%]
+=============================== warnings summary ===============================
+../../.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/cuda/__init__.py:1074
+  /home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/cuda/__init__.py:1074: UserWarning: Can't initialize NVML
+    raw_cnt = _raw_device_count_nvml()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+69 passed, 1 warning in 3.70s

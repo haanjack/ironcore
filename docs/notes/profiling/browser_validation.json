@@ -1,0 +1,43 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "run": "0",
+      "rank": "0",
+      "selection": "dense52_dp2 · rank 0 · torch 2.12.0+cu130 · bfloat16 · captured training_update/13, training_update/14 · stream별 중복을 제거한 device 활동"
+    },
+    {
+      "run": "0",
+      "rank": "1",
+      "selection": "dense52_dp2 · rank 1 · torch 2.12.0+cu130 · bfloat16 · captured training_update/13, training_update/14 · stream별 중복을 제거한 device 활동"
+    },
+    {
+      "run": "1",
+      "rank": "0",
+      "selection": "moe55_dp2 · rank 0 · torch 2.12.0+cu130 · bfloat16 · captured training_update/13, training_update/14 · stream별 중복을 제거한 device 활동"
+    },
+    {
+      "run": "1",
+      "rank": "1",
+      "selection": "moe55_dp2 · rank 1 · torch 2.12.0+cu130 · bfloat16 · captured training_update/13, training_update/14 · stream별 중복을 제거한 device 활동"
+    },
+    {
+      "run": "2",
+      "rank": "0",
+      "selection": "moe55_tp2 · rank 0 · torch 2.12.0+cu130 · bfloat16 · captured training_update/13, training_update/14 · stream별 중복을 제거한 device 활동"
+    },
+    {
+      "run": "2",
+      "rank": "1",
+      "selection": "moe55_tp2 · rank 1 · torch 2.12.0+cu130 · bfloat16 · captured training_update/13, training_update/14 · stream별 중복을 제거한 device 활동"
+    },
+    "kernel search returns matching / zero rows",
+    "category / phase / rank filters, 1ms zoom, offset and reset",
+    "timeline kernel tooltip",
+    "desktop-to-mobile resize: no horizontal overflow",
+    "390px mobile: no document horizontal overflow, all runs"
+  ],
+  "errors": [],
+  "external_requests": [],
+  "browser_version": "153.0.8010.12"
+}

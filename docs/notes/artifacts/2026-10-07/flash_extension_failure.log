@@ -1,0 +1,57 @@
+Traceback (most recent call last):
+  File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 336, in <module>
+    main()
+  File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 332, in main
+    (prepare if args.prepare else benchmark)(args)
+  File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 202, in benchmark
+    raise RuntimeError("Requested FlashAttention extension is unavailable")
+RuntimeError: Requested FlashAttention extension is unavailable
+Traceback (most recent call last):
+  File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 336, in <module>
+    main()
+  File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 332, in main
+    (prepare if args.prepare else benchmark)(args)
+  File "/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py", line 202, in benchmark
+    raise RuntimeError("Requested FlashAttention extension is unavailable")
+RuntimeError: Requested FlashAttention extension is unavailable
+W1007 15:14:22.911000 899415 site-packages/torch/distributed/elastic/multiprocessing/api.py:1014] Sending process 899504 closing signal SIGTERM
+E1007 15:14:22.943000 899415 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 1) local_rank: 0 (pid: 899503) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/home/hanjack/ironcore/ironcore/scripts/benchmark_training.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_15:14:22
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 899504) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_15:14:22
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 899503) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

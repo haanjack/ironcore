@@ -1,0 +1,23 @@
+{
+  "status": "failed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "float32",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": false,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "grpo_objective": "gspo",
+  "stateful_data": true,
+  "data_workers": 2,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "recompute_linear_ce": false,
+  "moe_backend": "loop",
+  "baseline_case": "dp2",
+  "checks": [],
+  "error": "pretrain/dp2 failed (1); see /tmp/ironcore-remediation-final-validation/stateful-workers2/pretrain/dp2/run.log"
+}

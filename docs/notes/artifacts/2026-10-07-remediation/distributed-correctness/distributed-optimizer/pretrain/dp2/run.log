@@ -1,0 +1,23 @@
+[2026-10-07 20:16:22,908] Acquiring training resources...
+[2026-10-07 20:16:22,908] Initialize torch distributed ... 
+[2026-10-07 20:16:23,154] Loading evaluation tasks
+[2026-10-07 20:16:23,155] Set random seed to 42 for model initialization
+[2026-10-07 20:16:23,163] Created Language Model
+[2026-10-07 20:16:23,163] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:16:23,164] Created Optimizer
+[2026-10-07 20:16:23,164] Wrapped optimizer with DistributedOptimizer (bucket_cap=25.0MB)
+[2026-10-07 20:16:23,200] Resources acquired successfully.
+[2026-10-07 20:16:23,229] Training start from scratch
+[2026-10-07 20:16:23,229] Training start from step: 0
+[2026-10-07 20:16:23,600] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0650, step_time: 0.371s (avg: 0.371s), tok/s: 345.3 (avg: 345.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:16:23,613] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0249, step_time: 0.013s (avg: 0.192s), tok/s: 10174.9 (avg: 667.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:16:23,649] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:16:23,649] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/pretrain/dp2/checkpoint/step_2
+[2026-10-07 20:16:23,663] Checkpoint saved successfully. Checkpoint saved in 0.026s
+[2026-10-07 20:16:23,675] step: 3, loss: 3.3477, lr: 0.000100, grad_norm: 1.9695, step_time: 0.012s (avg: 0.148s), tok/s: 10981.9 (avg: 862.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:16:23,685] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9660, step_time: 0.010s (avg: 0.114s), tok/s: 12236.4 (avg: 1123.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:16:23,700] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:16:23,700] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/pretrain/dp2/checkpoint/step_4
+[2026-10-07 20:16:23,726] Checkpoint saved successfully. Checkpoint saved in 0.026s
+[2026-10-07 20:16:23,726] Total training time: 0.00 hours
+[2026-10-07 20:16:23,726] Finishing training

@@ -56,7 +56,7 @@ def initialize_process(config: MainConfig):
 
     # Set device BEFORE any CUDA call to avoid creating a stale context on cuda:0.
     # torch.cuda.is_available() itself initializes a CUDA context on the default device.
-    if config.parallel.local_rank >= 0:
+    if torch.cuda.is_available() and config.parallel.local_rank >= 0:
         torch.cuda.set_device(config.parallel.local_rank)
 
     if torch.cuda.is_available():
@@ -112,6 +112,20 @@ def initialize_parallelism(
     """
     from ironcore.parallel import parallel_states
 
+    if config.model.moe.use_moe and config.model.moe.expert_model_parallel_size > 1:
+        if (
+            config.parallel.use_fsdp
+            or config.trainer.tensor_model_parallel_size != 1
+            or config.parallel.world_size != 2
+            or config.model.moe.expert_model_parallel_size != 2
+        ):
+            raise ValueError(
+                "EP training currently supports exactly EP=2, TP=1, world=2 without FSDP"
+            )
+        from ironcore.parallel.expert_parallel.training import ExpertParallelModel
+
+        return ExpertParallelModel(model, parallel_states.get_data_parallel_group())
+
     logger = get_logger()
 
     # Single-GPU with no FSDP: return model as-is
@@ -126,6 +140,7 @@ def initialize_parallelism(
             model,
             process_group=parallel_states.get_data_parallel_group(),
             broadcast_buffers=False,
+            find_unused_parameters=config.model.moe.use_moe,
         )
         return model
 
@@ -144,13 +159,23 @@ def initialize_parallelism(
     )
 
     # mixed precision
-    _mixed_precision_opt = MixedPrecision(
-        param_dtype=model.dtype,
-        reduce_dtype=model.dtype,
-        buffer_dtype=model.dtype,
-    )
-    if config.parallel.fsdp_mixed_precision == "mixed":
-        _mixed_precision_opt.reduce_dtype = torch.float32
+    mode = config.parallel.fsdp_mixed_precision
+    if mode == "none":
+        _mixed_precision_opt = None
+    else:
+        dtype = {
+            "fp16": torch.float16,
+            "float16": torch.float16,
+            "bf16": torch.bfloat16,
+            "bfloat16": torch.bfloat16,
+            "fp32": torch.float32,
+            "float32": torch.float32,
+        }.get(mode, model.dtype)
+        _mixed_precision_opt = MixedPrecision(
+            param_dtype=dtype,
+            reduce_dtype=torch.float32 if mode == "mixed" else dtype,
+            buffer_dtype=dtype,
+        )
 
     # Sharding strategy map including SHARD_GRAD_OP for better CPU offload performance
     _sharding_strategy = {

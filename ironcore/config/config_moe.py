@@ -18,6 +18,7 @@ class MoEConfig(BaseConfig):
 
     # Enable/disable MoE
     use_moe: bool = field(default=False, metadata={"help": "Enable Mixture of Experts layer"})
+    expert_backend: str = "loop"  # loop | batched (padded batched GEMM, EP=1)
 
     # Expert counts
     num_shared_experts: int = field(
@@ -81,6 +82,8 @@ class MoEConfig(BaseConfig):
 
     def __post_init__(self):
         """Validate MoE configuration."""
+        if self.expert_backend not in ("loop", "batched"):
+            raise ValueError("expert_backend must be loop or batched")
         if self.use_moe:
             if self.num_routed_experts <= 0:
                 raise ValueError("num_routed_experts must be positive when MoE is enabled")

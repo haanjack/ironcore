@@ -15,7 +15,9 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 
-def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
+def _compute_log_softmax_tp_safe(
+    logits: torch.Tensor, *, logits_are_parallel: bool = True
+) -> torch.Tensor:
     """Compute log_softmax that works correctly with tensor parallelism.
 
     In tensor-parallel (TP) configurations where the vocabulary is sharded across
@@ -45,12 +47,14 @@ def _compute_log_softmax_tp_safe(logits: torch.Tensor) -> torch.Tensor:
         except AssertionError:
             tp_size = 1
 
-    if tp_size > 1:
+    if logits_are_parallel and tp_size > 1:
         # Deferred import: only when TP > 1 to avoid circular import at module load.
-        from ironcore.parallel.tensor_parallel.comm import _gather_tensor_along_last_dim
+        from ironcore.parallel.tensor_parallel.comm import gather_from_model_parallel_workers
 
         # Gather full vocabulary logits across TP group
-        logits = _gather_tensor_along_last_dim(logits)
+        logits = gather_from_model_parallel_workers(
+            logits, {"column_parallel": True, "concatenated_weights": 1}
+        )
 
     # Now compute log_softmax with the full vocabulary
     # Use float32 for softmax stability
@@ -61,6 +65,8 @@ def compute_logps(
     logits: torch.Tensor,  # [batch, seq_len, vocab_size]
     labels: torch.Tensor,  # [batch, seq_len]
     mask: torch.Tensor | None = None,  # [batch, seq_len]
+    *,
+    logits_are_parallel: bool = True,
 ) -> torch.Tensor:
     """Compute log probabilities from logits.
 
@@ -73,7 +79,7 @@ def compute_logps(
         [batch] sum of per-token log probabilities
     """
     # Get log probabilities (tensor-parallel safe)
-    log_probs = _compute_log_softmax_tp_safe(logits)
+    log_probs = _compute_log_softmax_tp_safe(logits, logits_are_parallel=logits_are_parallel)
 
     # Select log probabilities for ground truth labels
     return _extract_logps_from_log_probs(log_probs, labels, mask)
@@ -157,6 +163,7 @@ def dpo_loss(
     reference_concat_logits: torch.Tensor | None = None,
     # Performance: skip metrics computation when not needed
     compute_metrics: bool = True,
+    logits_are_parallel: bool = True,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute DPO (Direct Preference Optimization) loss.
 
@@ -200,22 +207,34 @@ def dpo_loss(
     # 1. Compute per-token log probabilities for policy model
     if policy_concat_logits is not None:
         # Optimization: compute logps for both chosen and rejected in one pass (single all-gather)
-        concat_log_probs = _compute_log_softmax_tp_safe(policy_concat_logits)
+        concat_log_probs = _compute_log_softmax_tp_safe(
+            policy_concat_logits, logits_are_parallel=logits_are_parallel
+        )
         concat_logps = _extract_logps_from_log_probs(concat_log_probs, concat_labels, concat_mask)
         chosen_policy_logps = concat_logps[:batch_size]
         rejected_policy_logps = concat_logps[batch_size:]
     else:
         # Standard separate computation
-        chosen_policy_logps = compute_logps(policy_chosen_logits, chosen_labels, chosen_loss_mask)
+        chosen_policy_logps = compute_logps(
+            policy_chosen_logits,
+            chosen_labels,
+            chosen_loss_mask,
+            logits_are_parallel=logits_are_parallel,
+        )
         rejected_policy_logps = compute_logps(
-            policy_rejected_logits, rejected_labels, rejected_loss_mask
+            policy_rejected_logits,
+            rejected_labels,
+            rejected_loss_mask,
+            logits_are_parallel=logits_are_parallel,
         )
 
     # 2. Compute log probabilities for reference model (no grad)
     with torch.no_grad():
         if reference_concat_logits is not None:
             # Optimization: single pass for reference model
-            concat_log_probs = _compute_log_softmax_tp_safe(reference_concat_logits)
+            concat_log_probs = _compute_log_softmax_tp_safe(
+                reference_concat_logits, logits_are_parallel=logits_are_parallel
+            )
             concat_logps = _extract_logps_from_log_probs(
                 concat_log_probs, concat_labels, concat_mask
             )
@@ -223,10 +242,16 @@ def dpo_loss(
             rejected_ref_logps = concat_logps[batch_size:]
         else:
             chosen_ref_logps = compute_logps(
-                reference_chosen_logits, chosen_labels, chosen_loss_mask
+                reference_chosen_logits,
+                chosen_labels,
+                chosen_loss_mask,
+                logits_are_parallel=logits_are_parallel,
             )
             rejected_ref_logps = compute_logps(
-                reference_rejected_logits, rejected_labels, rejected_loss_mask
+                reference_rejected_logits,
+                rejected_labels,
+                rejected_loss_mask,
+                logits_are_parallel=logits_are_parallel,
             )
 
     # 3. Compute log probability differences

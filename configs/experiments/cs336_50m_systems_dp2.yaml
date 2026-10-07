@@ -1,0 +1,30 @@
+# Systems-only random-token workload. Use benchmark_training.py for real-text learning.
+# torchrun --standalone --nproc_per_node=2 -m ironcore train --config configs/experiments/cs336_50m_systems_dp2.yaml
+model: cs336-50m
+trainer:
+  micro_batch_size: 16
+  train_batch_size: 64
+  gradient_accumulation_steps: 2
+  tensor_model_parallel_size: 1
+  use_flash_attn: false
+  # Optional memory reduction (measured throughput cost): loss_chunk_size: 4096
+  log_interval: 10
+  model_path: /tmp/ironcore-cs336-50m-systems
+operation:
+  train_steps: 100
+  no_save: true
+data:
+  task_type: pretrain
+  use_mock_data: true
+  seq_length: 1024
+  vocab_name_or_path: gpt2
+optim:
+  max_lr: 3.0e-4
+  min_lr: 3.0e-5
+  warmup_steps: 10
+  annealing_steps: 90
+  weight_decay: 0.1
+  clip_grad: 1.0
+init:
+  seed: 42
+  init_std: 0.02

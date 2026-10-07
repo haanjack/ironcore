@@ -1,0 +1,63 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": true,
+  "moe_idle": true,
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.648440957069397e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.648440957069397e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 4.4796615839004517e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    }
+  ]
+}

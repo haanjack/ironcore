@@ -1,0 +1,65 @@
+{
+  "status": "completed",
+  "jobs": [
+    {
+      "label": "grpo-paired-evaluation",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v7-src/scripts/benchmark_alignment.py",
+        "--task",
+        "grpo",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--gsm8k",
+        "/tmp/ironcore-gsm8k",
+        "--preferences",
+        "/tmp/ironcore-ultrafeedback",
+        "--output",
+        "/tmp/ironcore-remediation-final-evaluation/grpo-paired-evaluation",
+        "--steps",
+        "8"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "moe-ep-profile",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v7-src/scripts/benchmark_training.py",
+        "--data-dir",
+        "/tmp/ironcore-corpus",
+        "--output",
+        "/tmp/ironcore-remediation-final-evaluation/moe-ep-profile",
+        "--model-size",
+        "50m",
+        "--moe",
+        "--ep",
+        "2",
+        "--context",
+        "1024",
+        "--micro-batch",
+        "2",
+        "--global-batch",
+        "8",
+        "--steps",
+        "16",
+        "--warmup",
+        "10",
+        "--eval-batches",
+        "2",
+        "--profile",
+        "--profile-ranks",
+        "0,1"
+      ],
+      "returncode": 0
+    }
+  ]
+}

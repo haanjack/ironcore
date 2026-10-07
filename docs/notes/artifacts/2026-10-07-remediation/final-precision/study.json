@@ -1,0 +1,44 @@
+{
+  "status": "failed",
+  "jobs": [
+    {
+      "label": "final-fault-contracts",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v4-src/scripts/validate_distributed_contracts.py",
+        "--output",
+        "/tmp/ironcore-remediation-final-precision/final-fault-contracts"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "grpo-bf16",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-remediation-final-v4-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--precision",
+        "bfloat16",
+        "--steps",
+        "4",
+        "--tasks",
+        "grpo",
+        "--grpo-objective",
+        "grpo",
+        "--moe",
+        "--cases",
+        "full,dp2,tp2,ep2",
+        "--output",
+        "/tmp/ironcore-remediation-final-precision/grpo-bf16"
+      ],
+      "returncode": 1
+    }
+  ]
+}

@@ -80,13 +80,8 @@ def compute_advantages(
                 # Guard against NCCL returning corrupted sizes under GPU memory pressure.
                 # rewards is [B*G] (a handful of elements); anything larger signals corruption.
                 # ValueError falls through to the except handler, resetting world_size=1.
-                _size_upper_bound = rewards.numel() * world_size * 4
-                if max_size <= 0 or max_size > _size_upper_bound:
-                    raise ValueError(
-                        f"compute_advantages: gathered sizes {all_sizes} look corrupted "
-                        f"(local={rewards.numel()}, bound={_size_upper_bound}). "
-                        "Falling back to local computation."
-                    )
+                if max_size <= 0 or min(all_sizes) < 0:
+                    raise ValueError(f"compute_advantages: invalid gathered sizes {all_sizes}")
 
                 # 2. Pad tensors to max_size for all_gather
                 padded_rewards = torch.zeros(max_size, device=device, dtype=rewards.dtype)
@@ -137,8 +132,9 @@ def compute_advantages(
                 rewards = torch.cat(all_rewards_list, dim=0)
                 group_ids = torch.cat(all_group_ids_list, dim=0)
         except (AssertionError, ValueError) as _e:
-            logger.warning("compute_advantages distributed fallback: %s", _e)
-            world_size = 1
+            raise RuntimeError(
+                "Distributed advantage normalization failed; local fallback is disabled"
+            ) from _e
 
     # Compute advantages for each group
     advantages = torch.zeros_like(rewards)
@@ -174,6 +170,10 @@ def grpo_loss(
     entropy: torch.Tensor | None = None,  # [B*G] mean token entropy per sequence
     entropy_coef: float = 0.0,  # entropy bonus coefficient (0 = disabled)
     response_lengths: torch.Tensor | None = None,  # [B*G] valid token counts
+    objective: str = "gspo",
+    token_policy_log_probs: torch.Tensor | None = None,
+    token_old_log_probs: torch.Tensor | None = None,
+    response_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute GRPO loss with optional importance sampling for offline/multi-epoch training.
 
@@ -202,7 +202,29 @@ def grpo_loss(
     else:
         norm = torch.ones_like(policy_log_probs)
 
-    if old_log_probs is None:
+    if objective not in ("grpo", "gspo"):
+        raise ValueError("objective must be grpo or gspo")
+    if objective == "grpo":
+        if token_policy_log_probs is None or response_mask is None:
+            raise ValueError("Token GRPO requires token log probabilities and response mask")
+        mask = response_mask.to(token_policy_log_probs)
+        if old_log_probs is not None and token_old_log_probs is None:
+            raise ValueError(
+                "Off-policy token GRPO requires recorded token behaviour log probabilities"
+            )
+        if old_log_probs is None:
+            terms = token_policy_log_probs * adv[:, None]
+            mean_ratio, clip_fraction = 1.0, 0.0
+        else:
+            ratio = (token_policy_log_probs - token_old_log_probs.detach()).exp()
+            clipped = ratio.clamp(1.0 - clip_eps, 1.0 + clip_eps) if clip_eps else ratio
+            terms = torch.minimum(ratio * adv[:, None], clipped * adv[:, None])
+            mean_ratio = ((ratio.detach() * mask).sum() / mask.sum().clamp(min=1)).item()
+            clip_fraction = (
+                ((ratio.detach() != clipped.detach()) * mask).sum() / mask.sum().clamp(min=1)
+            ).item()
+        policy_loss = -((terms * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1)).mean()
+    elif old_log_probs is None:
         # Online: standard policy gradient, ratio implicitly 1.
         # Length-normalise so each completion contributes equally regardless
         # of length. (Fable #69.)

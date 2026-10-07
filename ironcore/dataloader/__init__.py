@@ -5,7 +5,8 @@
 
 from pathlib import Path
 
-from torch.utils.data import DataLoader
+import torch
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 from ironcore.config import _validate_path_within_dir
 from ironcore.dataloader.collator import UniversalCollator
@@ -20,6 +21,7 @@ from ironcore.dataloader.random_dataset import (
     RandomTokenDataset,
     get_random_data_iterator,
 )
+from ironcore.dataloader.stateful import CheckpointableIterator
 
 __all__ = [
     "UniversalCollator",
@@ -140,15 +142,19 @@ def get_data_iterator(config):
         batch_size = (
             config.trainer.micro_batch_size if split == "train" else config.trainer.eval_batch_size
         )
-        dataloader = DataLoader(
+        workers = config.trainer.num_workers
+        dataloader = StatefulDataLoader(
             dataset,
             batch_size=batch_size,
             collate_fn=collator,
-            num_workers=0,  # Streaming datasets handle their own prefetching
+            num_workers=workers,
+            multiprocessing_context="spawn" if workers else None,
+            snapshot_every_n_steps=1,
+            generator=torch.Generator().manual_seed(1337),
         )
 
         # Store iterator
         # Streaming dataset already provides infinite iteration for pretrain mode
-        iterators[split] = iter(dataloader)
+        iterators[split] = CheckpointableIterator(dataloader, cycle=split == "train")
 
     return iterators

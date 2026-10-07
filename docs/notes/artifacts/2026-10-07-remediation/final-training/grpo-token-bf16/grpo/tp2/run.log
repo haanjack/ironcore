@@ -1,0 +1,47 @@
+[2026-10-07 21:10:28,379] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 21:10:28,380] Acquiring training resources...
+[2026-10-07 21:10:28,380] Initialize torch distributed ... 
+[2026-10-07 21:10:28,596] Loading evaluation tasks
+[2026-10-07 21:10:28,597] Set random seed to 42 for model initialization
+[2026-10-07 21:10:28,608] Created Language Model
+[2026-10-07 21:10:28,609] Trainable parameters: 20,896 / 20,896 (100.00%)
+[2026-10-07 21:10:28,609] Created Optimizer
+[2026-10-07 21:10:28,615] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 21:10:28,615] Resources acquired successfully.
+[2026-10-07 21:10:28,711] Training start from scratch
+[2026-10-07 21:10:28,711] Creating reference model for GRPO...
+[2026-10-07 21:10:28,711] Creating reference model from policy weights...
+[2026-10-07 21:10:28,717] Reference model created on GPU (device=cuda:0)
+[2026-10-07 21:10:28,717] [VRAM] After ref model creation: allocated=0.00 GB, reserved=0.00 GB
+[2026-10-07 21:10:28,717] Initializing reward worker via RewardManager...
+[2026-10-07 21:10:28,717] Training start from step: 0
+[2026-10-07 21:10:29,087] [VRAM] After rollout: peak=0.03 GB
+[2026-10-07 21:10:29,125] [VRAM] After ref log probs: peak=0.03 GB
+[rank1]:[W1007 21:10:29.835777850 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank0]:[W1007 21:10:29.835799050 reducer.cpp:1528] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[2026-10-07 21:10:29,333] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:10:29,333] step: 1, loss: -0.0523, lr: 0.000232, grad_norm: 2.2976, step_time: 0.616s (avg: 0.616s), tok/s: 207.9 (avg: 207.8)
+[2026-10-07 21:10:29,346] [VRAM] After rollout: peak=0.06 GB
+[2026-10-07 21:10:29,361] [VRAM] After ref log probs: peak=0.06 GB
+[2026-10-07 21:10:29,441] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:10:29,441] step: 1, grpo_loss: -0.0096, policy_loss: -0.0114, kl_loss: 0.0018, mean_reward: 0.7500, mean_ratio: 1.0041, clip_frac: 0.000
+[2026-10-07 21:10:29,441] step: 2, loss: -0.0096, lr: 0.000100, grad_norm: 3.7651, step_time: 0.107s (avg: 0.362s), tok/s: 1195.9 (avg: 353.7)
+[2026-10-07 21:10:29,465] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:10:29,465] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/grpo-token-bf16/grpo/tp2/checkpoint/step_2
+[2026-10-07 21:10:29,489] Checkpoint saved successfully. Checkpoint saved in 0.034s
+[2026-10-07 21:10:29,503] [VRAM] After rollout: peak=0.06 GB
+[2026-10-07 21:10:29,519] [VRAM] After ref log probs: peak=0.06 GB
+[2026-10-07 21:10:29,595] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:10:29,595] step: 2, grpo_loss: -0.0022, policy_loss: -0.0052, kl_loss: 0.0030, mean_reward: 0.7500, mean_ratio: 1.0023, clip_frac: 0.000
+[2026-10-07 21:10:29,595] step: 3, loss: -0.0022, lr: 0.000100, grad_norm: 3.6119, step_time: 0.105s (avg: 0.293s), tok/s: 1218.1 (avg: 437.4)
+[2026-10-07 21:10:29,608] [VRAM] After rollout: peak=0.06 GB
+[2026-10-07 21:10:29,623] [VRAM] After ref log probs: peak=0.06 GB
+[2026-10-07 21:10:29,700] [VRAM] After optimizer step: peak=0.06 GB
+[2026-10-07 21:10:29,700] step: 3, grpo_loss: -0.0023, policy_loss: -0.0053, kl_loss: 0.0030, mean_reward: 0.7500, mean_ratio: 1.0025, clip_frac: 0.000
+[2026-10-07 21:10:29,700] step: 4, loss: -0.0023, lr: 0.000100, grad_norm: 3.6309, step_time: 0.105s (avg: 0.246s), tok/s: 1223.6 (avg: 520.8)
+[2026-10-07 21:10:29,722] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:10:29,722] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/grpo-token-bf16/grpo/tp2/checkpoint/step_4
+[2026-10-07 21:10:29,743] Checkpoint saved successfully. Checkpoint saved in 0.030s
+[2026-10-07 21:10:29,743] Total training time: 0.00 hours
+[2026-10-07 21:10:29,743] Finishing training
+[2026-10-07 21:10:29,784] GRPO evaluation at step 4: {'eval/mean_reward': 0.75, 'eval/positive_reward_rate': 1.0}

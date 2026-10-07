@@ -1,0 +1,73 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+[2026-10-07 20:37:58,696] DPOTrainer initialized with beta=0.1, concat_passes=True, metrics_interval=1
+[2026-10-07 20:37:58,696] Acquiring training resources...
+[2026-10-07 20:37:58,696] Initialize torch distributed ... 
+[2026-10-07 20:37:58,925] Loading evaluation tasks
+[2026-10-07 20:37:58,926] Set random seed to 73 for model initialization
+[2026-10-07 20:37:59,645] Created Language Model
+[2026-10-07 20:37:59,645] Loading pretrained weights from HuggingFace: /tmp/ironcore-smollm135
+[2026-10-07 20:37:59,646] Downloaded/loaded from cache: /tmp/ironcore-smollm135
+[2026-10-07 20:37:59,747] HF weights loaded: 212 keys, 1 missing, 0 unexpected
+[2026-10-07 20:37:59,750] Trainable parameters: 134,515,008 / 134,515,008 (100.00%)
+[2026-10-07 20:37:59,750] Created Optimizer
+[2026-10-07 20:37:59,870] Resources acquired successfully.
+[2026-10-07 20:37:59,870] Training start from scratch
+[2026-10-07 20:37:59,909] Creating reference model with beta=0.1
+[2026-10-07 20:37:59,909] Creating reference model from policy weights...
+[2026-10-07 20:38:01,110] Training start from scratch
+[2026-10-07 20:38:01,110] Creating reference model with beta=0.1
+[2026-10-07 20:38:01,110] Creating reference model from policy weights...
+[2026-10-07 20:38:01,141] Training start from step: 0
+[2026-10-07 20:38:01,535] step: 1, loss: 0.6931, lr: 0.000010, grad_norm: 30.3769, step_time: 0.394s (avg: 0.394s), tok/s: 5201.8 (avg: 5199.9), TFLOPS/s/GPU: 2.10 (avg: 2.10)
+[2026-10-07 20:38:01,709] step: 1, dpo_loss: 0.6544, margin: -81.5448, accuracy: 0.7500
+[2026-10-07 20:38:01,710] step: 2, loss: 0.6544, lr: 0.000010, grad_norm: 37.7157, step_time: 0.174s (avg: 0.284s), tok/s: 11745.5 (avg: 7203.7), TFLOPS/s/GPU: 4.74 (avg: 2.91)
+[2026-10-07 20:38:01,887] step: 2, dpo_loss: 0.7008, margin: -9.5400, accuracy: 0.5000
+[2026-10-07 20:38:01,888] step: 3, loss: 0.7008, lr: 0.000010, grad_norm: 30.7959, step_time: 0.178s (avg: 0.249s), tok/s: 11521.8 (avg: 8229.6), TFLOPS/s/GPU: 4.65 (avg: 3.32)
+[2026-10-07 20:38:02,069] step: 3, dpo_loss: 0.6463, margin: -146.9819, accuracy: 0.7500
+[2026-10-07 20:38:02,069] step: 4, loss: 0.6463, lr: 0.000010, grad_norm: 36.7940, step_time: 0.182s (avg: 0.232s), tok/s: 11273.5 (avg: 8823.2), TFLOPS/s/GPU: 4.55 (avg: 3.56)
+[2026-10-07 20:38:02,252] step: 4, dpo_loss: 0.7166, margin: 149.1319, accuracy: 0.2500
+[2026-10-07 20:38:02,252] step: 5, loss: 0.7166, lr: 0.000010, grad_norm: 40.6169, step_time: 0.183s (avg: 0.222s), tok/s: 11203.5 (avg: 9212.8), TFLOPS/s/GPU: 4.52 (avg: 3.72)
+[2026-10-07 20:38:02,427] step: 5, dpo_loss: 0.7182, margin: -275.4750, accuracy: 0.2500
+[2026-10-07 20:38:02,427] step: 6, loss: 0.7182, lr: 0.000010, grad_norm: 34.2040, step_time: 0.174s (avg: 0.214s), tok/s: 11760.1 (avg: 9556.3), TFLOPS/s/GPU: 4.75 (avg: 3.86)
+[2026-10-07 20:38:02,610] step: 6, dpo_loss: 0.7091, margin: -22.3916, accuracy: 0.5000
+[2026-10-07 20:38:02,610] step: 7, loss: 0.7091, lr: 0.000010, grad_norm: 34.1910, step_time: 0.183s (avg: 0.210s), tok/s: 11204.0 (avg: 9759.9), TFLOPS/s/GPU: 4.52 (avg: 3.94)
+[2026-10-07 20:38:02,794] step: 7, dpo_loss: 0.7064, margin: 73.1180, accuracy: 0.2500
+[2026-10-07 20:38:02,794] step: 8, loss: 0.7064, lr: 0.000010, grad_norm: 38.4590, step_time: 0.184s (avg: 0.207s), tok/s: 11129.9 (avg: 9910.9), TFLOPS/s/GPU: 4.49 (avg: 4.00)
+[2026-10-07 20:38:02,976] step: 8, dpo_loss: 0.7356, margin: 31.9173, accuracy: 0.2500
+[2026-10-07 20:38:02,976] step: 9, loss: 0.7356, lr: 0.000010, grad_norm: 47.3835, step_time: 0.182s (avg: 0.204s), tok/s: 11241.9 (avg: 10041.9), TFLOPS/s/GPU: 4.54 (avg: 4.05)
+[2026-10-07 20:38:03,159] step: 9, dpo_loss: 0.6475, margin: -48.6751, accuracy: 0.7500
+[2026-10-07 20:38:03,159] step: 10, loss: 0.6475, lr: 0.000010, grad_norm: 41.6830, step_time: 0.183s (avg: 0.202s), tok/s: 11220.6 (avg: 10147.3), TFLOPS/s/GPU: 4.53 (avg: 4.10)
+[2026-10-07 20:38:03,337] step: 10, dpo_loss: 0.7286, margin: 16.7538, accuracy: 0.2500
+[2026-10-07 20:38:03,338] step: 11, loss: 0.7286, lr: 0.000010, grad_norm: 35.2307, step_time: 0.178s (avg: 0.200s), tok/s: 11492.2 (avg: 10255.3), TFLOPS/s/GPU: 4.64 (avg: 4.14)
+[2026-10-07 20:38:03,517] step: 11, dpo_loss: 0.7023, margin: -306.8288, accuracy: 0.5000
+[2026-10-07 20:38:03,517] step: 12, loss: 0.7023, lr: 0.000010, grad_norm: 40.5750, step_time: 0.179s (avg: 0.198s), tok/s: 11410.7 (avg: 10341.6), TFLOPS/s/GPU: 4.61 (avg: 4.17)
+[2026-10-07 20:38:03,684] step: 12, dpo_loss: 0.6805, margin: 60.1331, accuracy: 0.5000
+[2026-10-07 20:38:03,684] step: 13, loss: 0.6805, lr: 0.000010, grad_norm: 27.7526, step_time: 0.166s (avg: 0.196s), tok/s: 12304.5 (avg: 10469.2), TFLOPS/s/GPU: 4.97 (avg: 4.23)
+[2026-10-07 20:38:03,867] step: 13, dpo_loss: 0.7033, margin: -93.2090, accuracy: 0.5000
+[2026-10-07 20:38:03,867] step: 14, loss: 0.7033, lr: 0.000010, grad_norm: 44.8623, step_time: 0.183s (avg: 0.195s), tok/s: 11211.8 (avg: 10518.1), TFLOPS/s/GPU: 4.53 (avg: 4.25)
+[2026-10-07 20:38:04,038] step: 14, dpo_loss: 0.6608, margin: -194.2102, accuracy: 0.7500
+[2026-10-07 20:38:04,039] step: 15, loss: 0.6608, lr: 0.000010, grad_norm: 34.5099, step_time: 0.172s (avg: 0.193s), tok/s: 11940.7 (avg: 10601.5), TFLOPS/s/GPU: 4.82 (avg: 4.28)
+[2026-10-07 20:38:04,214] step: 15, dpo_loss: 0.6711, margin: -60.6469, accuracy: 1.0000
+[2026-10-07 20:38:04,214] step: 16, loss: 0.6711, lr: 0.000010, grad_norm: 22.3821, step_time: 0.175s (avg: 0.192s), tok/s: 11674.7 (avg: 10662.0), TFLOPS/s/GPU: 4.71 (avg: 4.30)
+[2026-10-07 20:38:04,372] step: 16, dpo_loss: 0.7004, margin: 64.1415, accuracy: 0.5000
+[2026-10-07 20:38:04,373] step: 17, loss: 0.7004, lr: 0.000010, grad_norm: 27.6294, step_time: 0.158s (avg: 0.190s), tok/s: 12955.1 (avg: 10773.4), TFLOPS/s/GPU: 5.23 (avg: 4.35)
+[2026-10-07 20:38:04,555] step: 17, dpo_loss: 0.7077, margin: 84.5494, accuracy: 0.5000
+[2026-10-07 20:38:04,555] step: 18, loss: 0.7077, lr: 0.000010, grad_norm: 25.1957, step_time: 0.182s (avg: 0.190s), tok/s: 11249.2 (avg: 10798.1), TFLOPS/s/GPU: 4.54 (avg: 4.36)
+[2026-10-07 20:38:04,720] step: 18, dpo_loss: 0.7334, margin: 60.9039, accuracy: 0.2500
+[2026-10-07 20:38:04,720] step: 19, loss: 0.7334, lr: 0.000010, grad_norm: 31.6867, step_time: 0.165s (avg: 0.188s), tok/s: 12398.6 (avg: 10871.3), TFLOPS/s/GPU: 5.00 (avg: 4.39)
+[2026-10-07 20:38:04,886] step: 19, dpo_loss: 0.7100, margin: -235.8600, accuracy: 0.5000
+[2026-10-07 20:38:04,887] step: 20, loss: 0.7100, lr: 0.000010, grad_norm: 25.2391, step_time: 0.166s (avg: 0.187s), tok/s: 12327.3 (avg: 10935.2), TFLOPS/s/GPU: 4.98 (avg: 4.41)
+[2026-10-07 20:38:05,049] step: 20, dpo_loss: 0.6666, margin: 61.8478, accuracy: 0.7500
+[2026-10-07 20:38:05,049] step: 21, loss: 0.6666, lr: 0.000010, grad_norm: 26.6344, step_time: 0.162s (avg: 0.186s), tok/s: 12611.4 (avg: 11004.3), TFLOPS/s/GPU: 5.09 (avg: 4.44)
+[2026-10-07 20:38:05,223] step: 21, dpo_loss: 0.6540, margin: -126.9117, accuracy: 0.7500
+[2026-10-07 20:38:05,223] step: 22, loss: 0.6540, lr: 0.000010, grad_norm: 28.2196, step_time: 0.174s (avg: 0.186s), tok/s: 11771.4 (avg: 11036.4), TFLOPS/s/GPU: 4.75 (avg: 4.45)
+[2026-10-07 20:38:05,409] step: 22, dpo_loss: 0.6476, margin: -220.2666, accuracy: 0.7500
+[2026-10-07 20:38:05,409] step: 23, loss: 0.6476, lr: 0.000010, grad_norm: 39.0272, step_time: 0.186s (avg: 0.186s), tok/s: 11032.8 (avg: 11035.6), TFLOPS/s/GPU: 4.45 (avg: 4.45)
+[2026-10-07 20:38:05,584] step: 23, dpo_loss: 0.6598, margin: -39.8666, accuracy: 0.7500
+[2026-10-07 20:38:05,584] step: 24, loss: 0.6598, lr: 0.000010, grad_norm: 33.6828, step_time: 0.175s (avg: 0.185s), tok/s: 11720.1 (avg: 11062.0), TFLOPS/s/GPU: 4.73 (avg: 4.47)
+[2026-10-07 20:38:05,584] Skip checkpoint saving since no-save flag is set
+[2026-10-07 20:38:05,584] Total training time: 0.00 hours
+[2026-10-07 20:38:05,584] Finishing training

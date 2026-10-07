@@ -1,0 +1,51 @@
+{
+  "status": "failed",
+  "jobs": [
+    {
+      "label": "ep-bf16",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--steps",
+        "4",
+        "--output",
+        "/tmp/ironcore-remediation-final-validation/ep-bf16",
+        "--moe",
+        "--cases",
+        "full,ep2",
+        "--precision",
+        "bfloat16",
+        "--grpo-objective",
+        "grpo"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "stateful-workers2",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--steps",
+        "4",
+        "--output",
+        "/tmp/ironcore-remediation-final-validation/stateful-workers2",
+        "--stateful-data",
+        "--data-workers",
+        "2",
+        "--cases",
+        "dp2",
+        "--tasks",
+        "pretrain,sft,grpo"
+      ],
+      "returncode": 1
+    }
+  ]
+}

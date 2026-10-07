@@ -1,0 +1,64 @@
+[2026-10-07 20:01:03,099] Acquiring training resources...
+[2026-10-07 20:01:03,100] Initialize torch distributed ... 
+[2026-10-07 20:01:03,333] Loading evaluation tasks
+[2026-10-07 20:01:03,334] Set random seed to 42 for model initialization
+[2026-10-07 20:01:03,343] Created Language Model
+[2026-10-07 20:01:03,343] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:01:03,343] Created Optimizer
+[2026-10-07 20:01:03,343] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+[2026-10-07 20:01:03,352] Resources acquired successfully.
+[2026-10-07 20:01:03,415] Training start from scratch
+[2026-10-07 20:01:03,415] Training start from step: 0
+[2026-10-07 20:01:03,773] step: 1, loss: 3.7443, lr: 0.000550, grad_norm: 2.0019, step_time: 0.357s (avg: 0.358s), tok/s: 358.1 (avg: 358.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:01:03,789] step: 2, loss: 3.6767, lr: 0.000232, grad_norm: 2.0459, step_time: 0.017s (avg: 0.187s), tok/s: 7713.7 (avg: 683.9), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+[2026-10-07 20:01:03,823] Training stopped by exit interval: 2
+[2026-10-07 20:01:03,823] Total training time: 0.00 hours
+[2026-10-07 20:01:03,823] Finishing training
+[2026-10-07 20:01:11,165] Acquiring training resources...
+[2026-10-07 20:01:11,165] Initialize torch distributed ... 
+[2026-10-07 20:01:11,442] Loading evaluation tasks
+[2026-10-07 20:01:11,443] Set random seed to 42 for model initialization
+[2026-10-07 20:01:11,451] Created Language Model
+[2026-10-07 20:01:11,451] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:01:11,451] Created Optimizer
+[2026-10-07 20:01:11,452] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+/tmp/ironcore-remediation-distributed-src/ironcore/parallel/parallel.py:243: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+[2026-10-07 20:01:11,460] Resources acquired successfully.
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+[2026-10-07 20:01:11,532] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/dp2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:01:11,532] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:01:11,534] Training start from step: 2
+[2026-10-07 20:01:11,898] step: 3, loss: 3.6307, lr: 0.000100, grad_norm: 1.9968, step_time: 0.364s (avg: 0.364s), tok/s: 351.4 (avg: 351.3), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:01:11,917] step: 4, loss: 3.6213, lr: 0.000100, grad_norm: 2.0153, step_time: 0.018s (avg: 0.191s), tok/s: 6932.3 (avg: 668.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+[2026-10-07 20:01:11,946] Total training time: 0.00 hours
+[2026-10-07 20:01:11,946] Finishing training

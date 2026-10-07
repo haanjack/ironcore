@@ -190,6 +190,24 @@ def load_hf_config(checkpoint_path: Path) -> dict:
         return json.load(f)
 
 
+def validate_imported_base_parameters(model, missing_keys):
+    """Require pretrained base weights, allowing newly initialized LoRA tensors."""
+    from ironcore.peft.lora import LoRALinear
+
+    adapters = {
+        id(parameter)
+        for module in model.modules()
+        if isinstance(module, LoRALinear)
+        for parameter in module.parameters(recurse=False)
+    }
+    required = {
+        name for name, parameter in model.named_parameters() if id(parameter) not in adapters
+    }
+    missing = required.intersection(missing_keys)
+    if missing:
+        raise ValueError(f"HF import left base parameters uninitialized: {sorted(missing)}")
+
+
 def load_from_huggingface(
     checkpoint_path: Union[str, Path],
     model: nn.Module,
@@ -259,6 +277,15 @@ def load_from_huggingface(
 
     # Convert to ironcore format
     ironcore_state_dict = mapper.hf_to_ironcore(hf_state_dict, strict=False)
+    # LoRA wrappers keep the pretrained parameter under a base_layer child.
+    for name in model.state_dict():
+        canonical = name.replace(".base_layer.", ".")
+        if (
+            canonical != name
+            and canonical in ironcore_state_dict
+            and name not in ironcore_state_dict
+        ):
+            ironcore_state_dict[name] = ironcore_state_dict.pop(canonical)
 
     # Get model's parameter attributes for tensor parallel
     model_attribs = {

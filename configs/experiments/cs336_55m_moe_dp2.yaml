@@ -1,0 +1,28 @@
+# Systems-only random tokens. Actual text learning: benchmark_training.py --moe.
+model: cs336-55m-moe
+trainer:
+  micro_batch_size: 4
+  train_batch_size: 32
+  gradient_accumulation_steps: 4
+  tensor_model_parallel_size: 1
+  use_flash_attn: false
+  log_interval: 10
+  model_path: /tmp/ironcore-cs336-55m-moe-systems
+operation:
+  train_steps: 100
+  no_save: true
+data:
+  task_type: pretrain
+  use_mock_data: true
+  seq_length: 1024
+  vocab_name_or_path: gpt2
+optim:
+  max_lr: 0.0003
+  min_lr: 3.0e-05
+  warmup_steps: 10
+  annealing_steps: 90
+  weight_decay: 0.1
+  clip_grad: 1.0
+init:
+  seed: 42
+  init_std: 0.02

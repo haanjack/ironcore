@@ -1,0 +1,92 @@
+{
+  "model": {
+    "repo_id": "HuggingFaceTB/SmolLM2-135M-Instruct",
+    "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+    "files": {
+      "generation_config.json": {
+        "bytes": 132,
+        "sha256": "87b916edaaab66b3899b9d0dd0752727dff6666686da0504d89ae0a6e055a013"
+      },
+      "vocab.json": {
+        "bytes": 800662,
+        "sha256": "82b84012e3add4d01d12ba14442026e49b8cbbaead1f79ecf3d919784f82dc79"
+      },
+      "tokenizer.json": {
+        "bytes": 2104556,
+        "sha256": "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c"
+      },
+      "tokenizer_config.json": {
+        "bytes": 3764,
+        "sha256": "4ec77d44f62efeb38d7e044a1db318f6a939438425312dfa333b8382dbad98df"
+      },
+      "README.md": {
+        "bytes": 6772,
+        "sha256": "4f97533ad95b1b2fea15fbc075c01b94578ebdd7c8138888fa43fa3abd530dc4"
+      },
+      "train_results.json": {
+        "bytes": 232,
+        "sha256": "713996ce10b9d99a440fec73c0f3bdb2f3c4db6adba3d027bdaa40796f059b2d"
+      },
+      "all_results.json": {
+        "bytes": 783,
+        "sha256": "1f68a2e167194d764c414643b54f0960945dc3f46bc47ec53b02475df527f376"
+      },
+      "trainer_state.json": {
+        "bytes": 57225,
+        "sha256": "9664b2f12a8a29cad27a12da7b0d3a1081c8ba1392bcec71fa3bfd4fafc11284"
+      },
+      "model.safetensors": {
+        "bytes": 269060552,
+        "sha256": "5af571cbf074e6d21a03528d2330792e532ca608f24ac70a143f6b369968ab8c"
+      },
+      "config.json": {
+        "bytes": 861,
+        "sha256": "8eb740e8bbe4cff95ea7b4588d17a2432deb16e8075bc5828ff7ba9be94d982a"
+      },
+      "special_tokens_map.json": {
+        "bytes": 655,
+        "sha256": "2b7379f3ae813529281a5c602bc5a11c1d4e0a99107aaa597fe936c1e813ca52"
+      },
+      "eval_results.json": {
+        "bytes": 586,
+        "sha256": "6c7ecd0c2c0e8f6af8cbb34065fb2d5eb4c504febf2e266a7c7f948f13c70b7c"
+      }
+    }
+  },
+  "gsm8k": {
+    "repo_id": "openai/gsm8k",
+    "revision": "740312add88f781978c0658806c59bc2815b9866",
+    "files": {
+      "README.md": {
+        "bytes": 7935,
+        "sha256": "a17e882503578c9e324560630e31017617714ee025c87cf4fea6fd916895f3c1"
+      },
+      "main/train-00000-of-00001.parquet": {
+        "bytes": 2306545,
+        "sha256": "ea82612ea9582142387730c793eb67d3b12849002bc0b7fa6f8efafa7351419d"
+      },
+      "main/test-00000-of-00001.parquet": {
+        "bytes": 419088,
+        "sha256": "ee7b8da9e381df27b9e3f7758a159ab2bdaa4dbaa910546cbbc47e0cb44e4f59"
+      }
+    }
+  },
+  "preferences": {
+    "repo_id": "trl-lib/ultrafeedback_binarized",
+    "revision": "47124cb5778f5d50de1c7676a412828f3ea7c555",
+    "files": {
+      "README.md": {
+        "bytes": 643,
+        "sha256": "7b2e88ea698f23d477bfd7c423493850b322dbc907b0a8a9a1a7065eb85fbc12"
+      },
+      "data/train-00000-of-00001.parquet": {
+        "bytes": 130671922,
+        "sha256": "042dc0b2dd7293acd30d64a90b3df96f273f00900b5b4369f7fdb2a2a0737805"
+      },
+      "data/test-00000-of-00001.parquet": {
+        "bytes": 2144096,
+        "sha256": "9fbfb9440c8ff5693ccc77b78e50432bd72aa35ce08734211b48e679797dd8cc"
+      }
+    }
+  }
+}

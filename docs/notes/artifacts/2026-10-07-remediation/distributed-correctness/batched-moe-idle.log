@@ -1,0 +1,5 @@
+Running pretrain/full
+Running pretrain/accum
+Running pretrain/dp2
+Running pretrain/tp2
+Validation passed: /tmp/ironcore-remediation-distributed-v3/batched-moe-idle/report.json

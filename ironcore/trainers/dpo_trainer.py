@@ -106,6 +106,9 @@ class DPOTrainer(BaseTrainer):
             # For FSDP, we must shard the reference model as well to save memory.
             unwrapped = self.model.module if hasattr(self.model, "module") else self.model
             reference_model = unwrapped.__class__(unwrapped.config)
+            reference_model.to(
+                device=self._get_compute_device(), dtype=next(self.model.parameters()).dtype
+            )
 
             # Disable gradients before wrapping
             reference_model.eval()
@@ -126,6 +129,10 @@ class DPOTrainer(BaseTrainer):
             reference_model = copy.deepcopy(model_to_copy)
 
         reference_model.eval()
+        for param in reference_model.parameters():
+            param.requires_grad_(False)
+        if isinstance(self.model, FSDP):
+            return reference_model
 
         # Freeze all parameters
         if isinstance(self.model, FSDP):
@@ -208,6 +215,18 @@ class DPOTrainer(BaseTrainer):
                      chosen_ref_logits, rejected_ref_logits,
                      policy_concat_logits or None, reference_concat_logits or None)
         """
+        from ironcore.training_utils import clear_moe_aux_loss, get_moe_aux_loss
+
+        policy_aux = []
+
+        def policy_forward(*args, **kwargs):
+            output = self.model(*args, **kwargs)
+            aux = get_moe_aux_loss(self.model)
+            if aux is not None:
+                policy_aux.append(aux)
+            clear_moe_aux_loss(self.model)
+            return output
+
         batch_size = chosen_input_ids.size(0)
 
         if self.concat_forward_passes:
@@ -226,12 +245,12 @@ class DPOTrainer(BaseTrainer):
 
             # Policy model forward
             if enable_grad:
-                concat_policy_logits, _ = self.model(
+                concat_policy_logits, _ = policy_forward(
                     concat_input_ids, labels=None, position_ids=concat_position_ids
                 )
             else:
                 with torch.no_grad():
-                    concat_policy_logits, _ = self.model(
+                    concat_policy_logits, _ = policy_forward(
                         concat_input_ids, labels=None, position_ids=concat_position_ids
                     )
 
@@ -254,18 +273,18 @@ class DPOTrainer(BaseTrainer):
         else:
             # Standard approach: 4 separate forward passes
             if enable_grad:
-                chosen_policy_logits, _ = self.model(
+                chosen_policy_logits, _ = policy_forward(
                     chosen_input_ids, labels=None, position_ids=chosen_position_ids
                 )
-                rejected_policy_logits, _ = self.model(
+                rejected_policy_logits, _ = policy_forward(
                     rejected_input_ids, labels=None, position_ids=rejected_position_ids
                 )
             else:
                 with torch.no_grad():
-                    chosen_policy_logits, _ = self.model(
+                    chosen_policy_logits, _ = policy_forward(
                         chosen_input_ids, labels=None, position_ids=chosen_position_ids
                     )
-                    rejected_policy_logits, _ = self.model(
+                    rejected_policy_logits, _ = policy_forward(
                         rejected_input_ids, labels=None, position_ids=rejected_position_ids
                     )
 
@@ -283,6 +302,8 @@ class DPOTrainer(BaseTrainer):
             policy_concat_logits = None
             reference_concat_logits = None
 
+        self._policy_moe_aux = sum(policy_aux) / len(policy_aux) if policy_aux else None
+        clear_moe_aux_loss(self.reference_model)
         return (
             chosen_policy_logits,
             rejected_policy_logits,
@@ -431,8 +452,17 @@ class DPOTrainer(BaseTrainer):
             policy_concat_logits=policy_concat_logits,
             reference_concat_logits=reference_concat_logits,
             compute_metrics=compute_metrics,
+            logits_are_parallel=False,
         )
 
+        from ironcore.training_utils import clear_moe_aux_loss
+
+        aux = self._policy_moe_aux
+        self._policy_moe_aux = None
+        if aux is not None and self.config.alignment.moe_aux_loss == "include":
+            loss = loss + aux
+            metrics["moe_aux_loss"] = aux.detach()
+        clear_moe_aux_loss(self.model)
         return loss, metrics
 
     def _log_dpo_metrics(self, step: int, metrics: dict[str, float]) -> None:
@@ -504,6 +534,7 @@ class DPOTrainer(BaseTrainer):
                 label_smoothing=self.label_smoothing,
                 policy_concat_logits=policy_concat_logits,
                 reference_concat_logits=reference_concat_logits,
+                logits_are_parallel=False,
             )
 
         accuracy = metrics.get("dpo_accuracy", 0.0)

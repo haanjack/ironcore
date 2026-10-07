@@ -146,3 +146,13 @@ class TestMFUResult:
         s = str(result)
         assert "60.74 TFLOPS/s/GPU" in s
         assert "8,192 tok/step" in s
+
+
+def test_gated_ffn_accounts_for_third_projection():
+    from ironcore.config import ModelConfig
+
+    config = ModelConfig(d_model=128, d_ffn=384, num_layers=2, activation_type="swiglu")
+    gated = MFUCalculator.from_config(config, vocab_size=1024)
+    config.activation_type = "gelu"
+    plain = MFUCalculator.from_config(config, vocab_size=1024)
+    assert gated.get_num_parameters() - plain.get_num_parameters() == 2 * 128 * 384

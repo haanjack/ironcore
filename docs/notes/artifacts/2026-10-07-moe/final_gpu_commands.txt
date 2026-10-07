@@ -1,0 +1,12 @@
+import subprocess,sys,time
+from pathlib import Path
+root=Path('/home/hanjack/ironcore/ironcore')
+path=Path('/tmp/ironcore-moe-cli-check.log');deadline=time.monotonic()+600
+while 'CLI EP guard verified' not in path.read_text():
+    if time.monotonic()>deadline:raise TimeoutError('CLI checks did not complete')
+    time.sleep(2)
+subprocess.run([sys.executable,'scripts/validate_trainers.py','--device','cuda','--architecture','cs336','--moe','--moe-aux-alpha','0.01','--precision','bfloat16','--cases','dp2','--tasks','pretrain,sft','--steps','4','--output','/tmp/ironcore-moe-aux-resume'],cwd=root,check=True)
+output=Path('/tmp/ironcore-moe-profile');output.mkdir()
+cmd=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=2','scripts/benchmark_training.py','--data-dir','/tmp/ironcore-corpus','--output',str(output),'--model-size','50m','--context','1024','--micro-batch','4','--global-batch','32','--steps','20','--moe','--profile']
+with (output/'run.log').open('w') as log:subprocess.run(cmd,cwd=root,stdout=log,stderr=log,timeout=300,check=True)
+print('Aux resume and MoE profiler completed',flush=True)

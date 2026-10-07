@@ -411,9 +411,9 @@ class MuonOptimizer(Optimizer):
 
             if amsgrad and max_exp_avg_sq is not None:
                 torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-                denom = max_exp_avg_sq.sqrt().add_(eps)
+                denom = max_exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
             else:
-                denom = exp_avg_sq.sqrt().add_(eps)
+                denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
 
             bias_correction1 = 1.0 - beta1 ** state["step"]
             bias_correction2 = 1.0 - beta2 ** state["step"]
@@ -444,6 +444,9 @@ class MuonOptimizer(Optimizer):
     def load_state_dict(self, state_dict):
         """Load optimizer state from a dict."""
         super().load_state_dict(state_dict)
+        from ironcore.offload.optimizer_helpers import restore_optimizer_state_storage
+
+        restore_optimizer_state_storage(self, state_dict)
 
     def __repr__(self):
         muon_groups = sum(1 for g in self.param_groups if g.get("optimizer_type") == "muon")

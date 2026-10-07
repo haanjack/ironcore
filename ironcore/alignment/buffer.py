@@ -72,6 +72,8 @@ class RolloutBuffer:
     # None if not tracked (e.g., loaded from old checkpoints)
     response_lengths: torch.Tensor | None = None  # [B*G]
 
+    old_token_log_probs: torch.Tensor | None = None
+
     # Optional tracking
     step: int = 0
     generation_config: dict = field(default_factory=dict)
@@ -115,6 +117,9 @@ class RolloutBuffer:
             completion_ids=self.completion_ids.to(device),
             response_ids=self.response_ids.to(device),
             old_log_probs=self.old_log_probs.to(device),
+            old_token_log_probs=self.old_token_log_probs.to(device)
+            if self.old_token_log_probs is not None
+            else None,
             rewards=self.rewards.to(device),
             advantages=self.advantages.to(device),
             group_ids=self.group_ids.to(device),
@@ -134,6 +139,9 @@ class RolloutBuffer:
             completion_ids=self.completion_ids.pin_memory(),
             response_ids=self.response_ids.pin_memory(),
             old_log_probs=self.old_log_probs.pin_memory(),
+            old_token_log_probs=self.old_token_log_probs.pin_memory()
+            if self.old_token_log_probs is not None
+            else None,
             rewards=self.rewards.pin_memory(),
             advantages=self.advantages.pin_memory(),
             group_ids=self.group_ids.pin_memory(),
@@ -163,6 +171,8 @@ class RolloutBuffer:
         }
         if self.response_lengths is not None:
             tensors["response_lengths"] = self.response_lengths.cpu()
+        if self.old_token_log_probs is not None:
+            tensors["old_token_log_probs"] = self.old_token_log_probs.cpu()
         torch.save(tensors, path / "tensors.pt")
 
         # Save metadata
@@ -191,6 +201,7 @@ class RolloutBuffer:
             completion_ids=tensors["completion_ids"],
             response_ids=tensors["response_ids"],
             old_log_probs=tensors["old_log_probs"],
+            old_token_log_probs=tensors.get("old_token_log_probs"),
             rewards=tensors["rewards"],
             advantages=tensors["advantages"],
             group_ids=tensors["group_ids"],
@@ -248,6 +259,9 @@ class RolloutBuffer:
             completion_ids=self.completion_ids[indices],
             response_ids=self.response_ids[indices],
             old_log_probs=self.old_log_probs[indices],
+            old_token_log_probs=self.old_token_log_probs[indices]
+            if self.old_token_log_probs is not None
+            else None,
             rewards=self.rewards[indices],
             advantages=self.advantages[indices],
             group_ids=self.group_ids[indices],
@@ -300,7 +314,12 @@ class RolloutBuffer:
         else:
             merged_response_lengths = None
 
+        merged_token_logps = None
+        if self.old_token_log_probs is not None and other.old_token_log_probs is not None:
+            a, b = _pad_seq(self.old_token_log_probs, other.old_token_log_probs)
+            merged_token_logps = torch.cat([a, b], dim=0)
         return RolloutBuffer(
+            old_token_log_probs=merged_token_logps,
             prompt_ids=self.prompt_ids,
             prompt_attention_mask=self.prompt_attention_mask,
             completion_ids=torch.cat([completion_ids_a, completion_ids_b], dim=0),

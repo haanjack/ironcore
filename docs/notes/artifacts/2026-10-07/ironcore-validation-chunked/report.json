@@ -1,0 +1,111 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": 7,
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 4.470348358154297e-08,
+        "final": 5.192123353481293e-08,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 4.470348358154297e-08,
+        "final": 4.0046870708465576e-08,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 5.969777703285217e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.8486753106117249e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 3.6926940083503723e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.4263205230236053e-06,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    }
+  ]
+}

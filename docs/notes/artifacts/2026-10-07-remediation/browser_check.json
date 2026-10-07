@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "checks": [
+    "run0/rank0 table/timeline",
+    "run0/rank1 table/timeline",
+    "run1/rank0 table/timeline",
+    "run1/rank1 table/timeline",
+    "run2/rank0 table/timeline",
+    "run2/rank1 table/timeline",
+    "run3/rank0 table/timeline",
+    "run3/rank1 table/timeline",
+    "filters/search/zoom/offset",
+    "responsive 390",
+    "responsive 768"
+  ],
+  "javascript_errors": [],
+  "external_requests": []
+}

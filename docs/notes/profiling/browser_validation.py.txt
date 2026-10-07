@@ -1,0 +1,85 @@
+import json
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+root=Path('/home/hanjack/ironcore/ironcore')
+uri=(root/'docs/notes/profiling/profile_report.html').as_uri()
+result={'status':'passed','checks':[],'errors':[],'external_requests':[]}
+with sync_playwright() as p:
+ browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+ result['browser_version']=browser.version
+ page=browser.new_page(viewport={'width':1440,'height':1050},device_scale_factor=1)
+ page.on('pageerror',lambda e:result['errors'].append(str(e)))
+ page.on('request',lambda r:result['external_requests'].append(r.url) if r.url.startswith(('http:','https:')) else None)
+ page.goto(uri)
+ assert page.locator('#cards .card').count()==9
+ for run in ['0','1','2']:
+  page.select_option('#run',run)
+  for rank in ['0','1']:
+   page.select_option('#rank',rank)
+   text=page.locator('#selectionInfo').inner_text()
+   assert 'training_update/13, training_update/14' in text
+   assert f'rank {rank}' in text
+   assert page.locator('#cards .card').count()==9
+   assert page.locator('#rankComparison tr').count()==3
+   assert page.evaluate('boxes.length')>0
+   result['checks'].append({'run':run,'rank':rank,'selection':text})
+ page.select_option('#run','2')
+ page.select_option('#rank','0')
+ page.fill('#kernelSearch','no_such_kernel_abcdef')
+ assert page.locator('#kernels tbody tr').count()==0
+ page.fill('#kernelSearch','nccl')
+ assert page.locator('#kernels tbody tr').count()>0
+ result['checks'].append('kernel search returns matching / zero rows')
+ page.fill('#kernelSearch','')
+ before=page.evaluate('boxes.length')
+ page.locator('#filters input[value="5"]').uncheck()
+ assert page.evaluate('boxes.length')<before
+ assert page.evaluate('boxes.every(b => b.event[4] !== 5)')
+ page.locator('#filters input[value="5"]').check()
+ page.select_option('#phase','0')
+ assert page.evaluate('boxes.every(b => b.event[5] === 0)')
+ page.select_option('#phase','-1')
+ page.select_option('#window','1')
+ page.locator('#offset').evaluate('(e)=>{e.value=400;e.dispatchEvent(new Event("input"))}')
+ assert not page.locator('#range').inner_text().startswith('0.00')
+ page.locator('#allRanks').uncheck()
+ assert page.evaluate('boxes.every(b => run.lanes[b.event[2]][0] === rank.rank)')
+ page.click('#reset')
+ assert page.locator('#window').input_value()=='0'
+ assert page.locator('#allRanks').is_checked()
+ result['checks'].append('category / phase / rank filters, 1ms zoom, offset and reset')
+ page.select_option('#run','1')
+ page.select_option('#rank','0')
+ page.evaluate('scrollTo(0,0)')
+ page.screenshot(path='/tmp/ironcore-profile-html-final-top.png')
+ page.locator('#timeline').screenshot(path='/tmp/ironcore-profile-html-final-timeline.png')
+ page.select_option('#window','5')
+ page.locator('#timeline').scroll_into_view_if_needed()
+ hit=page.evaluate('boxes.find(b => b.w>1)')
+ assert hit is not None
+ box=page.locator('#timeline').bounding_box()
+ page.mouse.move(box['x']+hit['x']+min(hit['w']/2,2),box['y']+hit['y']+10)
+ assert page.locator('#tip').is_visible()
+ assert 'duration' in page.locator('#tip').inner_text()
+ result['checks'].append('timeline kernel tooltip')
+ page.set_viewport_size({'width':390,'height':844})
+ page.wait_for_function('document.documentElement.scrollWidth === innerWidth')
+ result['checks'].append('desktop-to-mobile resize: no horizontal overflow')
+ page=browser.new_page(viewport={'width':390,'height':844})
+ page.on('pageerror',lambda e:result['errors'].append(str(e)))
+ page.on('request',lambda r:result['external_requests'].append(r.url) if r.url.startswith(('http:','https:')) else None)
+ page.goto(uri)
+ for run in ['0','1','2']:
+  page.select_option('#run',run)
+  page.wait_for_function('document.documentElement.scrollWidth === innerWidth')
+  dims=page.evaluate('({width:innerWidth,scroll:document.documentElement.scrollWidth})')
+  
+  assert dims['width']==dims['scroll'],dims
+ page.evaluate('scrollTo(0,0)')
+ page.screenshot(path='/tmp/ironcore-profile-html-final-mobile.png')
+ result['checks'].append('390px mobile: no document horizontal overflow, all runs')
+ assert not result['errors'],result['errors']
+ assert not result['external_requests'],result['external_requests']
+ browser.close()
+(root/'docs/notes/profiling/browser_validation.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+print(json.dumps({'status':result['status'],'checks':len(result['checks']),'errors':result['errors'],'external_requests':result['external_requests']}))

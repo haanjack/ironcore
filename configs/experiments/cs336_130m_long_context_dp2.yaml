@@ -1,0 +1,31 @@
+# Random tokens for systems checks. Real text: scripts/benchmark_training.py.
+model: cs336-130m-8192
+trainer:
+  micro_batch_size: 2
+  train_batch_size: 8
+  gradient_accumulation_steps: 2
+  tensor_model_parallel_size: 1
+  use_flash_attn: false
+  log_interval: 10
+  model_path: /tmp/ironcore-cs336_130m_long_context_dp2
+  parameter_precision: float32
+  recompute_linear_ce: true
+  loss_chunk_size: 256
+operation:
+  train_steps: 100
+  no_save: true
+data:
+  task_type: pretrain
+  use_mock_data: true
+  seq_length: 8192
+  vocab_name_or_path: gpt2
+optim:
+  max_lr: 0.0003
+  min_lr: 3.0e-05
+  warmup_steps: 10
+  annealing_steps: 90
+  weight_decay: 0.1
+  clip_grad: 1.0
+init:
+  seed: 42
+  init_std: 0.02

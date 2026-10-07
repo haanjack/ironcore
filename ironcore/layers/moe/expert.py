@@ -56,6 +56,7 @@ class ExpertMLP(ParallelMLP):
             intermediate_size=intermediate_size,
             gather_output=False,
             name=f"expert_{expert_id}",
+            concatenated_weights=2 if config.model.activation_type.lower().endswith("glu") else 1,
         )
 
         self.expert_id = expert_id

@@ -164,12 +164,16 @@ class Attention(BaseModule):
         seq_len_q = query.size(1)
         seq_len_kv = key.size(1)
 
-        if self.config.trainer.use_flash_attn and flash_attn_varlen_func is not None:
+        if (
+            self.config.trainer.use_flash_attn
+            and flash_attn_varlen_func is not None
+            and attention_mask is None
+        ):
             context_output = self._flash_attention(query, key, value, seq_len_q, seq_len_kv)
         else:
             # Full-sequence prefill (training or non-cached inference): always causal.
             # Decode step (use_cache + past_kv present, or q_len < kv_len): use explicit mask.
-            is_causal = seq_len_q == seq_len_kv and not use_cache
+            is_causal = attention_mask is None and seq_len_q == seq_len_kv and not use_cache
             context_output = self._attention(query, key, value, attention_mask, is_causal=is_causal)
 
         if use_cache:

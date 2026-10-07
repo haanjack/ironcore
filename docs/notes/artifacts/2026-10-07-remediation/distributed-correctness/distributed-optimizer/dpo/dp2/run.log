@@ -1,0 +1,29 @@
+[2026-10-07 20:18:01,841] DPOTrainer initialized with beta=0.5, concat_passes=True, metrics_interval=0
+[2026-10-07 20:18:01,841] Acquiring training resources...
+[2026-10-07 20:18:01,841] Initialize torch distributed ... 
+[2026-10-07 20:18:02,080] Loading evaluation tasks
+[2026-10-07 20:18:02,081] Set random seed to 42 for model initialization
+[2026-10-07 20:18:02,088] Created Language Model
+[2026-10-07 20:18:02,089] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:18:02,089] Created Optimizer
+[2026-10-07 20:18:02,089] Wrapped optimizer with DistributedOptimizer (bucket_cap=25.0MB)
+[2026-10-07 20:18:02,126] Resources acquired successfully.
+[2026-10-07 20:18:02,155] Training start from scratch
+[2026-10-07 20:18:02,155] Creating reference model with beta=0.5
+[2026-10-07 20:18:02,155] Creating reference model from policy weights...
+[2026-10-07 20:18:02,158] Training start from step: 0
+[2026-10-07 20:18:02,530] step: 1, loss: 0.6931, lr: 0.000550, grad_norm: 9.5699, step_time: 0.371s (avg: 0.372s), tok/s: 344.6 (avg: 344.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:02,545] step: 1, dpo_loss: 0.4640, margin: 0.6419, accuracy: 1.0000
+[2026-10-07 20:18:02,545] step: 2, loss: 0.4640, lr: 0.000232, grad_norm: 7.1181, step_time: 0.015s (avg: 0.194s), tok/s: 8382.1 (avg: 661.3), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:02,573] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:18:02,573] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/dpo/dp2/checkpoint/step_2
+[2026-10-07 20:18:02,586] Checkpoint saved successfully. Checkpoint saved in 0.025s
+[2026-10-07 20:18:02,601] step: 2, dpo_loss: 0.3253, margin: 1.6600, accuracy: 1.0000
+[2026-10-07 20:18:02,601] step: 3, loss: 0.3253, lr: 0.000100, grad_norm: 5.2673, step_time: 0.015s (avg: 0.148s), tok/s: 8416.1 (avg: 866.7), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:02,615] step: 3, dpo_loss: 0.3024, margin: 1.6713, accuracy: 1.0000
+[2026-10-07 20:18:02,615] step: 4, loss: 0.3024, lr: 0.000100, grad_norm: 5.0185, step_time: 0.014s (avg: 0.114s), tok/s: 9346.3 (avg: 1120.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:18:02,634] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:18:02,634] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/distributed-optimizer/dpo/dp2/checkpoint/step_4
+[2026-10-07 20:18:02,656] Checkpoint saved successfully. Checkpoint saved in 0.020s
+[2026-10-07 20:18:02,656] Total training time: 0.00 hours
+[2026-10-07 20:18:02,656] Finishing training

@@ -1,0 +1,19 @@
+{
+  "task": "grpo",
+  "case": "dp2",
+  "precision": "bfloat16",
+  "device": "cuda:0",
+  "parameter_count_full": 23328,
+  "losses": [
+    -0.0023272924590855837,
+    -0.0023387001710943878
+  ],
+  "evaluation": {
+    "eval/mean_reward": 0.75,
+    "eval/positive_reward_rate": 1.0
+  },
+  "elapsed_seconds": 0.6243317610351369,
+  "peak_allocated_bytes": 69471232,
+  "peak_reserved_bytes": 90177536,
+  "max_weight_change": 0.0021527856588363647
+}

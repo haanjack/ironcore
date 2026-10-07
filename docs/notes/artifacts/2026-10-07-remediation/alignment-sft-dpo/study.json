@@ -1,0 +1,91 @@
+{
+  "status": "failed",
+  "jobs": [
+    {
+      "label": "fault-contracts",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v2-src/scripts/validate_distributed_contracts.py",
+        "--output",
+        "/tmp/ironcore-remediation-followup-v2/fault-contracts"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "alignment-sft",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v2-src/scripts/benchmark_alignment.py",
+        "--task",
+        "sft",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--gsm8k",
+        "/tmp/ironcore-gsm8k",
+        "--preferences",
+        "/tmp/ironcore-ultrafeedback",
+        "--output",
+        "/tmp/ironcore-remediation-followup-v2/alignment-sft",
+        "--steps",
+        "32"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "alignment-dpo",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v2-src/scripts/benchmark_alignment.py",
+        "--task",
+        "dpo",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--gsm8k",
+        "/tmp/ironcore-gsm8k",
+        "--preferences",
+        "/tmp/ironcore-ultrafeedback",
+        "--output",
+        "/tmp/ironcore-remediation-followup-v2/alignment-dpo",
+        "--steps",
+        "24"
+      ],
+      "returncode": 0
+    },
+    {
+      "label": "alignment-grpo",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-remediation-final-v2-src/scripts/benchmark_alignment.py",
+        "--task",
+        "grpo",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--gsm8k",
+        "/tmp/ironcore-gsm8k",
+        "--preferences",
+        "/tmp/ironcore-ultrafeedback",
+        "--output",
+        "/tmp/ironcore-remediation-followup-v2/alignment-grpo",
+        "--steps",
+        "8"
+      ],
+      "returncode": 1
+    }
+  ]
+}

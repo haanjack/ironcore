@@ -25,6 +25,12 @@ class TrainerConfig(BaseConfig):
     gradient_accumulation_steps: int | None = field(
         default=None, metadata={"help": "gradient accumulation steps"}
     )
+    parameter_precision: Literal["float32", "model"] = field(
+        default="float32",
+        metadata={
+            "help": "Stored weights: float32 with mixed-precision compute, or legacy model precision"
+        },
+    )
 
     # evaluation
     do_eval: bool = field(default=False, metadata={"help": "do evaluation"})
@@ -52,9 +58,9 @@ class TrainerConfig(BaseConfig):
     )
 
     num_workers: int = field(
-        default=8,
+        default=0,
         metadata={
-            "help": "NOT IMPLEMENTED - the training DataLoader hardcodes num_workers=0. Number of workers in dataset processing"
+            "help": "Stateful data loading workers; checkpoint requires the same worker count"
         },
     )
 
@@ -75,6 +81,19 @@ class TrainerConfig(BaseConfig):
 
     use_flash_attn: bool = field(
         default=True, metadata={"help": "use flash attention for the attention layer"}
+    )
+    loss_chunk_size: int | None = field(
+        default=None,
+        metadata={
+            "help": "Maximum tokens per vocabulary cross-entropy call; None uses the full batch. "
+            "Chunking reduces transient FP32 logits/softmax memory without changing the loss objective."
+        },
+    )
+    recompute_linear_ce: bool = field(
+        default=False,
+        metadata={
+            "help": "Recompute token-chunk output projection in backward to avoid full vocabulary logits"
+        },
     )
 
     # KV Cache for evaluation

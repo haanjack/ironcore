@@ -40,6 +40,7 @@ class MFUCalculator:
         num_attention_groups: int | None = None,
         head_dim: int | None = None,
         tied_embeddings: bool = True,
+        ffn_projections: int = 2,
     ):
         self.num_layers = num_layers
         self.d_model = d_model
@@ -49,6 +50,7 @@ class MFUCalculator:
         self.num_attention_groups = num_attention_groups or num_attention_heads
         self.head_dim = head_dim or (d_model // num_attention_heads)
         self.tied_embeddings = tied_embeddings
+        self.ffn_projections = ffn_projections
         self._result: MFUResult | None = None
 
     @classmethod
@@ -63,6 +65,7 @@ class MFUCalculator:
             num_attention_groups=config.num_attention_groups or config.num_attention_heads,
             head_dim=config.head_dim,
             tied_embeddings=not config.untie_embed,
+            ffn_projections=3 if config.activation_type.lower().endswith("glu") else 2,
         )
 
     def get_num_parameters(self) -> int:
@@ -75,8 +78,8 @@ class MFUCalculator:
         kv_size = self.num_attention_groups * self.head_dim * 2
         attn_params = self.d_model * q_size + self.d_model * kv_size + q_size * self.d_model
 
-        # Per-layer MLP: up and down projections
-        mlp_params = self.d_model * self.d_ffn + self.d_ffn * self.d_model
+        # Gated MLPs have gate/up/down projections; standard MLPs have up/down.
+        mlp_params = self.ffn_projections * self.d_model * self.d_ffn
 
         # Layer norms (2 per layer)
         ln_params = 4 * self.d_model

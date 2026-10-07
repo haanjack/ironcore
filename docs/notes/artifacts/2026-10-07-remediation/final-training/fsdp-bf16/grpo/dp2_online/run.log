@@ -1,0 +1,59 @@
+[2026-10-07 21:05:45,793] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 21:05:45,793] Acquiring training resources...
+[2026-10-07 21:05:45,793] Initialize torch distributed ... 
+[2026-10-07 21:05:46,037] Loading evaluation tasks
+[2026-10-07 21:05:46,038] Set random seed to 42 for model initialization
+[2026-10-07 21:05:46,046] Created Language Model
+[2026-10-07 21:05:46,047] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:05:46,047] Created Optimizer
+[2026-10-07 21:05:46,047] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/tmp/ironcore-remediation-final-v6-src/ironcore/parallel/parallel.py:251: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+/tmp/ironcore-remediation-final-v6-src/ironcore/parallel/parallel.py:251: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FSDP.set_state_dict_type(
+[2026-10-07 21:05:46,055] Resources acquired successfully.
+[2026-10-07 21:05:46,118] Training start from scratch
+[2026-10-07 21:05:46,119] Creating reference model for GRPO...
+[2026-10-07 21:05:46,119] Creating reference model from policy weights...
+[2026-10-07 21:05:46,121] FSDP config: sharding=full, offload=False, use_orig_params=True, forward_prefetch=True
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:821: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:732: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  local_shape = tensor.shape
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:732: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  local_shape = tensor.shape
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:749: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.shape,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:749: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.shape,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:751: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.dtype,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_state_dict_utils.py:751: FutureWarning: Please use DTensor instead and we are deprecating ShardedTensor.
+  tensor.dtype,
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:828: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+[2026-10-07 21:05:46,135] Reference model created on GPU (FSDP mode, local sharded copy)
+[2026-10-07 21:05:46,135] [VRAM] After ref model creation: allocated=0.00 GB, reserved=0.00 GB
+[2026-10-07 21:05:46,135] Initializing reward worker via RewardManager...
+[2026-10-07 21:05:46,136] Training start from step: 0
+[2026-10-07 21:05:46,465] [VRAM] After rollout: peak=0.03 GB
+[2026-10-07 21:05:46,526] [VRAM] After ref log probs: peak=0.03 GB
+[2026-10-07 21:05:46,686] [VRAM] After optimizer step: peak=0.07 GB
+[2026-10-07 21:05:46,686] step: 1, loss: -0.0065, lr: 0.000232, grad_norm: 0.3724, step_time: 0.550s (avg: 0.551s), tok/s: 232.6 (avg: 232.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:05:46,713] [VRAM] After rollout: peak=0.07 GB
+[2026-10-07 21:05:46,723] [VRAM] After ref log probs: peak=0.07 GB
+[2026-10-07 21:05:46,765] [VRAM] After optimizer step: peak=0.07 GB
+[2026-10-07 21:05:46,765] step: 1, grpo_loss: -0.0022, policy_loss: -0.0022, kl_loss: 0.0000, mean_reward: 0.6250, mean_ratio: 1.0000, clip_frac: 0.000
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+[2026-10-07 21:05:46,765] step: 2, loss: -0.0022, lr: 0.000100, grad_norm: 0.7199, step_time: 0.078s (avg: 0.315s), tok/s: 1633.0 (avg: 406.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/fsdp/_unshard_param_utils.py:174: UserWarning: offload_to_cpu=True and rank0_only=False may result in theunsharded parameters being redundantly copied to CPU memory for GPUs sharing the same CPU memory, which risks CPU OOM. We recommend using offload_to_cpu=True with rank0_only=True.
+  _validate_unshard_params_args(
+[2026-10-07 21:05:46,807] Training stopped by exit interval: 2
+[2026-10-07 21:05:46,807] Total training time: 0.00 hours
+[2026-10-07 21:05:46,807] Finishing training
+[2026-10-07 21:05:46,838] GRPO evaluation at step 4: {'eval/mean_reward': 0.6875, 'eval/positive_reward_rate': 1.0}

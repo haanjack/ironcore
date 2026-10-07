@@ -1,0 +1,7 @@
+Running fault-contracts
+Running alignment-sft
+Traceback (most recent call last):
+  File "/tmp/run-remediation-followup.py", line 31, in <module>
+    with (output/(label+'.log')).open('w') as log:
+                                                   
+RuntimeError: alignment-sft

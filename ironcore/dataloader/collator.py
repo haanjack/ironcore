@@ -139,6 +139,8 @@ class UniversalCollator:
             dtype=torch.long,
         )
         position_ids = torch.zeros((batch_size, self.max_seq_len), dtype=torch.long)
+        loss_sample_ids = torch.full_like(labels, -1)
+        sample_id = 0
 
         # For FlashAttention: cumulative sequence lengths
         cu_seqlens_list = []
@@ -174,6 +176,8 @@ class UniversalCollator:
                 # position id — confusing FlashAttention and inflating cu_seqlens.
                 # (Fable issue #63.)
                 written_len = sample_len - 1
+                loss_sample_ids[batch_idx, current_pos : current_pos + written_len] = sample_id
+                sample_id += 1
 
                 # Copy tokens
                 input_ids[batch_idx, current_pos : current_pos + written_len] = token_ids[:-1]
@@ -211,6 +215,7 @@ class UniversalCollator:
             "input_ids": input_ids,
             "labels": labels,
             "position_ids": position_ids,
+            "loss_sample_ids": loss_sample_ids,
         }
 
         if self.use_flash_attention:

@@ -1,0 +1,9 @@
+Running fault-contracts
+Running alignment-sft
+Running alignment-dpo
+Running alignment-grpo
+Traceback (most recent call last):
+  File "/tmp/run-remediation-followup-v2.py", line 36, in <module>
+    report['status']='failed';(output/'study.json').write_text(json.dumps(report,indent=2)+'\n');raise RuntimeError(label)
+                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: alignment-grpo

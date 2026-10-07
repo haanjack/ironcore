@@ -1,0 +1,24 @@
+[2026-10-07 20:26:38,605] Acquiring training resources...
+[2026-10-07 20:26:38,605] Initialize torch distributed ... 
+[2026-10-07 20:26:38,832] Loading evaluation tasks
+[2026-10-07 20:26:38,833] Set random seed to 42 for model initialization
+[2026-10-07 20:26:38,845] Created Language Model
+[2026-10-07 20:26:38,846] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:26:38,846] Created Optimizer
+[2026-10-07 20:26:38,846] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:26:38,846] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:26:38,846] Resources acquired successfully.
+[2026-10-07 20:26:38,849] Training start from scratch
+[2026-10-07 20:26:38,849] Training start from step: 0
+[2026-10-07 20:26:39,271] step: 1, loss: 3.4661, lr: 0.000550, grad_norm: 2.0616, step_time: 0.422s (avg: 0.422s), tok/s: 303.6 (avg: 303.5)
+[2026-10-07 20:26:39,284] step: 2, loss: 3.3970, lr: 0.000232, grad_norm: 2.0187, step_time: 0.013s (avg: 0.217s), tok/s: 10212.9 (avg: 589.3)
+[2026-10-07 20:26:39,297] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:26:39,297] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/pretrain/full/checkpoint/step_2
+[2026-10-07 20:26:39,313] Checkpoint saved successfully. Checkpoint saved in 0.014s
+[2026-10-07 20:26:39,325] step: 3, loss: 3.3456, lr: 0.000100, grad_norm: 1.9645, step_time: 0.011s (avg: 0.159s), tok/s: 11233.7 (avg: 807.5)
+[2026-10-07 20:26:39,336] step: 4, loss: 3.3337, lr: 0.000100, grad_norm: 1.9576, step_time: 0.011s (avg: 0.122s), tok/s: 11669.3 (avg: 1052.3)
+[2026-10-07 20:26:39,341] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:26:39,341] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/batched-moe/pretrain/full/checkpoint/step_4
+[2026-10-07 20:26:39,354] Checkpoint saved successfully. Checkpoint saved in 0.012s
+[2026-10-07 20:26:39,354] Total training time: 0.00 hours
+[2026-10-07 20:26:39,354] Finishing training

@@ -1,0 +1,905 @@
+name,cpu_time_total_us,cuda_time_total_us,count,cpu_time_avg_us,cuda_time_avg_us,flops
+benchmark_training.py(336): <module>,200644,75813,1,200644,75813,0
+benchmark_training.py(332): main,200643,75813,1,200643,75813,0
+benchmark_training.py(253): benchmark,200640,75813,1,200640,75813,0
+ironcore/trainers/base_trainer.py(564): train,200638,75813,1,200638,75813,0
+ironcore/profiler.py(339): step,366,0,1,366,0,0
+torch/profiler/profiler.py(959): step,364,0,1,364,0,0
+torch/profiler/profiler.py(993): _transit_action,246,0,1,246,0,0
+torch/profiler/profiler.py(284): start_trace,244,0,1,244,0,0
+torch/autograd/profiler.py(405): _start_trace,66,0,1,66,0,0
+<built-in function perf_counter_ns>,1,0,2,0,0,0
+torch/profiler/profiler.py(433): add_metadata_json,11,0,5,2,0,0
+<built-in method _add_metadata_json of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x733182d19310>,4,0,5,0,0,0
+<built-in method kineto_available of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x733182d19350>,0,0,1,0,0,0
+torch/profiler/profiler.py(448): _get_distributed_info,114,0,1,114,0,0
+torch/distributed/__init__.py(17): is_available,2,0,2,1,0,0
+<built-in function hasattr>,18,0,60,0,0,0
+torch/distributed/distributed_c10d.py(1350): is_initialized,19,0,19,1,0,0
+torch/distributed/distributed_c10d.py(773): WORLD,10,0,34,0,0,0
+torch/distributed/distributed_c10d.py(644): default_pg,2,0,34,0,0,0
+torch/distributed/distributed_c10d.py(1427): get_backend,19,0,1,19,0,0
+torch/distributed/distributed_c10d.py(1376): _get_default_group,16,0,9,1,0,0
+torch/distributed/distributed_c10d.py(1051): _rank_not_in_group,2,0,13,0,0,0
+torch/distributed/distributed_c10d.py(658): pg_map,0,0,2,0,0,0
+<built-in method get of dict object at 0x7330f6949080>,149,0,840,0,0,0
+torch/utils/_typing_utils.py(13): not_none,0,0,4,0,0,0
+torch/distributed/distributed_c10d.py(328): __new__,5,0,1,5,0,0
+<built-in function isinstance>,2193,0,5241,0,0,0
+<built-in method upper of str object at 0x7331a7f2a100>,0,0,1,0,0,0
+<built-in function getattr>,83,0,324,0,0,0
+torch/distributed/distributed_c10d.py(2486): get_rank,21,0,4,5,0,0
+<built-in method rank of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fec30>,4,0,4,1,0,0
+torch/distributed/distributed_c10d.py(2513): get_world_size,10,0,1,10,0,0
+torch/distributed/distributed_c10d.py(1147): _get_group_size,13,0,4,3,0,0
+<built-in method size of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fec50>,1,0,4,0,0,0
+torch/distributed/distributed_c10d.py(1511): get_pg_count,1,0,1,1,0,0
+torch/distributed/distributed_c10d.py(701): group_count,0,0,1,0,0,0
+torch/distributed/distributed_c10d.py(1502): _get_all_pg_configs,41,0,1,41,0,0
+torch/distributed/distributed_c10d.py(1487): _get_pg_config,39,0,3,13,0,0
+torch/distributed/distributed_c10d.py(6061): _get_process_group_name,3,0,3,1,0,0
+torch/distributed/distributed_c10d.py(671): pg_names,0,0,3,0,0,0
+torch/distributed/distributed_c10d.py(1407): get_backend_config,6,0,3,2,0,0
+torch/distributed/distributed_c10d.py(691): pg_backend_config,0,0,3,0,0,0
+torch/distributed/distributed_c10d.py(1133): get_process_group_ranks,7,0,3,2,0,0
+torch/distributed/distributed_c10d.py(681): pg_group_ranks,0,0,5,0,0,0
+<built-in method keys of dict object at 0x7330976fc080>,0,0,3,0,0,0
+torch/cuda/nccl.py(35): version,9,0,1,9,0,0
+<built-in function _nccl_version>,0,0,1,0,0,0
+<built-in function _nccl_version_suffix>,0,0,1,0,0,0
+<built-in method decode of bytes object at 0x7331b7260ec8>,1,0,5,0,0,0
+<built-in method join of str object at 0x7331b726d9c0>,4,0,2,2,0,0
+torch/profiler/profiler.py(465): <genexpr>,1,0,4,0,0,0
+json/__init__.py(183): dumps,27,0,1,27,0,0
+json/encoder.py(105): __init__,1,0,1,1,0,0
+json/encoder.py(183): encode,19,0,1,19,0,0
+json/encoder.py(205): iterencode,14,0,1,14,0,0
+<built-in method items of dict object at 0x73309791fb80>,49,0,488,0,0,0
+<frozen _collections_abc>(804): get,85,0,19,4,0,0
+<frozen os>(709): __getitem__,74,0,23,3,0,0
+<frozen os>(791): encode,26,0,23,1,0,0
+<built-in method encode of str object at 0x7330b2a085b0>,10,0,23,0,0,0
+torch/_environment.py(4): is_fbcode,0,0,1,0,0,0
+torch/autograd/profiler.py(859): __init__,468,0,275,1,0,0
+typing.py(392): inner,178,0,275,0,0,0
+torch/jit/__init__.py(129): annotate,24,0,275,0,0,0
+torch/autograd/profiler.py(872): __enter__,2206,0,275,8,0,0
+torch/_ops.py(1263): __call__,1916,0,275,6,0,0
+<built-in method _record_function_enter_new of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7330b2ccd230>,1833,0,275,6,0,0
+ProfilerStep*,200218,75813,1,200218,75813,0
+ironcore/controller.py(44): do_checkpoint,2,0,1,2,0,0
+ironcore/controller.py(25): _cadence_now,1,0,3,0,0,0
+ironcore/controller.py(53): do_eval,0,0,1,0,0,0
+benchmark_training.py(209): train_step,200123,75813,1,200123,75813,0
+torch/cuda/__init__.py(1171): synchronize,6220,0,3,2073,0,0
+torch/cuda/__init__.py(463): _lazy_init,5,0,6,0,0,0
+torch/cuda/__init__.py(414): is_initialized,3,0,6,0,0,0
+<built-in function _cuda_isInBadFork>,1,0,6,0,0,0
+torch/cuda/__init__.py(612): __init__,72,0,3,24,0,0
+torch/cuda/_utils.py(557): _get_device_index,70,0,3,23,0,0
+torch/_jit_internal.py(104): is_scripting,23,0,420,0,0,0
+torch/_utils.py(849): _get_device_index,49,0,3,16,0,0
+torch/_utils.py(823): _get_current_device_index,42,0,3,14,0,0
+torch/_utils.py(807): _get_device_attr,38,0,3,12,0,0
+torch/_utils.py(790): _get_available_device_type,22,0,3,7,0,0
+torch/cuda/__init__.py(168): is_available,46,0,5,9,0,0
+torch/cuda/__init__.py(159): _is_compiled,3,0,5,0,0,0
+torch/cuda/__init__.py(164): _nvml_based_avail,32,0,5,6,0,0
+<frozen os>(808): getenv,26,0,5,5,0,0
+<built-in function _cuda_getDeviceCount>,1,0,5,0,0,0
+<built-in method lower of str object at 0x7331b57e1950>,0,0,3,0,0,0
+torch/_utils.py(825): <lambda>,9,0,3,3,0,0
+torch/cuda/__init__.py(1165): current_device,7,0,3,2,0,0
+<built-in function _cuda_getDevice>,4,0,3,1,0,0
+torch/cuda/__init__.py(616): __enter__,3,0,3,1,0,0
+<built-in function _cuda_exchangeDevice>,1,0,3,0,0,0
+<built-in function _cuda_synchronize>,6112,0,3,2037,0,0
+cudaDeviceSynchronize,6107,0,3,2035,0,0
+torch/cuda/__init__.py(619): __exit__,14,0,3,4,0,0
+<built-in function _cuda_maybeExchangeDevice>,1,0,3,0,0,0
+<built-in function perf_counter>,0,0,2,0,0,0
+ironcore/trainers/language_model_trainer.py(64): train_step,193760,75800,1,193760,75800,0
+ironcore/utils/timer.py(22): start,3,0,1,3,0,0
+<built-in function time>,0,0,2,0,0,0
+<built-in method append of list object at 0x73306c423d00>,81,0,611,0,0,0
+ironcore/trainers/base_trainer.py(624): _run_gradient_accumulation,180181,61950,1,180181,61950,0
+contextlib.py(772): __init__,0,0,1,0,0,0
+contextlib.py(775): __enter__,0,0,1,0,0,0
+torch/amp/autocast_mode.py(320): __enter__,15,0,1,15,0,0
+<built-in function is_autocast_cache_enabled>,0,0,1,0,0,0
+<built-in function is_autocast_enabled>,1,0,1,1,0,0
+<built-in function get_autocast_dtype>,0,0,1,0,0,0
+<built-in function set_autocast_enabled>,2,0,2,1,0,0
+<built-in function set_autocast_dtype>,1,0,2,0,0,0
+<built-in function autocast_increment_nesting>,0,0,1,0,0,0
+<built-in function set_autocast_cache_enabled>,0,0,2,0,0,0
+<built-in function _is_torch_function_mode_enabled>,0,0,2,0,0,0
+ironcore/trainers/base_trainer.py(731): _forward_micro_batch,42794,61917,1,42794,61917,0
+ironcore/training_utils.py(213): forward_step,42789,61917,1,42789,61917,0
+<built-in function next>,444,0,31,14,0,0
+benchmark_training.py(184): corpus_batches,313,0,1,313,0,0
+numpy/_core/memmap.py(348): __getitem__,29,0,8,3,0,0
+numpy/_core/memmap.py(301): __array_finalize__,25,0,16,1,0,0
+numpy/_core/multiarray.py(1422): may_share_memory,1,0,16,0,0,0
+<built-in method astype of memmap object at 0x73306c72b550>,40,0,8,5,0,0
+<built-in method from_numpy of type object at 0x733125742d60>,29,0,8,3,0,0
+aten::lift_fresh,3,0,20,0,0,0
+<built-in method stack of type object at 0x733125742d60>,79,2,2,39,1,0
+aten::stack,59,2,2,29,1,0
+aten::cat,546,3339,54,10,61,0
+aten::view,834,0,682,1,0,0
+aten::slice,598,0,211,2,0,0
+aten::as_strided,513,0,943,0,0,0
+<built-in method contiguous of Tensor object at 0x73306cb87f70>,750,1269,44,17,28,0
+aten::contiguous,1354,2003,80,16,25,0
+aten::clone,1633,2883,109,14,26,0
+aten::empty_like,578,0,161,3,0,0
+aten::empty,961,0,392,2,0,0
+aten::copy_,82356,17304,508,162,34,0
+cudaThreadExchangeStreamCaptureMode,12,0,52,0,0,0
+cudaEventQuery,37,0,74,0,0,0
+nn.Module: DistributedDataParallel_0,42455,61917,1,42455,61917,0
+torch/nn/modules/module.py(1782): _call_impl,196039,249411,177,1107,1409,0
+<built-in method _get_tracing_state of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x733188d8c110>,82,0,178,0,0,0
+torch/nn/parallel/distributed.py(1826): forward,42442,61917,1,42442,61917,0
+DistributedDataParallel.forward,42429,61917,1,42429,61917,0
+torch/nn/parallel/distributed.py(1686): _pre_forward,66,0,1,66,0,0
+<built-in function is_grad_enabled>,37,0,275,0,0,0
+<built-in method set_runtime_stats_and_log of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fca70>,37,0,1,37,0,0
+cudaEventSynchronize,5,0,8,0,0,0
+INVALID,7,0,24,0,0,0
+<built-in method prepare_for_forward of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fc6f0>,6,0,1,6,0,0
+cudaStreamIsCapturing,12,0,46,0,0,0
+cudaEventRecordWithFlags,26,0,21,1,0,0
+torch/distributed/algorithms/join.py(298): notify_join_context,2,0,1,2,0,0
+<built-in method _rebuild_buckets of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fc770>,1,0,1,1,0,0
+torch/nn/parallel/distributed.py(2317): _check_sync_bufs_pre_fwd,1,0,1,1,0,0
+torch/nn/parallel/distributed.py(2324): will_sync_module_buffers,1,0,2,0,0,0
+torch/nn/parallel/distributed.py(1652): _run_ddp_forward,42300,61917,1,42300,61917,0
+contextlib.py(299): helper,43,0,14,3,0,0
+contextlib.py(104): __init__,27,0,14,1,0,0
+torch/_compile.py(42): inner,6,0,1,6,0,0
+torch/_dynamo/external_utils.py(220): nonrecursive_disable_wrapper,3,0,1,3,0,0
+torch/compiler/__init__.py(534): is_exporting,0,0,2,0,0,0
+contextlib.py(132): __enter__,87,0,14,6,0,0
+torch/nn/parallel/distributed.py(1637): _inside_ddp_forward,1,0,1,1,0,0
+torch/nn/modules/module.py(1954): __getattr__,170,0,299,0,0,0
+nn.Module: LanguageModel_0,42230,61917,1,42230,61917,0
+torch/compiler/__init__.py(440): is_compiling,62,0,136,0,0,0
+torch/nn/modules/module.py(1794): inner,150715,182146,136,1108,1339,0
+torch/nn/modules/module.py(1546): _get_backward_pre_hooks,215,0,136,1,0,0
+<built-in method values of collections.OrderedDict object at 0x7330e0fbefc0>,51,0,412,0,0,0
+torch/nn/modules/module.py(1526): _get_backward_hooks,143,0,136,1,0,0
+<built-in method items of collections.OrderedDict object at 0x7330b3564540>,79,0,544,0,0,0
+ironcore/layers/module.py(187): _forward_pre_hook,2479,0,136,18,0,0
+torch/nn/modules/module.py(1971): __setattr__,3872,0,545,7,0,0
+torch/nn/parameter.py(21): __instancecheck__,610,0,545,1,0,0
+<built-in method __instancecheck__ of _ParameterMeta object at 0x5bb49121d130>,101,0,1090,0,0,0
+torch/nn/parameter.py(240): __instancecheck__,385,0,545,0,0,0
+Forward LanguageModel,42132,61917,1,42132,61917,0
+torch/utils/hooks.py(104): __init__,23,0,136,0,0,0
+torch/utils/hooks.py(191): setup_input_hook,4008,0,136,29,0,0
+torch/utils/hooks.py(154): _apply_on_tensors,7739,0,272,28,0,0
+<built-in function len>,131,0,1081,0,0,0
+ironcore/language_model.py(83): forward,42089,61917,1,42089,61917,0
+ironcore/layers/module.py(172): device,49,0,2,24,0,0
+torch/nn/modules/module.py(2665): parameters,60,0,3,20,0,0
+torch/nn/modules/module.py(2690): named_parameters,55,0,3,18,0,0
+torch/nn/modules/module.py(2645): _named_members,50,0,3,16,0,0
+torch/nn/modules/module.py(2836): named_modules,168,0,238,0,0,0
+<built-in method add of set object at 0x73306c608580>,165,0,334,0,0,0
+torch/nn/modules/module.py(2715): <lambda>,92,0,238,0,0,0
+torch/nn/modules/module.py(2876): named_modules,275,0,238,1,0,0
+torch/nn/modules/module.py(2881): named_modules,804,0,304,2,0,0
+torch/_tensor.py(1225): __hash__,82,0,380,0,0,0
+<built-in function id>,34,0,382,0,0,0
+torch/nn/modules/module.py(2688): parameters,1137,0,96,11,0,0
+torch/nn/modules/module.py(2663): _named_members,1076,0,96,11,0,0
+torch/nn/modules/module.py(2720): named_parameters,1100,0,96,11,0,0
+<built-in method to of Tensor object at 0x73306c504550>,992,3158,149,6,21,0
+aten::to,82469,11707,446,184,26,0
+aten::_to_copy,82236,11707,253,325,46,0
+aten::empty_strided,958,0,309,3,0,0
+cudaMemcpyAsync,534,0,138,3,0,0
+Forward LanguageModel,0,68676,1,0,68676,0
+Memcpy HtoD (Pageable -> Device),0,16,9,0,1,0
+ironcore/language_model.py(370): get_masks_and_position_ids,113,6,1,113,6,0
+<built-in method dim of Tensor object at 0x73306c505680>,0,0,2,0,0,0
+<built-in method size of Tensor object at 0x73306c505680>,39,0,81,0,0,0
+<built-in method arange of type object at 0x733125742d60>,75,3,3,25,1,0
+aten::arange,127,11,8,15,1,0
+aten::resize_,10,0,5,2,0,0
+cudaLaunchKernel,7729,0,2559,3,0,0
+"void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, function_traits<at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>::result_type*)",0,5,4,0,1,0
+<built-in method unsqueeze of Tensor object at 0x73306c5053b0>,233,0,55,4,0,0
+aten::unsqueeze,135,0,58,2,0,0
+<built-in method expand of Tensor object at 0x73306c5043c0>,11,0,1,11,0,0
+aten::expand,13,0,4,3,0,0
+aten::ne,16,1,1,16,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<long, long, bool, at::native::(anonymous namespace)::CompareEqFunctor<long> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<long, long, bool, at::native::(anonymous namespace)::CompareEqFunctor<long> >, std::array<char*, 2ul>)",0,1,1,0,1,0
+<built-in method float of Tensor object at 0x73306c5043c0>,26,3,3,8,1,0
+"void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",0,6001,97,0,61,0
+nn.Module: LanguageModelEmbedding_0,321,14,1,321,14,0
+Forward LanguageModelEmbedding,252,14,1,252,14,0
+ironcore/layers/embedding.py(36): forward,228,14,1,228,14,0
+nn.Module: VocabParallelEmbedding_0,220,14,1,220,14,0
+Forward VocabParallelEmbedding,105,14,1,105,14,0
+ironcore/parallel/tensor_parallel/layers.py(124): forward,73,14,1,73,14,0
+ironcore/parallel/parallel_states.py(141): get_tensor_model_parallel_world_size,8,0,70,0,0,0
+torch/nn/functional.py(2455): embedding,68,14,1,68,14,0
+<built-in function _has_torch_function_variadic>,3,0,28,0,0,0
+<built-in method embedding of type object at 0x733125742d60>,64,14,1,64,14,0
+aten::embedding,59,14,1,59,14,0
+aten::reshape,1164,875,322,3,2,0
+aten::index_select,46,14,1,46,14,0
+aten::gather,26,14,1,26,14,0
+"void at::native::vectorized_gather_kernel<16, long>(char*, char*, long*, int, long, long, long, long, bool)",0,14,1,0,14,0
+Forward VocabParallelEmbedding,0,14,1,0,14,0
+ironcore/layers/module.py(197): _forward_post_hook,2626,0,136,19,0,0
+torch/autograd/profiler.py(878): __exit__,2860,0,275,10,0,0
+torch/_ops.py(1085): __call__,2045,0,275,7,0,0
+torch/_ops.py(1150): _must_dispatch_in_python,884,0,275,3,0,0
+<built-in function any>,803,0,276,2,0,0
+torch/_ops.py(1151): <genexpr>,478,0,550,0,0,0
+torch/_ops.py(1136): _contains_fake_script_object,356,0,275,1,0,0
+<built-in method  of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7330b2ccd330>,972,0,275,3,0,0
+<built-in method __exit__ of torch._C.DisableTorchFunctionSubclass object at 0x73306c7e9810>,26,0,139,0,0,0
+torch/utils/hooks.py(200): setup_output_hook,4015,0,136,29,0,0
+torch/autograd/function.py(580): apply,5740,15367,336,17,45,0
+torch/autograd/function.py(613): _is_setup_context_defined,60,0,336,0,0,0
+<built-in method _are_functorch_transforms_active of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x733188dd0230>,86,0,337,0,0,0
+torch/_functorch/utils.py(32): unwrap_dead_wrappers,835,0,336,2,0,0
+torch/_functorch/utils.py(34): <genexpr>,420,0,336,1,0,0
+<built-in method unwrap_if_dead of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x733188dd3cb0>,172,0,363,0,0,0
+torch/_functorch/utils.py(35): <genexpr>,42,0,364,0,0,0
+<built-in method apply of FunctionMeta object at 0x5bb49163b1f0>,4213,15367,336,12,45,0
+BackwardHookFunction,2717,0,269,10,0,0
+torch/nn/modules/_functions.py(312): forward,269,0,269,1,0,0
+torch/autograd/function.py(203): mark_non_differentiable,47,0,269,0,0,0
+aten::view_as,731,0,362,2,0,0
+<built-in method name of BackwardHookFunctionBackward object at 0x73306c78c490>,104,0,295,0,0,0
+torch/utils/hooks.py(201): fn,647,0,136,4,0,0
+<built-in method register_hook of BackwardHookFunctionBackward object at 0x73306c78c490>,1054,0,269,3,0,0
+torch/autograd/function.py(288): _register_hook,789,0,269,2,0,0
+torch/utils/hooks.py(24): __init__,461,0,269,1,0,0
+nn.Module: TransformerModel_0,40460,34830,1,40460,34830,0
+Forward TransformerModel,40404,34830,1,40404,34830,0
+torch/utils/hooks.py(192): fn,590,0,133,4,0,0
+torch/utils/hooks.py(127): _set_user_hook,546,0,133,4,0,0
+ironcore/models/transformer.py(378): forward,40356,34830,1,40356,34830,0
+ironcore/models/transformer.py(362): _is_fsdp_enabled,3,0,1,3,0,0
+torch/nn/modules/container.py(408): __iter__,3,0,1,3,0,0
+<built-in method values of dict object at 0x733082481780>,0,0,1,0,0,0
+<built-in function iter>,0,0,2,0,0,0
+nn.Module: TransformerLayer_0,2787,2695,1,2787,2695,0
+Forward TransformerLayer,39380,34830,13,3029,2679,0
+ironcore/models/transformer.py(322): forward,38796,34830,13,2984,2679,0
+ironcore/models/transformer.py(157): custom_forward,38706,34830,13,2977,2679,0
+nn.Module: RmsNorm_0,205,104,1,205,104,0
+Forward RmsNorm,3186,2843,27,118,105,0
+ironcore/layers/layernorm/fused_rms_norm.py(19): forward,1928,2843,27,71,105,0
+nn.Module: RMSNorm_0,85,104,1,85,104,0
+torch/nn/modules/normalization.py(423): forward,1729,2843,27,64,105,0
+torch/nn/functional.py(2944): rms_norm,1691,2843,27,62,105,0
+<built-in method rms_norm of type object at 0x733125742d60>,1668,2843,27,61,105,0
+aten::rms_norm,2118,4454,54,39,82,0
+Forward RmsNorm,0,2929,27,0,108,0
+aten::_fused_rms_norm,442,1611,27,16,59,0
+"void at::native::(anonymous namespace)::vectorized_layer_norm_kernel<float, float, true>(int, float, float const*, float const*, float const*, float*, float*, float*)",0,1611,27,0,59,0
+nn.Module: ColumnParallelLinear_0,215,149,1,215,149,0
+Forward ColumnParallelLinear,4470,22540,40,111,563,0
+ironcore/parallel/tensor_parallel/layers.py(194): forward,2663,22540,40,66,563,0
+ironcore/parallel/tensor_parallel/comm.py(301): copy_inputs_to_model_parallel_workers,388,0,40,9,0,0
+_CopyToModelParallelWorkers,209,0,40,5,0,0
+ironcore/parallel/tensor_parallel/comm.py(231): forward,2,0,40,0,0,0
+<built-in method matmul of type object at 0x733125742d60>,3191,27861,66,48,422,0
+aten::matmul,4185,48835,106,39,460,0
+Forward ColumnParallelLinear,0,22582,40,0,564,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",0,5690,147,0,38,0
+aten::mm,4114,86529,198,20,437,4827811676160
+cudaOccupancyMaxActiveBlocksPerMultiprocessor,69,0,68,1,0,0
+ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_nn,0,2863,26,0,110,0
+aten::_unsafe_view,125,0,92,1,0,0
+nn.Module: ColumnParallelLinear_1,178,273,1,178,273,0
+cudaDeviceGetAttribute,42,0,133,0,0,0
+cuLaunchKernel,470,0,117,4,0,0
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x256_32x3_nn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x256_32x3_nn_align8::Params),0,6920,26,0,266,0
+<built-in method chunk of type object at 0x733125742d60>,175,0,13,13,0,0
+aten::chunk,293,0,26,11,0,0
+aten::split,260,0,26,10,0,0
+aten::narrow,358,0,104,3,0,0
+<built-in method view of Tensor object at 0x73306c506cb0>,113,0,41,2,0,0
+ironcore/layers/positional_embedding/rotary.py(46): forward,14130,4170,26,543,160,0
+<built-in method max of Tensor object at 0x73306c505450>,879,204,26,33,7,0
+aten::max,855,2069,27,31,76,0
+<built-in method item of Tensor object at 0x73306c506a80>,35391,36,31,1141,1,0
+aten::item,35368,37,37,955,1,0
+aten::_local_scalar_dense,35329,37,37,954,1,0
+cudaStreamSynchronize,113764,0,39,2917,0,0
+Activity Buffer Request,1689,969,1,1689,969,0
+Forward TransformerLayer,0,33748,13,0,2596,0
+"void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1})",0,79,26,0,3,0
+"void at::native::reduce_kernel<512, 1, at::native::ReduceOp<long, at::native::func_wrapper_t<long, at::native::MaxNanFunctor<long> >, unsigned int, long, 4, 4> >(at::native::ReduceOp<long, at::native::func_wrapper_t<long, at::native::MaxNanFunctor<long> >, unsigned int, long, 4, 4>)",0,124,26,0,4,0
+Memcpy DtoH (Device -> Pinned),0,37,32,0,1,0
+aten::index,846,303,54,15,5,0
+aten::_reshape_alias,18,0,52,0,0,0
+"void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",0,303,54,0,5,0
+ironcore/layers/positional_embedding/rotary.py(77): apply_rotary_pos_emb,2375,3695,26,91,142,0
+aten::mul,2864,9221,344,8,26,1248232321
+"void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",0,6967,234,0,29,0
+aten::sub,213,4360,29,7,150,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<c10::BFloat16>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<c10::BFloat16>, std::array<char*, 3ul>)",0,5002,182,0,27,0
+aten::add,781,2046,69,11,29,272629764
+<built-in method cat of type object at 0x733125742d60>,376,770,26,14,29,0
+"void at::native::(anonymous namespace)::CatArrayBatchedCopy_vectorized<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 4, 128, 1, 16, 8>(char*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",0,770,26,0,29,0
+nn.Module: Attention_0,385,388,1,385,388,0
+Forward Attention,3407,4909,13,262,377,0
+ironcore/layers/attention.py(149): forward,2423,4909,13,186,377,0
+ironcore/layers/attention.py(47): _attention,2379,4909,13,183,377,0
+<built-in method transpose of Tensor object at 0x73306c506b70>,249,0,52,4,0,0
+aten::transpose,871,0,392,2,0,0
+Forward Attention,0,5035,13,0,387,0
+"void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",0,3880,130,0,29,0
+ironcore/utils/profiling.py(33): profile_context,71,0,13,5,0,0
+<built-in function scaled_dot_product_attention>,700,3216,13,53,247,0
+aten::scaled_dot_product_attention,643,3216,13,49,247,0
+aten::_scaled_dot_product_flash_attention,562,3216,13,43,247,0
+aten::_flash_attention_forward,389,3216,13,29,247,0
+cudaFuncSetAttribute,37,0,26,1,0,0
+"void pytorch_flash::flash_fwd_kernel<Flash_fwd_kernel_traits<64, 128, 128, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<64, 128, 128, 4, cutlass::bfloat16_t> >, false, true, false, false, true, true, false, false>(pytorch_flash::Flash_fwd_params)",0,3216,13,0,247,0
+contextlib.py(141): __exit__,27,0,14,1,0,0
+ironcore/utils/profiling.py(37): profile_context,1,0,13,0,0,0
+einops/einops.py(545): rearrange,476,423,13,36,32,0
+einops/einops.py(460): reduce,456,423,13,35,32,0
+einops/_backends.py(22): get_backend,11,0,13,0,0,0
+einops/_backends.py(88): shape,8,0,26,0,0,0
+torch/_dynamo/decorators.py(1365): wrapper,18,0,26,0,0,0
+typing.py(2183): cast,1,0,16,0,0,0
+einops/einops.py(230): _apply_recipe,355,423,13,27,32,0
+einops/_backends.py(92): reshape,318,423,13,24,32,0
+<built-in method reshape of Tensor object at 0x73306c507200>,311,423,13,23,32,0
+nn.Module: RowParallelLinear_0,173,110,1,173,110,0
+Forward RowParallelLinear,3022,5321,26,116,204,0
+ironcore/parallel/tensor_parallel/layers.py(253): forward,1500,5321,26,57,204,0
+ironcore/parallel/tensor_parallel/comm.py(305): reduce_inputs_from_model_parallel_workers,457,0,26,17,0,0
+_ReduceFromModelParallelWorkers,236,0,26,9,0,0
+ironcore/parallel/tensor_parallel/comm.py(243): forward,25,0,26,0,0,0
+ironcore/parallel/tensor_parallel/comm.py(80): _reduce,42,0,66,0,0,0
+Forward RowParallelLinear,0,5321,26,0,204,0
+nn.Module: RmsNorm_1,203,105,1,203,105,0
+nn.Module: RMSNorm_1,66,105,1,66,105,0
+nn.Module: MLP_0,535,1149,1,535,1149,0
+Forward MLP,5933,14923,13,456,1147,0
+ironcore/layers/mlp.py(87): forward,5408,14923,13,416,1147,0
+nn.Module: ColumnParallelLinear_2,171,656,1,171,656,0
+ampere_bf16_s16816gemm_bf16_256x128_ldg8_f2f_stages_32x3_nn,0,16511,14,0,1179,0
+nn.Module: GLUActivation_0,67,192,1,67,192,0
+ironcore/layers/activations/activations.py(38): forward,659,2503,13,50,192,0
+<built-in method chunk of Tensor object at 0x73306c5076b0>,191,0,13,14,0,0
+torch/nn/functional.py(2375): silu,269,1115,13,20,85,0
+<built-in function _has_torch_function_unary>,11,0,202,0,0,0
+<built-in function silu>,258,1115,13,19,85,0
+aten::silu,235,1115,13,18,85,0
+nn.Module: RowParallelLinear_1,175,300,1,175,300,0
+nn.Module: TransformerLayer_1,3069,2676,1,3069,2676,0
+nn.Module: RmsNorm_2,173,105,1,173,105,0
+nn.Module: RMSNorm_2,62,105,1,62,105,0
+Forward MLP,0,2514,13,0,193,0
+"void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::silu_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#6}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::silu_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#6}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::silu_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#6}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::silu_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#6}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",0,1115,13,0,85,0
+nn.Module: ColumnParallelLinear_3,169,150,1,169,150,0
+nn.Module: ColumnParallelLinear_4,171,273,1,171,273,0
+nn.Module: Attention_1,319,371,1,319,371,0
+nn.Module: RowParallelLinear_2,169,110,1,169,110,0
+nn.Module: RmsNorm_3,189,103,1,189,103,0
+nn.Module: RMSNorm_3,60,103,1,60,103,0
+nn.Module: MLP_1,486,1149,1,486,1149,0
+nn.Module: ColumnParallelLinear_5,163,656,1,163,656,0
+nn.Module: GLUActivation_1,49,192,1,49,192,0
+nn.Module: RowParallelLinear_3,169,300,1,169,300,0
+nn.Module: TransformerLayer_2,3135,2693,1,3135,2693,0
+nn.Module: RmsNorm_4,179,107,1,179,107,0
+nn.Module: RMSNorm_4,70,107,1,70,107,0
+nn.Module: ColumnParallelLinear_6,171,150,1,171,150,0
+nn.Module: ColumnParallelLinear_7,177,272,1,177,272,0
+nn.Module: Attention_2,372,381,1,372,381,0
+nn.Module: RowParallelLinear_4,165,109,1,165,109,0
+nn.Module: RmsNorm_5,191,108,1,191,108,0
+nn.Module: RMSNorm_5,60,108,1,60,108,0
+nn.Module: MLP_2,489,1151,1,489,1151,0
+nn.Module: ColumnParallelLinear_8,168,658,1,168,658,0
+nn.Module: GLUActivation_2,54,192,1,54,192,0
+nn.Module: RowParallelLinear_5,163,300,1,163,300,0
+nn.Module: TransformerLayer_3,3112,2679,1,3112,2679,0
+nn.Module: RmsNorm_6,247,105,1,247,105,0
+nn.Module: RMSNorm_6,131,105,1,131,105,0
+nn.Module: ColumnParallelLinear_9,180,149,1,180,149,0
+nn.Module: ColumnParallelLinear_10,164,272,1,164,272,0
+nn.Module: Attention_3,324,375,1,324,375,0
+nn.Module: RowParallelLinear_6,218,110,1,218,110,0
+nn.Module: RmsNorm_7,181,104,1,181,104,0
+nn.Module: RMSNorm_7,60,104,1,60,104,0
+nn.Module: MLP_3,504,1150,1,504,1150,0
+nn.Module: ColumnParallelLinear_11,172,657,1,172,657,0
+nn.Module: GLUActivation_3,50,192,1,50,192,0
+nn.Module: RowParallelLinear_7,170,300,1,170,300,0
+nn.Module: TransformerLayer_4,3140,2691,1,3140,2691,0
+nn.Module: RmsNorm_8,179,107,1,179,107,0
+nn.Module: RMSNorm_8,69,107,1,69,107,0
+nn.Module: ColumnParallelLinear_12,179,149,1,179,149,0
+nn.Module: ColumnParallelLinear_13,171,273,1,171,273,0
+nn.Module: Attention_4,329,382,1,329,382,0
+nn.Module: RowParallelLinear_8,238,110,1,238,110,0
+nn.Module: RmsNorm_9,181,106,1,181,106,0
+nn.Module: RMSNorm_9,60,106,1,60,106,0
+nn.Module: MLP_4,502,1150,1,502,1150,0
+nn.Module: ColumnParallelLinear_14,163,657,1,163,657,0
+nn.Module: GLUActivation_4,50,192,1,50,192,0
+nn.Module: RowParallelLinear_9,176,300,1,176,300,0
+nn.Module: TransformerLayer_5,3140,2675,1,3140,2675,0
+nn.Module: RmsNorm_10,166,105,1,166,105,0
+nn.Module: RMSNorm_10,60,105,1,60,105,0
+nn.Module: ColumnParallelLinear_15,167,148,1,167,148,0
+nn.Module: ColumnParallelLinear_16,177,270,1,177,270,0
+nn.Module: Attention_5,320,383,1,320,383,0
+nn.Module: RowParallelLinear_10,169,109,1,169,109,0
+nn.Module: RmsNorm_11,232,105,1,232,105,0
+nn.Module: RMSNorm_11,61,105,1,61,105,0
+nn.Module: MLP_5,521,1142,1,521,1142,0
+nn.Module: ColumnParallelLinear_17,194,652,1,194,652,0
+nn.Module: GLUActivation_5,50,192,1,50,192,0
+nn.Module: RowParallelLinear_11,163,298,1,163,298,0
+nn.Module: TransformerLayer_6,3100,2669,1,3100,2669,0
+nn.Module: RmsNorm_12,170,105,1,170,105,0
+nn.Module: RMSNorm_12,62,105,1,62,105,0
+nn.Module: ColumnParallelLinear_18,183,149,1,183,149,0
+nn.Module: ColumnParallelLinear_19,174,271,1,174,271,0
+nn.Module: Attention_6,326,371,1,326,371,0
+nn.Module: RowParallelLinear_12,171,109,1,171,109,0
+nn.Module: RmsNorm_13,194,106,1,194,106,0
+nn.Module: RMSNorm_13,59,106,1,59,106,0
+nn.Module: MLP_6,482,1144,1,482,1144,0
+nn.Module: ColumnParallelLinear_20,167,654,1,167,654,0
+nn.Module: GLUActivation_6,48,192,1,48,192,0
+nn.Module: RowParallelLinear_13,161,298,1,161,298,0
+nn.Module: TransformerLayer_7,3200,2659,1,3200,2659,0
+nn.Module: RmsNorm_14,175,104,1,175,104,0
+nn.Module: RMSNorm_14,60,104,1,60,104,0
+nn.Module: ColumnParallelLinear_21,163,149,1,163,149,0
+nn.Module: ColumnParallelLinear_22,167,271,1,167,271,0
+nn.Module: Attention_7,320,366,1,320,366,0
+nn.Module: RowParallelLinear_14,223,109,1,223,109,0
+nn.Module: RmsNorm_15,190,103,1,190,103,0
+nn.Module: RMSNorm_15,66,103,1,66,103,0
+nn.Module: MLP_7,507,1143,1,507,1143,0
+nn.Module: ColumnParallelLinear_23,171,653,1,171,653,0
+nn.Module: GLUActivation_7,52,192,1,52,192,0
+nn.Module: RowParallelLinear_15,175,297,1,175,297,0
+nn.Module: TransformerLayer_8,3006,2678,1,3006,2678,0
+nn.Module: RmsNorm_16,173,104,1,173,104,0
+nn.Module: RMSNorm_16,65,104,1,65,104,0
+nn.Module: ColumnParallelLinear_24,172,149,1,172,149,0
+nn.Module: ColumnParallelLinear_25,195,271,1,195,271,0
+nn.Module: Attention_8,336,381,1,336,381,0
+nn.Module: RowParallelLinear_16,170,109,1,170,109,0
+nn.Module: RmsNorm_17,187,105,1,187,105,0
+nn.Module: RMSNorm_17,63,105,1,63,105,0
+nn.Module: MLP_8,519,1143,1,519,1143,0
+nn.Module: ColumnParallelLinear_26,169,653,1,169,653,0
+nn.Module: GLUActivation_8,58,192,1,58,192,0
+nn.Module: RowParallelLinear_17,181,298,1,181,298,0
+nn.Module: TransformerLayer_9,3123,2675,1,3123,2675,0
+nn.Module: RmsNorm_18,171,107,1,171,107,0
+nn.Module: RMSNorm_18,64,107,1,64,107,0
+nn.Module: ColumnParallelLinear_27,175,149,1,175,149,0
+nn.Module: ColumnParallelLinear_28,178,271,1,178,271,0
+nn.Module: Attention_9,410,377,1,410,377,0
+nn.Module: RowParallelLinear_18,162,109,1,162,109,0
+nn.Module: RmsNorm_19,188,104,1,188,104,0
+nn.Module: RMSNorm_19,58,104,1,58,104,0
+nn.Module: MLP_9,495,1145,1,495,1145,0
+nn.Module: ColumnParallelLinear_29,165,654,1,165,654,0
+nn.Module: GLUActivation_9,54,192,1,54,192,0
+nn.Module: RowParallelLinear_19,169,297,1,169,297,0
+nn.Module: TransformerLayer_10,3113,2669,1,3113,2669,0
+nn.Module: RmsNorm_20,178,104,1,178,104,0
+nn.Module: RMSNorm_20,69,104,1,69,104,0
+nn.Module: ColumnParallelLinear_30,174,149,1,174,149,0
+nn.Module: ColumnParallelLinear_31,174,271,1,174,271,0
+nn.Module: Attention_10,349,370,1,349,370,0
+nn.Module: RowParallelLinear_20,163,109,1,163,109,0
+nn.Module: RmsNorm_21,190,105,1,190,105,0
+nn.Module: RMSNorm_21,63,105,1,63,105,0
+nn.Module: MLP_10,512,1146,1,512,1146,0
+nn.Module: ColumnParallelLinear_32,177,655,1,177,655,0
+nn.Module: GLUActivation_10,51,192,1,51,192,0
+nn.Module: RowParallelLinear_21,176,298,1,176,298,0
+nn.Module: TransformerLayer_11,3176,2681,1,3176,2681,0
+nn.Module: RmsNorm_22,190,103,1,190,103,0
+nn.Module: RMSNorm_22,64,103,1,64,103,0
+nn.Module: ColumnParallelLinear_33,170,148,1,170,148,0
+nn.Module: ColumnParallelLinear_34,175,271,1,175,271,0
+nn.Module: Attention_11,332,381,1,332,381,0
+nn.Module: RowParallelLinear_22,208,110,1,208,110,0
+nn.Module: RmsNorm_23,195,103,1,195,103,0
+nn.Module: RMSNorm_23,68,103,1,68,103,0
+nn.Module: MLP_11,509,1152,1,509,1152,0
+nn.Module: ColumnParallelLinear_35,172,658,1,172,658,0
+nn.Module: GLUActivation_11,58,193,1,58,193,0
+nn.Module: RowParallelLinear_23,172,301,1,172,301,0
+nn.Module: TransformerLayer_12,3149,2685,1,3149,2685,0
+nn.Module: RmsNorm_24,172,104,1,172,104,0
+nn.Module: RMSNorm_24,65,104,1,65,104,0
+nn.Module: ColumnParallelLinear_36,195,150,1,195,150,0
+nn.Module: ColumnParallelLinear_37,176,273,1,176,273,0
+nn.Module: Attention_12,322,377,1,322,377,0
+nn.Module: RowParallelLinear_24,172,110,1,172,110,0
+nn.Module: RmsNorm_25,192,103,1,192,103,0
+nn.Module: RMSNorm_25,70,103,1,70,103,0
+nn.Module: MLP_12,583,1152,1,583,1152,0
+nn.Module: ColumnParallelLinear_38,169,658,1,169,658,0
+nn.Module: GLUActivation_12,54,192,1,54,192,0
+nn.Module: RowParallelLinear_25,236,300,1,236,300,0
+nn.Module: RmsNorm_26,173,105,1,173,105,0
+nn.Module: RMSNorm_26,61,105,1,61,105,0
+nn.Module: ColumnParallelLinear_39,174,8531,1,174,8531,0
+ironcore/language_model.py(201): compute_loss_from_logits,632,18416,1,632,18416,0
+ironcore/parallel/tensor_parallel/cross_entropy.py(151): vocab_parallel_cross_entropy,523,15367,1,523,15367,0
+torch/compiler/__init__.py(246): disable,55,0,1,55,0,0
+torch/_dynamo/decorators.py(75): disable,49,0,1,49,0,0
+torch/_dynamo/eval_frame.py(620): innermost_fn,3,0,2,1,0,0
+<built-in function callable>,0,0,3,0,0,0
+torch/_dynamo/eval_frame.py(1238): __init__,18,0,1,18,0,0
+torch/_dynamo/eval_frame.py(730): __init__,13,0,1,13,0,0
+torch/_dynamo/eval_frame.py(612): nothing,0,0,1,0,0,0
+torch/_dynamo/eval_frame.py(645): innermost_backend,0,0,1,0,0,0
+<built-in method setdefault of dict object at 0x7330a11c29c0>,0,0,1,0,0,0
+torch/_dynamo/eval_frame.py(1243): __call__,20,0,1,20,0,0
+functools.py(65): wraps,1,0,1,1,0,0
+functools.py(35): update_wrapper,8,0,1,8,0,0
+<built-in function setattr>,0,0,6,0,0,0
+<built-in method update of dict object at 0x73306cd33080>,0,0,1,0,0,0
+torch/_dynamo/eval_frame.py(1275): _fn,462,15367,1,462,15367,0
+<built-in function set_eval_frame>,0,0,4,0,0,0
+torch/_dynamo/eval_frame.py(233): _callback_from_stance,1,0,1,1,0,0
+_VocabParallelCrossEntropyWorkers,442,15367,1,442,15367,0
+ironcore/parallel/tensor_parallel/cross_entropy.py(13): forward,430,15367,1,430,15367,0
+<built-in method max of type object at 0x733125742d60>,35,1865,1,35,1865,0
+ironcore/parallel/parallel_states.py(168): get_tensor_model_parallel_rank,17,0,1,17,0,0
+ironcore/parallel/parallel_states.py(150): get_tensor_model_parallel_group,0,0,1,0,0,0
+torch/distributed/distributed_c10d.py(1067): get_group_rank,2,0,1,2,0,0
+aten::ge,22,4,2,11,2,0
+aten::lt,18,3,2,9,1,0
+aten::__and__,13,1,1,13,1,0
+aten::bitwise_and,11,1,1,11,1,0
+<built-in method clone of Tensor object at 0x73306c583480>,32,2,2,16,1,0
+<built-in method clamp_ of Tensor object at 0x73306c583430>,19,1,1,19,1,0
+aten::clamp_,11,1,1,11,1,0
+<built-in method view_as of Tensor object at 0x73306c583610>,3,0,1,3,0,0
+aten::bitwise_not,22,3,2,11,1,0
+aten::index_put_,61,12,5,12,2,0
+aten::_index_put_impl_,54,12,5,10,2,0
+aten::masked_fill_,39,3856,5,7,771,0
+<built-in method exp of type object at 0x733125742d60>,12,3905,1,12,3905,0
+aten::exp,10,3905,1,10,3905,0
+<built-in method sum of Tensor object at 0x73306c583660>,19,1854,1,19,1854,0
+aten::sum,35,1862,3,11,620,0
+<built-in method log of type object at 0x733125742d60>,13,2,1,13,2,0
+aten::log,11,2,1,11,2,0
+<built-in method div_ of Tensor object at 0x73306c583660>,13,3845,1,13,3845,0
+aten::div_,27,3847,2,13,1923,0
+torch/autograd/function.py(40): save_for_backward,0,0,1,0,0,0
+ironcore/training_utils.py(238): loss_func,76,13,1,76,13,0
+<built-in method sum of type object at 0x733125742d60>,23,7,2,11,3,0
+<built-in method clamp of Tensor object at 0x73306c583200>,15,1,1,15,1,0
+aten::clamp,10,1,1,10,1,0
+aten::div,121,8,5,24,1,0
+torch/nn/parallel/distributed.py(1648): _inside_ddp_forward,1,0,1,1,0,0
+torch/nn/parallel/distributed.py(1757): _post_forward,38,0,1,38,0,0
+torch/nn/parallel/distributed.py(2309): _check_sync_bufs_post_fwd,1,0,1,1,0,0
+<built-in method prepare_for_backward of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fc710>,18,0,1,18,0,0
+torch/nn/parallel/distributed.py(1659): _clear_grad_buffer,0,0,1,0,0,0
+ironcore/training_utils.py(33): get_moe_aux_loss,2,0,1,2,0,0
+ironcore/training_utils.py(14): _has_moe_layers,1,0,1,1,0,0
+"void at::native::reduce_kernel<512, 1, at::native::ReduceOp<float, at::native::MaxOps<float>, unsigned int, float, 4, 4> >(at::native::ReduceOp<float, at::native::MaxOps<float>, unsigned int, float, 4, 4>)",0,1865,1,0,1865,0
+"void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<float> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<float> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<float> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<float> const&)::{lambda(int)#1})",0,3862,1,0,3862,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<long>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, long)::{lambda(long)#1}, std::array<char*, 2ul> >(int, at::native::compare_scalar_kernel<long>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, long)::{lambda(long)#1}, std::array<char*, 2ul>)",0,5,3,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<bool, bool, bool, at::native::BitwiseAndFunctor<bool> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<bool, bool, bool, at::native::BitwiseAndFunctor<bool> >, std::array<char*, 3ul>)",0,3,2,0,1,0
+"void at::native::vectorized_elementwise_kernel<2, at::native::CUDAFunctorOnSelf_add<long>, std::array<char*, 2ul> >(int, at::native::CUDAFunctorOnSelf_add<long>, std::array<char*, 2ul>)",0,1,1,0,1,0
+Memcpy DtoD (Device -> Device),0,1637,97,0,16,0
+"void at::native::vectorized_elementwise_kernel<2, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul> >(int, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>)",0,1,1,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::bitwise_not_kernel_cuda(at::TensorIteratorBase&)::{lambda(bool)#1}, std::array<char*, 2ul> >(int, at::native::bitwise_not_kernel_cuda(at::TensorIteratorBase&)::{lambda(bool)#1}, std::array<char*, 2ul>)",0,3,2,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, bool)#1}, std::array<char*, 3ul> >(int, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, bool)#1}, std::array<char*, 3ul>)",0,6,4,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::exp_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::exp_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",0,3905,1,0,3905,0
+"void at::native::reduce_kernel<512, 1, at::native::ReduceOp<float, at::native::func_wrapper_t<float, at::native::sum_functor<float, float, float>::operator()(at::TensorIterator&)::{lambda(float, float)#1}>, unsigned int, float, 4, 4> >(at::native::ReduceOp<float, at::native::func_wrapper_t<float, at::native::sum_functor<float, float, float>::operator()(at::TensorIterator&)::{lambda(float, float)#1}>, unsigned int, float, 4, 4>)",0,1862,3,0,620,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::log_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::log_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",0,2,1,0,2,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",0,996,17,0,58,0
+"void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> > const&)::{lambda(int)#1})",0,3845,1,0,3845,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul>)",0,2,1,0,2,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",0,1,1,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::DivFunctor<float> >, std::array<char*, 3ul>)",0,3,2,0,1,0
+ProfilerStep*,0,130714,1,0,130714,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::BUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul> >(int, at::native::BUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul>)",0,4,3,0,1,0
+torch/amp/autocast_mode.py(355): __exit__,12,0,1,12,0,0
+<built-in function autocast_decrement_nesting>,0,0,1,0,0,0
+<built-in function clear_autocast_cache>,0,0,1,0,0,0
+torch/amp/grad_scaler.py(193): scale,0,0,1,0,0,0
+torch/_tensor.py(576): backward,31579,1,1,31579,1,0
+torch/autograd/__init__.py(253): backward,31571,1,1,31571,1,0
+torch/overrides.py(2014): is_tensor_like,1,0,2,0,0,0
+torch/autograd/__init__.py(357): <genexpr>,0,0,2,0,0,0
+torch/autograd/__init__.py(358): <genexpr>,0,0,1,0,0,0
+<built-in function _has_torch_function>,12,0,101,0,0,0
+torch/autograd/__init__.py(243): _tensor_or_tensors_to_tuple,0,0,1,0,0,0
+torch/autograd/__init__.py(89): _make_grads,54,1,1,54,1,0
+<built-in method numel of Tensor object at 0x73306c5045f0>,29,0,189,0,0,0
+<built-in method ones_like of type object at 0x733125742d60>,30,1,1,30,1,0
+aten::ones_like,24,1,1,24,1,0
+aten::fill_,260,720,55,4,13,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",0,1,1,0,1,0
+torch/autograd/graph.py(869): _engine_run_backward,31492,0,1,31492,0,0
+logging/__init__.py(1776): getEffectiveLevel,2,0,1,2,0,0
+<built-in function copy_context>,0,0,1,0,0,0
+<built-in method _stash_obj_in_tls of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x73317c159ef0>,5,0,2,2,0,0
+<built-in method run_backward of torch._C._EngineBase object at 0x7331b6b7bfb0>,31470,0,1,31470,0,0
+autograd::engine::evaluate_function: DivBackward0,113,3,2,56,1,0
+DivBackward0,79,3,2,39,1,0
+autograd::engine::evaluate_function: BackwardHookFunctionBackward,9233,2019,269,34,7,0
+BackwardHookFunctionBackward,903,0,269,3,0,0
+torch/autograd/function.py(302): apply,779,7727,336,2,22,0
+torch/nn/modules/_functions.py(318): backward,24,0,269,0,0,0
+torch/utils/hooks.py(202): hook,3254,0,136,23,0,0
+torch/utils/hooks.py(115): _pack_with_none,504,0,272,1,0,0
+ironcore/layers/module.py(207): _backward_pre_hook,2481,0,136,18,0,0
+<built-in method get of dict object at 0x7330a06ce7c0>,144,0,816,0,0,0
+Backward LanguageModel,27,0,1,27,0,0
+<built-in function warn>,7,0,3,2,0,0
+ironcore/layers/module.py(217): _backward_post_hook,2642,0,136,19,0,0
+<built-in method __exit__ of torch._C.DisableTorchFunctionSubclass object at 0x73306ca34510>,22,0,136,0,0,0
+torch/utils/hooks.py(242): <genexpr>,30,0,272,0,0,0
+autograd::engine::evaluate_function: SumBackward0,21,0,1,21,0,0
+SumBackward0,18,0,1,18,0,0
+autograd::engine::evaluate_function: MulBackward0,2036,6030,118,17,51,0
+MulBackward0,1281,5033,118,10,42,0
+"void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",0,3853,2,0,1926,0
+autograd::engine::evaluate_function: _VocabParallelCrossEntropyWorkersBackward,234,7727,1,234,7727,0
+_VocabParallelCrossEntropyWorkersBackward,229,7727,1,229,7727,0
+ironcore/parallel/tensor_parallel/cross_entropy.py(113): backward,215,7727,1,215,7727,0
+<built-in method size of Tensor object at 0x73306c583660>,1,0,2,0,0,0
+<built-in method view of Tensor object at 0x73306c583660>,11,0,4,2,0,0
+<built-in method clone of Tensor object at 0x73306c506670>,18,1,1,18,1,0
+aten::__iand__,11,1,1,11,1,0
+aten::bitwise_and_,9,1,1,9,1,0
+<built-in method float of Tensor object at 0x73306c583a70>,15,3,1,15,3,0
+aten::sub_,8,1,1,8,1,0
+"void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::native::OpaqueType<4> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_put_kernel_impl<at::native::OpaqueType<4> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::native::OpaqueType<4> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_put_kernel_impl<at::native::OpaqueType<4> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",0,6,1,0,6,0
+<built-in method masked_fill_ of Tensor object at 0x73306c583340>,18,3850,1,18,3850,0
+"void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, bool)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, bool)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, bool)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, bool)#1} const&)::{lambda(int)#1})",0,3850,1,0,3850,0
+<built-in method unsqueeze of Tensor object at 0x73306c505040>,4,0,1,4,0,0
+<built-in method mul_ of Tensor object at 0x73306c583660>,9,3851,1,9,3851,0
+aten::mul_,1543,8488,350,4,24,0
+autograd::engine::evaluate_function: ToCopyBackward0,1500,5741,95,15,60,0
+ToCopyBackward0,1258,5741,95,13,60,0
+Backward ColumnParallelLinear,7262,55655,40,181,1391,0
+autograd::engine::evaluate_function: UnsafeViewBackward0,503,0,79,6,0,0
+UnsafeViewBackward0,338,0,79,4,0,0
+autograd::engine::evaluate_function: MmBackward0,4020,60233,66,60,912,0
+MmBackward0,3700,60233,66,56,912,0
+aten::t,597,0,132,4,0,0
+autograd::engine::evaluate_function: torch::autograd::AccumulateGrad,2303,10096,94,24,107,0
+torch::autograd::AccumulateGrad,270,0,94,2,0,0
+aten::detach,435,0,282,1,0,0
+detach,157,0,282,0,0,0
+torch::distributed::reducer::mul_out,986,858,94,10,9,0
+c10d::allreduce_,600,9278,10,60,927,0
+record_param_comms,468,9278,10,46,927,0
+cudaStreamWaitEvent,18,0,32,0,0,0
+nccl:all_reduce,373,0,10,37,0,0
+cudaEventRecord,16,0,30,0,0,0
+cudaGetFuncBySymbol,12,0,10,1,0,0
+cuLaunchKernelEx,54,0,10,5,0,0
+autograd::engine::evaluate_function: ViewBackward0,708,451,105,6,4,0
+ViewBackward0,476,451,105,4,4,0
+autograd::engine::evaluate_function: _CopyToModelParallelWorkersBackward,405,0,40,10,0,0
+_CopyToModelParallelWorkersBackward,299,0,40,7,0,0
+ironcore/parallel/tensor_parallel/comm.py(235): backward,46,0,40,1,0,0
+torch/utils/hooks.py(128): hook,3261,0,133,24,0,0
+torch/utils/hooks.py(122): _unpack_none,47,0,133,0,0,0
+Backward RmsNorm,3372,5549,27,124,205,0
+autograd::engine::evaluate_function: FusedRmsNormBackward0,885,4364,27,32,161,0
+FusedRmsNormBackward0,728,4364,27,26,161,0
+aten::_fused_rms_norm_backward,606,4364,27,22,161,0
+Backward TransformerModel,28699,80748,1,28699,80748,0
+Backward TransformerLayer,28246,80748,13,2172,6211,0
+autograd::engine::evaluate_function: AddBackward0,161,0,52,3,0,0
+AddBackward0,30,0,52,0,0,0
+Backward MLP,6493,39202,13,499,3015,0
+Backward RowParallelLinear,3818,13698,26,146,526,0
+autograd::engine::evaluate_function: _ReduceFromModelParallelWorkersBackward,102,0,26,3,0,0
+_ReduceFromModelParallelWorkersBackward,47,0,26,1,0,0
+ironcore/parallel/tensor_parallel/comm.py(247): backward,1,0,26,0,0,0
+autograd::engine::evaluate_function: SiluBackward0,170,1505,13,13,115,0
+SiluBackward0,126,1505,13,9,115,0
+aten::silu_backward,108,1505,13,8,115,0
+autograd::engine::evaluate_function: SplitBackward0,374,2567,26,14,98,0
+SplitBackward0,291,2567,26,11,98,0
+cudaMemsetAsync,386,0,129,2,0,0
+Backward Attention,2403,10750,13,184,826,0
+autograd::engine::evaluate_function: CloneBackward0,102,0,52,1,0,0
+CloneBackward0,7,0,52,0,0,0
+autograd::engine::evaluate_function: TransposeBackward0,244,0,52,4,0,0
+TransposeBackward0,136,0,52,2,0,0
+autograd::engine::evaluate_function: ScaledDotProductFlashAttentionBackward0,1221,10750,13,93,826,0
+ScaledDotProductFlashAttentionBackward0,1053,10750,13,81,826,0
+aten::_scaled_dot_product_flash_attention_backward,1001,10750,13,77,826,0
+aten::_flash_attention_backward,704,10750,13,54,826,0
+autograd::engine::evaluate_function: CatBackward0,314,0,26,12,0,0
+CatBackward0,232,0,26,8,0,0
+autograd::engine::evaluate_function: SubBackward0,285,460,26,10,17,0
+SubBackward0,210,460,26,8,17,0
+aten::neg,184,460,26,7,17,0
+aten::add_,1845,6515,386,4,16,0
+autograd::engine::evaluate_function: SliceBackward0,1493,2691,52,28,51,0
+SliceBackward0,1147,1725,52,22,33,0
+aten::slice_backward,1067,1725,52,20,33,0
+aten::zeros,530,717,53,10,13,0
+aten::zero_,301,717,53,5,13,0
+Backward ColumnParallelLinear,0,49059,40,0,1226,0
+ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_stages_32x1_nt,0,12999,27,0,481,0
+ampere_bf16_s16816gemm_bf16_128x128_ldg8_f2f_stages_64x3_tn,0,9120,1,0,9120,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul>)",0,1573,161,0,9,0
+ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>),0,9236,6,0,1539,0
+nccl:all_reduce,0,9278,10,0,927,0
+Backward RmsNorm,0,5641,27,0,208,0
+"void at::native::(anonymous namespace)::layer_norm_grad_input_kernel_vectorized<float, float, true>(float const*, float const*, float const*, float const*, float const*, float*, int)",0,2830,27,0,104,0
+"void at::native::(anonymous namespace)::GammaBetaBackwardCUDAKernelTemplate<float, float, 32u, 32u, 256u, false, true, true>(long, long, float const*, float const*, float const*, float const*, float*, float*)",0,1533,27,0,56,0
+Backward RowParallelLinear,0,13761,26,0,529,0
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x256_32x4_nt_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_64x256_32x4_nt_align8::Params),0,4868,13,0,374,0
+ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_tn,0,4444,13,0,341,0
+Backward LanguageModelEmbedding,15,0,1,15,0,0
+Backward VocabParallelEmbedding,11,0,1,11,0,0
+autograd::engine::evaluate_function: EmbeddingBackward0,215,271,1,215,271,0
+EmbeddingBackward0,209,271,1,209,271,0
+aten::embedding_backward,206,271,1,206,271,0
+aten::embedding_dense_backward,204,271,1,204,271,0
+cudaOccupancyMaxActiveBlocksPerMultiprocessorWithFlags,4,0,2,2,0,0
+cudaPeekAtLastError,0,0,17,0,0,0
+ironcore/parallel/tensor_parallel/layers.py(116): _zero_padding_grad_hook,27,1,1,27,1,0
+Backward MLP,0,6304,13,0,484,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 3ul>)",0,1388,13,0,106,0
+torch.distributed.ddp.reducer::copy_bucket_to_grad,564,1632,94,6,17,0
+"void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::silu_backward_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(c10::BFloat16, c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::silu_backward_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(c10::BFloat16, c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::silu_backward_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(c10::BFloat16, c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::silu_backward_kernel(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(c10::BFloat16, c10::BFloat16)#1} const&)::{lambda(int)#1})",0,1505,13,0,115,0
+"void at::native::(anonymous namespace)::CatArrayBatchedCopy_vectorized<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 3, 128, 1, 16, 8>(char*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",0,2567,26,0,98,0
+Memset (Device),0,118,129,0,0,0
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_nt_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_256x128_32x3_nt_align8::Params),0,13271,26,0,510,0
+contextlib.py(778): __exit__,0,0,1,0,0,0
+ironcore/utils/device.py(34): get_device,59,0,2,29,0,0
+torch/distributed/distributed_c10d.py(1519): get_node_local_rank,15,0,2,7,0,0
+<frozen _collections_abc>(811): __contains__,7,0,2,3,0,0
+<frozen os>(795): decode,2,0,4,0,0,0
+<built-in method tensor of type object at 0x733125742d60>,78922,3,7,11274,0,0
+void cutlass::Kernel2<cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x256_32x3_tn_align8>(cutlass_80_tensorop_bf16_s16816gemm_relu_bf16_128x256_32x3_tn_align8::Params),0,15462,52,0,297,0
+Backward TransformerLayer,0,39412,13,0,3031,0
+Backward Attention,0,10784,13,0,829,0
+"void pytorch_flash::flash_bwd_dot_do_o_kernel<true, Flash_bwd_kernel_traits<64, 64, 128, 8, 2, 4, 4, true, false, cutlass::bfloat16_t, Flash_kernel_traits<64, 64, 128, 8, cutlass::bfloat16_t> > >(pytorch_flash::Flash_bwd_params)",0,739,13,0,56,0
+"void pytorch_flash::flash_bwd_dq_dk_dv_loop_seqk_parallel_kernel<Flash_bwd_kernel_traits<64, 64, 128, 8, 2, 4, 4, true, false, cutlass::bfloat16_t, Flash_kernel_traits<64, 64, 128, 8, cutlass::bfloat16_t> >, false, true, false, false, true, true, false>(pytorch_flash::Flash_bwd_params)",0,8825,13,0,678,0
+"void pytorch_flash::flash_bwd_convert_dq_kernel<Flash_bwd_kernel_traits<64, 64, 128, 8, 2, 4, 4, true, false, cutlass::bfloat16_t, Flash_kernel_traits<64, 64, 128, 8, cutlass::bfloat16_t> > >(pytorch_flash::Flash_bwd_params, int)",0,530,13,0,40,0
+"void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#9}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#9}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#9}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::neg_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#9}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",0,460,26,0,17,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<c10::BFloat16>, std::array<char*, 1ul> >(int, at::native::FillFunctor<c10::BFloat16>, std::array<char*, 1ul>)",0,719,54,0,13,0
+"void at_cuda_detail::cub::detail::radix_sort::DeviceRadixSortHistogramKernel<at_cuda_detail::cub::detail::radix::policy_hub<long, at::cuda::cub::detail::OpaqueType<8>, unsigned long long>::Policy1000, (at_cuda_detail::cub::SortOrder)0, long, unsigned long long, at_cuda_detail::cub::detail::identity_decomposer_t>(unsigned long long*, long const*, unsigned long long, int, int, at_cuda_detail::cub::detail::identity_decomposer_t)",0,5,1,0,5,0
+"void at_cuda_detail::cub::detail::radix_sort::DeviceRadixSortExclusiveSumKernel<at_cuda_detail::cub::detail::radix::policy_hub<long, at::cuda::cub::detail::OpaqueType<8>, unsigned long long>::Policy1000, unsigned long long>(unsigned long long*)",0,1,1,0,1,0
+"void at_cuda_detail::cub::detail::radix_sort::DeviceRadixSortOnesweepKernel<at_cuda_detail::cub::detail::radix::policy_hub<long, at::cuda::cub::detail::OpaqueType<8>, unsigned long long>::Policy1000, (at_cuda_detail::cub::SortOrder)0, long, at::cuda::cub::detail::OpaqueType<8>, unsigned long long, int, int, at_cuda_detail::cub::detail::identity_decomposer_t>(int*, int*, unsigned long long*, unsigned long long const*, long*, long const*, at::cuda::cub::detail::OpaqueType<8>*, at::cuda::cub::detail::OpaqueType<8> const*, int, int, int, at_cuda_detail::cub::detail::identity_decomposer_t)",0,60,8,0,7,0
+"void at_cuda_detail::cub::detail::scan::DeviceCompactInitKernel<at_cuda_detail::cub::ScanTileState<unsigned long long, true>, long*>(at_cuda_detail::cub::ScanTileState<unsigned long long, true>, int, long*)",0,1,1,0,1,0
+"void at_cuda_detail::cub::detail::unique_by_key::DeviceUniqueByKeySweepKernel<at_cuda_detail::cub::detail::unique_by_key::policy_hub<long, int>::Policy1000, long const*, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::counting_iterator<int, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::use_default, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::use_default, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::use_default>, long*, long*, long*, at_cuda_detail::cub::ScanTileState<unsigned long long, true>, cuda::std::__4::equal_to<void>, unsigned long long, at_cuda_detail::cub::detail::unique_by_key::VSMemHelper>(long const*, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::counting_iterator<int, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::use_default, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::use_default, thrust::THRUST_300001_SM_750_800_860_900_1000_1200_NS::use_default>, long*, long*, long*, at_cuda_detail::cub::ScanTileState<unsigned long long, true>, cuda::std::__4::equal_to<void>, unsigned long long, int, at_cuda_detail::cub::detail::vsmem_t)",0,4,1,0,4,0
+"void at::native::(anonymous namespace)::krn_partials_per_segment<long>(long*, long const*, long const*, long)",0,1,1,0,1,0
+"void at_cuda_detail::cub::detail::scan::DeviceScanInitKernel<at_cuda_detail::cub::ScanTileState<long, true> >(at_cuda_detail::cub::ScanTileState<long, true>, int)",0,1,1,0,1,0
+"void at_cuda_detail::cub::detail::scan::DeviceScanKernel<at_cuda_detail::cub::detail::scan::policy_hub<long, long, long, unsigned int, at::cuda::cub::(anonymous namespace)::SumOp<long> >::Policy1000, long const*, long*, at_cuda_detail::cub::ScanTileState<long, true>, at::cuda::cub::(anonymous namespace)::SumOp<long>, at_cuda_detail::cub::detail::InputValue<long, long*>, unsigned int, long, false, long>(long const*, long*, at_cuda_detail::cub::ScanTileState<long, true>, int, at::cuda::cub::(anonymous namespace)::SumOp<long>, at_cuda_detail::cub::detail::InputValue<long, long*>, unsigned int)",0,3,1,0,3,0
+"void at::native::(anonymous namespace)::compute_num_of_partial_segments<long>(long const*, long const*, long const*, long*)",0,1,1,0,1,0
+"void at::native::(anonymous namespace)::krn_partial_segment_offset<long>(long*, long const*, long const*, long const*, long const*)",0,2,1,0,2,0
+"void at::native::(anonymous namespace)::compute_grad_weight<c10::BFloat16, long>(long const*, c10::BFloat16 const*, long const*, long, long, long const*, long const*, at::AccumulateType<c10::BFloat16, true>::type*, long)",0,54,1,0,54,0
+"void at::native::(anonymous namespace)::sum_and_scatter<c10::BFloat16, long>(long const*, c10::BFloat16*, long, long const*, long const*, at::AccumulateType<c10::BFloat16, true>::type const*, long const*, long const*, long, long)",0,40,1,0,40,0
+aten::detach_,7,0,7,1,0,0
+detach_,2,0,7,0,0,0
+ironcore/parallel/parallel_states.py(134): get_data_parallel_world_size,0,0,3,0,0,0
+ironcore/parallel/parallel_states.py(159): get_data_parallel_group,0,0,2,0,0,0
+torch/distributed/c10d_logger.py(80): wrapper,344,41,4,86,10,0
+torch/distributed/distributed_c10d.py(3084): all_reduce,333,41,4,83,10,0
+torch/distributed/distributed_c10d.py(1171): _check_single_tensor,2,0,4,0,0,0
+<built-in method is_complex of Tensor object at 0x73306c6e45f0>,1,0,4,0,0,0
+torch/distributed/distributed_c10d.py(727): pg_coalesce_state,0,0,4,0,0,0
+<built-in method allreduce of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x7331259fed90>,264,41,4,66,10,0
+ncclDevKernel_AllReduce_Sum_f64_RING_LL(ncclDevKernelArgsStorage<4096ul>),0,22,2,0,11,0
+"void at::native::vectorized_elementwise_kernel<2, at::native::BUnaryFunctor<double, double, double, at::native::binary_internal::MulFunctor<double> >, std::array<char*, 2ul> >(int, at::native::BUnaryFunctor<double, double, double, at::native::binary_internal::MulFunctor<double> >, std::array<char*, 2ul>)",0,1,1,0,1,0
+ironcore/trainers/base_trainer.py(720): _validate_distributed_loss,165,13,1,165,13,0
+<built-in function isfinite>,0,0,1,0,0,0
+ncclDevKernel_AllReduce_Sum_u64_RING_LL(ncclDevKernelArgsStorage<4096ul>),0,11,1,0,11,0
+ironcore/trainers/base_trainer.py(806): _check_loss_for_nan,5,0,2,2,0,0
+<built-in function isnan>,0,0,2,0,0,0
+<built-in function isinf>,0,0,2,0,0,0
+ironcore/trainers/base_trainer.py(710): _average_dp_metrics,0,0,1,0,0,0
+ironcore/trainers/base_trainer.py(748): _compute_grad_and_param_norms,6962,2405,1,6962,2405,0
+torch/amp/grad_scaler.py(302): unscale_,0,0,1,0,0,0
+ironcore/parallel/grad_norm.py(20): clip_grad_norm,6553,2404,1,6553,2404,0
+<frozen importlib._bootstrap>(1390): _handle_fromlist,2,0,1,2,0,0
+ironcore/parallel/grad_norm.py(58): get_local_pow_sum,3637,1118,2,1818,559,0
+<built-in method detach of Tensor object at 0x73306c61cc80>,493,0,188,2,0,0
+torch/_tensor.py(896): norm,1490,795,94,15,8,0
+torch/functional.py(1685): norm,1433,795,94,15,8,0
+<built-in function linalg_vector_norm>,1228,795,94,13,8,0
+aten::linalg_vector_norm,1042,795,94,11,8,0
+"void at::native::reduce_kernel<512, 1, at::native::ReduceOp<c10::BFloat16, at::native::NormTwoOps<c10::BFloat16, float, c10::BFloat16, true>, unsigned int, c10::BFloat16, 4, 4> >(at::native::ReduceOp<c10::BFloat16, at::native::NormTwoOps<c10::BFloat16, float, c10::BFloat16, true>, unsigned int, c10::BFloat16, 4, 4>)",0,759,94,0,8,0
+torch/_tensor.py(40): wrapped,999,147,96,10,1,0
+<built-in method pow of Tensor object at 0x73306c580f50>,880,143,95,9,1,0
+aten::pow,708,143,95,7,1,0
+aten::result_type,15,0,95,0,0,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::pow_tensor_scalar_kernel_impl<c10::BFloat16, c10::BFloat16>(at::TensorIteratorBase&, c10::BFloat16)::{lambda(c10::BFloat16)#1}, std::array<char*, 2ul> >(int, at::native::(anonymous namespace)::pow_tensor_scalar_kernel_impl<c10::BFloat16, c10::BFloat16>(at::TensorIteratorBase&, c10::BFloat16)::{lambda(c10::BFloat16)#1}, std::array<char*, 2ul>)",0,141,94,0,1,0
+"void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>, 4, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<2>, at::native::memory::StoreWithCast<1> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<2>, at::native::memory::StoreWithCast<1>)",0,1892,188,0,10,0
+ironcore/parallel/expert_parallel/parallel_states.py(153): get_expert_model_parallel_world_size,0,0,1,0,0,0
+"void at::native::(anonymous namespace)::CatArrayBatchedCopy_alignedK_contig<at::native::(anonymous namespace)::OpaqueType<4u>, unsigned int, 1, 128, 1, 16>(at::native::(anonymous namespace)::OpaqueType<4u>*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<4u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",0,2,1,0,2,0
+ncclDevKernel_AllReduce_Sum_f32_RING_LL(ncclDevKernelArgsStorage<4096ul>),0,7,1,0,7,0
+ironcore/parallel/grad_norm.py(156): <genexpr>,2,0,1,2,0,0
+ironcore/parallel/grad_norm.py(157): <genexpr>,67,0,94,0,0,0
+torch/_tensor.py(1203): __iter__,21,0,1,21,0,0
+<built-in method unbind of Tensor object at 0x73306c5811d0>,12,0,1,12,0,0
+aten::unbind,9,0,1,9,0,0
+aten::select,4,0,2,2,0,0
+"void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>, 4, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast>(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast)",0,1,1,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::sqrt_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::sqrt_kernel_cuda(at::TensorIteratorBase&)::{lambda()#2}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",0,1226,95,0,12,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctorOnSelf_add<float>, std::array<char*, 2ul> >(int, at::native::CUDAFunctorOnSelf_add<float>, std::array<char*, 2ul>)",0,1168,95,0,12,0
+torch/_tensor.py(1118): __rdiv__,28,3,1,28,3,0
+<built-in method reciprocal of Tensor object at 0x73306c581450>,12,1,1,12,1,0
+aten::reciprocal,10,1,1,10,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::reciprocal_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::reciprocal_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#2}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",0,1,1,0,1,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul>)",0,2663,189,0,14,0
+"void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, float)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::compare_scalar_kernel<float>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, float)::{lambda(float)#1}, std::array<char*, 2ul>)",0,1,1,0,1,0
+aten::is_nonzero,24,1,1,24,1,0
+<built-in method mul_ of Tensor object at 0x73306c581450>,2229,4636,349,6,13,0
+"void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",0,1260,94,0,13,0
+ironcore/controller.py(50): do_param_norm,3,0,1,3,0,0
+ironcore/controller.py(33): _cadence_flag,0,0,1,0,0,0
+ironcore/trainers/base_trainer.py(789): _optimizer_step,5994,11445,1,5994,11445,0
+torch/amp/grad_scaler.py(564): get_scale,0,0,2,0,0,0
+torch/amp/grad_scaler.py(375): step,5905,11445,1,5905,11445,0
+torch/optim/lr_scheduler.py(162): wrapper,5902,11445,1,5902,11445,0
+torch/optim/optimizer.py(514): wrapper,5897,11445,1,5897,11445,0
+Optimizer.step#AdamWOptimizer.step,5871,11445,1,5871,11445,0
+torch/utils/_contextlib.py(120): decorate_context,5674,11445,1,5674,11445,0
+torch/utils/_contextlib.py(154): clone,11,0,1,11,0,0
+torch/utils/_contextlib.py(167): __new__,3,0,1,3,0,0
+<built-in method __new__ of type object at 0x7331b717b440>,0,0,1,0,0,0
+torch/autograd/grad_mode.py(75): __init__,2,0,1,2,0,0
+torch/autograd/grad_mode.py(80): __enter__,5,0,1,5,0,0
+torch/autograd/grad_mode.py(184): __init__,3,0,2,1,0,0
+<built-in function _set_grad_enabled>,1,0,2,0,0,0
+ironcore/optimizer/adamw.py(38): step,5647,11445,1,5647,11445,0
+Optimizer.step#AdamWOptimizer.step,0,12045,1,0,12045,0
+<built-in method add_ of Tensor object at 0x73306cb87070>,1154,2880,188,6,15,0
+<built-in method addcmul_ of Tensor object at 0x73306c61ee90>,609,1813,94,6,19,0
+aten::addcmul_,453,1813,94,4,19,0
+<built-in method sqrt of Tensor object at 0x73306c61ee90>,706,1224,94,7,13,0
+aten::sqrt,522,1224,94,5,13,0
+<built-in function sqrt>,10,0,94,0,0,0
+<built-in method addcdiv_ of Tensor object at 0x73306c581720>,631,2150,94,6,22,0
+aten::addcdiv_,464,2150,94,4,22,0
+"void at::native::unrolled_elementwise_kernel<at::native::addcmul_cuda_kernel(at::TensorIteratorBase&, c10::Scalar const&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, float, float)#1}, std::array<char*, 4ul>, 4, TrivialOffsetCalculator<3, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<3>, at::native::memory::StoreWithCast<1> >(int, at::native::addcmul_cuda_kernel(at::TensorIteratorBase&, c10::Scalar const&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, float, float)#1}, std::array<char*, 4ul>, TrivialOffsetCalculator<3, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<3>, at::native::memory::StoreWithCast<1>)",0,1813,94,0,19,0
+"void at::native::unrolled_elementwise_kernel<at::native::addcdiv_cuda_kernel(at::TensorIteratorBase&, c10::Scalar const&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, float, float)#1}, std::array<char*, 4ul>, 4, TrivialOffsetCalculator<3, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<3>, at::native::memory::StoreWithCast<1> >(int, at::native::addcdiv_cuda_kernel(at::TensorIteratorBase&, c10::Scalar const&)::{lambda()#2}::operator()() const::{lambda()#7}::operator()() const::{lambda(float, float, float)#1}, std::array<char*, 4ul>, TrivialOffsetCalculator<3, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<3>, at::native::memory::StoreWithCast<1>)",0,2150,94,0,22,0
+torch/autograd/grad_mode.py(84): __exit__,2,0,1,2,0,0
+torch/optim/optimizer.py(500): _optimizer_step_code,0,0,1,0,0,0
+torch/amp/grad_scaler.py(484): update,0,0,1,0,0,0
+ironcore/optimizer/adamw.py(115): zero_grad,69,0,1,69,0,0
+ironcore/optimizer/lr_scheduler.py(20): step,7,0,1,7,0,0
+ironcore/optimizer/lr_scheduler.py(112): get_lr,2,0,1,2,0,0
+ironcore/optimizer/lr_scheduler.py(32): _warmup_lr,0,0,1,0,0,0
+ironcore/utils/timer.py(34): stop,4,0,1,4,0,0
+ironcore/trainers/base_trainer.py(826): log_training,23,0,1,23,0,0
+ironcore/utils/device.py(9): is_first_rank,10,0,2,5,0,0
+torch/optim/lr_scheduler.py(201): get_last_lr,0,0,1,0,0,0
+ironcore/controller.py(41): do_log,4,0,2,2,0,0
+ironcore/profiler.py(324): step,77,0,1,77,0,0
+torch/profiler/profiler.py(949): step,73,0,1,73,0,0
+torch/profiler/profiler.py(573): schedule_fn,3,0,1,3,0,0
+torch/profiler/profiler.py(989): _transit_action,50,0,1,50,0,0
+enum.py(1261): __hash__,3,0,2,1,0,0
+<built-in function hash>,0,0,2,0,0,0
+torch/profiler/profiler.py(326): stop_trace,42,0,1,42,0,0
+torch/autograd/profiler.py(410): __exit__,38,0,1,38,0,0
+<built-in method _disable_profiler of pybind11_builtins.pybind11_detail_function_record_v1_system_libstdcpp_gxx_abi_1xxx_use_cxx11_abi_1 object at 0x733182d192b0>,4,0,1,4,0,0

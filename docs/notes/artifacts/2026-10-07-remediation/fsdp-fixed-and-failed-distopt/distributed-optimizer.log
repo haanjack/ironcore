@@ -1,0 +1,14 @@
+Running pretrain/full
+Traceback (most recent call last):
+  File "/tmp/ironcore-remediation-distributed-v2-src/scripts/validate_trainers.py", line 607, in <module>
+    main()
+  File "/tmp/ironcore-remediation-distributed-v2-src/scripts/validate_trainers.py", line 603, in main
+    (worker if args.worker else run)(args)
+  File "/tmp/ironcore-remediation-distributed-v2-src/scripts/validate_trainers.py", line 529, in run
+    resume_error = compare_tensors(state["final"], resumed["final"], 0, 0)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/ironcore-remediation-distributed-v2-src/scripts/validate_trainers.py", line 395, in compare_tensors
+    torch.testing.assert_close(left[name], right[name], atol=atol, rtol=rtol, msg=name)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/testing/_comparison.py", line 1631, in assert_close
+    raise error_metas[0].to_error(msg)
+AssertionError: embedding.word_embeddings.weight

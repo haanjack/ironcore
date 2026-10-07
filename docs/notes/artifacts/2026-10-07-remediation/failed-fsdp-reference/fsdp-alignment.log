@@ -1,0 +1,15 @@
+Running sft/full
+Running sft/dp2
+Running dpo/full
+Running dpo/dp2
+Traceback (most recent call last):
+  File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 607, in <module>
+    main()
+  File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 603, in main
+    (worker if args.worker else run)(args)
+  File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 528, in run
+    resumed = launch(task, case, resumed_dir)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/ironcore-remediation-distributed-src/scripts/validate_trainers.py", line 489, in launch
+    raise RuntimeError(
+RuntimeError: dpo/dp2 failed (1); see /tmp/ironcore-remediation-distributed/fsdp-alignment/dpo/dp2_resume/run.log

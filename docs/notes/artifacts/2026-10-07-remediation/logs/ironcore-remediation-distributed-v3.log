@@ -1,0 +1,5 @@
+Running distributed-optimizer
+Running moe-ep-all
+Running recomputed-ce
+Running batched-moe
+Running batched-moe-idle

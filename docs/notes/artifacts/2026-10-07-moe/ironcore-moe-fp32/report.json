@@ -1,0 +1,281 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": true,
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 4.470348358154297e-08,
+        "final": 1.0803341865539551e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.2351741790771484e-08,
+        "final": 1.3969838619232178e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.1175870895385742e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 8.66129994392395e-08,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 8.009374141693115e-08,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.9802322387695312e-08,
+        "final": 1.9371509552001953e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 1.1920928955078125e-07,
+        "final": 1.89291313290596e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 1.1920928955078125e-07,
+        "final": 1.7741695046424866e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 1.1920928955078125e-07,
+        "final": 4.022149369120598e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "accum",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 1.1920928955078125e-07,
+        "final": 1.4156103134155273e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "accum",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 8.940696716308594e-08,
+        "final": 4.973262548446655e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 5.960464477539063e-08,
+        "final": 4.2654573917388916e-07,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "online": {
+        "task": "grpo",
+        "case": "full",
+        "precision": "float32",
+        "device": "cuda:0",
+        "parameter_count_full": 42016,
+        "losses": [
+          -0.00888667069375515,
+          -0.0019624392025434645
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.53125,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.5617772579425946,
+        "peak_allocated_bytes": 79494656,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.001750817522406578
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "dp2",
+      "online": {
+        "task": "grpo",
+        "case": "dp2",
+        "precision": "float32",
+        "device": "cuda:0",
+        "parameter_count_full": 42016,
+        "losses": [
+          -0.008958430029451847,
+          -0.001891855150461197
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.7043697210028768,
+        "peak_allocated_bytes": 73165312,
+        "peak_reserved_bytes": 73400320,
+        "max_weight_change": 0.0017510093748569489
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "tp2",
+      "online": {
+        "task": "grpo",
+        "case": "tp2",
+        "precision": "float32",
+        "device": "cuda:0",
+        "parameter_count_full": 42016,
+        "losses": [
+          -0.005073432810604572,
+          -0.0014725979417562485
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.7598582010250539,
+        "peak_allocated_bytes": 72814080,
+        "peak_reserved_bytes": 73400320,
+        "max_weight_change": 0.0017504184506833553
+      }
+    }
+  ]
+}

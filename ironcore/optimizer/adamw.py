@@ -97,9 +97,11 @@ class AdamWOptimizer(Optimizer):
                 exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
                 if amsgrad:
                     torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-                    denom = max_exp_avg_sq.sqrt().add_(eps)
+                    denom = max_exp_avg_sq.sqrt().add_(
+                        eps * math.sqrt(1.0 - beta2 ** state["step"])
+                    )
                 else:
-                    denom = exp_avg_sq.sqrt().add_(eps)
+                    denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
 
                 bias_correction1 = 1.0 - beta1 ** state["step"]
                 bias_correction2 = 1.0 - beta2 ** state["step"]
@@ -128,7 +130,10 @@ class AdamWOptimizer(Optimizer):
         return state_dict
 
     def load_state_dict(self, state_dict):
+        from ironcore.offload.optimizer_helpers import restore_optimizer_state_storage
+
         super().load_state_dict(state_dict)
+        restore_optimizer_state_storage(self, state_dict)
 
     def __repr__(self):
         return (

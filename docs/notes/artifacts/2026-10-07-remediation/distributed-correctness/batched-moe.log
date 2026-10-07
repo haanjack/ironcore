@@ -1,0 +1,17 @@
+Running pretrain/full
+Running pretrain/accum
+Running pretrain/dp2
+Running pretrain/tp2
+Running sft/full
+Running sft/accum
+Running sft/dp2
+Running sft/tp2
+Running dpo/full
+Running dpo/accum
+Running dpo/dp2
+Running dpo/tp2
+Running grpo/full
+Running grpo/accum
+Running grpo/dp2
+Running grpo/tp2
+Validation passed: /tmp/ironcore-remediation-distributed-v3/batched-moe/report.json

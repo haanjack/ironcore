@@ -1,0 +1,41 @@
+[2026-10-07 20:00:38,710] Acquiring training resources...
+[2026-10-07 20:00:38,710] Initialize torch distributed ... 
+[2026-10-07 20:00:38,928] Loading evaluation tasks
+[2026-10-07 20:00:38,929] Set random seed to 42 for model initialization
+[2026-10-07 20:00:38,938] Created Language Model
+[2026-10-07 20:00:38,938] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:00:38,938] Created Optimizer
+[2026-10-07 20:00:38,938] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:00:38,938] Resources acquired successfully.
+[2026-10-07 20:00:38,939] Training start from scratch
+[2026-10-07 20:00:38,939] Training start from step: 0
+[2026-10-07 20:00:39,289] step: 1, loss: 3.7443, lr: 0.000550, grad_norm: 2.0019, step_time: 0.349s (avg: 0.349s), tok/s: 366.7 (avg: 366.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:39,296] step: 2, loss: 3.6767, lr: 0.000232, grad_norm: 2.0459, step_time: 0.007s (avg: 0.178s), tok/s: 18289.5 (avg: 718.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:39,302] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:00:39,303] Saving checkpoint to /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/full_resume/checkpoint/step_2
+[2026-10-07 20:00:39,317] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 20:00:39,317] Training stopped by exit interval: 2
+[2026-10-07 20:00:39,317] Total training time: 0.00 hours
+[2026-10-07 20:00:39,317] Finishing training
+[2026-10-07 20:00:46,501] Acquiring training resources...
+[2026-10-07 20:00:46,501] Initialize torch distributed ... 
+[2026-10-07 20:00:46,723] Loading evaluation tasks
+[2026-10-07 20:00:46,725] Set random seed to 42 for model initialization
+[2026-10-07 20:00:46,733] Created Language Model
+[2026-10-07 20:00:46,733] Trainable parameters: 23,328 / 23,328 (100.00%)
+[2026-10-07 20:00:46,733] Created Optimizer
+[2026-10-07 20:00:46,734] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:00:46,734] Resources acquired successfully.
+[2026-10-07 20:00:46,735] Loading checkpoint from /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/full_resume/checkpoint/step_2
+[2026-10-07 20:00:46,744] Loading optimizer state dict.
+[2026-10-07 20:00:46,745] Checkpoint loaded successfully. Resuming training at step 2. Total time: 0.01s
+[2026-10-07 20:00:46,745] Successfully loaded checkpoint: /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/full_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:00:46,745] Skipping 2 consumed micro-batches to resume data position (16 samples on this rank).
+[2026-10-07 20:00:46,746] Training start from step: 2
+[2026-10-07 20:00:47,083] step: 3, loss: 3.6307, lr: 0.000100, grad_norm: 1.9968, step_time: 0.336s (avg: 0.336s), tok/s: 380.7 (avg: 380.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:47,090] step: 4, loss: 3.6213, lr: 0.000100, grad_norm: 2.0153, step_time: 0.008s (avg: 0.172s), tok/s: 16831.4 (avg: 744.0), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:00:47,096] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:00:47,096] Saving checkpoint to /tmp/ironcore-remediation-distributed/fsdp-alignment/sft/full_resume/checkpoint/step_4
+[2026-10-07 20:00:47,109] Checkpoint saved successfully. Checkpoint saved in 0.011s
+[2026-10-07 20:00:47,109] Total training time: 0.00 hours
+[2026-10-07 20:00:47,109] Finishing training

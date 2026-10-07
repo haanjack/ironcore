@@ -90,6 +90,8 @@ class LanguageModel(BaseModule):
         cache_position=None,
         block_kv_cache_manager=None,
         seq_id=None,
+        attention_mask=None,
+        loss_sample_ids=None,
     ):
         """
         Forward pass through language model.
@@ -123,9 +125,22 @@ class LanguageModel(BaseModule):
                     past_key = first_layer_kv[0]
                     cache_position = past_key.size(1)
 
-        attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
+        computed_attention_mask, computed_position_ids, loss_mask = self.get_masks_and_position_ids(
             input_ids, labels, cache_position=cache_position, use_cache=use_cache
         )
+        if attention_mask is None:
+            attention_mask = computed_attention_mask
+        else:
+            attention_mask = attention_mask.to(device=input_ids.device, dtype=torch.bool)
+            if attention_mask.dim() == 3:
+                attention_mask = attention_mask.unsqueeze(1)
+            # Packed SFT collators describe document blocks. Each block must
+            # also remain causal, otherwise responses leak into their prompts.
+            if not use_cache and attention_mask.size(-1) == input_ids.size(1):
+                causal = torch.ones(
+                    input_ids.size(1), input_ids.size(1), device=input_ids.device, dtype=torch.bool
+                ).tril()
+                attention_mask = attention_mask & causal
         if position_ids is None:
             position_ids = computed_position_ids
         else:
@@ -159,6 +174,30 @@ class LanguageModel(BaseModule):
 
         lm_output = self.output_layernorm(lm_output)
 
+        if labels is not None and self.config.trainer.recompute_linear_ce:
+            from ironcore.layers.linear_cross_entropy import linear_cross_entropy
+            from ironcore.parallel.tensor_parallel import comm
+
+            if self.config.model.untie_embed and self.output_layer.bias is not None:
+                raise ValueError("Recomputed linear CE currently requires a bias-free output head")
+            hidden = comm.copy_inputs_to_model_parallel_workers(lm_output)
+            weight = (
+                self.output_layer.weight
+                if self.config.model.untie_embed
+                else self.embedding.word_embeddings.weight
+            )
+            per_token = linear_cross_entropy(
+                hidden,
+                weight,
+                labels,
+                self.config.trainer.loss_chunk_size or 1024,
+                self.padding_start_idx,
+                transposed=self.config.model.untie_embed,
+            )
+            if loss_sample_ids is not None:
+                return self.loss_fn(per_token, loss_mask, sample_ids=loss_sample_ids)
+            return self.loss_fn(per_token, loss_mask)
+
         if self.config.model.untie_embed:
             logits_parallel = self.output_layer(lm_output)
         else:
@@ -180,12 +219,23 @@ class LanguageModel(BaseModule):
             return logits, new_key_values
 
         losses = self.compute_loss_from_logits(
-            logits_parallel, labels, loss_mask, self.fp16_lm_cross_entropy, self.padding_start_idx
+            logits_parallel,
+            labels,
+            loss_mask,
+            self.fp16_lm_cross_entropy,
+            self.padding_start_idx,
+            loss_sample_ids=loss_sample_ids,
         )
         return losses
 
     def compute_loss_from_logits(
-        self, logits, labels, loss_mask, fp16_lm_cross_entropy=False, padding_start_idx=None
+        self,
+        logits,
+        labels,
+        loss_mask,
+        fp16_lm_cross_entropy=False,
+        padding_start_idx=None,
+        loss_sample_ids=None,
     ):
         """Compute loss from logits using vocab_parallel_cross_entropy.
 
@@ -201,18 +251,35 @@ class LanguageModel(BaseModule):
         """
         labels = labels.contiguous()
 
-        if fp16_lm_cross_entropy:
-            logits = logits.to(dtype=torch.half)
+        loss_dtype = torch.float16 if fp16_lm_cross_entropy else torch.float32
+        chunk_size = self.config.trainer.loss_chunk_size
+        if chunk_size is not None:
+            if chunk_size <= 0:
+                raise ValueError("trainer.loss_chunk_size must be positive or None")
+            # Cast only the current token chunk. Casting the complete vocabulary
+            # logits before splitting would retain the large FP32 allocation.
+            flat_logits = logits.reshape(-1, logits.size(-1))
+            flat_labels = labels.reshape(-1)
+            chunks = [
+                vocab_parallel_cross_entropy(
+                    flat_logits[start : start + chunk_size].to(loss_dtype),
+                    flat_labels[start : start + chunk_size],
+                    padding_start_idx=padding_start_idx,
+                )
+                for start in range(0, flat_labels.numel(), chunk_size)
+            ]
+            per_token_losses = torch.cat(chunks).view_as(labels)
         else:
-            logits = logits.float()
+            per_token_losses = vocab_parallel_cross_entropy(
+                vocab_parallel_logits=logits.to(loss_dtype),
+                labels=labels,
+                padding_start_idx=padding_start_idx,
+            ).contiguous()
 
-        per_token_losses = vocab_parallel_cross_entropy(
-            vocab_parallel_logits=logits,
-            labels=labels,
-            padding_start_idx=padding_start_idx,
-        ).contiguous()
-
-        loss = self.loss_fn(per_token_losses, loss_mask)
+        if loss_sample_ids is not None:
+            loss = self.loss_fn(per_token_losses, loss_mask, sample_ids=loss_sample_ids)
+        else:
+            loss = self.loss_fn(per_token_losses, loss_mask)
 
         return loss
 

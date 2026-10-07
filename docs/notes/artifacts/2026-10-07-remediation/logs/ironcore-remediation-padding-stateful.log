@@ -1,0 +1,32 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.8, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/hanjack/ironcore/ironcore
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, langsmith-0.9.7, timeout-2.4.0, typeguard-4.5.1, hypothesis-6.151.5, cov-7.0.0, anyio-4.12.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 20 items
+
+tests/unit/alignment/test_remediation_contract.py ...........F           [ 60%]
+tests/unit/dataloader/test_stateful_resume.py ........                   [100%]
+
+=================================== FAILURES ===================================
+_ test_padded_native_rollouts_match_unpadded_and_behaviour_rescoring[sampling1] _
+tests/unit/alignment/test_remediation_contract.py:132: in test_padded_native_rollouts_match_unpadded_and_behaviour_rescoring
+    logits = _filter_logits(logits[:, ids.size(1)-1:-1], temperature, top_p, top_k)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ironcore/alignment/rollout.py:225: in _filter_logits
+    logits = logits.masked_fill(logits < kth_vals, float("-inf"))
+                                ^^^^^^^^^^^^^^^^^
+E   RuntimeError: The size of tensor a (4) must match the size of tensor b (8) at non-singleton dimension 1
+=============================== warnings summary ===============================
+tests/unit/dataloader/test_stateful_resume.py::test_consumed_batch_checkpoint_includes_worker_prefetch_and_packing[0]
+tests/unit/dataloader/test_stateful_resume.py::test_consumed_batch_checkpoint_includes_worker_prefetch_and_packing[2]
+tests/unit/dataloader/test_stateful_resume.py::test_grpo_loader_resumes_shuffled_epochs_and_prefetched_prompts[0]
+tests/unit/dataloader/test_stateful_resume.py::test_grpo_loader_resumes_shuffled_epochs_and_prefetched_prompts[2]
+  /tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+    torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/alignment/test_remediation_contract.py::test_padded_native_rollouts_match_unpadded_and_behaviour_rescoring[sampling1]
+================== 1 failed, 19 passed, 4 warnings in 11.61s ===================

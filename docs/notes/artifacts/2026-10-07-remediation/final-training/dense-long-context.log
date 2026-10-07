@@ -1,0 +1,69 @@
+
+*****************************************
+Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+*****************************************
+[2026-10-07 21:16:08,521] Acquiring training resources...
+[2026-10-07 21:16:08,522] Initialize torch distributed ... 
+[2026-10-07 21:16:08,758] Loading evaluation tasks
+[2026-10-07 21:16:08,758] Set random seed to 42 for model initialization
+[2026-10-07 21:16:09,582] Created Language Model
+[2026-10-07 21:16:09,583] Trainable parameters: 130,433,920 / 130,433,920 (100.00%)
+[2026-10-07 21:16:09,583] Created Optimizer
+[2026-10-07 21:16:09,630] Resources acquired successfully.
+[2026-10-07 21:16:10,159] Training start from scratch
+[2026-10-07 21:16:10,160] Training start from step: 0
+[2026-10-07 21:16:22,773] step: 10, loss: 8.0403, lr: 0.000299, grad_norm: 3.0047, step_time: 1.251s (avg: 1.261s), tok/s: 52376.4 (avg: 51960.2), TFLOPS/s/GPU: 20.50 (avg: 20.33)
+[2026-10-07 21:16:35,245] step: 20, loss: 5.8850, lr: 0.000190, grad_norm: 2.4305, step_time: 1.237s (avg: 1.254s), tok/s: 52977.0 (avg: 52250.3), TFLOPS/s/GPU: 20.73 (avg: 20.45)
+[2026-10-07 21:16:47,781] step: 30, loss: 5.1044, lr: 0.000047, grad_norm: 0.9275, step_time: 1.243s (avg: 1.254s), tok/s: 52708.1 (avg: 52260.1), TFLOPS/s/GPU: 20.63 (avg: 20.45)
+[2026-10-07 21:16:54,057] Skip checkpoint saving since no-save flag is set
+[2026-10-07 21:16:54,057] Total training time: 0.01 hours
+[2026-10-07 21:16:54,057] Finishing training
+{
+  "model_size_label": "130m",
+  "parameters_local": 130433920,
+  "parameters_full": 130433920,
+  "active_parameters_per_token_estimate": 130433920,
+  "moe": false,
+  "moe_config": null,
+  "expert_stats": {},
+  "world_size": 2,
+  "tp": 1,
+  "ep": 1,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "context": 8192,
+  "micro_batch": 2,
+  "global_batch": 8,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "attention": "sdpa",
+  "compile": false,
+  "activation_recompute": false,
+  "loss_chunk_size": 256,
+  "seed": 42,
+  "torch": "2.12.0+cu130",
+  "recompute_linear_ce": true,
+  "moe_backend": "loop",
+  "profile": false,
+  "profile_ranks": [
+    0
+  ],
+  "profiler_schedule": {
+    "start": 11,
+    "end": 15,
+    "wait": 1,
+    "warmup": 1,
+    "active": 2
+  },
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "steps": 35,
+  "warmup_steps_excluded": 10,
+  "mean_step_seconds": 1.2512433400563896,
+  "median_step_seconds": 1.2518517971038818,
+  "p95_step_seconds": 1.2560504639986902,
+  "global_tokens_per_second": 52376.702358349015,
+  "peak_allocated_bytes": 9863943680,
+  "peak_reserved_bytes": 10221518848,
+  "initial_heldout_loss": 10.920368194580078,
+  "final_heldout_loss": 4.965050220489502
+}

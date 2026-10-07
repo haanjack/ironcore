@@ -1,0 +1,205 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791352281.198127  790507 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1791352281.198127  790508 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1791352281.232788  790508 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+I0000 00:00:1791352281.232788  790507 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791352282.245480  790507 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791352282.252389  790508 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+[2026-10-07 14:51:25,315] Acquiring training resources...
+[2026-10-07 14:51:25,315] Initialize torch distributed ... 
+[2026-10-07 14:51:25,544] Loading evaluation tasks
+[2026-10-07 14:51:25,545] Set random seed to 42 for model initialization
+[2026-10-07 14:51:25,554] Created Language Model
+[2026-10-07 14:51:25,554] Trainable parameters: 9,984 / 9,984 (100.00%)
+[2026-10-07 14:51:25,554] Created Optimizer
+[2026-10-07 14:51:25,560] Resources acquired successfully.
+[2026-10-07 14:51:25,642] Training start from scratch
+[2026-10-07 14:51:25,642] Training start from step: 0
+[2026-10-07 14:51:25,979] step: 1, loss: 3.7324, lr: 0.000868, grad_norm: 2.2460, step_time: 0.337s (avg: 0.337s), tok/s: 380.3 (avg: 380.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 14:51:26,001] step: 2, loss: 3.6830, lr: 0.000722, grad_norm: 1.9477, step_time: 0.022s (avg: 0.179s), tok/s: 5866.0 (avg: 713.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 14:51:26,021] step: 3, loss: 3.5929, lr: 0.000550, grad_norm: 1.3925, step_time: 0.019s (avg: 0.126s), tok/s: 6606.2 (avg: 1015.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 14:51:26,040] step: 4, loss: 3.5851, lr: 0.000378, grad_norm: 1.2545, step_time: 0.020s (avg: 0.099s), tok/s: 6540.7 (avg: 1287.2), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 14:51:26,057] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 14:51:26,057] Saving checkpoint to /tmp/ironcore-validation-gpu01/pretrain/tp2_resume/checkpoint/step_4
+[2026-10-07 14:51:26,068] Checkpoint saved successfully. Checkpoint saved in 0.015s
+[2026-10-07 14:51:26,068] Training stopped by exit interval: 4
+[2026-10-07 14:51:26,068] Total training time: 0.00 hours
+[2026-10-07 14:51:26,068] Finishing training
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791352291.238813  791259 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1791352291.238813  791258 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+I0000 00:00:1791352291.274538  791258 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+I0000 00:00:1791352291.274535  791259 cpu_feature_guard.cc:227] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791352292.295040  791259 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791352292.306836  791258 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+[2026-10-07 14:51:35,368] Acquiring training resources...
+[2026-10-07 14:51:35,368] Initialize torch distributed ... 
+[2026-10-07 14:51:35,582] Loading evaluation tasks
+[2026-10-07 14:51:35,583] Set random seed to 42 for model initialization
+[2026-10-07 14:51:35,591] Created Language Model
+[2026-10-07 14:51:35,591] Trainable parameters: 9,984 / 9,984 (100.00%)
+[2026-10-07 14:51:35,591] Created Optimizer
+[2026-10-07 14:51:35,597] Resources acquired successfully.
+[2026-10-07 14:51:35,682] Loading checkpoint from /tmp/ironcore-validation-gpu01/pretrain/tp2_resume/checkpoint/step_4
+[2026-10-07 14:51:35,702] Loading optimizer state dict.
+[2026-10-07 14:51:35,710] [WARNING] [logger.py:57] Failed to reshape embedding.word_embeddings.weight from torch.Size([42, 32]) to torch.Size([21, 32]): shape '[21, 32]' is invalid for input of size 1344
+[2026-10-07 14:51:35,710] [WARNING] [logger.py:57] Failed to reshape embedding.word_embeddings.weight from torch.Size([42, 32]) to torch.Size([21, 32]): shape '[21, 32]' is invalid for input of size 1344
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_q.weight from torch.Size([32, 64]) to torch.Size([32, 16]): shape '[32, 16]' is invalid for input of size 2048
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_q.weight from torch.Size([32, 64]) to torch.Size([32, 16]): shape '[32, 16]' is invalid for input of size 2048
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_q.bias from torch.Size([16, 64]) to torch.Size([16]): shape '[16]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_q.bias from torch.Size([16, 64]) to torch.Size([16]): shape '[16]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_kv.weight from torch.Size([32, 64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 2048
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_kv.weight from torch.Size([32, 64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 2048
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_kv.bias from torch.Size([32, 64]) to torch.Size([32]): shape '[32]' is invalid for input of size 2048
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.linear_kv.bias from torch.Size([32, 64]) to torch.Size([32]): shape '[32]' is invalid for input of size 2048
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.attn_output.weight from torch.Size([64, 16]) to torch.Size([16, 32]): shape '[16, 32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.attn_output.weight from torch.Size([64, 16]) to torch.Size([16, 32]): shape '[16, 32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.attn_output.bias from torch.Size([32, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.attn_output.bias from torch.Size([32, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.input_layernorm.layernorm.weight from torch.Size([16, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 512
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.input_layernorm.layernorm.weight from torch.Size([16, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 512
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.input_layernorm.layernorm.bias from torch.Size([32, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.input_layernorm.layernorm.bias from torch.Size([32, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.post_attn_layernorm.layernorm.weight from torch.Size([32, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.post_attn_layernorm.layernorm.weight from torch.Size([32, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 1024
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.post_attn_layernorm.layernorm.bias from torch.Size([16, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 512
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.post_attn_layernorm.layernorm.bias from torch.Size([16, 32]) to torch.Size([32]): shape '[32]' is invalid for input of size 512
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.mlp.up_proj.weight from torch.Size([32]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 32
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.mlp.up_proj.weight from torch.Size([32]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 32
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.mlp.up_proj.bias from torch.Size([64]) to torch.Size([32]): shape '[32]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.mlp.up_proj.bias from torch.Size([64]) to torch.Size([32]): shape '[32]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.mlp.down_proj.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.0.mlp.down_proj.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_q.weight from torch.Size([64]) to torch.Size([32, 16]): shape '[32, 16]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_q.weight from torch.Size([64]) to torch.Size([32, 16]): shape '[32, 16]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_q.bias from torch.Size([64]) to torch.Size([16]): shape '[16]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_q.bias from torch.Size([64]) to torch.Size([16]): shape '[16]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_kv.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,711] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_kv.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_kv.bias from torch.Size([64]) to torch.Size([32]): shape '[32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.linear_kv.bias from torch.Size([64]) to torch.Size([32]): shape '[32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.attn_output.weight from torch.Size([64]) to torch.Size([16, 32]): shape '[16, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.attn_output.weight from torch.Size([64]) to torch.Size([16, 32]): shape '[16, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.attn_output.bias from torch.Size([16]) to torch.Size([32]): shape '[32]' is invalid for input of size 16
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.attn_output.bias from torch.Size([16]) to torch.Size([32]): shape '[32]' is invalid for input of size 16
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.mlp.up_proj.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.mlp.up_proj.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.mlp.up_proj.bias from torch.Size([64]) to torch.Size([32]): shape '[32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.mlp.up_proj.bias from torch.Size([64]) to torch.Size([32]): shape '[32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.mlp.down_proj.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] [WARNING] [logger.py:57] Failed to reshape model.layers.1.mlp.down_proj.weight from torch.Size([64]) to torch.Size([32, 32]): shape '[32, 32]' is invalid for input of size 64
+[2026-10-07 14:51:35,712] Checkpoint loaded successfully. Resuming training at step 4. Total time: 0.03s
+[2026-10-07 14:51:35,712] Successfully loaded checkpoint: /tmp/ironcore-validation-gpu01/pretrain/tp2_resume/checkpoint (resuming from step 4)
+[2026-10-07 14:51:35,712] Skipping 16 consumed micro-batches to resume data position (32 samples on this rank).
+[2026-10-07 14:51:35,714] Training start from step: 4
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 502, in <module>
+[rank0]:     main()
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 498, in main
+[rank0]:     (worker if args.worker else run)(args)
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 277, in worker
+[rank0]:     trainer.train()
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 559, in train
+[rank0]:     loss, grad_norm, param_norm = self.train_step(step)
+[rank0]:                                   ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/language_model_trainer.py", line 85, in train_step
+[rank0]:     self._optimizer_step()
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 782, in _optimizer_step
+[rank0]:     self.scaler.step(self.optimizer)
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/amp/grad_scaler.py", line 400, in step
+[rank0]:     return optimizer.step(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/optim/lr_scheduler.py", line 166, in wrapper
+[rank0]:     return func.__get__(opt, opt.__class__)(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/optim/optimizer.py", line 535, in wrapper
+[rank0]:     out = func(*args, **kwargs)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank0]:     return func(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/hanjack/ironcore/ironcore/ironcore/optimizer/adamw.py", line 89, in step
+[rank0]:     exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
+[rank0]:                           ~~~~~^^^^^^^^^^^
+[rank0]: KeyError: 'exp_avg'
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 502, in <module>
+[rank1]:     main()
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 498, in main
+[rank1]:     (worker if args.worker else run)(args)
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py", line 277, in worker
+[rank1]:     trainer.train()
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 559, in train
+[rank1]:     loss, grad_norm, param_norm = self.train_step(step)
+[rank1]:                                   ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/language_model_trainer.py", line 85, in train_step
+[rank1]:     self._optimizer_step()
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/trainers/base_trainer.py", line 782, in _optimizer_step
+[rank1]:     self.scaler.step(self.optimizer)
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/amp/grad_scaler.py", line 400, in step
+[rank1]:     return optimizer.step(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/optim/lr_scheduler.py", line 166, in wrapper
+[rank1]:     return func.__get__(opt, opt.__class__)(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/optim/optimizer.py", line 535, in wrapper
+[rank1]:     out = func(*args, **kwargs)
+[rank1]:           ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+[rank1]:     return func(*args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/home/hanjack/ironcore/ironcore/ironcore/optimizer/adamw.py", line 89, in step
+[rank1]:     exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
+[rank1]:                           ~~~~~^^^^^^^^^^^
+[rank1]: KeyError: 'exp_avg'
+W1007 14:51:37.831000 791203 site-packages/torch/distributed/elastic/multiprocessing/api.py:1014] Sending process 791258 closing signal SIGTERM
+E1007 14:51:37.839000 791203 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 1) local_rank: 1 (pid: 791259) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/home/hanjack/ironcore/ironcore/scripts/validate_trainers.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_14:51:37
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 791258) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_14:51:37
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 791259) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

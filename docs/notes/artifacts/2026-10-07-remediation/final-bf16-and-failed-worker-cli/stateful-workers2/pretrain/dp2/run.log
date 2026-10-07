@@ -1,0 +1,66 @@
+usage: validate_trainers.py [-h] [--device {cpu,cuda}]
+                            [--precision {float32,bfloat16}]
+                            [--parameter-precision {float32,model}] [--fsdp]
+                            [--distributed-optimizer] [--output OUTPUT]
+                            [--steps STEPS] [--architecture {gpt2,cs336}]
+                            [--loss-chunk-size LOSS_CHUNK_SIZE] [--moe]
+                            [--recompute-linear-ce]
+                            [--moe-backend {loop,batched}] [--moe-idle]
+                            [--moe-aux-alpha MOE_AUX_ALPHA] [--cases CASES]
+                            [--stateful-data] [--data-workers DATA_WORKERS]
+                            [--tasks TASKS] [--grpo-objective {gspo,grpo}]
+                            [--timeout TIMEOUT]
+usage: validate_trainers.py [-h] [--device {cpu,cuda}]
+                            [--precision {float32,bfloat16}]
+                            [--parameter-precision {float32,model}] [--fsdp]
+                            [--distributed-optimizer] [--output OUTPUT]
+                            [--steps STEPS] [--architecture {gpt2,cs336}]
+                            [--loss-chunk-size LOSS_CHUNK_SIZE] [--moe]
+                            [--recompute-linear-ce]
+                            [--moe-backend {loop,batched}] [--moe-idle]
+                            [--moe-aux-alpha MOE_AUX_ALPHA] [--cases CASES]
+                            [--stateful-data] [--data-workers DATA_WORKERS]
+                            [--tasks TASKS] [--grpo-objective {gspo,grpo}]
+                            [--timeout TIMEOUT]
+validate_trainers.py: error: Stateful fixture currently supports pretrain/sft/grpo
+validate_trainers.py: error: Stateful fixture currently supports pretrain/sft/grpo
+E1007 20:58:05.107000 1940609 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 2) local_rank: 0 (pid: 1940620) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/tmp/ironcore-remediation-final-v5-src/scripts/validate_trainers.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_20:58:05
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 2 (pid: 1940621) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_20:58:05
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 2 (pid: 1940620) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

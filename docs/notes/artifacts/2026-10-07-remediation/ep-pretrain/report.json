@@ -1,0 +1,36 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "float32",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": true,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "baseline_case": "full",
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "ep2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 2.2351741790771484e-08,
+        "final": 6.146728992462158e-08,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "ep2",
+      "resume_max_abs_error": 0.0
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+[2026-10-07 20:23:46,946] Acquiring training resources...
+[2026-10-07 20:23:46,947] Initialize torch distributed ... 
+[2026-10-07 20:23:47,163] Loading evaluation tasks
+[2026-10-07 20:23:47,165] Set random seed to 42 for model initialization
+[2026-10-07 20:23:47,173] Created Language Model
+[2026-10-07 20:23:47,173] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 20:23:47,174] Created Optimizer
+[2026-10-07 20:23:47,174] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:23:47,174] Resources acquired successfully.
+[2026-10-07 20:23:47,175] Training start from scratch
+[2026-10-07 20:23:47,175] Training start from step: 0
+[2026-10-07 20:23:47,544] step: 1, loss: 3.4673, lr: 0.000550, grad_norm: 2.0650, step_time: 0.369s (avg: 0.369s), tok/s: 346.7 (avg: 346.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:47,577] step: 2, loss: 3.3992, lr: 0.000232, grad_norm: 2.0249, step_time: 0.033s (avg: 0.201s), tok/s: 3906.3 (avg: 636.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:47,588] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:23:47,588] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/recomputed-ce/pretrain/accum/checkpoint/step_2
+[2026-10-07 20:23:47,598] Checkpoint saved successfully. Checkpoint saved in 0.008s
+[2026-10-07 20:23:47,630] step: 3, loss: 3.3477, lr: 0.000100, grad_norm: 1.9695, step_time: 0.031s (avg: 0.152s), tok/s: 4085.2 (avg: 844.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:47,661] step: 4, loss: 3.3363, lr: 0.000100, grad_norm: 1.9660, step_time: 0.031s (avg: 0.122s), tok/s: 4099.9 (avg: 1053.4), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 20:23:47,666] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:23:47,666] Saving checkpoint to /tmp/ironcore-remediation-distributed-v3/recomputed-ce/pretrain/accum/checkpoint/step_4
+[2026-10-07 20:23:47,679] Checkpoint saved successfully. Checkpoint saved in 0.009s
+[2026-10-07 20:23:47,679] Total training time: 0.00 hours
+[2026-10-07 20:23:47,679] Finishing training

@@ -1,0 +1,26 @@
+[2026-10-07 21:00:15,630] Acquiring training resources...
+[2026-10-07 21:00:15,630] Initialize torch distributed ... 
+/tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+  torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+/tmp/ironcore-validation-env/lib/python3.12/site-packages/torchdata/stateful_dataloader/stateful_dataloader.py:379: UserWarning: 'set_vital' is deprecated, please do not call
+  torch.set_vital("Dataloader", "enabled", "True")  # type: ignore[attr-defined]
+[2026-10-07 21:00:15,887] Loading evaluation tasks
+[2026-10-07 21:00:15,888] Set random seed to 42 for model initialization
+[2026-10-07 21:00:15,895] Created Language Model
+[2026-10-07 21:00:15,896] Trainable parameters: 22,688 / 22,688 (100.00%)
+[2026-10-07 21:00:15,896] Created Optimizer
+[2026-10-07 21:00:15,932] Resources acquired successfully.
+[2026-10-07 21:00:15,963] Training start from scratch
+[2026-10-07 21:00:15,963] Training start from step: 0
+[2026-10-07 21:00:19,776] step: 1, loss: 3.4754, lr: 0.000550, grad_norm: 2.1302, step_time: 3.812s (avg: 3.813s), tok/s: 33.6 (avg: 33.6), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:00:19,791] step: 2, loss: 3.3932, lr: 0.000232, grad_norm: 2.0705, step_time: 0.015s (avg: 1.914s), tok/s: 8510.5 (avg: 66.9), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:00:23,242] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:00:23,242] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/stateful-workers2/sft/dp2/checkpoint/step_2
+[2026-10-07 21:00:23,268] Checkpoint saved successfully. Checkpoint saved in 0.019s
+[2026-10-07 21:00:23,283] step: 3, loss: 3.3553, lr: 0.000100, grad_norm: 1.9948, step_time: 0.014s (avg: 2.440s), tok/s: 8890.7 (avg: 52.5), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:00:23,296] step: 4, loss: 3.3337, lr: 0.000100, grad_norm: 1.9735, step_time: 0.013s (avg: 1.833s), tok/s: 9736.0 (avg: 69.8), TFLOPS/s/GPU: 0.00 (avg: 0.00)
+[2026-10-07 21:00:23,303] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 21:00:23,304] Saving checkpoint to /tmp/ironcore-remediation-final-validation-v2/stateful-workers2/sft/dp2/checkpoint/step_4
+[2026-10-07 21:00:23,318] Checkpoint saved successfully. Checkpoint saved in 0.015s
+[2026-10-07 21:00:23,318] Total training time: 0.00 hours
+[2026-10-07 21:00:23,318] Finishing training

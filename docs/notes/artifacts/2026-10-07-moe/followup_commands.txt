@@ -1,0 +1,42 @@
+import json,subprocess,sys,time
+from pathlib import Path
+root=Path('/home/hanjack/ironcore/ironcore')
+report=Path('/tmp/ironcore-moe-fp32/report.json')
+deadline=time.monotonic()+1200
+while True:
+    data=json.loads(report.read_text())
+    if data['status']=='passed':break
+    if data['status']=='failed':raise RuntimeError('MoE FP32 failed')
+    if time.monotonic()>deadline:raise TimeoutError('Waiting for FP32')
+    time.sleep(5)
+print('FP32 verified',flush=True)
+cmd=[sys.executable,'scripts/validate_moe_ep.py','--output','/tmp/ironcore-moe-ep-oracle']
+r=subprocess.run(cmd,cwd=root,check=False)
+assert r.returncode in (0,1)
+ep=json.loads(Path('/tmp/ironcore-moe-ep-oracle/report.json').read_text())
+assert 'ranks' in ep,'EP worker failed before numerical checks'
+for options,output in [(['--precision','bfloat16'],'/tmp/ironcore-moe-bf16'),(['--moe-idle','--tasks','pretrain'],'/tmp/ironcore-moe-idle')]:
+    subprocess.run([sys.executable,'scripts/validate_trainers.py','--device','cuda','--architecture','cs336','--moe','--steps','4','--output',output,*options],cwd=root,check=True)
+output=Path('/tmp/ironcore-moe-study');output.mkdir()
+jobs=[('50m_moe_learn','50m',1024,4,32,100,['--moe']),
+      ('130m_moe_learn','130m',1024,4,32,100,['--moe']),
+      ('50m_dense_control','50m',1024,4,32,100,[]),
+      ('50m_moe_mb8','50m',1024,8,32,20,['--moe']),
+      ('50m_moe_ctx4096','50m',4096,2,4,20,['--moe']),
+      ('50m_moe_tp2','50m',1024,4,32,20,['--moe','--tp','2'])]
+results={'status':'running','jobs':[]}
+for label,model,context,micro,batch,steps,options in jobs:
+    path=output/label;path.mkdir()
+    cmd=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=2','scripts/benchmark_training.py','--data-dir','/tmp/ironcore-corpus','--output',str(path),'--model-size',model,'--context',str(context),'--micro-batch',str(micro),'--global-batch',str(batch),'--steps',str(steps),*options]
+    print('Benchmark:',label,flush=True)
+    with (path/'run.log').open('w') as log,(path/'telemetry.csv').open('w') as telemetry:
+        monitor=subprocess.Popen(['nvidia-smi','--query-gpu=timestamp,index,name,temperature.gpu,power.draw,power.limit,clocks.sm,clocks.mem,utilization.gpu,memory.used','--format=csv,noheader,nounits','--loop-ms=1000'],stdout=telemetry)
+        try:r=subprocess.run(cmd,cwd=root,stdout=log,stderr=log,timeout=900,check=False)
+        finally:monitor.terminate();monitor.wait(timeout=10)
+    entry={'label':label,'command':cmd,'returncode':r.returncode,'status':'completed' if r.returncode==0 else 'failed'}
+    if r.returncode==0:entry['ranks']=[json.loads((path/f'rank{i}.json').read_text()) for i in (0,1)]
+    results['jobs'].append(entry)
+    (output/'study.json').write_text(json.dumps(results,indent=2)+'\n')
+    if r.returncode:raise RuntimeError(str(path/'run.log'))
+results['status']='completed';(output/'study.json').write_text(json.dumps(results,indent=2)+'\n')
+print('MoE follow-up completed',flush=True)

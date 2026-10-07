@@ -1,0 +1,17 @@
+import json,subprocess,sys
+from pathlib import Path
+root=Path('/home/hanjack/ironcore/ironcore')
+out=Path('/tmp/ironcore-html-profiles-fixed');out.mkdir()
+jobs=[('dense52_dp2',[]),('moe55_dp2',['--moe']),('moe55_tp2',['--moe','--tp','2'])]
+report={'status':'running','jobs':[]}
+for label,options in jobs:
+ p=out/label;p.mkdir()
+ cmd=[sys.executable,'-m','torch.distributed.run','--standalone','--nproc_per_node=2','scripts/benchmark_training.py','--data-dir','/tmp/ironcore-corpus','--output',str(p),'--model-size','50m','--context','1024','--micro-batch','4','--global-batch','32','--steps','20','--profile','--profile-ranks','0,1',*options]
+ print('Capturing',label,flush=True)
+ with (p/'run.log').open('w') as log:r=subprocess.run(cmd,cwd=root,stdout=log,stderr=log,check=False,timeout=600)
+ entry={'label':label,'command':cmd,'returncode':r.returncode,'status':'completed' if r.returncode==0 else 'failed'}
+ if r.returncode==0:entry['ranks']=[json.loads((p/f'rank{i}.json').read_text()) for i in [0,1]]
+ report['jobs'].append(entry);(out/'study.json').write_text(json.dumps(report,indent=2)+'\n')
+ if r.returncode:raise RuntimeError(str(p/'run.log'))
+report['status']='completed';(out/'study.json').write_text(json.dumps(report,indent=2)+'\n')
+print('Both-rank profiles completed',flush=True)

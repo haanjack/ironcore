@@ -51,11 +51,11 @@ class Tokenizer:
             self._tokenizer, "vocab_size", getattr(self._tokenizer, "n_vocab", None)
         )
         assert self._vocab_size is not None, "Could not find vocab_size property in tokenizer"
+        # HF vocab_size excludes added tokens; attribute names are not tokens.
+        # Count the actual token IDs once, rather than double counting specials.
+        if hasattr(self._tokenizer, "get_vocab"):
+            self._vocab_size = max(self._tokenizer.get_vocab().values()) + 1
         vocab_size = self._vocab_size
-        if hasattr(self._tokenizer, "SPECIAL_TOKENS_ATTRIBUTES"):
-            vocab_size += len(self._tokenizer.SPECIAL_TOKENS_ATTRIBUTES) + len(
-                self._tokenizer.added_tokens_decoder
-            )
         # padding to the nearest multiple of vocab_padding_unit
         self._padded_vocab_size = (
             (vocab_size + vocab_padding_unit - 1) // vocab_padding_unit * vocab_padding_unit

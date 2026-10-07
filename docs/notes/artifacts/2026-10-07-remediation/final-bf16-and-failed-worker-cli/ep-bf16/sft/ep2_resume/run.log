@@ -1,0 +1,32 @@
+[2026-10-07 20:55:46,815] Acquiring training resources...
+[2026-10-07 20:55:46,815] Initialize torch distributed ... 
+[2026-10-07 20:55:47,133] Loading evaluation tasks
+[2026-10-07 20:55:47,134] Set random seed to 42 for model initialization
+[2026-10-07 20:55:47,145] Created Language Model
+[2026-10-07 20:55:47,151] Trainable parameters: 29,088 / 29,088 (100.00%)
+[2026-10-07 20:55:47,151] Created Optimizer
+[2026-10-07 20:55:47,183] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:55:47,184] Resources acquired successfully.
+[2026-10-07 20:55:47,224] Training start from scratch
+[2026-10-07 20:55:47,225] Training start from step: 0
+[2026-10-07 20:55:47,798] step: 1, loss: 3.4556, lr: 0.000550, grad_norm: 2.0955, step_time: 0.574s (avg: 0.574s), tok/s: 223.1 (avg: 223.1)
+[2026-10-07 20:55:47,825] step: 2, loss: 3.4053, lr: 0.000232, grad_norm: 2.1299, step_time: 0.026s (avg: 0.300s), tok/s: 4864.6 (avg: 426.5)
+[2026-10-07 20:55:47,862] Training stopped by exit interval: 2
+[2026-10-07 20:55:47,862] Total training time: 0.00 hours
+[2026-10-07 20:55:47,862] Finishing training
+[2026-10-07 20:55:55,794] Acquiring training resources...
+[2026-10-07 20:55:55,794] Initialize torch distributed ... 
+[2026-10-07 20:55:56,066] Loading evaluation tasks
+[2026-10-07 20:55:56,067] Set random seed to 42 for model initialization
+[2026-10-07 20:55:56,079] Created Language Model
+[2026-10-07 20:55:56,085] Trainable parameters: 29,088 / 29,088 (100.00%)
+[2026-10-07 20:55:56,085] Created Optimizer
+[2026-10-07 20:55:56,117] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:55:56,117] Resources acquired successfully.
+[2026-10-07 20:55:56,166] Successfully loaded checkpoint: /tmp/ironcore-remediation-final-validation/ep-bf16/sft/ep2_resume/checkpoint (resuming from step 2)
+[2026-10-07 20:55:56,166] Skipping 4 consumed micro-batches to resume data position (8 samples on this rank).
+[2026-10-07 20:55:56,168] Training start from step: 2
+[2026-10-07 20:55:56,762] step: 3, loss: 3.3442, lr: 0.000100, grad_norm: 2.0308, step_time: 0.594s (avg: 0.594s), tok/s: 215.6 (avg: 215.5)
+[2026-10-07 20:55:56,789] step: 4, loss: 3.3419, lr: 0.000100, grad_norm: 2.0831, step_time: 0.027s (avg: 0.311s), tok/s: 4723.1 (avg: 412.1)
+[2026-10-07 20:55:56,823] Total training time: 0.00 hours
+[2026-10-07 20:55:56,823] Finishing training

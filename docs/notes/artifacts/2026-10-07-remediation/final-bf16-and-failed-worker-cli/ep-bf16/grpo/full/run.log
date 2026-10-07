@@ -1,0 +1,46 @@
+[2026-10-07 20:56:56,793] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 20:56:56,793] Acquiring training resources...
+[2026-10-07 20:56:56,793] Initialize torch distributed ... 
+[2026-10-07 20:56:57,084] Loading evaluation tasks
+[2026-10-07 20:56:57,085] Set random seed to 42 for model initialization
+[2026-10-07 20:56:57,097] Created Language Model
+[2026-10-07 20:56:57,097] Trainable parameters: 41,376 / 41,376 (100.00%)
+[2026-10-07 20:56:57,097] Created Optimizer
+[2026-10-07 20:56:57,097] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 20:56:57,097] Dense FLOP estimate disabled for MoE; use measured tokens/s.
+[2026-10-07 20:56:57,097] Resources acquired successfully.
+[2026-10-07 20:56:57,100] Training start from scratch
+[2026-10-07 20:56:57,100] Creating reference model for GRPO...
+[2026-10-07 20:56:57,100] Creating reference model from policy weights...
+[2026-10-07 20:56:57,105] Reference model created on GPU (device=cuda:0)
+[2026-10-07 20:56:57,106] [VRAM] After ref model creation: allocated=0.00 GB, reserved=0.00 GB
+[2026-10-07 20:56:57,106] Initializing reward worker via RewardManager...
+[2026-10-07 20:56:57,106] Training start from step: 0
+[2026-10-07 20:56:57,461] [VRAM] After rollout: peak=0.03 GB
+[2026-10-07 20:56:57,498] [VRAM] After ref log probs: peak=0.03 GB
+[2026-10-07 20:56:57,659] [VRAM] After optimizer step: peak=0.07 GB
+[2026-10-07 20:56:57,660] step: 1, loss: -0.0523, lr: 0.000232, grad_norm: 2.2976, step_time: 0.553s (avg: 0.554s), tok/s: 231.3 (avg: 231.2)
+[2026-10-07 20:56:57,666] [VRAM] After rollout: peak=0.07 GB
+[2026-10-07 20:56:57,674] [VRAM] After ref log probs: peak=0.07 GB
+[2026-10-07 20:56:57,709] [VRAM] After optimizer step: peak=0.07 GB
+[2026-10-07 20:56:57,709] step: 1, grpo_loss: -0.0096, policy_loss: -0.0114, kl_loss: 0.0018, mean_reward: 0.7500, mean_ratio: 1.0041, clip_frac: 0.000
+[2026-10-07 20:56:57,709] step: 2, loss: -0.0096, lr: 0.000100, grad_norm: 3.7657, step_time: 0.049s (avg: 0.302s), tok/s: 2593.9 (avg: 424.2)
+[2026-10-07 20:56:57,719] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:56:57,719] Saving checkpoint to /tmp/ironcore-remediation-final-validation/ep-bf16/grpo/full/checkpoint/step_2
+[2026-10-07 20:56:57,740] Checkpoint saved successfully. Checkpoint saved in 0.018s
+[2026-10-07 20:56:57,747] [VRAM] After rollout: peak=0.07 GB
+[2026-10-07 20:56:57,756] [VRAM] After ref log probs: peak=0.07 GB
+[2026-10-07 20:56:57,796] [VRAM] After optimizer step: peak=0.07 GB
+[2026-10-07 20:56:57,796] step: 2, grpo_loss: -0.0021, policy_loss: -0.0052, kl_loss: 0.0030, mean_reward: 0.7500, mean_ratio: 1.0022, clip_frac: 0.000
+[2026-10-07 20:56:57,796] step: 3, loss: -0.0021, lr: 0.000100, grad_norm: 3.6125, step_time: 0.056s (avg: 0.230s), tok/s: 2298.2 (avg: 556.3)
+[2026-10-07 20:56:57,802] [VRAM] After rollout: peak=0.07 GB
+[2026-10-07 20:56:57,810] [VRAM] After ref log probs: peak=0.07 GB
+[2026-10-07 20:56:57,847] [VRAM] After optimizer step: peak=0.07 GB
+[2026-10-07 20:56:57,847] step: 3, grpo_loss: -0.0022, policy_loss: -0.0053, kl_loss: 0.0030, mean_reward: 0.7500, mean_ratio: 1.0025, clip_frac: 0.000
+[2026-10-07 20:56:57,847] step: 4, loss: -0.0022, lr: 0.000100, grad_norm: 3.6296, step_time: 0.050s (avg: 0.185s), tok/s: 2550.2 (avg: 691.1)
+[2026-10-07 20:56:57,861] Skipping HF config: hf_model_type/hf_architecture not set
+[2026-10-07 20:56:57,861] Saving checkpoint to /tmp/ironcore-remediation-final-validation/ep-bf16/grpo/full/checkpoint/step_4
+[2026-10-07 20:56:57,878] Checkpoint saved successfully. Checkpoint saved in 0.017s
+[2026-10-07 20:56:57,879] Total training time: 0.00 hours
+[2026-10-07 20:56:57,879] Finishing training
+[2026-10-07 20:56:57,894] GRPO evaluation at step 4: {'eval/mean_reward': 0.75, 'eval/positive_reward_rate': 1.0}

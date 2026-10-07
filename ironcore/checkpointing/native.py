@@ -193,11 +193,13 @@ def _partition_optimizer_states_for_load(optimizer, full_state_dict, model):
             continue  # Skip params not owned by this rank
 
         param_name = param_to_name.get(param)
-        if param_name is None or param_name not in full_state_dict["state"]:
+        # Native loader has already mapped global names to live parameters.
+        state_key = param if param in full_state_dict["state"] else param_name
+        if state_key is None or state_key not in full_state_dict["state"]:
             continue
 
         # Copy state for this parameter
-        state = full_state_dict["state"][param_name]
+        state = full_state_dict["state"][state_key]
         partitioned_state["state"][param] = {}
         for k, v in state.items():
             if isinstance(v, torch.Tensor):
@@ -208,7 +210,7 @@ def _partition_optimizer_states_for_load(optimizer, full_state_dict, model):
     return partitioned_state
 
 
-def load_checkpoint(
+def load_checkpoint(  # noqa: PLR0911
     config: MainConfig,
     model: torch.nn.Module,
     optimizer: Optimizer | None = None,
@@ -226,6 +228,14 @@ def load_checkpoint(
 
     if not Path(config.trainer.model_path).exists():
         return -1
+    if config.parallel.use_fsdp:
+        from .fsdp import load_fsdp_checkpoint
+
+        return load_fsdp_checkpoint(config, model, optimizer, lr_scheduler, step)
+    if config.model.moe.use_moe and config.model.moe.expert_model_parallel_size > 1:
+        from .expert import load_expert_checkpoint
+
+        return load_expert_checkpoint(config, model, optimizer, lr_scheduler, step)
 
     # determine trained step to load
     if step >= 0:
@@ -253,6 +263,11 @@ def load_checkpoint(
     if not ckpt_path.exists():
         logger.warning(f"Checkpoint {ckpt_path} does not exist.")
         return -1
+
+    from .integrity import verify_manifest
+
+    if (init_ckpt_path / "native_manifest.json").exists():
+        verify_manifest(init_ckpt_path, "native_manifest.json")
 
     # load checkpoint
     timer.start("ckpt-load")
@@ -372,7 +387,7 @@ def load_checkpoint(
 
                 processed_state = {}
                 for state_key, state_tensor in loaded_optim_state_dict["state"][name].items():
-                    if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
+                    if state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq", "momentum_buffer"]:
                         # Determine target device using the same per-param criteria
                         # as the optimizer step (TP-aware via _should_offload_param).
                         offload_enabled = getattr(optimizer, "offload_enabled", False)
@@ -385,70 +400,38 @@ def load_checkpoint(
                         if state_tensor.device != target_device:
                             state_tensor = state_tensor.to(target_device)
 
-                        # ensure param shape
-                        if state_tensor.shape != param.shape:
-                            try:
-                                if state_tensor.shape != param.shape:
-                                    state_tensor = state_tensor.reshape(param.shape).contiguous()
-                            except RuntimeError as reshape_err:
-                                logger.warning(
-                                    f"Failed to reshape {name} from {state_tensor.shape} to {param.shape}: {reshape_err}"
+                        # Universal checkpoint moments are full tensors. Split
+                        # them before checking the local parameter shape.
+                        module_name = ".".join(name.split(".")[:-1])
+                        attribs = model_attribs.get(module_name)
+                        if (
+                            not load_dist_ckpt
+                            and parallel_states.get_tensor_model_parallel_world_size() > 1
+                            and attribs is not None
+                            and (
+                                (
+                                    attribs["column_parallel"]
+                                    and any(k in name for k in ["weight", "bias", "lora_B"])
                                 )
-                                state_tensor = None
-
-                        if state_tensor is not None:
-                            processed_state[state_key] = state_tensor
+                                or (
+                                    attribs["row_parallel"]
+                                    and any(k in name for k in ["weight", "lora_A"])
+                                )
+                            )
+                        ):
+                            state_tensor = comm.split_to_model_parallel_workers(
+                                state_tensor, attribs
+                            )
+                        if state_tensor.numel() != param.numel():
+                            raise RuntimeError(
+                                f"Optimizer state {name}/{state_key} has shape {state_tensor.shape}, "
+                                f"expected {param.shape} after TP splitting"
+                            )
+                        processed_state[state_key] = state_tensor.reshape_as(param).contiguous()
                     else:
                         processed_state[state_key] = state_tensor
 
                 loaded_optim_state["state"][param] = processed_state
-
-            # split optimizer state for tensor parallel
-            if not load_dist_ckpt and parallel_states.get_tensor_model_parallel_world_size() > 1:
-                offload_enabled = getattr(optimizer, "offload_enabled", False)
-                offload_min_elements = getattr(optimizer, "offload_min_param_elements", 0)
-
-                for name, param in load_model.named_parameters():
-                    if param not in loaded_optim_state["state"]:
-                        continue
-
-                    module_name = ".".join(name.split(".")[:-1])
-                    # universal checkpoint
-                    optimizer_state = loaded_optim_state["state"][param]
-                    for state_key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
-                        if state_key not in optimizer_state:
-                            continue
-
-                        should_split = False
-                        if module_name in model_attribs:
-                            attribs = model_attribs[module_name]
-                            if attribs["column_parallel"]:
-                                if any(k in name for k in ["weight", "bias", "lora_B"]):
-                                    should_split = True
-                            elif attribs["row_parallel"]:
-                                if any(k in name for k in ["weight", "lora_A"]):
-                                    should_split = True
-
-                        if should_split:
-                            loaded_optim_state["state"][param][state_key] = (
-                                comm.split_to_model_parallel_workers(
-                                    optimizer_state[state_key],
-                                    model_attribs[module_name],
-                                )
-                            )
-
-                        tensor = loaded_optim_state["state"][param][state_key].reshape(param.shape)
-                        # Keep optimizer state on CPU using same per-param criteria as step()
-                        is_offloaded = offload_enabled and _should_offload_param(
-                            param, offload_min_elements
-                        )
-                        if is_offloaded and state_key in (
-                            "exp_avg",
-                            "exp_avg_sq",
-                            "max_exp_avg_sq",
-                        ):
-                            tensor = tensor.to("cpu")
-                        loaded_optim_state["state"][param][state_key] = tensor
 
             # Handle DistributedOptimizer: partition state for local rank
             is_dist_opt = _is_distributed_optimizer(optimizer)
@@ -559,6 +542,14 @@ def save_checkpoint(
         "trainer.model_path is not set. "
         "Specify a checkpoint save directory in config, or set operation.no_save: true."
     )
+    if config.parallel.use_fsdp:
+        from .fsdp import save_fsdp_checkpoint
+
+        return save_fsdp_checkpoint(config, model, optimizer, lr_scheduler, step)
+    if config.model.moe.use_moe and config.model.moe.expert_model_parallel_size > 1:
+        from .expert import save_expert_checkpoint
+
+        return save_expert_checkpoint(config, model, optimizer, lr_scheduler, step)
 
     # checkpoint file name
     init_ckpt_path = Path(config.trainer.model_path) / f"step_{step}"
@@ -666,62 +657,42 @@ def save_checkpoint(
             "state": {},
             "param_groups": optimizer.state_dict()["param_groups"],
         }
-        # Frozen parameters (e.g. LoRA base_layer weights) were never registered
-        # with the optimizer. optimizer.state is a defaultdict, so indexing it
-        # with a param that was never registered silently inserts a stray
-        # entry into the live optimizer's state — corrupting it for any later
-        # optimizer.state_dict() call (e.g. the universal-checkpoint merge
-        # below, or the next checkpoint save).
-        for _i, (name, param) in enumerate(save_model.named_parameters()):
-            if not param.requires_grad:
-                continue
-            optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
+        for name, param in save_model.named_parameters():
+            if param.requires_grad and param in optimizer.state:
+                optimizer_state_dict_by_name["state"][name] = optimizer.state[param]
 
-    # For universal checkpoints, gather TP-sharded optimizer states
     final_optimizer_state = optimizer_state_dict_by_name
     if _is_universal_checkpoint(config):
         merged_optimizer_state = {
             "state": {},
             "param_groups": optimizer.state_dict()["param_groups"],
         }
-
-        # Frozen parameters (e.g. LoRA base_layer weights) are never registered
-        # with the optimizer, so optimizer.state_dict()["state"] only has one
-        # entry per *trainable* parameter. Filter before zipping with
-        # strict=True, rather than after — zip(..., strict=True) raises on a
-        # length mismatch before the loop body ever runs.
-        trainable_named_parameters = [
-            (name, param) for name, param in save_model.named_parameters() if param.requires_grad
-        ]
-        for _i, ((name, param), optim_state_id) in enumerate(
-            zip(trainable_named_parameters, optimizer.state_dict()["state"], strict=True)
-        ):
+        # State is already keyed by parameter name. Optimizer group order may
+        # differ from model order (decay/no-decay groups), so zipping integer
+        # optimizer IDs with named_parameters silently assigns wrong moments.
+        for name, optim_state in optimizer_state_dict_by_name["state"].items():
             module_name = ".".join(name.split(".")[:-1])
-            optim_state = optimizer.state_dict()["state"][optim_state_id]
-
+            attribs = model_attribs.get(module_name)
             output_optim_state = {}
-            for key in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
-                if key not in optim_state:
-                    continue
-                should_gather = False
-                if module_name in model_attribs:
-                    attribs = model_attribs[module_name]
-                    if attribs["column_parallel"]:
-                        if any(k in name for k in ["weight", "bias", "lora_B"]):
-                            should_gather = True
-                    elif attribs["row_parallel"]:
-                        if any(k in name for k in ["weight", "lora_A"]):
-                            should_gather = True
-
-                if should_gather:
-                    output_optim_state[key] = comm.gather_from_model_parallel_workers(
-                        optim_state[key], model_attribs[module_name]
+            for key, value in optim_state.items():
+                should_gather = (
+                    key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq", "momentum_buffer")
+                    and attribs is not None
+                    and (
+                        (
+                            attribs["column_parallel"]
+                            and any(k in name for k in ["weight", "bias", "lora_B"])
+                        )
+                        or (
+                            attribs["row_parallel"] and any(k in name for k in ["weight", "lora_A"])
+                        )
                     )
-                else:
-                    output_optim_state[key] = optim_state[key]
-            output_optim_state["step"] = step
-
-            # Use parameter name as key (not integer index) for consistent load format
+                )
+                output_optim_state[key] = (
+                    comm.gather_from_model_parallel_workers(value, attribs)
+                    if should_gather
+                    else value
+                )
             merged_optimizer_state["state"][name] = output_optim_state
 
         final_optimizer_state = merged_optimizer_state
@@ -802,18 +773,35 @@ def save_checkpoint(
         },
     }
 
-    # save checkpoint — atomic write via .tmp + fsync + os.replace so an
-    # interrupted save cannot leave a truncated pytorch_model.bin that would
-    # permanently break resume. (Fable issue #58.)
-    if parallel_states.get_data_parallel_group_rank() == 0 and (
-        config.operation.save_dist_ckpt or parallel_states.get_tensor_model_parallel_rank() == 0
-    ):
-        tmp_path = ckpt_path.with_suffix(ckpt_path.suffix + ".tmp")
-        with open(tmp_path, "wb") as f:
-            torch.save(checkpoint, f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, ckpt_path)
+    from .expert import atomic_save
+    from .integrity import collective_checkpoint_action, digest_file
+
+    def write_model():
+        if parallel_states.get_data_parallel_group_rank() == 0 and (
+            config.operation.save_dist_ckpt or parallel_states.get_tensor_model_parallel_rank() == 0
+        ):
+            tmp_path = ckpt_path.with_suffix(ckpt_path.suffix + ".tmp")
+            with open(tmp_path, "wb") as f:
+                torch.save(checkpoint, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, ckpt_path)
+
+    collective_checkpoint_action(write_model)
+    if dist.is_initialized():
+        dist.barrier()
+
+    def commit_manifest():
+        if is_first_rank():
+            root = Path(config.trainer.model_path) / f"step_{step}"
+            files = [*root.rglob(_CKPT_FILENAME), *root.glob("trainer_rank*.pt")]
+            atomic_save(
+                {"files": {str(p.relative_to(root)): digest_file(p) for p in files}},
+                root / "native_manifest.json",
+                True,
+            )
+
+    collective_checkpoint_action(commit_manifest)
 
     timer.stop("ckpt-save")
     # Barrier BEFORE writing latest_step.txt so readers never see a step
@@ -823,14 +811,17 @@ def save_checkpoint(
 
     # latest_step.txt — atomic, written after all shard writers finished.
     if is_first_rank():
+        latest_path = Path(config.trainer.model_path) / _LATEST_STEP_FILENAME
+        latest_temporary = latest_path.with_suffix(".tmp")
         with open(
-            Path(config.trainer.model_path) / _LATEST_STEP_FILENAME,
+            latest_temporary,
             "w",
             encoding="utf-8",
         ) as f:
             f.write(f"{step}\n")
             f.flush()
             os.fsync(f.fileno())
+        os.replace(latest_temporary, latest_path)
 
         # Save HuggingFace compatible config (only if HF fields are set)
         if config.model.hf_model_type is not None and config.model.hf_architecture is not None:

@@ -1,0 +1,149 @@
+{
+  "status": "passed",
+  "device": "cuda",
+  "torch": "2.12.0+cu130",
+  "steps": 4,
+  "precision": "bfloat16",
+  "parameter_precision": "float32",
+  "architecture": "cs336",
+  "loss_chunk_size": null,
+  "moe": true,
+  "moe_idle": false,
+  "moe_aux_alpha": 0.0,
+  "grpo_objective": "grpo",
+  "stateful_data": false,
+  "data_workers": 0,
+  "fsdp": false,
+  "distributed_optimizer": false,
+  "recompute_linear_ce": false,
+  "moe_backend": "loop",
+  "baseline_case": "full",
+  "checks": [
+    {
+      "task": "pretrain",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "pretrain",
+      "case": "ep2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00048828125,
+        "final": 0.0008088639006018639,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "pretrain",
+      "case": "ep2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "sft",
+      "case": "ep2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.00048828125,
+        "final": 0.0008336175233125687,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "sft",
+      "case": "ep2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "dpo",
+      "case": "ep2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.0029296875,
+        "final": 0.001550897373817861,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "dpo",
+      "case": "ep2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "ep2",
+      "max_abs_errors": {
+        "initial": 0.0,
+        "gradient": 0.001953125,
+        "final": 0.0014208592474460602,
+        "reference": 0.0
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "ep2",
+      "resume_max_abs_error": 0.0
+    },
+    {
+      "task": "grpo",
+      "case": "full",
+      "online": {
+        "task": "grpo",
+        "case": "full",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 41376,
+        "losses": [
+          -0.006206556223332882,
+          -0.0007600980807183078
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.5625,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.6920007989974692,
+        "peak_allocated_bytes": 75032064,
+        "peak_reserved_bytes": 94371840,
+        "max_weight_change": 0.0017513521015644073
+      }
+    },
+    {
+      "task": "grpo",
+      "case": "ep2",
+      "online": {
+        "task": "grpo",
+        "case": "ep2",
+        "precision": "bfloat16",
+        "device": "cuda:0",
+        "parameter_count_full": 41376,
+        "losses": [
+          -0.006495011504739523,
+          -0.002294650301337242
+        ],
+        "evaluation": {
+          "eval/mean_reward": 0.65625,
+          "eval/positive_reward_rate": 1.0
+        },
+        "elapsed_seconds": 0.8417550289304927,
+        "peak_allocated_bytes": 71686656,
+        "peak_reserved_bytes": 92274688,
+        "max_weight_change": 0.001750880852341652
+      }
+    }
+  ]
+}

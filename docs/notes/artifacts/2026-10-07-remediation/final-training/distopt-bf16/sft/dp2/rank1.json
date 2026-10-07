@@ -1,0 +1,21 @@
+{
+  "task": "sft",
+  "case": "dp2",
+  "precision": "bfloat16",
+  "device": "cuda:1",
+  "parameter_count_full": 22688,
+  "losses": [
+    3.4574117064476013,
+    3.406684458255768,
+    3.3471100330352783,
+    3.343833804130554
+  ],
+  "evaluation": {
+    "loss": 3.340503454208374,
+    "accuracy": 0.17391304671764374
+  },
+  "elapsed_seconds": 0.5494945669779554,
+  "peak_allocated_bytes": 69035008,
+  "peak_reserved_bytes": 90177536,
+  "max_weight_change": 0.001751098781824112
+}
