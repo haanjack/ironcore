@@ -1,0 +1,410 @@
+{
+  "cpu-final2": [
+    {
+      "rank": "rank0",
+      "status": "passed",
+      "parameters": 76096,
+      "updates": 24,
+      "script_sha256": "af38bcd48a3eaef1a402f991c83f5dffe11e84ee2c16ca25e2e7f9eaccf57eba",
+      "errors_max": {
+        "loss_abs_error": 1.7881393432617188e-07,
+        "gradient_max_abs_error": 2.3692846298217773e-06,
+        "weights_max_abs_error": 2.5480985641479492e-06
+      },
+      "failed_checks": 0,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791919708251953,
+            "positive_mass_conditional_on_two_candidates": 0.5259804129600525
+          },
+          "after": {
+            "positive_sequence_log_probability": -3.5342860221862793,
+            "negative_sequence_log_probability": -19.140459060668945,
+            "positive_mass_conditional_on_two_candidates": 0.9999998807907104
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791919708251953,
+            "positive_mass_conditional_on_two_candidates": 0.5259804129600525
+          },
+          "after": {
+            "positive_sequence_log_probability": -3.534285545349121,
+            "negative_sequence_log_probability": -19.140457153320312,
+            "positive_mass_conditional_on_two_candidates": 0.9999998807907104
+          }
+        }
+      }
+    }
+  ],
+  "dp2-v1": [
+    {
+      "rank": "rank1",
+      "status": "passed",
+      "parameters": 76096,
+      "updates": 24,
+      "script_sha256": "c647dff98c35889b9f8d6558ab32ae2391c618e9ebd779490735283e11f038a5",
+      "errors_max": {
+        "loss_abs_error": 1.564621925354004e-07,
+        "gradient_max_abs_error": 4.153698682785034e-07,
+        "weights_max_abs_error": 1.4964491128921509e-05
+      },
+      "failed_checks": 0,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791918754577637,
+            "positive_mass_conditional_on_two_candidates": 0.5259802341461182
+          },
+          "after": {
+            "positive_sequence_log_probability": -3.5342862606048584,
+            "negative_sequence_log_probability": -19.140460968017578,
+            "positive_mass_conditional_on_two_candidates": 0.9999998807907104
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791918754577637,
+            "positive_mass_conditional_on_two_candidates": 0.5259802341461182
+          },
+          "after": {
+            "positive_sequence_log_probability": -3.5342860221862793,
+            "negative_sequence_log_probability": -19.140457153320312,
+            "positive_mass_conditional_on_two_candidates": 0.9999998807907104
+          }
+        }
+      }
+    },
+    {
+      "rank": "rank0",
+      "status": "passed",
+      "parameters": 76096,
+      "updates": 24,
+      "script_sha256": "c647dff98c35889b9f8d6558ab32ae2391c618e9ebd779490735283e11f038a5",
+      "errors_max": {
+        "loss_abs_error": 1.564621925354004e-07,
+        "gradient_max_abs_error": 4.153698682785034e-07,
+        "weights_max_abs_error": 1.4964491128921509e-05
+      },
+      "failed_checks": 0,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791918754577637,
+            "positive_mass_conditional_on_two_candidates": 0.5259802341461182
+          },
+          "after": {
+            "positive_sequence_log_probability": -3.5342862606048584,
+            "negative_sequence_log_probability": -19.140460968017578,
+            "positive_mass_conditional_on_two_candidates": 0.9999998807907104
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791918754577637,
+            "positive_mass_conditional_on_two_candidates": 0.5259802341461182
+          },
+          "after": {
+            "positive_sequence_log_probability": -3.5342860221862793,
+            "negative_sequence_log_probability": -19.140457153320312,
+            "positive_mass_conditional_on_two_candidates": 0.9999998807907104
+          }
+        }
+      }
+    }
+  ],
+  "135m-dp2-fp32-v1": [
+    {
+      "rank": "rank1",
+      "status": "passed",
+      "parameters": 134515008,
+      "updates": 8,
+      "script_sha256": "c647dff98c35889b9f8d6558ab32ae2391c618e9ebd779490735283e11f038a5",
+      "errors_max": {
+        "loss_abs_error": 8.195638656616211e-06,
+        "gradient_max_abs_error": 9.544193744659424e-06,
+        "weights_max_abs_error": 2.332031726837158e-06
+      },
+      "failed_checks": 0,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -19.608320236206055,
+            "negative_sequence_log_probability": -14.82022476196289,
+            "positive_mass_conditional_on_two_candidates": 0.008259516209363937
+          },
+          "after": {
+            "positive_sequence_log_probability": -11.001031875610352,
+            "negative_sequence_log_probability": -19.040895462036133,
+            "positive_mass_conditional_on_two_candidates": 0.9996777772903442
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -19.608295440673828,
+            "negative_sequence_log_probability": -14.820236206054688,
+            "positive_mass_conditional_on_two_candidates": 0.00825981330126524
+          },
+          "after": {
+            "positive_sequence_log_probability": -11.001011848449707,
+            "negative_sequence_log_probability": -19.040868759155273,
+            "positive_mass_conditional_on_two_candidates": 0.9996777772903442
+          }
+        }
+      }
+    },
+    {
+      "rank": "rank0",
+      "status": "passed",
+      "parameters": 134515008,
+      "updates": 8,
+      "script_sha256": "c647dff98c35889b9f8d6558ab32ae2391c618e9ebd779490735283e11f038a5",
+      "errors_max": {
+        "loss_abs_error": 8.195638656616211e-06,
+        "gradient_max_abs_error": 9.544193744659424e-06,
+        "weights_max_abs_error": 2.332031726837158e-06
+      },
+      "failed_checks": 0,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -19.608320236206055,
+            "negative_sequence_log_probability": -14.82022476196289,
+            "positive_mass_conditional_on_two_candidates": 0.008259516209363937
+          },
+          "after": {
+            "positive_sequence_log_probability": -11.001031875610352,
+            "negative_sequence_log_probability": -19.040895462036133,
+            "positive_mass_conditional_on_two_candidates": 0.9996777772903442
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -19.608295440673828,
+            "negative_sequence_log_probability": -14.820236206054688,
+            "positive_mass_conditional_on_two_candidates": 0.00825981330126524
+          },
+          "after": {
+            "positive_sequence_log_probability": -11.001011848449707,
+            "negative_sequence_log_probability": -19.040868759155273,
+            "positive_mass_conditional_on_two_candidates": 0.9996777772903442
+          }
+        }
+      }
+    }
+  ],
+  "135m-dp2-bf16-v1": [
+    {
+      "status": "failed_before_summary",
+      "see": "run.log"
+    }
+  ],
+  "135m-dp2-bf16-diag": [
+    {
+      "rank": "rank1",
+      "status": "failed",
+      "parameters": 134515008,
+      "updates": 8,
+      "script_sha256": "31aa89347fb878db5fcd6d35c7e742f57c7495d72ada24f908827fd06f2ad265",
+      "errors_max": {
+        "loss_abs_error": 0.10987982153892517,
+        "gradient_max_abs_error": 0.5062647461891174,
+        "weights_max_abs_error": 0.00013394653797149658
+      },
+      "failed_checks": 602,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -19.744342803955078,
+            "negative_sequence_log_probability": -14.782959938049316,
+            "positive_mass_conditional_on_two_candidates": 0.006954532582312822
+          },
+          "after": {
+            "positive_sequence_log_probability": -17.472917556762695,
+            "negative_sequence_log_probability": -17.045391082763672,
+            "positive_mass_conditional_on_two_candidates": 0.39471712708473206
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -19.582599639892578,
+            "negative_sequence_log_probability": -14.823232650756836,
+            "positive_mass_conditional_on_two_candidates": 0.008498194627463818
+          },
+          "after": {
+            "positive_sequence_log_probability": -16.562105178833008,
+            "negative_sequence_log_probability": -16.515609741210938,
+            "positive_mass_conditional_on_two_candidates": 0.48837825655937195
+          }
+        }
+      }
+    },
+    {
+      "rank": "rank0",
+      "status": "failed",
+      "parameters": 134515008,
+      "updates": 8,
+      "script_sha256": "31aa89347fb878db5fcd6d35c7e742f57c7495d72ada24f908827fd06f2ad265",
+      "errors_max": {
+        "loss_abs_error": 0.10987982153892517,
+        "gradient_max_abs_error": 0.5062647461891174,
+        "weights_max_abs_error": 0.00013394653797149658
+      },
+      "failed_checks": 602,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -19.744342803955078,
+            "negative_sequence_log_probability": -14.782959938049316,
+            "positive_mass_conditional_on_two_candidates": 0.006954532582312822
+          },
+          "after": {
+            "positive_sequence_log_probability": -17.472917556762695,
+            "negative_sequence_log_probability": -17.045391082763672,
+            "positive_mass_conditional_on_two_candidates": 0.39471712708473206
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -19.582599639892578,
+            "negative_sequence_log_probability": -14.823232650756836,
+            "positive_mass_conditional_on_two_candidates": 0.008498194627463818
+          },
+          "after": {
+            "positive_sequence_log_probability": -16.562105178833008,
+            "negative_sequence_log_probability": -16.515609741210938,
+            "positive_mass_conditional_on_two_candidates": 0.48837825655937195
+          }
+        }
+      }
+    }
+  ],
+  "135m-hf-dp2-bf16-v1": [
+    {
+      "rank": "rank1",
+      "status": "failed",
+      "parameters": 134515008,
+      "updates": 8,
+      "script_sha256": "af38bcd48a3eaef1a402f991c83f5dffe11e84ee2c16ca25e2e7f9eaccf57eba",
+      "errors_max": {
+        "loss_abs_error": 0.04634522832930088,
+        "gradient_max_abs_error": 0.09605923295021057,
+        "weights_max_abs_error": 8.046720176935196e-05
+      },
+      "failed_checks": 55,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -19.582599639892578,
+            "negative_sequence_log_probability": -14.823232650756836,
+            "positive_mass_conditional_on_two_candidates": 0.008498194627463818
+          },
+          "after": {
+            "positive_sequence_log_probability": -16.41798210144043,
+            "negative_sequence_log_probability": -16.511028289794922,
+            "positive_mass_conditional_on_two_candidates": 0.5232447981834412
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -19.582599639892578,
+            "negative_sequence_log_probability": -14.823232650756836,
+            "positive_mass_conditional_on_two_candidates": 0.008498194627463818
+          },
+          "after": {
+            "positive_sequence_log_probability": -16.562105178833008,
+            "negative_sequence_log_probability": -16.515609741210938,
+            "positive_mass_conditional_on_two_candidates": 0.48837825655937195
+          }
+        }
+      }
+    },
+    {
+      "rank": "rank0",
+      "status": "failed",
+      "parameters": 134515008,
+      "updates": 8,
+      "script_sha256": "af38bcd48a3eaef1a402f991c83f5dffe11e84ee2c16ca25e2e7f9eaccf57eba",
+      "errors_max": {
+        "loss_abs_error": 0.04634522832930088,
+        "gradient_max_abs_error": 0.09605923295021057,
+        "weights_max_abs_error": 8.046720176935196e-05
+      },
+      "failed_checks": 55,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -19.582599639892578,
+            "negative_sequence_log_probability": -14.823232650756836,
+            "positive_mass_conditional_on_two_candidates": 0.008498194627463818
+          },
+          "after": {
+            "positive_sequence_log_probability": -16.41798210144043,
+            "negative_sequence_log_probability": -16.511028289794922,
+            "positive_mass_conditional_on_two_candidates": 0.5232447981834412
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -19.582599639892578,
+            "negative_sequence_log_probability": -14.823232650756836,
+            "positive_mass_conditional_on_two_candidates": 0.008498194627463818
+          },
+          "after": {
+            "positive_sequence_log_probability": -16.562105178833008,
+            "negative_sequence_log_probability": -16.515609741210938,
+            "positive_mass_conditional_on_two_candidates": 0.48837825655937195
+          }
+        }
+      }
+    }
+  ],
+  "hf-cpu-v3": [
+    {
+      "rank": "rank0",
+      "status": "passed",
+      "parameters": 76096,
+      "updates": 8,
+      "script_sha256": "af38bcd48a3eaef1a402f991c83f5dffe11e84ee2c16ca25e2e7f9eaccf57eba",
+      "errors_max": {
+        "loss_abs_error": 1.564621925354004e-07,
+        "gradient_max_abs_error": 1.1920928955078125e-07,
+        "weights_max_abs_error": 3.6656856536865234e-06
+      },
+      "failed_checks": 0,
+      "candidate_scores": {
+        "ironcore": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791919708251953,
+            "positive_mass_conditional_on_two_candidates": 0.5259804129600525
+          },
+          "after": {
+            "positive_sequence_log_probability": -8.314949035644531,
+            "negative_sequence_log_probability": -17.138721466064453,
+            "positive_mass_conditional_on_two_candidates": 0.9998527765274048
+          }
+        },
+        "trl": {
+          "before": {
+            "positive_sequence_log_probability": -11.687904357910156,
+            "negative_sequence_log_probability": -11.791919708251953,
+            "positive_mass_conditional_on_two_candidates": 0.5259804129600525
+          },
+          "after": {
+            "positive_sequence_log_probability": -8.314949035644531,
+            "negative_sequence_log_probability": -17.138721466064453,
+            "positive_mass_conditional_on_two_candidates": 0.9998527765274048
+          }
+        }
+      }
+    }
+  ]
+}

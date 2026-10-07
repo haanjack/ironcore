@@ -1,0 +1,25 @@
+{
+  "packages": {
+    "torch": "2.12.0",
+    "transformers": "5.2.0",
+    "trl": "0.29.0",
+    "accelerate": "1.12.0",
+    "datasets": "4.8.4",
+    "triton": "3.7.0",
+    "wandb": "0.30.0",
+    "ruff": "0.15.17"
+  },
+  "production_base_commit": "aaec6b925e47ef9257c5b819ae0b3853fbd7badf",
+  "reference_docs": "https://huggingface.co/docs/trl/v0.29.0/en/grpo_trainer",
+  "optional_dependency": "trl==0.29.0",
+  "environment": {
+    "HF_HOME": "/tmp/ironcore-hf",
+    "TIKTOKEN_CACHE_DIR": "/tmp/ironcore-tiktoken",
+    "WANDB_MODE": "disabled",
+    "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    "OMP_NUM_THREADS": "2"
+  },
+  "gpu_scope": "2 x RTX 3090, CUDA_VISIBLE_DEVICES=0,1; TITAN RTX unused",
+  "bootstrap": "Validation venv preimports triton and tensorboard.compat.notf; installed current wandb in venv to resolve broken host optional wandb import. Both trainers set report_to=[]/no external reporting.",
+  "limits": "Shared scripted generation; token GRPO, two updates per rollout; BF16 strict multi-update gates failed."
+}

@@ -1,0 +1,24 @@
+Failed to load CPU gemm_4bit_forward from kernels-community: No module named 'kernels'. Please make sure you already `pip install kernels` and the kernels >= 0.11.1
+[2026-10-07 23:23:46,428] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 23:23:46,428] Acquiring training resources...
+[2026-10-07 23:23:46,428] Initialize torch distributed ... 
+[2026-10-07 23:23:46,432] Loading evaluation tasks
+[2026-10-07 23:23:46,433] Set random seed to 83 for model initialization
+[2026-10-07 23:23:46,435] Created Language Model
+[2026-10-07 23:23:46,435] Loading pretrained weights from HuggingFace: /tmp/ironcore-grpo-trl-cpu-final2-initial-model
+[2026-10-07 23:23:46,435] Downloaded/loaded from cache: /tmp/ironcore-grpo-trl-cpu-final2-initial-model
+[2026-10-07 23:23:46,437] HF weights loaded: 16 keys, 1 missing, 0 unexpected
+[2026-10-07 23:23:46,437] Trainable parameters: 76,096 / 76,096 (100.00%)
+[2026-10-07 23:23:46,437] Created Optimizer
+[2026-10-07 23:23:46,437] Skipping parallelism wrapping (single GPU, no FSDP)
+[2026-10-07 23:23:46,437] Resources acquired successfully.
+[2026-10-07 23:23:46,438] Training start from scratch
+[2026-10-07 23:23:46,438] Creating reference model for GRPO...
+[2026-10-07 23:23:46,438] Creating reference model from policy weights...
+[2026-10-07 23:23:46,441] Reference model created on GPU (device=cpu)
+[2026-10-07 23:23:46,441] Initializing reward worker via RewardManager...
+[2026-10-07 23:23:46,445] Training start from step: 0
+[2026-10-07 23:23:46,565] Skip checkpoint saving since no-save flag is set
+[2026-10-07 23:23:46,565] Total training time: 0.00 hours
+[2026-10-07 23:23:46,565] Finishing training
+{'train_runtime': '0.191', 'train_samples_per_second': '502.5', 'train_steps_per_second': '125.6', 'train_loss': '0.132', 'num_tokens': '288', 'completions/mean_length': '4', 'completions/min_length': '4', 'completions/max_length': '4', 'completions/clipped_ratio': '0', 'completions/mean_terminated_length': '4', 'completions/min_terminated_length': '4', 'completions/max_terminated_length': '4', 'rewards/rewards/mean': '0.75', 'rewards/rewards/std': '0.2887', 'reward': '0.75', 'reward_std': '0.2887', 'frac_reward_zero_std': '0', 'kl': '1.694', 'entropy': '3.267', 'clip_ratio/low_mean': '0.04688', 'clip_ratio/low_min': '0.04688', 'clip_ratio/high_mean': '0.01562', 'clip_ratio/high_max': '0.01562', 'clip_ratio/region_mean': '0.0625', 'step_time': '0.006511', 'epoch': '1.5'}

@@ -1,0 +1,126 @@
+{
+  "135m-dp2-bf16-diag/rank0.json": {
+    "sha256": "ed660a026a8763ba90b04d80c128d62e85d4e4b563a9747ce7fbdee0ff990d2a",
+    "bytes": 234969
+  },
+  "135m-dp2-bf16-diag/rank1.json": {
+    "sha256": "ed660a026a8763ba90b04d80c128d62e85d4e4b563a9747ce7fbdee0ff990d2a",
+    "bytes": 234969
+  },
+  "135m-dp2-bf16-diag/run.log": {
+    "sha256": "28283bc291fb2b402d2a502226511f333df94c60fd7aba8da22535ecf86973e2",
+    "bytes": 6433
+  },
+  "135m-dp2-bf16-v1/run.log": {
+    "sha256": "30b2743b1f052c9e3bf8da537a92804ea6ae89eb86f7c615bf8a93b4ed78fb2a",
+    "bytes": 6841
+  },
+  "135m-dp2-fp32-v1/rank0.json": {
+    "sha256": "4526a13be976ff739cd98c8c1a426867032fa67a9e924d90fd4e8fe84e175d18",
+    "bytes": 4300
+  },
+  "135m-dp2-fp32-v1/rank1.json": {
+    "sha256": "4526a13be976ff739cd98c8c1a426867032fa67a9e924d90fd4e8fe84e175d18",
+    "bytes": 4300
+  },
+  "135m-dp2-fp32-v1/run.log": {
+    "sha256": "6b9cc0d24147984f0818ea029f01d0705fefa9ea5186c882f1c4a2543a658995",
+    "bytes": 3175
+  },
+  "135m-hf-dp2-bf16-v1/rank0.json": {
+    "sha256": "3fce14839a5a2d93f9569053ef7bcd422fb3359252d1f285e9171e823b2ffa20",
+    "bytes": 24374
+  },
+  "135m-hf-dp2-bf16-v1/rank1.json": {
+    "sha256": "3fce14839a5a2d93f9569053ef7bcd422fb3359252d1f285e9171e823b2ffa20",
+    "bytes": 24374
+  },
+  "135m-hf-dp2-bf16-v1/run.log": {
+    "sha256": "0baa6611622dc4844290f25d3c66ea514c103b0840264843a9a80854aec5fb97",
+    "bytes": 6287
+  },
+  "README.md": {
+    "sha256": "ab704d090dccdc244ac1fe4b9fbe98475c9df987f387466c2cf886f10769e1b7",
+    "bytes": 1678
+  },
+  "archive_grpo_reference.py": {
+    "sha256": "2488d9bca74cb7e29c4c70c476112820979911d6d1eb7ec368872acb09cf8d12",
+    "bytes": 5093
+  },
+  "cpu-final2/rank0.json": {
+    "sha256": "e9ecb1bdde64a3bc34c767e7e11c7cb80ab2bbaf3004cbe99630be9b0750e2b2",
+    "bytes": 8267
+  },
+  "cpu-final2/run.log": {
+    "sha256": "9cecb6b9f350d113ff406d55950d6ca5dd6977d011354d458adc72c970a23610",
+    "bytes": 2583
+  },
+  "dp2-v1/rank0.json": {
+    "sha256": "30ac4ac47b666c03a3932b9d802e1f8a74b256effb6872cd1588a982ece2e8a6",
+    "bytes": 8199
+  },
+  "dp2-v1/rank1.json": {
+    "sha256": "30ac4ac47b666c03a3932b9d802e1f8a74b256effb6872cd1588a982ece2e8a6",
+    "bytes": 8199
+  },
+  "dp2-v1/run.log": {
+    "sha256": "eac04e93077d15edc1c6e0836199933392a74cf532cc565aa34bd54573c3aadb",
+    "bytes": 4780
+  },
+  "fp32_loss_trajectories.png": {
+    "sha256": "4212386d92c84bcad77f0a69ca5cff89958014a84e2aecb065a38dab96e39375",
+    "bytes": 87160
+  },
+  "fp32_loss_trajectories.svg": {
+    "sha256": "3e19f826f6d29bc6c16150f350cd5e16dd4ef1603e3dd23aec7b5bf6f70e893e",
+    "bytes": 49384
+  },
+  "hf-cpu-v3/rank0.json": {
+    "sha256": "d6b7bc177bf0c051bab4d8a58bb887812fd9739b7e9375c36807c4237506b449",
+    "bytes": 4275
+  },
+  "hf-cpu-v3/run.log": {
+    "sha256": "f7f5f339a7bb286a98836956bd667dda425c9d984e072a7c5ed6962596e11990",
+    "bytes": 2733
+  },
+  "precision_discrepancy.png": {
+    "sha256": "ad0d60c8bc7f7a3450111c140c369a078f5f69aaeed86bbbcad25c9e03d909b6",
+    "bytes": 83053
+  },
+  "precision_discrepancy.svg": {
+    "sha256": "345c69aae13faa19016d1a894ccdd002baca1bdde12d9d65c1e44aaa8f521f52",
+    "bytes": 58809
+  },
+  "runtime.json": {
+    "sha256": "c8a7740ec25c018f881b3ee2f4752a74312b2a3cb5aff71d30b5624b8b3999da",
+    "bytes": 1025
+  },
+  "source/final/source.tar.gz": {
+    "sha256": "6c1eb495b89f815459f08024ec89b9b3480e075fb8ad32734ae3312f369cd826",
+    "bytes": 402991
+  },
+  "source/final/source_hashes.json": {
+    "sha256": "3ec406dbd0e123fbe135a6ec09a27c384500a8dc2e33627b2b4f5f346970e6de",
+    "bytes": 28561
+  },
+  "source/final/validate_grpo_reference.py": {
+    "sha256": "af38bcd48a3eaef1a402f991c83f5dffe11e84ee2c16ca25e2e7f9eaccf57eba",
+    "bytes": 20402
+  },
+  "source/initial/source.tar.gz": {
+    "sha256": "d8e44542ad246d8ed1eed541bc6f59e53aef44237d0844210b20c0c153afbaa4",
+    "bytes": 402318
+  },
+  "source/initial/source_hashes.json": {
+    "sha256": "ed60236dc048b7d90bf391d0da82928318397468a0cf4f6adc01fa3761cb5a8f",
+    "bytes": 28561
+  },
+  "source/initial/validate_grpo_reference.py": {
+    "sha256": "c647dff98c35889b9f8d6558ab32ae2391c618e9ebd779490735283e11f038a5",
+    "bytes": 17465
+  },
+  "summary.json": {
+    "sha256": "c79eb50fc4efc3253c5028481967c0c8ebea61411d008d2319d93d61a172bcf2",
+    "bytes": 15523
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "status": "passed",
+  "protocol": "shared scripted completions; real trainer loops",
+  "trl_version": "0.29.0",
+  "trl_source_sha256": "7a112604cd51186c73817b4d00ac9e2d752d674b8e013581395b27732d9321c7",
+  "ironcore_commit": "aaec6b925e47ef9257c5b819ae0b3853fbd7badf",
+  "world_size": 1,
+  "precision": "float32",
+  "parameters": 76096,
+  "target_backbone": "hf",
+  "rollouts": 4,
+  "optimizer_updates": 8,
+  "atol": 2e-05,
+  "rtol": 0.0002,
+  "errors": [
+    {
+      "optimizer_step": 1,
+      "gradient_max_abs_error": 2.2351741790771484e-08,
+      "weights_max_abs_error": 3.6656856536865234e-06,
+      "loss_abs_error": 0.0
+    },
+    {
+      "optimizer_step": 2,
+      "gradient_max_abs_error": 8.940696716308594e-08,
+      "weights_max_abs_error": 3.6656856536865234e-06,
+      "loss_abs_error": 1.4901161193847656e-08
+    },
+    {
+      "optimizer_step": 3,
+      "gradient_max_abs_error": 6.891787052154541e-08,
+      "weights_max_abs_error": 3.6619603633880615e-06,
+      "loss_abs_error": 1.7695128917694092e-08
+    },
+    {
+      "optimizer_step": 4,
+      "gradient_max_abs_error": 7.543712854385376e-08,
+      "weights_max_abs_error": 3.647059202194214e-06,
+      "loss_abs_error": 2.2351741790771484e-08
+    },
+    {
+      "optimizer_step": 5,
+      "gradient_max_abs_error": 1.1920928955078125e-07,
+      "weights_max_abs_error": 3.635883331298828e-06,
+      "loss_abs_error": 2.60770320892334e-08
+    },
+    {
+      "optimizer_step": 6,
+      "gradient_max_abs_error": 6.705522537231445e-08,
+      "weights_max_abs_error": 3.6284327507019043e-06,
+      "loss_abs_error": 8.568167686462402e-08
+    },
+    {
+      "optimizer_step": 7,
+      "gradient_max_abs_error": 1.1175870895385742e-07,
+      "weights_max_abs_error": 3.6247074604034424e-06,
+      "loss_abs_error": 1.1175870895385742e-08
+    },
+    {
+      "optimizer_step": 8,
+      "gradient_max_abs_error": 9.499490261077881e-08,
+      "weights_max_abs_error": 3.6209821701049805e-06,
+      "loss_abs_error": 1.564621925354004e-07
+    }
+  ],
+  "failures": [],
+  "losses": {
+    "ironcore": [
+      0.0,
+      -0.16000519692897797,
+      0.01037557702511549,
+      -0.10139695554971695,
+      0.031739626079797745,
+      -0.048959072679281235,
+      0.06000914052128792,
+      -0.0023462846875190735
+    ],
+    "trl": [
+      0.0,
+      -0.16000521183013916,
+      0.010375559329986572,
+      -0.10139697790145874,
+      0.031739652156829834,
+      -0.04895898699760437,
+      0.060009151697158813,
+      -0.002346128225326538
+    ]
+  },
+  "candidate_scores": {
+    "ironcore": {
+      "before": {
+        "positive_sequence_log_probability": -11.687904357910156,
+        "negative_sequence_log_probability": -11.791919708251953,
+        "positive_mass_conditional_on_two_candidates": 0.5259804129600525
+      },
+      "after": {
+        "positive_sequence_log_probability": -8.314949035644531,
+        "negative_sequence_log_probability": -17.138721466064453,
+        "positive_mass_conditional_on_two_candidates": 0.9998527765274048
+      }
+    },
+    "trl": {
+      "before": {
+        "positive_sequence_log_probability": -11.687904357910156,
+        "negative_sequence_log_probability": -11.791919708251953,
+        "positive_mass_conditional_on_two_candidates": 0.5259804129600525
+      },
+      "after": {
+        "positive_sequence_log_probability": -8.314949035644531,
+        "negative_sequence_log_probability": -17.138721466064453,
+        "positive_mass_conditional_on_two_candidates": 0.9998527765274048
+      }
+    }
+  },
+  "initial_weights_exact": true,
+  "reference_weights_exact_frozen": true,
+  "command": [
+    "/tmp/ironcore-validation-env/bin/python",
+    "scripts/validate_grpo_reference.py",
+    "--backbone",
+    "hf",
+    "--output",
+    "/tmp/ironcore-grpo-trl-hf-cpu-v3",
+    "--rollouts",
+    "4"
+  ],
+  "experiment_script_sha256": "af38bcd48a3eaef1a402f991c83f5dffe11e84ee2c16ca25e2e7f9eaccf57eba",
+  "reward_fixture": [
+    1.0,
+    0.5,
+    1.0,
+    0.5
+  ],
+  "normalization": {
+    "group_std_correction": 1,
+    "group_eps": 0.0001,
+    "loss_type": "grpo",
+    "temperature": 1.0
+  },
+  "limitations": [
+    "Scripted completions are not samples from the current policy; this isolates numerical update equivalence",
+    "No reasoning benchmark quality claim"
+  ]
+}

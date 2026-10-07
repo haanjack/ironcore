@@ -1,0 +1,88 @@
+[2026-10-07 23:10:33,577] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 23:10:33,578] Acquiring training resources...
+[2026-10-07 23:10:33,578] Initialize torch distributed ... 
+[2026-10-07 23:10:33,784] Loading evaluation tasks
+[2026-10-07 23:10:33,785] Set random seed to 83 for model initialization
+[2026-10-07 23:10:34,538] Created Language Model
+[2026-10-07 23:10:34,538] Loading pretrained weights from HuggingFace: /tmp/ironcore-smollm135
+[2026-10-07 23:10:34,539] Downloaded/loaded from cache: /tmp/ironcore-smollm135
+[2026-10-07 23:10:34,631] HF weights loaded: 212 keys, 1 missing, 0 unexpected
+[2026-10-07 23:10:34,634] Trainable parameters: 134,515,008 / 134,515,008 (100.00%)
+[2026-10-07 23:10:34,634] Created Optimizer
+[2026-10-07 23:10:34,670] Resources acquired successfully.
+[2026-10-07 23:10:34,707] Training start from scratch
+[2026-10-07 23:10:34,707] Creating reference model for GRPO...
+[2026-10-07 23:10:34,707] Creating reference model from policy weights...
+[2026-10-07 23:10:34,733] Reference model created on GPU (device=cuda:0)
+[2026-10-07 23:10:34,733] [VRAM] After ref model creation: allocated=1.52 GB, reserved=1.92 GB
+[2026-10-07 23:10:34,733] Initializing reward worker via RewardManager...
+[2026-10-07 23:10:35,351] Training start from step: 0
+[2026-10-07 23:10:35,383] [VRAM] After rollout: peak=1.80 GB
+[2026-10-07 23:10:35,419] [VRAM] After ref log probs: peak=1.80 GB
+[2026-10-07 23:10:36,878] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:10:36,904] [VRAM] After rollout: peak=3.45 GB
+[2026-10-07 23:10:36,924] [VRAM] After ref log probs: peak=3.45 GB
+[2026-10-07 23:10:38,193] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:10:38,218] [VRAM] After rollout: peak=3.45 GB
+[2026-10-07 23:10:38,241] [VRAM] After ref log probs: peak=3.45 GB
+[2026-10-07 23:10:39,476] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:10:39,502] [VRAM] After rollout: peak=3.45 GB
+[2026-10-07 23:10:39,522] [VRAM] After ref log probs: peak=3.45 GB
+[2026-10-07 23:10:40,754] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:10:40,755] Skip checkpoint saving since no-save flag is set
+[2026-10-07 23:10:40,755] Total training time: 0.00 hours
+[2026-10-07 23:10:40,755] Finishing training
+{'train_runtime': '5.671', 'train_samples_per_second': '11.29', 'train_steps_per_second': '1.411', 'train_loss': '-0.02564', 'num_tokens': '416', 'completions/mean_length': '2', 'completions/min_length': '2', 'completions/max_length': '2', 'completions/clipped_ratio': '0', 'completions/mean_terminated_length': '2', 'completions/min_terminated_length': '2', 'completions/max_terminated_length': '2', 'rewards/rewards/mean': '0.5', 'rewards/rewards/std': '0.5345', 'reward': '0.5', 'reward_std': '0.5345', 'frac_reward_zero_std': '0', 'kl': '0.1617', 'entropy': '3.013', 'clip_ratio/low_mean': '0.03125', 'clip_ratio/low_min': '0.03125', 'clip_ratio/high_mean': '0.09375', 'clip_ratio/high_max': '0.09375', 'clip_ratio/region_mean': '0.125', 'step_time': '0.101', 'epoch': '1'}
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_grpo_reference.py", line 430, in <module>
+[rank0]:     run(parser.parse_args())
+[rank0]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_grpo_reference.py", line 416, in run
+[rank0]:     raise AssertionError(
+[rank0]: AssertionError: Reference comparison failed: 602 tensor/loss checks; see rank JSON
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_grpo_reference.py", line 430, in <module>
+[rank1]:     run(parser.parse_args())
+[rank1]:   File "/home/hanjack/ironcore/ironcore/scripts/validate_grpo_reference.py", line 416, in run
+[rank1]:     raise AssertionError(
+[rank1]: AssertionError: Reference comparison failed: 602 tensor/loss checks; see rank JSON
+W1007 23:11:08.645000 2307288 site-packages/torch/distributed/elastic/multiprocessing/api.py:1014] Sending process 2307356 closing signal SIGTERM
+E1007 23:11:08.809000 2307288 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 1) local_rank: 1 (pid: 2307357) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+scripts/validate_grpo_reference.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_23:11:08
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 2307356) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_23:11:08
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 2307357) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

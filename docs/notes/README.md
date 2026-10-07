@@ -24,6 +24,7 @@
 | 13 | [Alignment 보완](13-alignment-contracts.md) | GRPO/GSPO·behavior logp·실제 데이터가 맞는가? | math oracle·EOS·135M SFT/DPO/GRPO |
 | 14 | [성능 보완](14-performance-remediation.md) | CE 재계산과 batched expert가 유용한가? | 3회 timing·VRAM·새 HTML profiler |
 | 15 | [분산 학습 보완](15-distributed-training.md) | EP/FSDP/분산 optimizer를 사용할 수 있는가? | 네 trainer·native restart·rank fault injection |
+| 16 | [GRPO 외부 trainer 대조](16-grpo-trl-reference.md) | TRL의 실제 학습 루프와 같은 update를 만드는가? | FP32 통과·BF16 strict gate 실패·통제된 135M 학습 |
 
 [브라우저에서 여는 compute·collective 성능 보고서](profiling/profile_report.html)는 Dense DP=2, MoE DP=2, MoE TP=2의 두 GPU timeline을 담는다. 외부 서버 없이 run/rank 선택, 확대, category/phase 필터와 kernel 검색을 사용할 수 있다.
 
