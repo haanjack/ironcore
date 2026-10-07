@@ -1,0 +1,148 @@
+{
+  "status": "passed",
+  "protocol": "shared scripted completions; real trainer loops",
+  "trl_version": "0.29.0",
+  "trl_source_sha256": "7a112604cd51186c73817b4d00ac9e2d752d674b8e013581395b27732d9321c7",
+  "ironcore_base_commit": "aaec6b925e47ef9257c5b819ae0b3853fbd7badf",
+  "ironcore_grpo_source_sha256": "f1c4790d51df8bbd0ecb6fdf9a69f4a2f734560886b7cfc0fdb053afe7cd5393",
+  "world_size": 2,
+  "precision": "float32",
+  "parameters": 134515008,
+  "target_backbone": "native",
+  "rollouts": 4,
+  "optimizer_updates": 8,
+  "atol": 2e-05,
+  "rtol": 0.0002,
+  "errors": [
+    {
+      "optimizer_step": 1,
+      "gradient_max_abs_error": 1.7434358596801758e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 0.0
+    },
+    {
+      "optimizer_step": 2,
+      "gradient_max_abs_error": 5.710870027542114e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 4.1425228118896484e-06
+    },
+    {
+      "optimizer_step": 3,
+      "gradient_max_abs_error": 4.9173831939697266e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 1.5273690223693848e-06
+    },
+    {
+      "optimizer_step": 4,
+      "gradient_max_abs_error": 9.171664714813232e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 3.11434268951416e-06
+    },
+    {
+      "optimizer_step": 5,
+      "gradient_max_abs_error": 6.940215826034546e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 1.9222497940063477e-06
+    },
+    {
+      "optimizer_step": 6,
+      "gradient_max_abs_error": 9.179115295410156e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 1.0579824447631836e-06
+    },
+    {
+      "optimizer_step": 7,
+      "gradient_max_abs_error": 7.152557373046875e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 1.2814998626708984e-06
+    },
+    {
+      "optimizer_step": 8,
+      "gradient_max_abs_error": 4.298985004425049e-06,
+      "weights_max_abs_error": 2.3301690816879272e-06,
+      "loss_abs_error": 4.0531158447265625e-06
+    }
+  ],
+  "failures": [],
+  "losses": {
+    "ironcore": [
+      0.0,
+      -0.13807424902915955,
+      0.08296331018209457,
+      0.039978399872779846,
+      0.19362156093120575,
+      0.12199918925762177,
+      0.27235278487205505,
+      0.1970043182373047
+    ],
+    "trl": [
+      0.0,
+      -0.13807839155197144,
+      0.08296483755111694,
+      0.03997528553009033,
+      0.19362348318099976,
+      0.12200024724006653,
+      0.2723515033721924,
+      0.19700026512145996
+    ]
+  },
+  "candidate_scores": {
+    "ironcore": {
+      "before": {
+        "positive_sequence_log_probability": -19.608320236206055,
+        "negative_sequence_log_probability": -14.82022476196289,
+        "positive_mass_conditional_on_two_candidates": 0.008259516209363937
+      },
+      "after": {
+        "positive_sequence_log_probability": -11.001045227050781,
+        "negative_sequence_log_probability": -19.040868759155273,
+        "positive_mass_conditional_on_two_candidates": 0.9996777772903442
+      }
+    },
+    "trl": {
+      "before": {
+        "positive_sequence_log_probability": -19.608295440673828,
+        "negative_sequence_log_probability": -14.820236206054688,
+        "positive_mass_conditional_on_two_candidates": 0.00825981330126524
+      },
+      "after": {
+        "positive_sequence_log_probability": -11.001011848449707,
+        "negative_sequence_log_probability": -19.040868759155273,
+        "positive_mass_conditional_on_two_candidates": 0.9996777772903442
+      }
+    }
+  },
+  "initial_weights_exact": true,
+  "reference_weights_exact_frozen": true,
+  "command": [
+    "/tmp/ironcore-validation-env/bin/python",
+    "/tmp/ironcore-grpo-trl-shared-logprob-src/scripts/validate_grpo_reference.py",
+    "--device",
+    "cuda",
+    "--model-dir",
+    "/tmp/ironcore-smollm135",
+    "--rollouts",
+    "4",
+    "--lr",
+    "1e-5",
+    "--output",
+    "/tmp/ironcore-grpo-reference-postfix/native-fp32"
+  ],
+  "experiment_script_sha256": "0609b31590175b2b0faa01f9feee29bd6ec47895fe590383a852a0d9dca8b53e",
+  "reward_fixture": [
+    1.0,
+    0.0,
+    1.0,
+    0.0
+  ],
+  "normalization": {
+    "group_std_correction": 1,
+    "group_eps": 0.0001,
+    "loss_type": "grpo",
+    "temperature": 1.0
+  },
+  "limitations": [
+    "Scripted completions are not samples from the current policy; this isolates numerical update equivalence",
+    "No reasoning benchmark quality claim"
+  ]
+}

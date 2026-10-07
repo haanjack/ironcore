@@ -18,6 +18,8 @@
 
 각 단계의 구현·검증을 완료했다. 실제 GRPO의 reasoning 품질 개선은 입증하지 못했으며 이는 implementation gate의 성공과 별개다. 전체 corpus·장기간 학습·대규모 scaling law를 검증한 결과는 아니다.
 
-최종 CPU 회귀는 **532 passed / 12 skipped / 42 deselected**, profiler/MFU 회귀는 별도로 **80 passed**이다. GPU 검증은 15에 명세한 실제 torchrun/NCCL 실행으로 수행했다. [원본 근거·source snapshot·실패 로그](artifacts/2026-10-07-remediation/README.md)와 [compute/collective HTML](profiling-remediation/profile_report.html)을 보존했다.
+10–15 단계 당시 CPU 회귀는 **532 passed / 12 skipped / 42 deselected**, profiler/MFU 회귀는 별도로 **80 passed**이다. GPU 검증은 15에 명세한 실제 torchrun/NCCL 실행으로 수행했다. [원본 근거·source snapshot·실패 로그](artifacts/2026-10-07-remediation/README.md)와 [compute/collective HTML](profiling-remediation/profile_report.html)을 보존했다.
 
 실용적인 선택은 FP32 stored weights/BF16 compute의 DP=2를 기본으로 두고, dropout=0인 이 MoE workload에서 batched expert를 선택하는 것이다. Memory가 부족할 때 recomputed CE/FSDP/분산 optimizer/EP를 각각 검토한다. 이들 옵션을 무조건 결합하거나 throughput 이득을 일반화하지 않는다.
+
+GRPO의 외부 TRL 대조와 BF16 gradient 반올림 보완은 [16의 최종 판정](16-grpo-trl-reference.md)을 기준으로 읽는다. 해당 보완 후 전체 CPU 선택은 692 passed / 30 skipped / 230 deselected였고, 같은-backbone BF16 대조 및 Native MoE DP/TP/restart도 통과했다. 확인한 필수 수정은 완료했다.

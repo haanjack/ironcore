@@ -689,15 +689,20 @@ class GRPOTrainer(BaseTrainer):
         )
         from ironcore.alignment.rollout import _filter_logits
 
-        filtered_logits = _filter_logits(
-            policy_logits.reshape(-1, policy_logits.size(-1)),
-            self.config.alignment.generation.temperature,
-            self.config.alignment.generation.top_p,
-            self.config.alignment.generation.top_k,
-        ).view_as(policy_logits)
-        policy_log_probs_token = self._compute_token_log_probs_from_logits(
-            filtered_logits, labels, response_mask
-        )
+        generation = self.config.alignment.generation
+        if generation.temperature != 1.0 or generation.top_p < 1.0 or generation.top_k > 0:
+            filtered_logits = _filter_logits(
+                policy_logits.reshape(-1, policy_logits.size(-1)),
+                generation.temperature,
+                generation.top_p,
+                generation.top_k,
+            ).view_as(policy_logits)
+            policy_log_probs_token = self._compute_token_log_probs_from_logits(
+                filtered_logits, labels, response_mask
+            )
+        # With no warping, policy and KL use the same log-probability graph.
+        # Separate softmax graphs round their gradients to BF16 independently
+        # before adding them at the logits, rather than summing in FP32 first.
         prompt_length = rollout.prompt_ids.size(1)
         token_old = torch.zeros_like(policy_log_probs_token)
         if rollout.old_token_log_probs is not None:

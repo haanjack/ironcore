@@ -1,0 +1,92 @@
+[2026-10-07 23:07:22,663] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 23:07:22,663] Acquiring training resources...
+[2026-10-07 23:07:22,663] Initialize torch distributed ... 
+[2026-10-07 23:07:22,871] Loading evaluation tasks
+[2026-10-07 23:07:22,872] Set random seed to 83 for model initialization
+[2026-10-07 23:07:23,638] Created Language Model
+[2026-10-07 23:07:23,638] Loading pretrained weights from HuggingFace: /tmp/ironcore-smollm135
+[2026-10-07 23:07:23,638] Downloaded/loaded from cache: /tmp/ironcore-smollm135
+[2026-10-07 23:07:23,731] HF weights loaded: 212 keys, 1 missing, 0 unexpected
+[2026-10-07 23:07:23,734] Trainable parameters: 134,515,008 / 134,515,008 (100.00%)
+[2026-10-07 23:07:23,734] Created Optimizer
+[2026-10-07 23:07:23,772] Resources acquired successfully.
+[2026-10-07 23:07:23,809] Training start from scratch
+[2026-10-07 23:07:23,810] Creating reference model for GRPO...
+[2026-10-07 23:07:23,810] Creating reference model from policy weights...
+[2026-10-07 23:07:23,835] Reference model created on GPU (device=cuda:0)
+[2026-10-07 23:07:23,835] [VRAM] After ref model creation: allocated=1.52 GB, reserved=1.92 GB
+[2026-10-07 23:07:23,835] Initializing reward worker via RewardManager...
+[2026-10-07 23:07:24,452] Training start from step: 0
+[2026-10-07 23:07:24,484] [VRAM] After rollout: peak=1.80 GB
+[2026-10-07 23:07:24,521] [VRAM] After ref log probs: peak=1.80 GB
+[2026-10-07 23:07:26,039] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:07:26,065] [VRAM] After rollout: peak=3.45 GB
+[2026-10-07 23:07:26,085] [VRAM] After ref log probs: peak=3.45 GB
+[2026-10-07 23:07:27,344] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:07:27,370] [VRAM] After rollout: peak=3.45 GB
+[2026-10-07 23:07:27,390] [VRAM] After ref log probs: peak=3.45 GB
+[2026-10-07 23:07:28,615] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:07:28,641] [VRAM] After rollout: peak=3.45 GB
+[2026-10-07 23:07:28,660] [VRAM] After ref log probs: peak=3.45 GB
+[2026-10-07 23:07:29,899] [VRAM] After optimizer step: peak=3.45 GB
+[2026-10-07 23:07:29,901] Skip checkpoint saving since no-save flag is set
+[2026-10-07 23:07:29,901] Total training time: 0.00 hours
+[2026-10-07 23:07:29,901] Finishing training
+{'train_runtime': '5.601', 'train_samples_per_second': '11.43', 'train_steps_per_second': '1.428', 'train_loss': '-0.02564', 'num_tokens': '416', 'completions/mean_length': '2', 'completions/min_length': '2', 'completions/max_length': '2', 'completions/clipped_ratio': '0', 'completions/mean_terminated_length': '2', 'completions/min_terminated_length': '2', 'completions/max_terminated_length': '2', 'rewards/rewards/mean': '0.5', 'rewards/rewards/std': '0.5345', 'reward': '0.5', 'reward_std': '0.5345', 'frac_reward_zero_std': '0', 'kl': '0.1617', 'entropy': '3.013', 'clip_ratio/low_mean': '0.03125', 'clip_ratio/low_min': '0.03125', 'clip_ratio/high_mean': '0.09375', 'clip_ratio/high_max': '0.09375', 'clip_ratio/region_mean': '0.125', 'step_time': '0.1011', 'epoch': '1'}
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/tmp/ironcore-grpo-trl-reference-src/scripts/validate_grpo_reference.py", line 412, in <module>
+[rank1]:     run(parser.parse_args())
+[rank1]:   File "/tmp/ironcore-grpo-trl-reference-src/scripts/validate_grpo_reference.py", line 352, in run
+[rank1]:     torch.testing.assert_close(
+[rank1]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/testing/_comparison.py", line 1631, in assert_close
+[rank1]:     raise error_metas[0].to_error(msg)
+[rank1]: AssertionError: model.layers.8.post_attention_layernorm.weight
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/tmp/ironcore-grpo-trl-reference-src/scripts/validate_grpo_reference.py", line 412, in <module>
+[rank0]:     run(parser.parse_args())
+[rank0]:   File "/tmp/ironcore-grpo-trl-reference-src/scripts/validate_grpo_reference.py", line 352, in run
+[rank0]:     torch.testing.assert_close(
+[rank0]:   File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/testing/_comparison.py", line 1631, in assert_close
+[rank0]:     raise error_metas[0].to_error(msg)
+[rank0]: AssertionError: model.layers.8.post_attention_layernorm.weight
+W1007 23:07:41.274000 2294242 site-packages/torch/distributed/elastic/multiprocessing/api.py:1014] Sending process 2294330 closing signal SIGTERM
+E1007 23:07:41.338000 2294242 site-packages/torch/distributed/elastic/multiprocessing/api.py:988] failed (exitcode: 1) local_rank: 1 (pid: 2294331) of binary: /tmp/ironcore-validation-env/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1020, in <module>
+    main()
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1016, in main
+    run(args)
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/run.py", line 1007, in run
+    elastic_launch(
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 191, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hanjack/.pyenv/versions/3.12.8/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 371, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/tmp/ironcore-grpo-trl-reference-src/scripts/validate_grpo_reference.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-10-07_23:07:41
+  host      : node1
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 2294330) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-10-07_23:07:41
+  host      : node1
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 2294331) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

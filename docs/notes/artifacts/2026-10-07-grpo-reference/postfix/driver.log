@@ -1,0 +1,4 @@
+Running hf-bf16
+Running native-bf16
+Running native-fp32
+Running native-moe-bf16-matrix
