@@ -280,3 +280,74 @@ def test_repeated_evaluation_restarts_finite_data_and_uses_valid_counts(monkeypa
     trainer._get_data_iterator = lambda: {"eval": iter([])}
     with pytest.raises(ValueError, match="no valid"):
         trainer.evaluate(3)
+
+
+def test_unwarped_grpo_bf16_gradient_matches_single_fp32_loss_graph():
+    """Policy/KL gradients must combine before a single cast back to BF16."""
+    from ironcore.alignment.buffer import RolloutBuffer
+    from ironcore.parallel import parallel_states
+    from ironcore.trainers import GRPOTrainer
+
+    class Logits(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.logits = torch.nn.Parameter(torch.randn(4, 6, 32, dtype=torch.bfloat16))
+
+        def forward(self, *args, **kwargs):
+            return self.logits, None
+
+    parallel_states.initialize_model_parallel(1, 10)
+    try:
+        torch.manual_seed(47)
+        model = Logits()
+        trainer = object.__new__(GRPOTrainer)
+        trainer.model = model
+        trainer.config = SimpleNamespace(
+            alignment=SimpleNamespace(
+                grpo_objective="grpo",
+                moe_aux_loss="include",
+                generation=SimpleNamespace(temperature=1.0, top_p=1.0, top_k=0),
+            )
+        )
+        trainer.beta, trainer.clip_eps, trainer.entropy_coef = 0.1, 0.2, 0.0
+        ids = torch.randint(0, 32, (4, 6))
+        rollout = RolloutBuffer(
+            prompt_ids=ids[:1, :2],
+            prompt_attention_mask=torch.ones(1, 2),
+            completion_ids=ids,
+            response_ids=ids[:, 2:],
+            old_log_probs=torch.zeros(4),
+            old_token_log_probs=torch.zeros(4, 4),
+            rewards=torch.zeros(4),
+            advantages=torch.zeros(4),
+            group_ids=torch.zeros(4, dtype=torch.long),
+            metadata=[{}] * 4,
+            response_lengths=torch.tensor([4, 3, 2, 4]),
+        )
+        labels, mask = trainer._prepare_labels_and_mask(rollout)
+        selected_ids = labels.clamp(min=0).unsqueeze(-1)
+        logp = model.logits.float().log_softmax(-1).gather(-1, selected_ids).squeeze(-1) * mask
+        reference = logp.detach() + torch.randn_like(logp) * 0.7
+        old = logp.detach() + torch.randn_like(logp) * 0.3
+        rollout.old_token_log_probs = old[:, 1:5].clone()
+        advantages = torch.tensor([1.0, -0.5, 0.75, -1.5])
+        loss, _ = trainer._compute_grpo_loss(
+            rollout, advantages, reference, old_log_probs=torch.zeros(4)
+        )
+        (actual_gradient,) = torch.autograd.grad(loss, model.logits)
+
+        # Independent FP32 token objective, with variable lengths and signed clipping.
+        fp32 = model.logits.detach().float().requires_grad_()
+        token_logp = fp32.log_softmax(-1).gather(-1, selected_ids).squeeze(-1)
+        ratio = (token_logp - old).exp()
+        surrogate = torch.minimum(
+            ratio * advantages[:, None], ratio.clamp(0.8, 1.2) * advantages[:, None]
+        )
+        delta = (reference - token_logp).clamp(-6, 6)
+        kl = delta.exp() - delta - 1
+        expected = (((-surrogate + 0.1 * kl) * mask).sum(-1) / mask.sum(-1)).mean()
+        (fp32_gradient,) = torch.autograd.grad(expected, fp32)
+        torch.testing.assert_close(loss, expected, atol=1e-6, rtol=1e-5)
+        torch.testing.assert_close(actual_gradient, fp32_gradient.bfloat16(), atol=0, rtol=0)
+    finally:
+        parallel_states.destroy_model_parallel()

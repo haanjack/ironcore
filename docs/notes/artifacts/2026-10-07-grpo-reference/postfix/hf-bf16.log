@@ -1,0 +1,35 @@
+[2026-10-07 23:46:04,343] GRPOTrainer initialized with group_size=4, beta=0.1, gen_kwargs={'max_new_tokens': 4, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 0, 'do_sample': True}, use_chat_template=False, system_prompt=none
+[2026-10-07 23:46:04,344] Acquiring training resources...
+[2026-10-07 23:46:04,344] Initialize torch distributed ... 
+[2026-10-07 23:46:04,544] Loading evaluation tasks
+[2026-10-07 23:46:04,545] Set random seed to 83 for model initialization
+[2026-10-07 23:46:05,304] Created Language Model
+[2026-10-07 23:46:05,304] Loading pretrained weights from HuggingFace: /tmp/ironcore-smollm135
+[2026-10-07 23:46:05,304] Downloaded/loaded from cache: /tmp/ironcore-smollm135
+[2026-10-07 23:46:05,400] HF weights loaded: 212 keys, 1 missing, 0 unexpected
+[2026-10-07 23:46:05,403] Trainable parameters: 134,515,008 / 134,515,008 (100.00%)
+[2026-10-07 23:46:05,403] Created Optimizer
+[2026-10-07 23:46:05,441] Resources acquired successfully.
+[2026-10-07 23:46:05,937] Training start from scratch
+[2026-10-07 23:46:05,938] Creating reference model for GRPO...
+[2026-10-07 23:46:05,938] Creating reference model from policy weights...
+[2026-10-07 23:46:05,957] Reference model created on GPU (device=cuda:0)
+[2026-10-07 23:46:05,958] [VRAM] After ref model creation: allocated=1.63 GB, reserved=2.67 GB
+[2026-10-07 23:46:05,958] Initializing reward worker via RewardManager...
+[2026-10-07 23:46:06,626] Training start from step: 0
+[2026-10-07 23:46:06,669] [VRAM] After rollout: peak=1.90 GB
+[2026-10-07 23:46:06,702] [VRAM] After ref log probs: peak=1.90 GB
+[2026-10-07 23:46:08,264] [VRAM] After optimizer step: peak=3.55 GB
+[2026-10-07 23:46:08,284] [VRAM] After rollout: peak=3.55 GB
+[2026-10-07 23:46:08,299] [VRAM] After ref log probs: peak=3.55 GB
+[2026-10-07 23:46:09,706] [VRAM] After optimizer step: peak=3.55 GB
+[2026-10-07 23:46:09,726] [VRAM] After rollout: peak=3.55 GB
+[2026-10-07 23:46:09,742] [VRAM] After ref log probs: peak=3.55 GB
+[2026-10-07 23:46:11,150] [VRAM] After optimizer step: peak=3.55 GB
+[2026-10-07 23:46:11,170] [VRAM] After rollout: peak=3.55 GB
+[2026-10-07 23:46:11,185] [VRAM] After ref log probs: peak=3.55 GB
+[2026-10-07 23:46:12,549] [VRAM] After optimizer step: peak=3.55 GB
+[2026-10-07 23:46:12,550] Skip checkpoint saving since no-save flag is set
+[2026-10-07 23:46:12,550] Total training time: 0.00 hours
+[2026-10-07 23:46:12,550] Finishing training
+{'train_runtime': '5.035', 'train_samples_per_second': '12.71', 'train_steps_per_second': '1.589', 'train_loss': '-0.02564', 'num_tokens': '416', 'completions/mean_length': '2', 'completions/min_length': '2', 'completions/max_length': '2', 'completions/clipped_ratio': '0', 'completions/mean_terminated_length': '2', 'completions/min_terminated_length': '2', 'completions/max_terminated_length': '2', 'rewards/rewards/mean': '0.5', 'rewards/rewards/std': '0.5345', 'reward': '0.5', 'reward_std': '0.5345', 'frac_reward_zero_std': '0', 'kl': '0.1617', 'entropy': '3.013', 'clip_ratio/low_mean': '0.03125', 'clip_ratio/low_min': '0.03125', 'clip_ratio/high_mean': '0.09375', 'clip_ratio/high_max': '0.09375', 'clip_ratio/region_mean': '0.125', 'step_time': '0.1013', 'epoch': '1'}

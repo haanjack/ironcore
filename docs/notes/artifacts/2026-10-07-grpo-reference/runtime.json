@@ -21,5 +21,11 @@
   },
   "gpu_scope": "2 x RTX 3090, CUDA_VISIBLE_DEVICES=0,1; TITAN RTX unused",
   "bootstrap": "Validation venv preimports triton and tensorboard.compat.notf; installed current wandb in venv to resolve broken host optional wandb import. Both trainers set report_to=[]/no external reporting.",
-  "limits": "Shared scripted generation; token GRPO, two updates per rollout; BF16 strict multi-update gates failed."
+  "limits": "Shared scripted generation; token GRPO, two updates per rollout. Native FP32 and same-HF-backbone BF16 gates pass after fix. Cross-backbone BF16 equivalence is not provided.",
+  "postfix_source": "source/postfix/source.tar.gz",
+  "postfix_regressions": {
+    "passed": 692,
+    "skipped": 30,
+    "deselected": 230
+  }
 }

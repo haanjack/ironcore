@@ -1,0 +1,116 @@
+{
+  "status": "completed",
+  "jobs": [
+    {
+      "label": "hf-bf16",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-grpo-trl-shared-logprob-src/scripts/validate_grpo_reference.py",
+        "--device",
+        "cuda",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--rollouts",
+        "4",
+        "--lr",
+        "1e-5",
+        "--backbone",
+        "hf",
+        "--precision",
+        "bfloat16",
+        "--output",
+        "/tmp/ironcore-grpo-reference-postfix/hf-bf16"
+      ],
+      "returncode": 0,
+      "comparison_status": [
+        "passed",
+        "passed"
+      ]
+    },
+    {
+      "label": "native-bf16",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-grpo-trl-shared-logprob-src/scripts/validate_grpo_reference.py",
+        "--device",
+        "cuda",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--rollouts",
+        "4",
+        "--lr",
+        "1e-5",
+        "--precision",
+        "bfloat16",
+        "--output",
+        "/tmp/ironcore-grpo-reference-postfix/native-bf16"
+      ],
+      "returncode": 1,
+      "comparison_status": [
+        "failed",
+        "failed"
+      ]
+    },
+    {
+      "label": "native-fp32",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "-m",
+        "torch.distributed.run",
+        "--standalone",
+        "--nproc_per_node=2",
+        "/tmp/ironcore-grpo-trl-shared-logprob-src/scripts/validate_grpo_reference.py",
+        "--device",
+        "cuda",
+        "--model-dir",
+        "/tmp/ironcore-smollm135",
+        "--rollouts",
+        "4",
+        "--lr",
+        "1e-5",
+        "--output",
+        "/tmp/ironcore-grpo-reference-postfix/native-fp32"
+      ],
+      "returncode": 0,
+      "comparison_status": [
+        "passed",
+        "passed"
+      ]
+    },
+    {
+      "label": "native-moe-bf16-matrix",
+      "command": [
+        "/tmp/ironcore-validation-env/bin/python",
+        "/tmp/ironcore-grpo-trl-shared-logprob-src/scripts/validate_trainers.py",
+        "--device",
+        "cuda",
+        "--architecture",
+        "cs336",
+        "--precision",
+        "bfloat16",
+        "--parameter-precision",
+        "float32",
+        "--grpo-objective",
+        "grpo",
+        "--moe",
+        "--steps",
+        "4",
+        "--tasks",
+        "grpo",
+        "--cases",
+        "full,dp2,tp2",
+        "--output",
+        "/tmp/ironcore-grpo-reference-postfix/native-moe-bf16-matrix"
+      ],
+      "returncode": 0
+    }
+  ]
+}

@@ -52,4 +52,4 @@ Rollout/reference/policy의 BF16 autocast를 통일한 뒤 네 trainer의 BF16 E
 
 Token GRPO는 completion마다 valid-token 평균 후 completion 평균을 적용하고 group standard deviation은 PyTorch sample std(correction=1)이다. 이 normalization 선택과 clamped k3는 기록한 구현의 정의이며 모든 GRPO recipe의 동일한 기본값이라고 주장하지 않는다.
 
-[16. TRL 외부 trainer 대조](16-grpo-trl-reference.md)에서 동일한 completion/reward의 실제 두 학습 루프를 비교했다. 135M FP32의 loss·gradient·update는 허용 오차 내에서 일치했다. BF16 전체 trajectory의 strict 동등성은 통과하지 못했으므로, 위 reasoning pilot과 함께 그 범위를 명시한다.
+[16. TRL 외부 trainer 대조·최종 판정](16-grpo-trl-reference.md)에서 동일한 completion/reward의 실제 두 학습 루프를 비교했다. 135M Native/FP32의 loss·gradient·update는 허용 오차 내에서 일치했다. 불필요한 BF16 gradient 반올림을 보완한 뒤 같은 HF backbone/BF16의 비교도 통과했다. 서로 다른 Native/HF backbone의 BF16 동등성은 지원 보장에 포함하지 않는 것으로 판정했다. 확인한 필수 코드 보완은 완료했으며 최초 실패를 미결 버그로 남기지 않는다.

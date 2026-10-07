@@ -406,5 +406,113 @@
         }
       }
     }
-  ]
+  ],
+  "final_decision": {
+    "state": "complete_for_documented_contract",
+    "required_code_fixes": "completed: reuse one policy/KL log-probability graph when unwarped",
+    "remaining_mandatory_fixes": [],
+    "native_135m_fp32_reference_equivalence": "passed",
+    "same_hf_backbone_135m_bf16_reference_equivalence": "passed_after_fix",
+    "native_vs_hf_bf16_backbone_equivalence": "not_provided_by_this_training_contract",
+    "operational_rule": "Use Native FP32 for external numerical equivalence. Native BF16 uses its own validated DP/TP/restart contract; do not promise equality with a different HF backbone.",
+    "reasoning_quality": "No improvement demonstrated; previous GSM8k paired reward 0 to 0 remains",
+    "closed_on": "2026-10-08 Asia/Seoul"
+  },
+  "postfix": {
+    "native-fp32": [
+      {
+        "rank": "rank0",
+        "status": "passed",
+        "errors_max": {
+          "loss_abs_error": 4.1425228118896484e-06,
+          "gradient_max_abs_error": 9.179115295410156e-06,
+          "weights_max_abs_error": 2.3301690816879272e-06
+        },
+        "failed_checks": 0
+      },
+      {
+        "rank": "rank1",
+        "status": "passed",
+        "errors_max": {
+          "loss_abs_error": 4.1425228118896484e-06,
+          "gradient_max_abs_error": 9.179115295410156e-06,
+          "weights_max_abs_error": 2.3301690816879272e-06
+        },
+        "failed_checks": 0
+      }
+    ],
+    "native-bf16": [
+      {
+        "rank": "rank0",
+        "status": "failed",
+        "errors_max": {
+          "loss_abs_error": 0.03288067877292633,
+          "gradient_max_abs_error": 0.4137553572654724,
+          "weights_max_abs_error": 0.00013965368270874023
+        },
+        "failed_checks": 284
+      },
+      {
+        "rank": "rank1",
+        "status": "failed",
+        "errors_max": {
+          "loss_abs_error": 0.03288067877292633,
+          "gradient_max_abs_error": 0.4137553572654724,
+          "weights_max_abs_error": 0.00013965368270874023
+        },
+        "failed_checks": 284
+      }
+    ],
+    "hf-bf16": [
+      {
+        "rank": "rank0",
+        "status": "passed",
+        "errors_max": {
+          "loss_abs_error": 5.401670932769775e-07,
+          "gradient_max_abs_error": 8.807983249425888e-06,
+          "weights_max_abs_error": 1.1920928955078125e-07
+        },
+        "failed_checks": 0
+      },
+      {
+        "rank": "rank1",
+        "status": "passed",
+        "errors_max": {
+          "loss_abs_error": 5.401670932769775e-07,
+          "gradient_max_abs_error": 8.807983249425888e-06,
+          "weights_max_abs_error": 1.1920928955078125e-07
+        },
+        "failed_checks": 0
+      }
+    ],
+    "native-moe-bf16-matrix": {
+      "status": "passed",
+      "exact_resume_errors": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "cpu_regression": {
+      "passed": 692,
+      "skipped": 30,
+      "deselected": 230
+    },
+    "focused_regression": {
+      "passed": 96,
+      "skipped": 2
+    },
+    "gradient_probe": {
+      "before": {
+        "mismatched_gradient_elements": 74,
+        "max_gradient_abs_error": 0.00048828125,
+        "loss_abs_error": 1.4901161193847656e-08
+      },
+      "after": {
+        "mismatched_gradient_elements": 0,
+        "max_gradient_abs_error": 0.0,
+        "loss_abs_error": 1.4901161193847656e-08
+      }
+    }
+  }
 }
