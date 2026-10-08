@@ -170,7 +170,9 @@ def _gather_tensor_along_last_dim(x: torch.Tensor):
     slices = pool.get_buffers(x.shape, x.dtype, x.device, world_size)
 
     with timed_comm("tp_all_gather"):
-        dist.all_gather(slices, x, group=parallel_states.get_tensor_model_parallel_group())
+        dist.all_gather(
+            slices, x.contiguous(), group=parallel_states.get_tensor_model_parallel_group()
+        )
 
     # Concatenate slices along the last dimension
     output = torch.cat(slices, dim=-1)

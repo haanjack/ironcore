@@ -24,10 +24,13 @@ class Architecture(Enum):
 
     GPT2 = "gpt2"
     LLAMA = "llama"
+    GEMMA4 = "gemma4_text"
 
 
 # Architecture aliases - many models use LLaMA-style naming
 ARCHITECTURE_ALIASES = {
+    "gemma4": Architecture.GEMMA4,
+    "gemma4text": Architecture.GEMMA4,
     "llama": Architecture.LLAMA,
     "llama2": Architecture.LLAMA,
     "llama3": Architecture.LLAMA,
@@ -132,6 +135,8 @@ class WeightMapper:
             return self._hf_gpt2_to_ironcore(hf_state_dict, strict)
         elif self.architecture == Architecture.LLAMA:
             return self._hf_llama_to_ironcore(hf_state_dict, strict)
+        elif self.architecture == Architecture.GEMMA4:
+            return self._map_gemma4(hf_state_dict, to_hf=False, strict=strict)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
 
@@ -155,8 +160,78 @@ class WeightMapper:
             return self._ironcore_to_hf_gpt2(ironcore_state_dict, strict)
         elif self.architecture == Architecture.LLAMA:
             return self._ironcore_to_hf_llama(ironcore_state_dict, strict)
+        elif self.architecture == Architecture.GEMMA4:
+            return self._map_gemma4(ironcore_state_dict, to_hf=True, strict=strict)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
+
+    @staticmethod
+    def _map_gemma4(
+        state_dict: dict[str, torch.Tensor], *, to_hf: bool, strict: bool
+    ) -> dict[str, torch.Tensor]:
+        """Map dense text weights without collapsing Gemma 4 into LLaMA.
+
+        Public multimodal checkpoints prefix text weights with
+        model.language_model.; exported checkpoints are Gemma4ForCausalLM.
+        """
+        output = {}
+        projections = (
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+            "per_layer_input_gate",
+            "per_layer_projection",
+            "per_layer_model_projection",
+        )
+        for raw_name, tensor in state_dict.items():
+            name = raw_name
+            if to_hf and (".base_layer." in name or ".lora." in name):
+                raise ValueError(
+                    "Merge Gemma 4 LoRA adapters before exporting a dense HF checkpoint"
+                )
+            if not to_hf:
+                for prefix in ("model.language_model.", "language_model."):
+                    if name.startswith(prefix):
+                        name = "model." + name[len(prefix) :]
+                        break
+            specials = (
+                {
+                    "embedding.word_embeddings.weight": "model.embed_tokens.weight",
+                    "output_layernorm.weight": "model.norm.weight",
+                }
+                if to_hf
+                else {
+                    "model.embed_tokens.weight": "embedding.word_embeddings.weight",
+                    "model.norm.weight": "output_layernorm.weight",
+                }
+            )
+            if name in specials:
+                output[specials[name]] = tensor
+            elif not to_hf and name == "lm_head.weight":
+                # Dense Gemma 4 ties its head to the token embedding.
+                continue
+            elif name.startswith(
+                (
+                    "model.layers.",
+                    "model.embed_tokens_per_layer.",
+                    "model.per_layer_model_projection.",
+                    "model.per_layer_projection_norm.",
+                )
+            ):
+                if name.endswith(".weight") and any(
+                    name.endswith(f".{projection}.weight") for projection in projections
+                ):
+                    tensor = tensor.t().contiguous()
+                output[name] = tensor
+            elif strict:
+                raise ValueError(f"Unmapped Gemma 4 key: {raw_name}")
+        if to_hf and "model.embed_tokens.weight" in output:
+            output["lm_head.weight"] = output["model.embed_tokens.weight"].clone()
+        return output
 
     # =========================================================================
     # GPT-2 Conversion

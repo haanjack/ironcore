@@ -1,6 +1,107 @@
 # PEFT guide: LoRA
 
-IronCore's LoRA adds low-rank adapter matrices (`lora_A`, `lora_B`) to attention and MLP layers while keeping the base model frozen. Adapters are **replicated** across TP ranks rather than sharded. Replication keeps the math correct without approximation errors from splitting low-rank matrices, and it means checkpointing and gradient sync don't need any special TP-awareness.
+IronCore's LoRA adds low-rank adapter matrices (`lora_A`, `lora_B`) to attention and MLP layers while keeping the base model frozen. Both adapter matrices are **replicated** across TP ranks. Their computation uses temporary TP views and explicit gradient communication; simply copying the parameters would not synchronize gradients.
+
+| Projection | Parallel computation | Replicated gradient handling |
+| --- | --- | --- |
+| Column (Q/K/V, gate/up) | Compute `x @ A`, use the local B output columns | Sum low-rank gradients before A; gather column gradients into full B |
+| Row (attention output, down) | Use local A input rows, sum partial low-rank activations, then multiply full B | Gather row gradients into full A; B receives the complete output gradient |
+
+This also applies to fused KV and gate/up projections. Adapter initialization
+uses stable per-module seeds and restores zero B after model initialization.
+Dropout uses replicated TP RNG streams; checkpoint recomputation replays the
+original masks and preserves the stream for the next microbatch. Reentrant
+checkpointing receives a differentiable embedding output when embeddings are
+frozen, so first-layer adapters still receive gradients.
+
+New checkpoints store full replicated adapters and optimizer moments at either
+TP degree. Old distributed checkpoints containing sharded adapter matrices need
+conversion before loading into this replicated layout.
+
+## TP validation
+
+```bash
+# Real CPU/Gloo ranks; no model downloads.
+torchrun --standalone --nproc_per_node=2 -m tests.multi_gpu.test_lora_tp --device cpu
+# Corresponding GPU/NCCL test items.
+torchrun --standalone --nproc_per_node=2 -m pytest -o addopts='' tests/multi_gpu/test_lora_tp.py
+# BF16 autocast with FP32 master weights (native trainer, finite gradients,
+# actual updates and exact TP rank replicas; separate from FP32 parity).
+torchrun --standalone --nproc_per_node=2 -m tests.multi_gpu.test_lora_tp \
+  --device cuda --precision bfloat16 --output .local/lora-tp2-gpu-bf16-tiny-results.json
+```
+
+The test uses a scaled SmolLM2 decoder with TP-compatible head counts, and
+Gemma 4 E2B/E4B/31B layouts. It checks nonzero-adapter gradients, three native
+trainer steps starting from zero B, exact equality between rank replicas,
+checkpoint/optimizer restoration, dropout/recompute parity and adapter merging.
+The AdamW comparison uses LR 1e-3 and epsilon 1e-4 to avoid amplifying tiny FP32
+reduction differences in almost-zero gradients; direct gradient tests remain
+independent. This is a correctness check, not a training-quality evaluation.
+Universal checkpoints also resume at TP=1 with exact adapter weights and
+optimizer moments. The full pretrained model check uses LR 1e-4.
+
+SmolLM2-135M has 9 query/3 KV heads and 360M has 15/5; these presets cannot be
+evenly partitioned by the current generic TP=2 attention path. The official
+[1.7B configuration](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B/blob/main/config.json)
+has 32/32 heads. A local 1.7B checkpoint can be checked with the same driver:
+
+```bash
+torchrun --standalone --nproc_per_node=2 -m tests.multi_gpu.test_lora_tp \
+  --device cpu --checkpoint .local/models/SmolLM2-1.7B \
+  --output .local/lora-tp2-smollm2-1.7b-results.json
+```
+
+CPU/Gloo results below are separate from the GPU/NCCL checks described afterward.
+
+Validation on 2026-10-08 passed all 24 tiny cases and the official SmolLM2-1.7B
+checkpoint with PyTorch 2.13.0 / Transformers 5.17.0 on CPU/Gloo. The full-size
+three-step check used fixed token batches, LoRA rank 2 and alpha 4. Reference
+losses were 12.67387867, 10.30386639 and 8.42096615; the maximum TP loss difference
+was **2.00e-5**. Maximum relative gradient L2 error over complete adapter matrices
+was **6.93e-5** (bound 1e-4); FP32 absolute gradient differences reached **0.00110**
+for larger gradients. Near-zero entries are not claimed to match bitwise.
+Updated adapters were compared within FP32 tolerance and were identical between
+the two TP ranks. Merge preserved logits within the same FP32 comparison bound.
+
+SmolLM2-1.7B rank-2 adapters contain 2,260,992 parameters (**9.04 MB per rank** in
+FP32). The previous partially sharded representation used 1,474,560 local
+parameters (**5.90 MB**), so correct replication adds **3.15 MB per rank**. The
+partitioned low-rank matmul shapes keep the same FLOP count; new low-rank
+reductions and adapter-gradient gathers supply previously missing communication.
+No GPU throughput or MFU was measured. Logs and JSON results are under ignored
+`.local/`; the CPU unit/regression/property selection passed **655 tests**.
+
+GPU validation on the same date used **two RTX 3090 24 GiB GPUs**, PyTorch
+2.14.0+cu130, Transformers 5.17.0 and NCCL 2.30.7 in a CUDA container. All
+**24 FP32 parity cases** and **24 BF16 autocast training cases** passed. BF16
+uses FP32 master weights and checks finite logits/adapter gradients, three
+native trainer steps, falling loss and exact adapter replicas between ranks.
+It does **not** assert BF16 TP=1/2 numerical parity, BF16 checkpoint/merge parity,
+or long-run training quality. The FP32 cases check checkpoint/optimizer resume,
+degree changes and merge as described above.
+
+The actual SmolLM2-1.7B checkpoint also passed on GPU. FP32 TP=1/2 comparison
+had maximum loss difference **2.38e-5** and maximum per-adapter relative gradient
+L2 error **4.50e-5**. BF16 TP=2 losses were **12.55744 → 10.84642 → 8.72879**;
+rank replicas agreed exactly and peak allocated memory was **5,204,510,208 bytes
+per GPU**. This uses fixed token batches, rank-2 adapters, accumulation 2,
+LR 1e-4 and AdamW epsilon 1e-4. Full reference snapshots are held on CPU so the
+FP32 TP=1 reference and TP=2 model can coexist on a 24 GiB GPU.
+
+```bash
+torchrun --standalone --nproc_per_node=2 -m tests.multi_gpu.test_lora_tp \
+  --device cuda --checkpoint .local/models/SmolLM2-1.7B \
+  --output .local/lora-tp2-gpu-smollm2-1.7b-results.json
+torchrun --standalone --nproc_per_node=2 -m tests.multi_gpu.test_lora_tp \
+  --device cuda --precision bfloat16 --checkpoint .local/models/SmolLM2-1.7B \
+  --output .local/lora-tp2-gpu-bf16-smollm2-1.7b-results.json
+```
+
+These checks use native SDPA; a separate flash-attn package is not required for
+this validation. GPU logs and result JSON files are stored in ignored `.local/`
+and `/tmp/ironcore-*-gpu-*.log`. No steady-state throughput or MFU benchmark was
+performed.
 
 ## Configuration
 

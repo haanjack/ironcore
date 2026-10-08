@@ -4,14 +4,13 @@
 
 import torch
 from torch import nn
-from torch.utils.checkpoint import checkpoint
 
 from ironcore.config import MainConfig
 from ironcore.layers import BaseModule
 from ironcore.layers.attention import Attention
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.mlp import MLP
-from ironcore.parallel.random import tensor_parallel_rng_fork
+from ironcore.parallel.random import checkpoint_with_tensor_parallel_rng, tensor_parallel_rng_fork
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 from ironcore.peft import wrap_with_lora_if_target
 
@@ -351,9 +350,30 @@ class TransformerModel(BaseModule):
         super().__init__(config)
         self.layers = nn.ModuleList()
         for i in range(config.model.num_layers):
-            layer = TransformerLayer(config)
+            if config.model.is_gemma4:
+                from ironcore.layers.gemma4 import Gemma4Layer
+
+                layer = Gemma4Layer(config, i)
+            else:
+                layer = TransformerLayer(config)
             layer.layer_idx = i
             self.layers.append(layer)
+
+        if config.model.is_gemma4 and config.model.gemma4.hidden_size_per_layer_input:
+            from ironcore.layers.gemma4 import Gemma4PerLayerEmbedding, Gemma4RMSNorm
+
+            gemma = config.model.gemma4
+            self.embed_tokens_per_layer = Gemma4PerLayerEmbedding(config)
+            self.per_layer_model_projection = ColumnParallelLinear(
+                config,
+                config.model.d_model,
+                config.model.num_layers * gemma.hidden_size_per_layer_input,
+                bias=False,
+                gather_output=True,
+            )
+            self.per_layer_projection_norm = Gemma4RMSNorm(
+                gemma.hidden_size_per_layer_input, config.model.ln_eps
+            )
 
         # Activation checkpointing configuration
         self.activation_recompute = config.operation.activation_recompute
@@ -387,7 +407,19 @@ class TransformerModel(BaseModule):
         cache_position=None,
         block_kv_cache_manager=None,
         seq_id=None,
+        input_ids=None,
     ):
+        if self.config.model.is_gemma4:
+            if kv_cache_manager is not None or block_kv_cache_manager is not None:
+                raise ValueError("Gemma 4 requires explicit KV tuples, not external cache managers")
+            return self._forward_gemma4(
+                hidden_states,
+                attention_mask,
+                position_ids,
+                input_ids,
+                use_cache,
+                past_key_values,
+            )
         new_key_values = [] if use_cache else None
 
         is_fsdp = self._is_fsdp_enabled()
@@ -429,7 +461,7 @@ class TransformerModel(BaseModule):
                 scheduler.on_layer_start(i)
 
             if use_layer_checkpointing:
-                layer_out = checkpoint(
+                layer_out = checkpoint_with_tensor_parallel_rng(
                     layer.custom_forward,
                     hidden_states,
                     attention_mask,
@@ -476,3 +508,68 @@ class TransformerModel(BaseModule):
         if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
             return hidden_states, new_key_values
         return hidden_states
+
+    def _forward_gemma4(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor | None,
+        position_ids: torch.Tensor,
+        input_ids: torch.Tensor,
+        use_cache: bool,
+        past_key_values: list | None,
+    ) -> torch.Tensor | tuple[torch.Tensor, list]:
+        """Run Gemma layers with explicit KV tensors, safe for recomputation."""
+        gemma = self.config.model.gemma4
+        per_layer_inputs = None
+        if gemma.hidden_size_per_layer_input:
+            if input_ids is None:
+                raise ValueError("Gemma 4 PLE requires input_ids alongside token embeddings")
+            shape = (
+                *input_ids.shape,
+                self.config.model.num_layers,
+                gemma.hidden_size_per_layer_input,
+            )
+            token_scale = torch.tensor(
+                gemma.hidden_size_per_layer_input**0.5,
+                device=hidden_states.device,
+                dtype=hidden_states.dtype,
+            )
+            token_inputs = (self.embed_tokens_per_layer(input_ids) * token_scale).reshape(shape)
+            projected = (
+                self.per_layer_model_projection(hidden_states) * self.config.model.d_model**-0.5
+            )
+            projected = self.per_layer_projection_norm(projected.reshape(shape))
+            per_layer_inputs = (token_inputs + projected) * 2.0**-0.5
+        shared = {}
+        cache = []
+        for i, layer in enumerate(self.layers):
+            kind = gemma.layer_types[i]
+            past = past_key_values[i] if past_key_values is not None else None
+            kv = shared.get(kind) if layer.self_attn.is_shared else None
+            per_layer_input = per_layer_inputs[:, :, i] if per_layer_inputs is not None else None
+            args = hidden_states, attention_mask, position_ids, past, kv, per_layer_input
+            if (
+                self.activation_recompute
+                and self.training
+                and not use_cache
+                and not self._is_fsdp_enabled()
+            ):
+                key, value = kv if kv is not None else (None, None)
+                hidden_states, new_key, new_value = checkpoint_with_tensor_parallel_rng(
+                    layer.forward_checkpointed,
+                    hidden_states,
+                    attention_mask,
+                    position_ids,
+                    key,
+                    value,
+                    per_layer_input,
+                    use_reentrant=self.use_reentrant,
+                )
+                new_kv = new_key, new_value
+            else:
+                hidden_states, new_kv = layer(*args)
+            if not layer.self_attn.is_shared:
+                shared[kind] = new_kv
+            if use_cache:
+                cache.append(new_kv)
+        return (hidden_states, cache) if use_cache else hidden_states

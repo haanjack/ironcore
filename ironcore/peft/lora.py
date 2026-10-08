@@ -8,6 +8,7 @@ import torch
 from torch import nn
 
 from ironcore.config import LoRAConfig
+from ironcore.parallel.random import tensor_parallel_rng_fork
 
 
 class LoRALinear(nn.Module):
@@ -43,6 +44,14 @@ class LoRALinear(nn.Module):
         # LoRA matrices: A (in -> rank), B (rank -> out)
         self.lora_A = nn.Parameter(torch.zeros(in_features, rank))
         self.lora_B = nn.Parameter(torch.zeros(rank, out_features))
+        # Adapter parameters are full replicas. Only transient computation views
+        # are partitioned at the column/row-parallel boundaries.
+        self.column_parallel = False
+        self.row_parallel = False
+        self.concatenated_weights = 1
+        for parameter in (self.lora_A, self.lora_B):
+            parameter.is_tp_sharded = False
+            parameter.tp_shard_dim = None
 
         # Dropout (optional)
         self.dropout = nn.Dropout(dropout) if dropout > 0.0 else None
@@ -50,10 +59,10 @@ class LoRALinear(nn.Module):
         # Initialize weights
         self._init_weights()
 
-    def _init_weights(self):
+    def _init_weights(self, generator: torch.Generator | None = None) -> None:
         """Initialize LoRA weights following standard practice."""
         # A: Kaiming uniform (ensures gradient flow)
-        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5), generator=generator)
         # B: zeros (ensures LoRA starts as identity - no effect initially)
         nn.init.zeros_(self.lora_B)
 
@@ -80,6 +89,30 @@ class LoRALinear(nn.Module):
         # Apply scaling
         return self.scaling * result
 
+    def _dropout(self, hidden: torch.Tensor, seed: int) -> torch.Tensor:
+        if self.dropout is not None and self.training:
+            with tensor_parallel_rng_fork(seed, hidden.device):
+                hidden = self.dropout(hidden)
+        return hidden
+
+    def forward_column(self, x: torch.Tensor, seed: int) -> torch.Tensor:
+        """Split B's compute view; sum low-rank gradients before replicated A."""
+        from ironcore.parallel.tensor_parallel import comm
+
+        hidden = self._dropout(x @ self.lora_A, seed)
+        hidden = comm.copy_inputs_to_model_parallel_workers(hidden)
+        local_b = comm.scatter_input_to_model_parallel_workers(self.lora_B)
+        return self.scaling * (hidden @ local_b)
+
+    def forward_row(self, x: torch.Tensor, seed: int) -> torch.Tensor:
+        """Reduce partial low-rank activations before dropout and replicated B."""
+        from ironcore.parallel.tensor_parallel import comm
+
+        local_a = comm.scatter_input_to_model_parallel_workers(self.lora_A.T).T
+        hidden = comm.reduce_inputs_from_model_parallel_workers(x @ local_a)
+        hidden = self._dropout(hidden, seed)
+        return self.scaling * (hidden @ self.lora_B)
+
     def __repr__(self):
         return (
             f"LoRALinear(in_features={self.in_features}, "
@@ -90,11 +123,11 @@ class LoRALinear(nn.Module):
 
 class LoRAColumnParallelLinear(nn.Module):
     """
-    LoRA wrapper for ColumnParallelLinear with sharded adapters.
+    LoRA wrapper for ColumnParallelLinear with replicated adapters.
 
     In column-parallel layers, the output dimension is sharded across TP ranks.
-    We shard the LoRA adapter's B matrix to match the base layer's partition.
-    This makes LoRA computation truly parallel and more memory efficient.
+    A and B remain full parameters. B's temporary compute view follows the
+    base projection's output partition; backward gathers B and sums A gradients.
 
     Args:
         base_layer: The underlying ColumnParallelLinear layer
@@ -105,24 +138,18 @@ class LoRAColumnParallelLinear(nn.Module):
         super().__init__()
         self.base_layer = base_layer
 
-        # LoRA A is replicated (shared across all TP ranks)
-        # LoRA B is sharded (each TP rank has a slice of the output dim)
+        # Both adapter matrices are replicated across TP ranks.
         self.tp_rank = base_layer.tensor_model_parallel_rank
         self.tp_size = base_layer.tensor_model_parallel_size
         self.output_size_per_partition = base_layer.output_size
 
         self.lora = LoRALinear(
             in_features=base_layer.input_size,
-            out_features=self.output_size_per_partition,
+            out_features=self.output_size_per_partition * self.tp_size,
             rank=lora_config.r,
             alpha=lora_config.alpha,
             dropout=lora_config.dropout,
         )
-        # Mark for checkpointing logic
-        self.lora.column_parallel = True
-        self.lora.row_parallel = False
-        self.lora.concatenated_weights = 1
-
         # Expose attributes for checkpointing logic
         self.column_parallel = True
         self.row_parallel = False
@@ -130,7 +157,7 @@ class LoRAColumnParallelLinear(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass with sharded LoRA.
+        Forward pass with replicated adapters and a local output partition.
 
         Args:
             x: Input tensor [batch, seq, in_features]
@@ -141,8 +168,13 @@ class LoRAColumnParallelLinear(nn.Module):
         # Base computation (already sharded)
         base_output = self.base_layer(x)  # [batch, seq, out_features/tp_size]
 
-        # LoRA computation (already sharded by self.lora being local size)
-        lora_output = self.lora(x)  # [batch, seq, out_features/tp_size]
+        lora_output = self.lora.forward_column(x, self.base_layer.config.init.seed)
+        if self.base_layer.gather_output:
+            from ironcore.parallel.tensor_parallel import comm
+
+            lora_output = comm.gather_from_model_parallel_workers(
+                lora_output, {"column_parallel": True}
+            )
 
         # Combine base and LoRA (both are sharded same way)
         return base_output + lora_output
@@ -153,10 +185,10 @@ class LoRAColumnParallelLinear(nn.Module):
 
 class LoRAConcatenatedColumnParallel(nn.Module):
     """
-    LoRA wrapper for ColumnParallelLinear with concatenated_weights > 1.
+    Replicated adapters for ColumnParallelLinear with concatenated_weights > 1.
 
-    Each concatenated portion (e.g., K, V) gets its own LoRA adapter,
-    which is sharded matching the base layer's TP partition.
+    Each concatenated portion (e.g., K, V) gets its own full adapter; only
+    its output computation is split to match the base layer's TP partition.
     """
 
     def __init__(
@@ -185,18 +217,14 @@ class LoRAConcatenatedColumnParallel(nn.Module):
             # Check if this index should have LoRA
             name = target_modules[i] if i < len(target_modules) else None
             if name and name in lora_config.target_modules:
-                # LoRA adapter is sharded to local size
+                # Keep the full adapter and partition its computation at runtime.
                 adapter = LoRALinear(
                     in_features=base_layer.input_size,
-                    out_features=self.output_size_per_concat,
+                    out_features=self.output_size_per_concat * self.tp_size,
                     rank=lora_config.r,
                     alpha=lora_config.alpha,
                     dropout=lora_config.dropout,
                 )
-                # Mark for checkpointing logic
-                adapter.column_parallel = True
-                adapter.row_parallel = False
-                adapter.concatenated_weights = 1
                 self.lora_adapters.append(adapter)
                 self.adapter_map[i] = len(self.lora_adapters) - 1
 
@@ -207,29 +235,29 @@ class LoRAConcatenatedColumnParallel(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass with sharded LoRA for concatenated weights.
+        Forward pass with replicated adapters for concatenated projections.
         """
         # Base computation
         base_output = self.base_layer(x)  # [batch, seq, total_out/tp_size]
 
-        # Split base output by concatenated portions
-        base_splits = torch.split(base_output, self.output_size_per_concat, dim=-1)
-
         # Apply LoRA to targeted portions
         combined_splits = []
         for i in range(self.num_concatenated):
-            base_shard = base_splits[i]
-
             if i in self.adapter_map:
-                # This portion has a local LoRA adapter shard
                 adapter = self.lora_adapters[self.adapter_map[i]]
-                lora_shard = adapter(x)
-                combined_splits.append(base_shard + lora_shard)
+                combined_splits.append(adapter.forward_column(x, self.base_layer.config.init.seed))
             else:
-                combined_splits.append(base_shard)
+                combined_splits.append(x.new_zeros(*x.shape[:-1], self.output_size_per_concat))
 
         # Concatenate back
-        return torch.cat(combined_splits, dim=-1)
+        delta = torch.cat(combined_splits, dim=-1)
+        if self.base_layer.gather_output:
+            from ironcore.parallel.tensor_parallel import comm
+
+            delta = comm.gather_from_model_parallel_workers(
+                delta, {"column_parallel": True, "concatenated_weights": self.num_concatenated}
+            )
+        return base_output + delta
 
     def __repr__(self):
         return (
@@ -241,31 +269,25 @@ class LoRAConcatenatedColumnParallel(nn.Module):
 
 class LoRARowParallelLinear(nn.Module):
     """
-    LoRA wrapper for RowParallelLinear with sharded adapters.
+    LoRA wrapper for RowParallelLinear with replicated adapters.
 
     In row-parallel layers, the input dimension is sharded.
-    We shard the LoRA adapter's A matrix to match the input partition.
-    The LoRA contribution is added after the base layer's all-reduce
-    (via finalize in async mode or directly in sync mode).
+    A's temporary compute view follows the input partition. Its low-rank
+    activation is reduced before multiplying B, preserving full adapter gradients.
     """
 
     def __init__(self, base_layer, lora_config: LoRAConfig):
         super().__init__()
         self.base_layer = base_layer
 
-        # LoRA A is sharded (matching input partition)
-        # LoRA B is replicated
+        # Both matrices stay replicated; forward_row partitions A's compute view.
         self.lora = LoRALinear(
-            in_features=base_layer.input_size,  # Already sharded size
+            in_features=base_layer.input_size * base_layer.tensor_model_parallel_size,
             out_features=base_layer.output_size,
             rank=lora_config.r,
             alpha=lora_config.alpha,
             dropout=lora_config.dropout,
         )
-        # Mark for checkpointing logic
-        self.lora.column_parallel = False
-        self.lora.row_parallel = True
-        self.lora.concatenated_weights = 1
 
         # Expose attributes for checkpointing logic
         self.column_parallel = False
@@ -274,7 +296,7 @@ class LoRARowParallelLinear(nn.Module):
 
     def forward(self, x: torch.Tensor, async_communication: bool = False):
         """
-        Forward pass with sharded LoRA.
+        Forward pass with replicated adapters and input partitions.
         """
         from ironcore.parallel.tensor_parallel import comm
 
@@ -283,29 +305,14 @@ class LoRARowParallelLinear(nn.Module):
         else:
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
 
-        if async_communication:
-            # 1. Base partial computation
-            base_partial = torch.matmul(parallel_x, self.base_layer.weight)
-            # 2. LoRA partial computation
-            lora_partial = self.lora(parallel_x)
-
-            # Combine BEFORE all-reduce to save one communication step
-            combined_partial = base_partial + lora_partial
-
-            # NOTE: Unlike the base RowParallelLinear which supports true async communication
-            # overlap, LoRA RowParallel currently uses synchronous all-reduce. This is because
-            # the async reduction function (reduce_async) is not tracked by autograd, which
-            # would break gradient flow for LoRA parameters. Future optimization could
-            # implement an autograd-compatible async reduction for improved performance.
-            output = comm.reduce_inputs_from_model_parallel_workers(combined_partial)
-            return output, None  # Return (output, handle) where handle is None
-
-        # Sync path: combine base and lora before all-reduce
         base_partial = torch.matmul(parallel_x, self.base_layer.weight)
-        lora_partial = self.lora(parallel_x)
+        output = comm.reduce_inputs_from_model_parallel_workers(base_partial)
+        output = output + self.lora.forward_row(parallel_x, self.base_layer.config.init.seed)
 
-        combined_partial = base_partial + lora_partial
-        output = comm.reduce_inputs_from_model_parallel_workers(combined_partial)
+        if async_communication:
+            # Collectives stay autograd-aware. Bias is added by finalize(),
+            # matching the existing synchronous fallback's async interface.
+            return output, None
 
         if self.base_layer.bias is not None:
             output = output + self.base_layer.bias

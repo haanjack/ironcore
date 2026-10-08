@@ -81,6 +81,7 @@ nav:
       - Multi-dataset SFT: multi_dataset_sft.md
       - Checkpointing: checkpointing.md
       - Inference & KV cache: inference.md
+      - Gemma 4: gemma4.md
       - Evaluation: eval.md
       - PEFT (LoRA): peft_guide.md
       - Alignment (DPO/GRPO): alignment.md

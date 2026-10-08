@@ -41,6 +41,10 @@ class HFConfigManager:
     @staticmethod
     def get_hf_config(config: MainConfig) -> dict:
         """Convert MainConfig to HuggingFace compatible config dict."""
+        if config.model.is_gemma4:
+            from .gemma4_config import get_gemma4_hf_config
+
+            return get_gemma4_hf_config(config)
         # Ensure model-specific HF names are provided for compatibility.
         model_type = config.model.hf_model_type
         architecture = config.model.hf_architecture

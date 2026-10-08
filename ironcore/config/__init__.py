@@ -47,6 +47,9 @@ class MainConfig(BaseConfig):
 
 def _config_validation(config: MainConfig):
     """Validate arguments and update internal enum if necessary"""
+    from .config_gemma4 import validate_gemma4_runtime
+
+    validate_gemma4_runtime(config)
     # train steps. Allow train_steps == 0 only in eval-only mode (eval datasets
     # present). This supports `ironcore evaluate`, which sets train_steps=0.
     has_eval = bool(getattr(config.data, "eval_datasets", None))
@@ -155,7 +158,10 @@ def _config_validation(config: MainConfig):
             raise ValueError(
                 "num_attention_heads should be divisible by tensor_model_parallel_size"
             )
-        if config.model.num_attention_groups % config.trainer.tensor_model_parallel_size != 0:
+        if (
+            not config.model.is_gemma4
+            and config.model.num_attention_groups % config.trainer.tensor_model_parallel_size != 0
+        ):
             raise ValueError(
                 "num_attention_groups should be divisible by tensor_model_parallel_size"
             )

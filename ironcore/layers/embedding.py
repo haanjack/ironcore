@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 #
 # SPDX-License-Identifier: Apache-2.0
+import torch
 from torch import nn
 
 from ironcore import get_tokenizer
@@ -36,6 +37,14 @@ class LanguageModelEmbedding(BaseModule):
     def forward(self, input_ids, position_ids):
         # Embeddings.
         output = self.word_embeddings(input_ids)
+        if self.config.model.is_gemma4:
+            # Match Gemma's dtype-rounded sqrt(hidden_size) embedding scale.
+            scale = torch.tensor(
+                self.config.model.d_model**0.5,
+                device=output.device,
+                dtype=output.dtype,
+            )
+            output = output * scale
 
         # apply position embedding
         if self.add_position_embedding:
