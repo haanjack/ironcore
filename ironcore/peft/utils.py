@@ -124,25 +124,39 @@ def merge_lora_weights(model):
         LoRARowParallelLinear,
     )
 
-    def _delta(lora) -> torch.Tensor:
+    def _delta(lora, column_parallel: bool, row_parallel: bool) -> torch.Tensor:
         # weight layout is [in_features, out_features] (this layer's forward
         # computes x @ weight); lora_A is [in, r], lora_B is [r, out], so
         # lora_A @ lora_B already matches base_layer.weight's shape.
-        return lora.scaling * (lora.lora_A.float() @ lora.lora_B.float())
+        from ironcore.parallel.tensor_parallel import comm
+
+        delta = lora.scaling * (lora.lora_A.float() @ lora.lora_B.float())
+        return comm.split_to_model_parallel_workers(
+            delta,
+            {
+                "column_parallel": column_parallel,
+                "row_parallel": row_parallel,
+                "concatenated_weights": 1,
+            },
+        )
 
     @torch.no_grad()
     def _merge_module(module: torch.nn.Module):
         for name, child in list(module.named_children()):
             if isinstance(child, (LoRAColumnParallelLinear, LoRARowParallelLinear)):
                 base_weight = child.base_layer.weight.data
-                base_weight.add_(_delta(child.lora).to(base_weight.dtype))
+                base_weight.add_(
+                    _delta(child.lora, child.column_parallel, child.row_parallel).to(
+                        base_weight.dtype
+                    )
+                )
                 setattr(module, name, child.base_layer)
             elif isinstance(child, LoRAConcatenatedColumnParallel):
                 base_weight = child.base_layer.weight.data
                 slices = list(torch.split(base_weight, child.output_size_per_concat, dim=1))
                 for i, adapter_idx in child.adapter_map.items():
                     adapter = child.lora_adapters[adapter_idx]
-                    slices[i] = slices[i] + _delta(adapter).to(base_weight.dtype)
+                    slices[i] = slices[i] + _delta(adapter, True, False).to(base_weight.dtype)
                 base_weight.copy_(torch.cat(slices, dim=1))
                 setattr(module, name, child.base_layer)
             else:

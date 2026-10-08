@@ -24,6 +24,7 @@ import torch
 from torch import nn
 
 from ironcore.checkpointing.weight_mapping import (
+    Architecture,
     WeightMapper,
     get_architecture,
 )
@@ -253,6 +254,8 @@ def load_from_huggingface(
 
     # Load HuggingFace config to detect architecture
     hf_config = load_hf_config(checkpoint_path)
+    if hf_config.get("model_type") == "gemma4":
+        hf_config = hf_config["text_config"]
     if architecture is None:
         architecture = hf_config.get("model_type", "llama")
 
@@ -264,6 +267,14 @@ def load_from_huggingface(
 
     # Create weight mapper
     arch_enum = get_architecture(architecture)
+    if arch_enum == Architecture.GEMMA4 and hf_config.get("enable_moe_block", False):
+        raise ValueError("Gemma 4 MoE checkpoints cannot be loaded as dense text models")
+    if (
+        arch_enum == Architecture.GEMMA4
+        and hf_config.get("num_kv_shared_layers", 0)
+        != model.config.model.gemma4.num_kv_shared_layers
+    ):
+        raise ValueError("Gemma 4 checkpoint and native model must use the same KV-sharing layout")
     mapper = WeightMapper(arch_enum, num_layers)
 
     # Load HuggingFace state dict
@@ -272,11 +283,22 @@ def load_from_huggingface(
     # Update model_config.bias to match what the checkpoint actually contains.
     # NOTE: Call this BEFORE building the model when possible; updating after init
     # adjusts the stored config but does not change already-created layer structure.
-    if model_config is not None:
+    if model_config is not None and arch_enum != Architecture.GEMMA4:
         model_config.bias = detect_bias_from_hf_state_dict(hf_state_dict)
 
     # Convert to ironcore format
     ironcore_state_dict = mapper.hf_to_ironcore(hf_state_dict, strict=False)
+    if arch_enum == Architecture.GEMMA4:
+        # Public checkpoints can retain unused K/V projections in KV-sharing
+        # consumer layers. Newer reference decoders omit these parameters too.
+        # Only discard those exact keys when the native layer reuses producer KV.
+        modules = dict(model.named_modules())
+        for name in list(ironcore_state_dict):
+            match = re.fullmatch(
+                r"(model\.layers\.\d+\.self_attn)\.(k_proj|v_proj|k_norm)\.weight", name
+            )
+            if match and getattr(modules.get(match[1]), "is_shared", False):
+                del ironcore_state_dict[name]
     # LoRA wrappers keep the pretrained parameter under a base_layer child.
     for name in model.state_dict():
         canonical = name.replace(".base_layer.", ".")

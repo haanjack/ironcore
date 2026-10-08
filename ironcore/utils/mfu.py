@@ -52,11 +52,12 @@ class MFUCalculator:
         self.tied_embeddings = tied_embeddings
         self.ffn_projections = ffn_projections
         self._result: MFUResult | None = None
+        self._gemma4_model: ModelConfig | None = None
 
     @classmethod
     def from_config(cls, config: ModelConfig, vocab_size: int) -> MFUCalculator:
         """Create MFU calculator from ModelConfig."""
-        return cls(
+        calculator = cls(
             num_layers=config.num_layers,
             d_model=config.d_model,
             d_ffn=config.d_ffn,
@@ -67,9 +68,14 @@ class MFUCalculator:
             tied_embeddings=not config.untie_embed,
             ffn_projections=3 if config.activation_type.lower().endswith("glu") else 2,
         )
+        if config.is_gemma4:
+            calculator._gemma4_model = config
+        return calculator
 
     def get_num_parameters(self) -> int:
         """Calculate the number of parameters in the model."""
+        if self._gemma4_model is not None:
+            return self._gemma4_parameters()[0]
         # Embedding parameters
         embed_params = self.vocab_size * self.d_model
 
@@ -93,6 +99,40 @@ class MFUCalculator:
 
         return total
 
+    def _gemma4_parameters(self) -> tuple[int, int]:
+        """Count all parameters and matmul weights separately (PLE is a lookup)."""
+        model = self._gemma4_model
+        gemma = model.gemma4
+        hidden = model.d_model
+        linear = self.vocab_size * hidden  # tied output head still performs a matmul
+        total = linear + hidden  # token table and final RMSNorm
+        first_shared = model.num_layers - gemma.num_kv_shared_layers
+        ple = gemma.hidden_size_per_layer_input
+        for i, kind in enumerate(gemma.layer_types):
+            dim, groups = gemma.head_layout(model, i)
+            projections = 2 * hidden * model.num_attention_heads * dim
+            norms = 4 * hidden + dim
+            if i < first_shared:
+                projections += (
+                    hidden
+                    * groups
+                    * dim
+                    * (1 if kind == "full_attention" and gemma.attention_k_eq_v else 2)
+                )
+                norms += dim
+            width = model.d_ffn * (2 if i >= first_shared and gemma.use_double_wide_mlp else 1)
+            projections += 3 * hidden * width
+            if ple:
+                projections += 2 * hidden * ple
+                norms += hidden
+            linear += projections
+            total += projections + norms
+        if ple:
+            packed = model.num_layers * ple
+            linear += hidden * packed
+            total += gemma.vocab_size_per_layer_input * packed + hidden * packed + ple
+        return total, linear
+
     def compute_tflops(
         self,
         batch_size: int,
@@ -106,6 +146,16 @@ class MFUCalculator:
 
         # FLOPs per training step = 6 * params * tokens (forward=2N, backward=4N)
         flops_per_step = 6.0 * num_params * tokens_per_step
+        if self._gemma4_model is not None:
+            _, matmul_parameters = self._gemma4_parameters()
+            # PLE tables are indexed, not multiplied at every token. Explicit
+            # masked SDPA computes dense attention; a local mask is not a sparse kernel.
+            head_dims = sum(
+                self._gemma4_model.gemma4.head_layout(self._gemma4_model, i)[0]
+                for i in range(self.num_layers)
+            )
+            flops_per_step = 6.0 * matmul_parameters * tokens_per_step
+            flops_per_step += 12.0 * batch_size * self.num_attention_heads * seq_len**2 * head_dims
 
         # TFLOPS/s per GPU
         tflops_per_gpu = (flops_per_step / step_time_seconds / 1e12) / num_gpus

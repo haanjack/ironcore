@@ -64,7 +64,10 @@ operation:
 
 On save, IronCore gathers TP-sharded weights and optimizer moment tensors from all TP ranks and writes a single file from rank 0. On load, the full tensors are split for the new TP degree automatically.
 
-This applies to LoRA adapters too: `lora_B` is gathered/split with column-parallel layers; `lora_A` with row-parallel layers.
+LoRA parameters and their optimizer moments are full replicas across TP ranks,
+so they are saved and loaded without TP gathering or splitting. Base projection
+weights retain their usual column/row TP shards. Legacy distributed checkpoints
+with sharded adapter matrices require conversion to this replicated layout.
 
 ## Distributed checkpointing (parallel I/O)
 

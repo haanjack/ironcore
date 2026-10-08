@@ -3,6 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # configure language model sequential
 
+import zlib
+
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -29,6 +31,10 @@ class LanguageModel(BaseModule):
     ):
         super().__init__(config)
 
+        from ironcore.config.config_gemma4 import validate_gemma4_runtime
+
+        validate_gemma4_runtime(config)
+
         tokenizer = get_tokenizer()
 
         self.eod_mask_loss = config.model.eod_mask_loss
@@ -39,7 +45,7 @@ class LanguageModel(BaseModule):
         # model components initialization
         self.embedding = LanguageModelEmbedding(config)
         self.rotary_pos_emb = None
-        if config.model.positional_embedding.type == "rope":
+        if config.model.positional_embedding.type == "rope" and not config.model.is_gemma4:
             self.rotary_pos_emb = RotaryPositionalEmbedding(
                 config.model.d_model // config.model.num_attention_heads,
                 config.model.max_position_embeddings,
@@ -50,7 +56,12 @@ class LanguageModel(BaseModule):
 
         model_provider_func = get_model_provider_func(config)
         self.model = model_provider_func(config)
-        self.output_layernorm = get_norm(config)
+        if config.model.is_gemma4:
+            from ironcore.layers.gemma4 import Gemma4RMSNorm
+
+            self.output_layernorm = Gemma4RMSNorm(config.model.d_model, config.model.ln_eps)
+        else:
+            self.output_layernorm = get_norm(config)
 
         if config.model.untie_embed:
             self.output_layer = ColumnParallelLinear(
@@ -62,7 +73,11 @@ class LanguageModel(BaseModule):
 
         # Initialize KV cache manager for inference
         self.kv_cache_manager = None
-        if config.model.kv_cache.enabled and not config.model.kv_cache.use_paged:
+        if (
+            config.model.kv_cache.enabled
+            and not config.model.kv_cache.use_paged
+            and not config.model.is_gemma4
+        ):
             from ironcore.layers.kv_cache import KVCacheManager
 
             self.kv_cache_manager = KVCacheManager(config)
@@ -75,6 +90,20 @@ class LanguageModel(BaseModule):
             self.block_kv_cache_manager = BlockKVCacheManager(config)
 
         self.init_weights()
+        if config.peft.method == "lora":
+            from ironcore.peft.lora import LoRALinear
+
+            # BaseModule initializes all parameters; restore zero-output adapters.
+            for name, module in self.named_modules():
+                if isinstance(module, LoRALinear):
+                    generator = torch.Generator(device=module.lora_A.device)
+                    generator.manual_seed((config.init.seed + zlib.crc32(name.encode())) % (2**63))
+                    module._init_weights(generator)
+        if config.model.is_gemma4 and config.model.gemma4.hidden_size_per_layer_input:
+            ple = self.model.embed_tokens_per_layer
+            with torch.no_grad():
+                if ple.local_padding_idx is not None:
+                    ple.weight[ple.local_padding_idx].zero_()
 
         # Initialize VocabParallelEmbedding (zeros padding, registers hooks)
         if hasattr(self.embedding.word_embeddings, "init_weight"):
@@ -147,7 +176,18 @@ class LanguageModel(BaseModule):
             position_ids = position_ids.to(self.device, non_blocking=True)
 
         x = self.embedding(input_ids, position_ids)
+        if (
+            self.training
+            and self.config.peft.method == "lora"
+            and self.config.operation.activation_recompute
+            and self.config.operation.recompute_strategy == "optimized"
+            and not x.requires_grad
+        ):
+            # Reentrant checkpointing needs a differentiable input even when
+            # the embedding is frozen; adapter parameters remain trainable.
+            x.requires_grad_(True)
 
+        model_kwargs = {"input_ids": input_ids} if self.config.model.is_gemma4 else {}
         model_out = self.model(
             x,
             attention_mask,
@@ -159,6 +199,7 @@ class LanguageModel(BaseModule):
             cache_position=cache_position if not self.training else None,
             block_kv_cache_manager=bkv,
             seq_id=seq_id,
+            **model_kwargs,
         )
 
         has_cache = (
@@ -205,6 +246,11 @@ class LanguageModel(BaseModule):
 
             input_parallel = comm.copy_inputs_to_model_parallel_workers(lm_output)
             logits_parallel = F.linear(input_parallel, self.embedding.word_embeddings.weight)
+
+        if self.config.model.is_gemma4:
+            softcap = self.config.model.gemma4.final_logit_softcapping
+            if softcap is not None:
+                logits_parallel = (logits_parallel / softcap).tanh() * softcap
 
         if labels is None:
             logits = gather_from_model_parallel_workers(
@@ -292,7 +338,7 @@ class LanguageModel(BaseModule):
         top_p: float = 1.0,
         top_k: int = 0,
         do_sample: bool = False,
-        eos_token_id: int | None = None,
+        eos_token_id: int | list[int] | None = None,
     ) -> torch.Tensor:
         """
         Autoregressive generation with KV cache.
@@ -303,6 +349,11 @@ class LanguageModel(BaseModule):
         past_key_values = None
         done = torch.zeros(batch_size, dtype=torch.bool, device=input_ids.device)
         next_token = input_ids
+        eos_tokens = (
+            torch.as_tensor(eos_token_id, device=input_ids.device).reshape(-1)
+            if eos_token_id is not None
+            else None
+        )
 
         use_stateful = self.kv_cache_manager is not None
         use_paged = self.block_kv_cache_manager is not None and not use_stateful
@@ -356,10 +407,7 @@ class LanguageModel(BaseModule):
                 logits, past_key_values = out
 
             next_logits = logits[:, -1, :]
-            if parallel_states.get_tensor_model_parallel_world_size() > 1:
-                next_logits = gather_from_model_parallel_workers(
-                    next_logits, attrib={"column_parallel": True, "row_parallel": False}
-                )
+            # forward(labels=None) already gathers the full vocabulary on every rank.
 
             # Restrict sampling to the real vocabulary. The tied output embedding
             # is padded to `padded_vocab_size` for TP alignment; those padding
@@ -378,8 +426,8 @@ class LanguageModel(BaseModule):
                     group=parallel_states.get_tensor_model_parallel_group(),
                 )
 
-            if eos_token_id is not None:
-                new_done = (next_token.squeeze(1) == eos_token_id) | done
+            if eos_tokens is not None:
+                new_done = torch.isin(next_token.squeeze(1), eos_tokens) | done
                 if new_done.all():
                     break
                 done = new_done

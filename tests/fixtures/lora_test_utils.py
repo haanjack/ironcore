@@ -133,7 +133,7 @@ def set_seed(seed: int = 42):
 
 def count_parameters(model) -> tuple[int, int, int]:
     """
-    Count trainable, total, and LoRA parameters.
+    Count global trainable, total, and LoRA parameters across TP shards.
 
     Args:
         model: The model to analyze
@@ -144,9 +144,10 @@ def count_parameters(model) -> tuple[int, int, int]:
     trainable = 0
     total = 0
     lora = 0
+    tp_size = parallel_states.get_tensor_model_parallel_world_size()
 
     for name, param in model.named_parameters():
-        num_params = param.numel()
+        num_params = param.numel() * (tp_size if getattr(param, "is_tp_sharded", False) else 1)
         total += num_params
 
         if param.requires_grad:

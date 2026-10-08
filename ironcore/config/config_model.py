@@ -5,6 +5,7 @@
 from dataclasses import dataclass, field
 
 from .config import BaseConfig
+from .config_gemma4 import Gemma4Config
 from .config_moe import MoEConfig
 
 
@@ -181,6 +182,13 @@ class ModelConfig(BaseConfig):
 
     # Mixture of Experts
     moe: MoEConfig = field(default_factory=MoEConfig)
+    gemma4: Gemma4Config = field(default_factory=Gemma4Config)
+
+    @property
+    def is_gemma4(self) -> bool:
+        """Whether the model uses the Gemma 4 text decoder layout."""
+        name = self.name.lower().replace("-", "").replace("_", "")
+        return name.startswith("gemma4") or self.hf_model_type in {"gemma4", "gemma4_text"}
 
     def __post_init__(self):
         if self.ln_type not in ["layernorm", "rmsnorm"]:
@@ -203,3 +211,5 @@ class ModelConfig(BaseConfig):
         assert all(
             0 <= getattr(self, k) <= 1 for k in ["dropout_embd", "dropout_attn", "dropout_mlp"]
         ), "Dropouts must be [0, 1]"
+        if self.is_gemma4:
+            self.gemma4.validate(self)

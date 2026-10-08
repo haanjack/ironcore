@@ -1,0 +1,89 @@
+# Gemma 4 dense text decoder. Source: google/gemma-4-E2B-it/config.json.
+# TP=1; use the same tokenizer path and vocab_size=262144 in the data section.
+name: gemma4-e2b
+d_model: 1536
+d_ffn: 6144
+num_layers: 35
+num_attention_heads: 8
+num_attention_groups: 1
+head_dim: 256
+max_seq_len: 2048
+max_position_embeddings: 131072
+precision: bfloat16
+untie_embed: false
+dropout_embd: 0.0
+dropout_attn: 0.0
+dropout_mlp: 0.0
+ln_type: rmsnorm
+ln_eps: 1.0e-06
+layernorm_bias: false
+activation_type: gelu_pytorch_tanh
+bias:
+  q: false
+  k: false
+  v: false
+  o: false
+  gate: false
+  up: false
+  down: false
+positional_embedding:
+  type: rope
+reset_position_ids: false
+reset_attention_mask: false
+hf_model_type: gemma4_text
+hf_architecture: Gemma4ForCausalLM
+tokenizer_type: sentencepiece
+vocab_name_or_path: google/gemma-4-E2B-it
+kv_cache:
+  enabled: true
+  use_paged: false
+gemma4:
+  layer_types:
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - sliding_attention
+  - full_attention
+  sliding_window: 512
+  global_head_dim: 512
+  num_global_key_value_heads: null
+  hidden_size_per_layer_input: 256
+  vocab_size_per_layer_input: 262144
+  num_kv_shared_layers: 20
+  attention_k_eq_v: false
+  use_double_wide_mlp: true
+  final_logit_softcapping: 30.0
+  pad_token_id: 0
+  sliding_rope_theta: 10000.0
+  global_rope_theta: 1000000.0
+  global_partial_rotary_factor: 0.25
