@@ -39,6 +39,10 @@ def batched_experts(
     experts: torch.nn.ModuleList,
 ) -> torch.Tensor:
     """Compute routed experts, optionally bounding per-expert token padding."""
+    if experts[0].config.model.moe.blockwise_backend != "torch":
+        from .scheduled import scheduled_experts
+
+        return scheduled_experts(x, indices, weights, experts, padded=True)
     hidden = x.reshape(-1, x.size(-1))
     topk = indices.size(-1)
     flat = indices.reshape(-1)

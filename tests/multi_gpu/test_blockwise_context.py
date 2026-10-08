@@ -126,6 +126,19 @@ def main() -> None:
                 compute_dtype=torch.float16,
             )
         )
+    for expert_backend in ("batched", "grouped"):
+        rows.append(
+            check_model(
+                device,
+                "ring" if device.type == "cuda" else "sdpa",
+                lora=False,
+                moe=True,
+                mlp_chunk_size=3,
+                expert_backend=expert_backend,
+                blockwise_backend="scheduled",
+                compute_dtype=torch.float16,
+            )
+        )
     if dist.get_rank() == 0:
         if args.report:
             args.report.write_text(json.dumps(rows, indent=2) + "\n")

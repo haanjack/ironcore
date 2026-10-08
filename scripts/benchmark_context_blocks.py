@@ -43,7 +43,10 @@ def benchmark(args: argparse.Namespace) -> None:
     config.data.seq_length = args.context
     config.model.moe.use_moe = args.model_type == "moe"
     config.model.moe.num_routed_experts = args.experts
-    config.model.moe.expert_backend = "batched"
+    config.model.moe.expert_backend = args.expert_backend
+    config.model.moe.blockwise_backend = args.blockwise_backend
+    config.model.moe.virtual_block_size = args.virtual_block_size
+    config.model.moe.grouped_token_budget = args.grouped_token_budget
     config.model.moe.router_bias = True
     if args.tokenizer is not None:
         config.model.vocab_name_or_path = str(args.tokenizer)
@@ -64,6 +67,9 @@ def benchmark(args: argparse.Namespace) -> None:
     metadata = {
         "model_type": args.model_type,
         "checkpoint_mode": args.checkpoint_mode,
+        "expert_backend": args.expert_backend,
+        "blockwise_backend": args.blockwise_backend,
+        "num_routed_experts": args.experts,
         "sequence_length": args.context,
         "local_tokens": local_tokens,
         "mlp_chunk_size": config.trainer.mlp_chunk_size,
@@ -218,6 +224,12 @@ def main() -> None:
     parser.add_argument("--checkpoint-mode", choices=["none", "full", "blocked"], required=True)
     parser.add_argument("--context", type=int, required=True)
     parser.add_argument("--experts", type=int, default=4)
+    parser.add_argument("--expert-backend", choices=["batched", "grouped"], default="batched")
+    parser.add_argument(
+        "--blockwise-backend", choices=["torch", "scheduled", "triton"], default="torch"
+    )
+    parser.add_argument("--virtual-block-size", type=int, default=128)
+    parser.add_argument("--grouped-token-budget", type=int, default=4096)
     parser.add_argument("--block-size", type=int, default=512)
     parser.add_argument("--steps", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=1)

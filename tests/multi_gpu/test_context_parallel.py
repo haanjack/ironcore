@@ -138,6 +138,7 @@ def check_model(
     moe: bool = False,
     mlp_chunk_size: int | None = None,
     expert_backend: str = "loop",
+    blockwise_backend: str = "torch",
 ) -> dict:
     """Compare full decoder loss/gradients and three accumulated AdamW updates."""
     tp_size, cp_size = (
@@ -221,6 +222,7 @@ def check_model(
                 moe=moe,
                 mlp_chunk_size=mlp_chunk_size,
                 expert_backend=expert_backend,
+                blockwise_backend=blockwise_backend,
             )
             .to(device)
             .train()

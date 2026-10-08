@@ -228,6 +228,7 @@ model:
     expert_backend: grouped
     virtual_block_size: 128
     grouped_token_budget: 4096
+    blockwise_backend: torch
 trainer:
   mlp_chunk_size: 4096  # Shared experts; grouped routed execution has its own budget.
 ```
@@ -240,8 +241,8 @@ all experts to a common capacity. Empty experts receive no GEMM or parameter gra
 Logical tiles do not allocate separate tensors or launch a kernel individually.
 
 `grouped_token_budget` caps total valid routed rows in one execution group, rather
-than rows per expert. It must be at least `virtual_block_size`. Groups are checkpointed
-independently even when `mlp_chunk_size` is null. Shared experts still use the ordinary
+than rows per expert. It must be at least `virtual_block_size`. The default `torch`
+path checkpoints groups independently even when `mlp_chunk_size` is null. Shared experts still use the ordinary
 MLP setting. A token budget bounds expanded FFN rows; it is not a complete VRAM cap:
 weight packing, GEMM workspace, full hidden tensors and optimizer state remain.
 Only active weights for the current group are packed inside its checkpoint, avoiding
@@ -259,6 +260,36 @@ planning, CUDA graph capture, attention/FFN fusion and grouped EP dispatch are f
 
 Example: `configs/experiments/cs336_55m_moe_cp2_grouped.yaml`.
 See [grouped validation and measurements](experiments/grouped_moe_validation.md).
+
+`blockwise_backend` controls recomputation and routing for batched/grouped experts:
+
+- `torch` preserves the ordinary autograd/checkpoint path and remains the default.
+- `scheduled` wraps all execution blocks in one first-order autograd Function.
+  Its backward recomputes a bounded block with detached Parameter views, then
+  accumulates into one full input-gradient buffer and returns each Parameter's
+  gradient once. Original Parameter hooks are kept outside block recomputation.
+- `triton` uses the same scheduler and adds CUDA kernels for input/weight gather,
+  mixture-weighted output scatter, upstream-gradient gather and gradient scatter.
+  Verified single-expert groups use ordinary scatter stores; mixed-expert groups
+  and duplicate expert slots retain atomic addition. Uniqueness is checked with
+  the existing expert-count transfer rather than assumed for caller-provided ids.
+  Expert GEMMs still use native PyTorch batched or grouped GEMM. Triton is required
+  only when explicitly selecting this backend on CUDA; CPU uses the scheduler's
+  reference operations and does not establish Triton acceleration.
+
+Scheduled batched experts require a positive `trainer.mlp_chunk_size`; grouped
+experts use their virtual-block/group budget. These paths require parameter-free
+activations and support first-order training gradients. Use `torch` for higher-order
+derivatives. Triton scatter uses FP32 accumulation with an atomic fallback and rejects deterministic
+algorithm mode; use `scheduled` for native deterministic operation support.
+The existing EP1, synchronous TP, zero-dropout and FSDP/offload constraints apply;
+scheduled backends require the default expert dispatch mode.
+Routing still sorts on the GPU and copies counts to CPU once per layer; this does
+not implement GPU-only planning, expert parallel dispatch or CUDA graph capture.
+
+An opt-in configuration is `configs/experiments/cs336_55m_moe_cp2_triton.yaml`.
+See [scheduled MoE validation and temporal activity trace](experiments/scheduled_moe_validation.md)
+for before/after memory, throughput and correctness scope.
 
 The wrapper approach follows the same kernel boundary used by
 [PyTorch's context parallel implementation](https://docs.pytorch.org/tutorials/unstable/context_parallel.html).

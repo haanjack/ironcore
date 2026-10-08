@@ -21,6 +21,7 @@ class MoEConfig(BaseConfig):
     expert_backend: str = "loop"  # loop | batched | grouped (EP1 for batched/grouped)
     virtual_block_size: int = 128
     grouped_token_budget: int = 4096
+    blockwise_backend: str = "torch"  # torch | scheduled | triton
 
     # Expert counts
     num_shared_experts: int = field(
@@ -86,6 +87,10 @@ class MoEConfig(BaseConfig):
         """Validate MoE configuration."""
         if self.expert_backend not in ("loop", "batched", "grouped"):
             raise ValueError("expert_backend must be loop, batched or grouped")
+        if self.blockwise_backend not in ("torch", "scheduled", "triton"):
+            raise ValueError("blockwise_backend must be torch, scheduled or triton")
+        if self.blockwise_backend != "torch" and self.expert_backend == "loop":
+            raise ValueError("Scheduled blockwise backends require batched or grouped experts")
         if self.expert_backend == "grouped":
             if (
                 not isinstance(self.virtual_block_size, int)

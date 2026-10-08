@@ -49,15 +49,20 @@ def test_router_preserves_fp32_under_bfloat16_autocast():
     torch.testing.assert_close(result.topk_weights, F.softmax(top_values, dim=-1).bfloat16())
 
 
-def test_streaming_frozen_input_keeps_expert_and_router_derivatives():
+@pytest.mark.parametrize("blockwise", ["torch", "scheduled", "triton"])
+@pytest.mark.parametrize("backend", ["batched", "grouped"])
+def test_streaming_frozen_input_keeps_expert_and_router_derivatives(blockwise, backend):
     import copy
 
     torch.manual_seed(92)
     reference = MoEMLP(config())
     reference.init_weights()
     actual = copy.deepcopy(reference)
-    actual.expert_backend = "batched"
+    actual.expert_backend = backend
     actual.config.trainer.mlp_chunk_size = 3
+    actual.config.model.moe.blockwise_backend = blockwise
+    actual.config.model.moe.virtual_block_size = 3
+    actual.config.model.moe.grouped_token_budget = 7
     x = torch.randn(2, 13, 32)
     expected, result = reference(x), actual(x)
     torch.testing.assert_close(result, expected, atol=1e-7, rtol=1e-5)
@@ -122,7 +127,10 @@ def test_unsupported_ep_topology_rejected_before_distributed_initialization(monk
 @pytest.mark.parametrize("idle", [False, True])
 @pytest.mark.parametrize("bias", [False, True])
 @pytest.mark.parametrize("backend,chunk", [("batched", None), ("batched", 3), ("grouped", None)])
-def test_batched_experts_match_loop_gradients_and_unused_parameters(idle, bias, backend, chunk):
+@pytest.mark.parametrize("blockwise", ["torch", "scheduled", "triton"])
+def test_batched_experts_match_loop_gradients_and_unused_parameters(
+    idle, bias, backend, chunk, blockwise
+):
     import copy
 
     cfg = config()
@@ -131,7 +139,10 @@ def test_batched_experts_match_loop_gradients_and_unused_parameters(idle, bias, 
     loop.init_weights()
     grouped = copy.deepcopy(loop)
     grouped.expert_backend = backend
-    grouped.config.trainer.mlp_chunk_size = chunk
+    grouped.config.trainer.mlp_chunk_size = (
+        3 if blockwise != "torch" and backend == "batched" else chunk
+    )
+    grouped.config.model.moe.blockwise_backend = blockwise
     grouped.config.model.moe.virtual_block_size = 3
     grouped.config.model.moe.grouped_token_budget = 7
     if idle:

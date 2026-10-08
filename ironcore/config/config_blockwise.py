@@ -15,6 +15,9 @@ def validate_blockwise_mlp(config: MainConfig) -> None:
     """Reject unsupported combinations before allocating training resources."""
     size = config.trainer.mlp_chunk_size
     grouped = config.model.moe.use_moe and config.model.moe.expert_backend == "grouped"
+    scheduled = config.model.moe.use_moe and config.model.moe.blockwise_backend != "torch"
+    if scheduled and not grouped and size is None:
+        raise ValueError("Scheduled batched experts require mlp_chunk_size")
     if size is None and not grouped:
         return
     if size is not None and (not isinstance(size, int) or isinstance(size, bool) or size < 1):

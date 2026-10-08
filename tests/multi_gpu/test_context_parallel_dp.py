@@ -32,7 +32,12 @@ def _trainer(model, batches):
 
 
 def check_dp(
-    lora: bool, *, moe: bool = False, recompute: str | None = None, expert_backend: str = "loop"
+    lora: bool,
+    *,
+    moe: bool = False,
+    recompute: str | None = None,
+    expert_backend: str = "loop",
+    blockwise_backend: str = "torch",
 ) -> dict:
     """Token weighting includes DP exactly once and CP exactly once."""
     tokens = torch.arange(40).reshape(4, 10) % 32
@@ -61,6 +66,7 @@ def check_dp(
             moe=moe,
             mlp_chunk_size=3 if moe else None,
             expert_backend=expert_backend,
+            blockwise_backend=blockwise_backend,
         ).train()
         if recompute:
             native.config.operation.activation_recompute = True
@@ -99,6 +105,20 @@ def main() -> None:
         check_dp(False, moe=True, recompute="optimized"),
         check_dp(False, moe=True, recompute="standard", expert_backend="grouped"),
         check_dp(False, moe=True, recompute="optimized", expert_backend="grouped"),
+        check_dp(
+            False,
+            moe=True,
+            recompute="standard",
+            expert_backend="batched",
+            blockwise_backend="scheduled",
+        ),
+        check_dp(
+            False,
+            moe=True,
+            recompute="optimized",
+            expert_backend="grouped",
+            blockwise_backend="scheduled",
+        ),
     ]
     if int(os.environ["RANK"]) == 0:
         print(json.dumps(results, indent=2), flush=True)

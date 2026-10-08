@@ -42,6 +42,10 @@ def grouped_experts(
     autocast on all supported versions, so compute dtype is selected explicitly.
     Expanded up/gate/activation intermediates live within one execution group.
     """
+    if experts[0].config.model.moe.blockwise_backend != "torch":
+        from .scheduled import scheduled_experts
+
+        return scheduled_experts(x, indices, weights, experts, padded=False)
     config = experts[0].config.model.moe
     hidden = x.reshape(-1, x.size(-1))
     topk = indices.size(-1)

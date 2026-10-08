@@ -35,6 +35,7 @@ def smollm2_lora_model(
     moe: bool = False,
     mlp_chunk_size: int | None = None,
     expert_backend: str = "loop",
+    blockwise_backend: str = "torch",
     ep_size: int = 1,
 ) -> LanguageModel:
     """Build a tiny Llama/SmolLM2 layout with all attention/MLP LoRA targets."""
@@ -100,6 +101,7 @@ def smollm2_lora_model(
             num_experts_per_token=2,
             aux_loss_alpha=0.03,
             expert_backend=expert_backend,
+            blockwise_backend=blockwise_backend,
             expert_model_parallel_size=ep_size,
             virtual_block_size=3 if expert_backend == "grouped" else 128,
             grouped_token_budget=7 if expert_backend == "grouped" else 4096,

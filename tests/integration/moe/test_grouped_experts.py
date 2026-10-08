@@ -21,7 +21,8 @@ pytestmark = [
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("topk", [2, 3])
-def test_streaming_low_precision_inputs_and_topk(dtype, topk):
+@pytest.mark.parametrize("blockwise", ["torch", "scheduled", "triton"])
+def test_streaming_low_precision_inputs_and_topk(dtype, topk, blockwise):
     with single_gpu_env():
         ps.initialize_model_parallel(1, 2)
         try:
@@ -41,6 +42,7 @@ def test_streaming_low_precision_inputs_and_topk(dtype, topk):
             reference.init_weights()
             actual = deepcopy(reference)
             actual.config.trainer.mlp_chunk_size = 3
+            actual.config.model.moe.blockwise_backend = blockwise
             x = torch.randn(2, 17, 32, device="cuda", dtype=dtype, requires_grad=True)
             y = x.detach().clone().requires_grad_()
             with torch.autocast("cuda", dtype=dtype):
@@ -70,7 +72,8 @@ def test_streaming_low_precision_inputs_and_topk(dtype, topk):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("idle", [False, True])
 @pytest.mark.parametrize("backend", ["grouped", "batched"])
-def test_native_grouped_expert_forward_and_backward(dtype, idle, backend):
+@pytest.mark.parametrize("blockwise", ["torch", "scheduled", "triton"])
+def test_native_grouped_expert_forward_and_backward(dtype, idle, backend, blockwise):
     with single_gpu_env():
         ps.initialize_model_parallel(1, 2)
         try:
@@ -93,6 +96,7 @@ def test_native_grouped_expert_forward_and_backward(dtype, idle, backend):
                         parameter.normal_(0, 0.01)
             actual = deepcopy(reference)
             actual.expert_backend = backend
+            actual.config.model.moe.blockwise_backend = blockwise
             if backend == "batched":
                 actual.config.trainer.mlp_chunk_size = 3
             actual.config.model.moe.virtual_block_size = 3

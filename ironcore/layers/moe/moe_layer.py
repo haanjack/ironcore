@@ -103,6 +103,13 @@ class MoEMLP(BaseModule):
         self.ep_size = moe_config.expert_model_parallel_size
         self.tp_size = config.trainer.tensor_model_parallel_size
         self.expert_backend = moe_config.expert_backend
+        if moe_config.blockwise_backend != "torch":
+            if self.expert_backend == "loop":
+                raise ValueError("Scheduled blockwise backends require batched or grouped experts")
+            if communication_mode != CommunicationMode.ALL_REDUCE:
+                raise ValueError("Scheduled blockwise backends require the default dispatch mode")
+            if self.expert_backend == "batched" and config.trainer.mlp_chunk_size is None:
+                raise ValueError("Scheduled batched experts require mlp_chunk_size")
         if self.expert_backend == "grouped" and communication_mode != CommunicationMode.ALL_REDUCE:
             raise ValueError("Grouped expert backend requires the default dispatch mode")
         if self.expert_backend in {"batched", "grouped"} and (
