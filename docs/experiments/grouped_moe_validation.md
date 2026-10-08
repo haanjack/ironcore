@@ -103,3 +103,6 @@ The shipped 55M preset has expert width 256 and sequence length 1024; it is a
 portable smoke example rather than the exact 8K measurement above. The native
 API is documented by [PyTorch](https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.grouped_mm.html).
 Ignored `.local/` JSON/configs and a standalone Korean study HTML retain local evidence.
+
+The follow-up [expert-count scaling report](moe_scaling_validation.md) compares
+4, 8, 16, 32 and 64 experts under natural and forced routing on two GPUs.

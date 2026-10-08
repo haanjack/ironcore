@@ -1,0 +1,80 @@
+# Fixed active compute: width 384, 8 layers, top-2, expert FFN 1024.
+# Cache the SmolLM2-135M tokenizer first when running offline.
+model:
+  d_model: 384
+  d_ffn: 1024
+  num_layers: 8
+  num_attention_heads: 6
+  num_attention_groups: 6
+  head_dim: 64
+  max_seq_len: 8192
+  max_position_embeddings: 8192
+  activation_type: swiglu
+  ln_type: rmsnorm
+  ln_eps: 0.00001
+  precision: bfloat16
+  dropout_attn: 0.0
+  dropout_embd: 0.0
+  dropout_mlp: 0.0
+  reset_attention_mask: false
+  reset_position_ids: false
+  untie_embed: true
+  vocab_name_or_path: HuggingFaceTB/SmolLM2-135M
+  tokenizer_type: bbpe
+  positional_embedding:
+    type: rope
+  bias:
+    q: false
+    k: false
+    v: false
+    o: false
+    gate: false
+    up: false
+    down: false
+  moe:
+    use_moe: true
+    num_routed_experts: 16
+    num_shared_experts: 1
+    num_experts_per_token: 2
+    expert_intermediate_size: 1024
+    expert_model_parallel_size: 1
+    expert_backend: grouped
+    virtual_block_size: 128
+    grouped_token_budget: 4096
+    aux_loss_alpha: 0.01
+    router_dtype: float32
+    router_bias: true
+trainer:
+  model_name: moe-scaling-cp2
+  model_path: /tmp/ironcore-moe-scaling-cp2
+  context_parallel_size: 2
+  context_parallel_backend: ring
+  tensor_model_parallel_size: 1
+  micro_batch_size: 1
+  train_batch_size: 2
+  gradient_accumulation_steps: 2
+  mlp_chunk_size: 4096
+  parameter_precision: float32
+  use_flash_attn: false
+  recompute_linear_ce: true
+  loss_chunk_size: 128
+  num_workers: 0
+  log_interval: 8
+  save_checkpoint_steps: 8
+operation:
+  train_steps: 8
+  activation_recompute: false
+  no_save: true
+data:
+  task_type: pretrain
+  use_mock_data: true
+  seq_length: 8192
+  vocab_name_or_path: HuggingFaceTB/SmolLM2-135M
+optim:
+  optimizer: adam
+  max_lr: 0.0001
+  min_lr: 0.0001
+  annealing_steps: 8
+  clip_grad: 1.0
+init:
+  seed: 42

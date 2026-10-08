@@ -267,6 +267,12 @@ init:
 
 ## Available Presets
 
+### MoE Scaling (`configs/experiments/`)
+
+`moe_scaling_cp2.yaml` fixes an 8K CP2 decoder with top-2 routing for the
+`scripts/benchmark_moe_scaling.py` expert-count and backend sweep. See the
+[measured results](../docs/experiments/moe_scaling_validation.md).
+
 ### Model Configs (`configs/model/`)
 - `gpt2-small.yaml` - GPT-2 Small (124M)
 - `gpt2-medium.yaml` - GPT-2 Medium (355M)
