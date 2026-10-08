@@ -2,16 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Expert parallel process group management.
+"""Expert ownership overlaid on the DP axis of the [DP][CP][TP] mesh.
 
-This module manages process groups for Expert Parallelism (EP), which distributes
-routed experts across multiple GPUs. Each GPU holds a subset of experts.
-
-Layout Example (EP=2, TP=2, World=4):
-- EP Group 0: Ranks [0, 1] hold experts 0-31 (TP-sharded)
-- EP Group 1: Ranks [2, 3] hold experts 32-63 (TP-sharded)
-
-Within each EP group, experts are further sharded using Tensor Parallelism.
+EP groups vary expert owner at a fixed CP position and TP shard. CP peers
+therefore own identical expert subsets. With EP2/CP2/TP1, CP groups are
+[0, 1] and [2, 3], while EP exchange groups are [0, 2] and [1, 3].
+Process-group primitives do not establish trainer support for every topology.
 """
 
 from datetime import timedelta
@@ -32,32 +28,13 @@ def initialize_expert_parallel(
     expert_model_parallel_size: int,
     tensor_model_parallel_size: int,
     timeout_in_minutes: float = 10.0,
+    context_parallel_size: int = 1,
 ) -> None:
-    """Initialize process groups for Expert Parallelism.
+    """Create expert exchange and expert TP groups, holding CP position fixed.
 
-    Creates two types of process groups:
-    1. Expert Model Parallel (EP): Ranks that hold different expert subsets
-    2. Tensor Parallel within EP: Ranks within same EP group for TP sharding
-
-    Layout:
-        World is divided into EP groups, each containing TP ranks.
-        - EP rank determines which expert subset this rank holds
-        - TP rank determines the shard within each expert
-
-    Example (EP=2, TP=2, World=4):
-        - EP Group 0: [0, 1] -> experts 0-31
-        - EP Group 1: [2, 3] -> experts 32-63
-
-        TP within EP:
-        - [0]: TP rank 0 within EP group 0
-        - [1]: TP rank 1 within EP group 0
-        - [2]: TP rank 0 within EP group 1
-        - [3]: TP rank 1 within EP group 1
-
-    Args:
-        expert_model_parallel_size: Number of EP groups (how many expert subsets)
-        tensor_model_parallel_size: TP size within each expert
-        timeout_in_minutes: Timeout for process group operations
+    The rank layout is [expert replicas][EP][CP][TP]. EP groups connect
+    different DP batches and expert owners, rather than different CP tokens
+    of the same batch. CP1 retains the original EP/TP group layout.
     """
     # pylint: disable=global-statement
     global _EXPERT_MODEL_PARALLEL_GROUP
@@ -75,11 +52,13 @@ def initialize_expert_parallel(
     world_size = dist.get_world_size()
 
     # Validate world size
-    total_parallel_size = expert_model_parallel_size * tensor_model_parallel_size
+    total_parallel_size = (
+        expert_model_parallel_size * context_parallel_size * tensor_model_parallel_size
+    )
     if world_size % total_parallel_size != 0:
         raise ValueError(
             f"World size ({world_size}) must be divisible by "
-            f"expert_model_parallel_size * tensor_model_parallel_size ({total_parallel_size})"
+            f"expert_model_parallel_size * context_parallel_size * tensor_model_parallel_size ({total_parallel_size})"
         )
 
     dp_world_size = world_size // total_parallel_size
@@ -87,22 +66,26 @@ def initialize_expert_parallel(
     backend = "nccl" if torch.cuda.is_available() else "gloo"
 
     # Calculate EP and TP ranks from global rank
-    # Layout: [DP][EP][TP]
-    # rank = dp_idx * (ep_size * tp_size) + ep_idx * tp_size + tp_idx
-    rank_in_dp_group = rank % (expert_model_parallel_size * tensor_model_parallel_size)
-    _EXPERT_MODEL_PARALLEL_RANK = rank_in_dp_group // tensor_model_parallel_size
+    # Layout: [expert replicas][EP][CP][TP].
+    rank_in_dp_group = rank % total_parallel_size
+    _EXPERT_MODEL_PARALLEL_RANK = rank_in_dp_group // (
+        context_parallel_size * tensor_model_parallel_size
+    )
 
     # Initialize EP groups: ranks that hold different expert subsets
-    # EP groups are formed by ranks with the same TP index across different EP positions
+    # EP groups keep CP and TP indices fixed across different expert owners.
     # For EP=2, TP=2: EP groups are [[0,2], [1,3]] within each DP group
     ep_ranks = []
     for dp_idx in range(dp_world_size):
-        for tp_idx in range(tensor_model_parallel_size):
-            group_ranks = [
-                dp_idx * total_parallel_size + ep_idx * tensor_model_parallel_size + tp_idx
-                for ep_idx in range(expert_model_parallel_size)
-            ]
-            ep_ranks.append(group_ranks)
+        for cp_idx in range(context_parallel_size):
+            for tp_idx in range(tensor_model_parallel_size):
+                group_ranks = [
+                    dp_idx * total_parallel_size
+                    + (ep_idx * context_parallel_size + cp_idx) * tensor_model_parallel_size
+                    + tp_idx
+                    for ep_idx in range(expert_model_parallel_size)
+                ]
+                ep_ranks.append(group_ranks)
 
     for ranks in ep_ranks:
         group = dist.new_group(ranks, timeout=timeout, backend=backend)
@@ -115,11 +98,14 @@ def initialize_expert_parallel(
         tp_within_ep_ranks = []
         for dp_idx in range(dp_world_size):
             for ep_idx in range(expert_model_parallel_size):
-                group_ranks = [
-                    dp_idx * total_parallel_size + ep_idx * tensor_model_parallel_size + tp_idx
-                    for tp_idx in range(tensor_model_parallel_size)
-                ]
-                tp_within_ep_ranks.append(group_ranks)
+                for cp_idx in range(context_parallel_size):
+                    group_ranks = [
+                        dp_idx * total_parallel_size
+                        + (ep_idx * context_parallel_size + cp_idx) * tensor_model_parallel_size
+                        + tp_idx
+                        for tp_idx in range(tensor_model_parallel_size)
+                    ]
+                    tp_within_ep_ranks.append(group_ranks)
 
         for ranks in tp_within_ep_ranks:
             group = dist.new_group(ranks, timeout=timeout, backend=backend)

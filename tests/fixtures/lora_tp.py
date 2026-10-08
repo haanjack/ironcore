@@ -24,7 +24,18 @@ from ironcore.utils import Timer
 
 
 def smollm2_lora_model(
-    monkeypatch, tp_size: int = 1, checkpoint: Path | None = None, dropout: float = 0.0
+    monkeypatch,
+    tp_size: int = 1,
+    checkpoint: Path | None = None,
+    dropout: float = 0.0,
+    *,
+    cp_size: int = 1,
+    cp_backend: str = "sdpa",
+    lora: bool = True,
+    moe: bool = False,
+    mlp_chunk_size: int | None = None,
+    expert_backend: str = "loop",
+    ep_size: int = 1,
 ) -> LanguageModel:
     """Build a tiny Llama/SmolLM2 layout with all attention/MLP LoRA targets."""
     from transformers import LlamaConfig, LlamaForCausalLM
@@ -75,10 +86,33 @@ def smollm2_lora_model(
         reset_attention_mask=False,
         reset_position_ids=False,
     )
+    if cp_size > 1 and cp_backend == "ring":
+        config.model.precision = "bfloat16"
     config.trainer.tensor_model_parallel_size = tp_size
+    config.trainer.mlp_chunk_size = mlp_chunk_size
+    if moe:
+        from ironcore.config.config_moe import MoEConfig
+
+        config.model.moe = MoEConfig(
+            use_moe=True,
+            num_shared_experts=1,
+            num_routed_experts=4,
+            num_experts_per_token=2,
+            aux_loss_alpha=0.03,
+            expert_backend=expert_backend,
+            expert_model_parallel_size=ep_size,
+            virtual_block_size=3 if expert_backend == "grouped" else 128,
+            grouped_token_budget=7 if expert_backend == "grouped" else 4096,
+        )
+    config.trainer.context_parallel_size = cp_size
+    config.trainer.context_parallel_backend = cp_backend
+    config.parallel.world_size = max(
+        tp_size * cp_size,
+        torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1,
+    )
     config.operation.activation_recompute = False
     config.data.vocab_size = hf_config.vocab_size
-    config.peft.method = "lora"
+    config.peft.method = "lora" if lora else "none"
     config.peft.lora.r = 2
     config.peft.lora.alpha = 4.0
     config.peft.lora.dropout = dropout
@@ -108,9 +142,12 @@ def smollm2_lora_model(
             get_tokenizer=lambda: tokenizer,
         ),
     )
+    if cp_size == 1:
+        monkeypatch.setattr(parallel_states, "_CONTEXT_PARALLEL_WORLD_SIZE", 1)
     if tp_size == 1:
         monkeypatch.setattr(parallel_states, "_TENSOR_MODEL_PARALLEL_WORLD_SIZE", 1)
-        monkeypatch.setattr(parallel_states, "_DATA_PARALLEL_WORLD_SIZE", 1)
+        if cp_size == 1:
+            monkeypatch.setattr(parallel_states, "_DATA_PARALLEL_WORLD_SIZE", 1)
         monkeypatch.setattr(parallel_states, "get_tensor_model_parallel_rank", lambda: 0)
     native = LanguageModel(config).float()
     if checkpoint:
@@ -121,7 +158,7 @@ def smollm2_lora_model(
 
         info = load_from_huggingface(checkpoint, native, architecture="llama")
         validate_imported_base_parameters(native, info["missing_keys"])
-    elif tp_size == 1:
+    elif tp_size == 1 and not moe:
         mapped = WeightMapper(Architecture.LLAMA, 2).hf_to_ironcore(
             reference.state_dict(), strict=False
         )
@@ -131,7 +168,8 @@ def smollm2_lora_model(
             if name.replace(".base_layer.", ".") in mapped
         }
         native.load_state_dict(state, strict=False)
-    freeze_base_model(native, "lora")
+    if lora:
+        freeze_base_model(native, "lora")
     return native
 
 

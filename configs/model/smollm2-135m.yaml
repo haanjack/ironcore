@@ -1,0 +1,35 @@
+# HuggingFaceTB/SmolLM2-135M dense decoder (9 query heads, 3 KV heads).
+d_model: 576
+d_ffn: 1536
+num_layers: 30
+num_attention_heads: 9
+num_attention_groups: 3
+head_dim: 64
+max_seq_len: 8192
+max_position_embeddings: 8192
+precision: bfloat16
+ln_type: rmsnorm
+ln_eps: 1.0e-5
+layernorm_bias: false
+activation_type: swiglu
+untie_embed: false
+reset_attention_mask: false
+reset_position_ids: false
+dropout_attn: 0.0
+dropout_mlp: 0.0
+dropout_embd: 0.0
+positional_embedding:
+  type: rope
+  base: 100000
+bias:
+  q: false
+  k: false
+  v: false
+  o: false
+  gate: false
+  up: false
+  down: false
+vocab_name_or_path: HuggingFaceTB/SmolLM2-135M
+tokenizer_type: sentencepiece
+hf_model_type: llama
+hf_architecture: LlamaForCausalLM

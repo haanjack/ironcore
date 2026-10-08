@@ -20,6 +20,15 @@ trainer:
 
 Training process settings including batch sizes, parallelism, and checkpointing.
 
+`mlp_chunk_size: 512` enables checkpointed token-block MLPs for dense and MoE
+shared/routed experts. `null` disables it. It is separate from `sequence_chunk_size`,
+whose async TP scheduler is still unimplemented. See [execution limits](../docs/parallelism.md#block-wise-mlp).
+
+For `model.moe.expert_backend: grouped`, `virtual_block_size` controls logical
+expert tiles and `grouped_token_budget` bounds total routed rows per grouped GEMM.
+Shared experts continue to use `mlp_chunk_size`; routed groups use their own budget
+and checkpointing. See [grouped execution](../docs/parallelism.md#virtual-blocks-and-grouped-gemm).
+
 | Name | Default | Description |
 |------|---------|-------------|
 | `model_name` | `"model"` | Model name |
@@ -28,6 +37,8 @@ Training process settings including batch sizes, parallelism, and checkpointing.
 | `train_batch_size` | `None` | Global training batch size |
 | `gradient_accumulation_steps` | `None` | Gradient accumulation steps |
 | `tensor_model_parallel_size` | `1` | Tensor parallelism size |
+| `context_parallel_size` | `1` | Causal sequence shards; world must be divisible by TP × CP |
+| `context_parallel_backend` | `"ring"` | CUDA FP16/BF16 KV ring; `sdpa` is a full-KV reference |
 | `save_checkpoint_steps` | `1000` | Checkpoint save interval |
 | `log_interval` | `20` | Progress print interval |
 | `grad_norm_log_interval` | `None` | Gradient norm logging cadence (`log`, `checkpoint`, or `None`) |

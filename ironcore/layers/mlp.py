@@ -15,11 +15,8 @@ When async_communication=True, down_proj returns (partial_output, handle) tuple.
 Caller must call finalize() to wait for handle and apply bias/dropout.
 This allows overlapping expert computation with communication.
 
-Note: trainer.sequence_chunk_size is not implemented anywhere. This comment
-previously said chunking was handled at the transformer block level; it is not.
-models/transformer.py has no chunking logic, and the tensor-parallel layer
-forwards take no chunk-size argument, so the field has no consumers and
-configs/profile/tp_async.yaml vs tp_standard.yaml run identical code.
+trainer.mlp_chunk_size enables checkpointed token-block execution in this layer.
+trainer.sequence_chunk_size remains an unimplemented async TP scheduling option.
 """
 
 from typing import Union
@@ -29,6 +26,7 @@ from torch import distributed as dist
 
 from ironcore.config import MainConfig
 from ironcore.layers.activations import GLUActivation, get_activation
+from ironcore.layers.blockwise import token_chunk_forward
 from ironcore.layers.parallel_mlp import ParallelMLP
 from ironcore.parallel.random import tensor_parallel_rng_fork
 from ironcore.peft import wrap_with_lora_if_target
@@ -101,6 +99,21 @@ class MLP(ParallelMLP):
             If async_communication is True:
                 Tuple of (partial_output, handle) where finalize() must be called
         """
+        if self.config.trainer.mlp_chunk_size is not None:
+            if async_communication:
+                raise ValueError("Block-wise MLP requires synchronous TP communication")
+            return token_chunk_forward(
+                self._forward_block,
+                x,
+                self.config.trainer.mlp_chunk_size,
+                training=self.training,
+            )
+        return self._forward_block(x, async_communication)
+
+    def _forward_block(
+        self, x: torch.Tensor, async_communication: bool = False
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, dist.Work]]:
+        """Run dense or LoRA projections on one token block."""
         x = self.up_proj(x)
         x = self.activation(x)
         if async_communication:

@@ -47,6 +47,7 @@ def save_trainer_state(trainer, step):
         "task": trainer.config.data.task_type,
         "world_size": dist.get_world_size() if dist.is_initialized() else 1,
         "tp_size": trainer.config.trainer.tensor_model_parallel_size,
+        "cp_size": getattr(trainer.config.trainer, "context_parallel_size", 1),
         "scaler": trainer.scaler.state_dict(),
         "torch_cpu": torch.get_rng_state(),
         "python_rng": random.getstate(),
@@ -135,11 +136,12 @@ def load_trainer_state(trainer, step):
     elif error is not None:
         raise error
     world_size = dist.get_world_size() if dist.is_initialized() else 1
-    if (state["world_size"], state["tp_size"]) != (
+    if (state["world_size"], state["tp_size"], state.get("cp_size", 1)) != (
         world_size,
         trainer.config.trainer.tensor_model_parallel_size,
+        getattr(trainer.config.trainer, "context_parallel_size", 1),
     ):
-        raise ValueError("Trainer state resume requires the original DP/TP topology")
+        raise ValueError("Trainer state resume requires the original DP/TP/CP topology")
     if (
         state.get("parameter_precision", trainer.config.trainer.parameter_precision)
         != trainer.config.trainer.parameter_precision

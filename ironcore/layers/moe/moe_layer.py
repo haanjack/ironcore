@@ -32,6 +32,8 @@ Architecture:
 """
 
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from enum import Enum
 
 import torch
@@ -101,8 +103,12 @@ class MoEMLP(BaseModule):
         self.ep_size = moe_config.expert_model_parallel_size
         self.tp_size = config.trainer.tensor_model_parallel_size
         self.expert_backend = moe_config.expert_backend
-        if self.expert_backend == "batched" and (self.ep_size > 1 or model_config.dropout_mlp != 0):
-            raise ValueError("Batched expert backend requires EP=1 and zero MLP dropout")
+        if self.expert_backend == "grouped" and communication_mode != CommunicationMode.ALL_REDUCE:
+            raise ValueError("Grouped expert backend requires the default dispatch mode")
+        if self.expert_backend in {"batched", "grouped"} and (
+            self.ep_size > 1 or model_config.dropout_mlp != 0
+        ):
+            raise ValueError("Batched/grouped expert backend requires EP=1 and zero MLP dropout")
 
         # Calculate expert intermediate size
         self.expert_intermediate_size = (
@@ -180,6 +186,7 @@ class MoEMLP(BaseModule):
 
         # Store auxiliary loss for accumulation
         self._aux_loss = None
+        self._record_diagnostics = True
 
         # Track expert selection counts for analysis
         self._expert_selection_counts = torch.zeros(self.num_routed_experts, dtype=torch.long)
@@ -196,6 +203,7 @@ class MoEMLP(BaseModule):
         self,
         x: torch.Tensor,
         async_communication: bool = False,
+        token_mask: torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.distributed.Work | None]:
         """Forward pass through MoE layer.
 
@@ -213,18 +221,24 @@ class MoEMLP(BaseModule):
         # Input validation
         validate_moe_input(x, self.hidden_size, "MoEMLP")
 
+        if token_mask is not None and token_mask.shape != x.shape[:2]:
+            raise ValueError("MoE token mask must match batch and sequence dimensions")
+        if token_mask is not None and self.communication_mode == CommunicationMode.ALL_TO_ALL:
+            raise ValueError("CP MoE requires the autograd-aware default dispatch path")
+
         if self.ep_size > 1:
-            return self._forward_allreduce(x, async_communication)
+            return self._forward_allreduce(x, async_communication, token_mask)
 
         if self.communication_mode == CommunicationMode.ALL_TO_ALL:
             return self._forward_alltoall(x, async_communication)
         else:
-            return self._forward_allreduce(x, async_communication)
+            return self._forward_allreduce(x, async_communication, token_mask)
 
     def _forward_allreduce(
         self,
         x: torch.Tensor,
         async_communication: bool = False,
+        token_mask: torch.Tensor | None = None,
     ) -> torch.Tensor | tuple[torch.Tensor, torch.distributed.Work | None]:
         """Forward pass using all-reduce approach.
 
@@ -242,9 +256,13 @@ class MoEMLP(BaseModule):
         router_output: RouterOutput = self.router(x, self.training)
 
         # Track expert selections for analysis (vectorized)
-        if self.training:
+        if self.training and self._record_diagnostics:
             with torch.no_grad():
-                flat_indices = router_output.topk_indices.flatten()
+                flat_indices = (
+                    router_output.topk_indices[token_mask].flatten()
+                    if token_mask is not None
+                    else router_output.topk_indices.flatten()
+                )
                 valid_mask = (flat_indices >= 0) & (flat_indices < self.num_routed_experts)
                 valid_indices = flat_indices[valid_mask]
                 if valid_indices.numel() > 0:
@@ -274,6 +292,7 @@ class MoEMLP(BaseModule):
             self._aux_loss = self.load_balance_loss(
                 router_logits=router_output.router_logits,
                 topk_indices=router_output.topk_indices,
+                token_mask=token_mask,
             )
 
         # Route tokens to experts
@@ -281,6 +300,7 @@ class MoEMLP(BaseModule):
             x=x,
             topk_weights=router_output.topk_weights,
             topk_indices=router_output.topk_indices,
+            token_mask=token_mask,
         )
 
         # 3. Combine shared + routed outputs
@@ -378,6 +398,7 @@ class MoEMLP(BaseModule):
         x: torch.Tensor,
         topk_weights: torch.Tensor,
         topk_indices: torch.Tensor,
+        token_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Route tokens to experts and combine outputs (all-reduce approach).
 
@@ -386,11 +407,27 @@ class MoEMLP(BaseModule):
         """
         batch_size, seq_len, hidden_size = x.shape
 
+        if token_mask is not None:
+            # Keep divisibility padding out of routing, including idle-expert
+            # optimizer semantics. All EP peers still enter empty exchanges.
+            valid = token_mask.reshape(-1).nonzero().flatten()
+            compact = self._route_and_combine_allreduce(
+                x.reshape(-1, hidden_size)[valid][None],
+                topk_weights.reshape(-1, self.top_k)[valid][None],
+                topk_indices.reshape(-1, self.top_k)[valid][None],
+            )
+            output = x.reshape(-1, hidden_size) * 0
+            return output.index_copy(0, valid, compact.squeeze(0)).view_as(x)
+
         # Flatten for processing using helper
         if self.expert_backend == "batched":
             from .batched import batched_experts
 
             return batched_experts(x, topk_indices, topk_weights, self.routed_experts)
+        if self.expert_backend == "grouped":
+            from .grouped import grouped_experts
+
+            return grouped_experts(x, topk_indices, topk_weights, self.routed_experts)
         if self.ep_size > 1:
             from ironcore.parallel.expert_parallel.training import route_expert_tokens
 
@@ -504,6 +541,16 @@ class MoEMLP(BaseModule):
             Auxiliary loss tensor or None if not computed
         """
         return self._aux_loss
+
+    @contextmanager
+    def recompute_context(self) -> Iterator[None]:
+        """Recompute loss tensors without recounting tokens or retaining new graphs."""
+        previous = self._aux_loss, self._record_diagnostics
+        self._record_diagnostics = False
+        try:
+            yield
+        finally:
+            self._aux_loss, self._record_diagnostics = previous
 
     def clear_aux_loss(self):
         """Clear stored auxiliary loss."""

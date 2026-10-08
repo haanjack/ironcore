@@ -43,6 +43,13 @@ class Attention(BaseModule):
 
         self.scale_factor = self.head_dimension**0.5
         self.mask_value = torch.finfo(get_model_dtype(self.config)).min
+        self.context_attention = None
+        if config.trainer.context_parallel_size > 1:
+            from ironcore.layers.context_parallel_attention import ContextParallelAttention
+
+            self.context_attention = ContextParallelAttention(
+                config.trainer.context_parallel_backend
+            )
 
     def _attention(
         self,
@@ -155,6 +162,12 @@ class Attention(BaseModule):
         use_cache=False,
         past_kv=None,
     ):
+        if self.context_attention is not None:
+            if attention_mask is not None or use_cache or past_kv is not None:
+                raise ValueError(
+                    "Context parallel attention requires causal sequences without masks/caches"
+                )
+            return self.context_attention(query, key, value)
         # Concatenate if using functional cache
         if use_cache and past_kv is not None:
             past_key, past_value = past_kv

@@ -31,9 +31,20 @@ class LanguageModel(BaseModule):
     ):
         super().__init__(config)
 
+        from ironcore.config.config_blockwise import validate_blockwise_mlp
+        from ironcore.config.config_context_parallel import validate_context_parallel
         from ironcore.config.config_gemma4 import validate_gemma4_runtime
 
         validate_gemma4_runtime(config)
+        validate_blockwise_mlp(config)
+        validate_context_parallel(config)
+        if (
+            config.trainer.context_parallel_size
+            != parallel_states.get_context_parallel_world_size()
+        ):
+            raise ValueError(
+                "Initialize the configured context parallel group before constructing the model"
+            )
 
         tokenizer = get_tokenizer()
 
@@ -75,6 +86,7 @@ class LanguageModel(BaseModule):
         self.kv_cache_manager = None
         if (
             config.model.kv_cache.enabled
+            and config.trainer.context_parallel_size == 1
             and not config.model.kv_cache.use_paged
             and not config.model.is_gemma4
         ):
@@ -129,6 +141,23 @@ class LanguageModel(BaseModule):
         if labels is not None:
             labels = labels.to(self.device, non_blocking=True)
 
+        cp_active = self.config.trainer.context_parallel_size > 1
+        if cp_active and (
+            use_cache
+            or past_key_values is not None
+            or block_kv_cache_manager is not None
+            or seq_id is not None
+            or attention_mask is not None
+            or loss_sample_ids is not None
+            or (
+                cache_position is not None
+                and (isinstance(cache_position, torch.Tensor) or cache_position != 0)
+            )
+        ):
+            raise ValueError(
+                "Context parallel currently supports causal full-sequence scoring without masks/caches"
+            )
+
         bkv = block_kv_cache_manager
         if bkv is None and self.block_kv_cache_manager is not None and not self.training:
             bkv = self.block_kv_cache_manager
@@ -175,6 +204,21 @@ class LanguageModel(BaseModule):
         else:
             position_ids = position_ids.to(self.device, non_blocking=True)
 
+        original_sequence_length = input_ids.size(1)
+        if cp_active:
+            from ironcore.parallel.context_parallel import partition_context_inputs
+
+            input_ids, labels, position_ids, original_sequence_length = partition_context_inputs(
+                input_ids,
+                labels,
+                position_ids,
+            )
+            loss_mask = (
+                (labels != -100).float()
+                if labels is not None
+                else torch.ones_like(input_ids, dtype=torch.float)
+            )
+
         x = self.embedding(input_ids, position_ids)
         if (
             self.training
@@ -188,6 +232,14 @@ class LanguageModel(BaseModule):
             x.requires_grad_(True)
 
         model_kwargs = {"input_ids": input_ids} if self.config.model.is_gemma4 else {}
+        if cp_active and self.config.model.moe.use_moe:
+            from ironcore.parallel import parallel_states as ps
+
+            offset = ps.get_context_parallel_rank() * input_ids.size(1)
+            valid = torch.arange(input_ids.size(1), device=input_ids.device) + offset
+            model_kwargs["moe_token_mask"] = (valid < original_sequence_length)[None].expand_as(
+                input_ids
+            )
         model_out = self.model(
             x,
             attention_mask,
@@ -237,6 +289,10 @@ class LanguageModel(BaseModule):
             )
             if loss_sample_ids is not None:
                 return self.loss_fn(per_token, loss_mask, sample_ids=loss_sample_ids)
+            if cp_active:
+                from ironcore.parallel.context_parallel import context_parallel_token_mean
+
+                return context_parallel_token_mean(per_token, loss_mask)
             return self.loss_fn(per_token, loss_mask)
 
         if self.config.model.untie_embed:
@@ -257,6 +313,10 @@ class LanguageModel(BaseModule):
                 logits_parallel,
                 {"column_parallel": True, "concatenated_weights": 1},
             )
+            if cp_active:
+                from ironcore.parallel.context_parallel import gather_context_parallel
+
+                logits = gather_context_parallel(logits)[:, :original_sequence_length]
             # Always return a (logits, new_key_values) tuple, regardless of
             # whether a KV cache is active. Callers that do not need the cache
             # simply ignore the second element. Returning a bare tensor when
@@ -322,6 +382,10 @@ class LanguageModel(BaseModule):
                 padding_start_idx=padding_start_idx,
             ).contiguous()
 
+        if self.config.trainer.context_parallel_size > 1:
+            from ironcore.parallel.context_parallel import context_parallel_token_mean
+
+            return context_parallel_token_mean(per_token_losses, loss_mask)
         if loss_sample_ids is not None:
             loss = self.loss_fn(per_token_losses, loss_mask, sample_ids=loss_sample_ids)
         else:
@@ -344,6 +408,8 @@ class LanguageModel(BaseModule):
         Autoregressive generation with KV cache.
         Supports legacy KVCacheManager or block-based paged cache.
         """
+        if self.config.trainer.context_parallel_size > 1:
+            raise ValueError("Context parallel generation and KV caches are not supported")
         batch_size = input_ids.size(0)
         generated = input_ids.clone()
         past_key_values = None
@@ -514,6 +580,8 @@ class LanguageModel(BaseModule):
     def initialize_cache(
         self, batch_size: int, device: torch.device, dtype: torch.dtype | None = None
     ):
+        if self.config.trainer.context_parallel_size > 1:
+            raise ValueError("Context parallel generation and KV caches are not supported")
         if self.kv_cache_manager is not None:
             self.kv_cache_manager.initialize(batch_size, len(self.model.layers), device, dtype)
         if self.block_kv_cache_manager is not None:

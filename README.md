@@ -11,7 +11,7 @@ Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experi
 ## Features
 
 - **Training modes** — Pretraining, SFT, DPO, and GRPO (Group Relative Policy Optimization)
-- **Parallelism** — Tensor Parallelism (TP), Expert Parallelism (EP), Data Parallelism (DP),
+- **Parallelism** — Tensor Parallelism (TP), Context Parallelism (CP), Expert Parallelism (EP), Data Parallelism (DP),
   multi-node, and FSDP; `DistributedOptimizer` for ZeRO-1 state sharding
 - **Model architectures** — GPT-2/3, LLaMA/LLaMA-2/3, Gemma/Gemma-2, Qwen/Qwen2/Qwen3,
   Mistral, Mixtral, Phi-1/2 via a single `TransformerModel`; GQA/MQA, RoPE, SwiGLU/GeGLU
@@ -20,6 +20,10 @@ Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experi
 - **HF weight loading** — load any LLaMA-family HF checkpoint directly (Qwen2.5, Llama-3,
   Gemma-2, Mistral, Mixtral, …) via `trainer.pretrained_model_name_or_path`
 - **Mixture of Experts (MoE)** — expert routing with load-balance loss and Z-loss, expert parallelism
+- **Block-wise MLP** — checkpointed token blocks for dense and shared/routed MoE experts,
+  including loop/batched EP1 backends and bounded CP/EP composition; [usage](docs/parallelism.md#block-wise-mlp)
+- **Virtual expert blocks** — logical routing tiles coalesced into padding-free CUDA
+  grouped GEMMs under a token budget; [usage](docs/parallelism.md#virtual-blocks-and-grouped-gemm)
 - **PEFT / LoRA** — TP-correct, replicated adapters; `offloadable=False` keeps adapters on GPU
   while base weights stream to host
 - **GRPO / RL alignment** — online rollout generation, group-relative advantage normalization,
@@ -217,7 +221,7 @@ init:
 | Contributing (setup, coding standards, PR workflow) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Getting started | [docs/getting_started.md](docs/getting_started.md) |
 | CLI guide & reference | [docs/cli_guide.md](docs/cli_guide.md) |
-| Parallelism (TP/EP/DP/FSDP) | [docs/parallelism.md](docs/parallelism.md) |
+| Parallelism (TP/CP/EP/DP/FSDP) | [docs/parallelism.md](docs/parallelism.md) |
 | Trainers (BaseTrainer lifecycle) | [docs/trainers.md](docs/trainers.md) |
 | Optimizer (Muon + AdamW, ZeRO-1) | [docs/optimizer.md](docs/optimizer.md) |
 | Offload (RAM-first staircase scaling) | [docs/offload.md](docs/offload.md) |

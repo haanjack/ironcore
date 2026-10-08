@@ -2,8 +2,9 @@
 
 ## Overview
 
-IronCore supports four orthogonal parallelism axes — Tensor Parallelism (TP), Data Parallelism
-(DP), Expert Parallelism (EP), and FSDP — that can be combined freely. A single
+IronCore supports Tensor Parallelism (TP), dense Context Parallelism (CP), Data Parallelism
+(DP), Expert Parallelism (EP), and FSDP. Their supported combinations are bounded; see
+[the configuration guide](../parallelism.md#context-parallelism-cp). A single
 `DistributedOptimizer` provides ZeRO-1 optimizer state sharding on top of DDP without the
 overhead of full FSDP wrapping.
 
@@ -11,7 +12,8 @@ overhead of full FSDP wrapping.
 
 - Single-node or multi-node CUDA (NVLink or PCIe); ROCm via Docker.
 - TP requires fast intra-node links (NVLink preferred — collective-heavy within TP group).
-- EP is MoE-only; TP and EP can be active simultaneously.
+- EP is MoE-only. Group primitives describe EP/TP layouts, but native EP training
+  currently supports EP2/TP1 with `world_size = 2 * CP`.
 - `DistributedOptimizer` is mutually exclusive with FSDP (both own the optimizer step).
 - LoRA adapters are always **replicated across TP ranks**, not sharded — TP correctness is
   handled at the parallel-linear boundaries, not inside the adapter.
@@ -22,7 +24,12 @@ overhead of full FSDP wrapping.
 
 ### Process group layout
 
-For `world_size = W`, `tp_size = T`, `dp_size = W / T`:
+Ranks use a `[DP][CP][TP]` mesh with `rank = (dp * CP + cp) * TP + tp` and
+`DP = world / (TP * CP)`. CP peers keep identical TP weight shards and process
+different contiguous token shards. TP peers process the same token shard; DP peers
+process independent batches. The examples below use the default `CP=1`.
+
+For `world_size = W`, `tp_size = T`, `cp_size = 1`, `dp_size = W / T`:
 
 - **TP groups** (T ranks each): `[i*T, i*T+1, …, i*T+T-1]` for `i ∈ [0, dp_size)`.
   All ranks in a TP group process the *same* data shard and hold *different* weight shards.
@@ -47,7 +54,7 @@ flowchart LR
     A["initialize_process()
     dist.init_process_group
     set device"] --> B["initialize_model_parallel()
-    TP + DP groups"]
+    TP + CP + DP groups"]
     B --> C{"MoE?"}
     C -->|yes| D["initialize_expert_parallel()
     EP + TP-within-EP groups"]
@@ -166,7 +173,10 @@ The mechanism is exposed through `RowParallelLinear.forward(async_communication=
 invokes `mlp.finalize(x, handle)` — which calls `handle.wait()` and adds bias/dropout — only
 after the next chunk's compute has been issued.
 
-Config: `trainer.sequence_chunk_size` (number of tokens per chunk; `null` disables chunking).
+`trainer.sequence_chunk_size` remains an unimplemented scheduling option. The handles
+exist, but the transformer does not schedule overlapping sequence chunks.
+`trainer.mlp_chunk_size` is a separate synchronous, checkpointed feed-forward feature;
+see [block-wise MLP](../parallelism.md#block-wise-mlp).
 File: `ironcore/parallel/tensor_parallel/comm.py` — `reduce_async()`;
 `ironcore/layers/mlp.py` — `MLP.forward()` / `MLP.finalize()`.
 

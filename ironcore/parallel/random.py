@@ -5,7 +5,7 @@
 """Independent RNG streams for tensor-parallel execution."""
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any
 
 import torch
@@ -117,6 +117,7 @@ def checkpoint_with_tensor_parallel_rng(function: Callable, *args: Any, **kwargs
     """Replay TP dropout streams during recompute without advancing them twice."""
     from torch.utils.checkpoint import checkpoint
 
+    recompute_context = kwargs.pop("recompute_context", nullcontext)
     states = snapshot_tensor_parallel_rng_tracker()
     first_call = True
 
@@ -125,7 +126,7 @@ def checkpoint_with_tensor_parallel_rng(function: Callable, *args: Any, **kwargs
         if first_call:
             first_call = False
             return function(*inputs)
-        with tensor_parallel_rng_rewound_to(states):
+        with tensor_parallel_rng_rewound_to(states), recompute_context():
             return function(*inputs)
 
     return checkpoint(run, *args, **kwargs)

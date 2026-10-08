@@ -99,7 +99,8 @@ def test_unsupported_ep_topology_rejected_before_distributed_initialization(monk
 
 @pytest.mark.parametrize("idle", [False, True])
 @pytest.mark.parametrize("bias", [False, True])
-def test_batched_experts_match_loop_gradients_and_unused_parameters(idle, bias):
+@pytest.mark.parametrize("backend", ["batched", "grouped"])
+def test_batched_experts_match_loop_gradients_and_unused_parameters(idle, bias, backend):
     import copy
 
     cfg = config()
@@ -107,7 +108,9 @@ def test_batched_experts_match_loop_gradients_and_unused_parameters(idle, bias):
     loop = MoEMLP(cfg)
     loop.init_weights()
     grouped = copy.deepcopy(loop)
-    grouped.expert_backend = "batched"
+    grouped.expert_backend = backend
+    grouped.config.model.moe.virtual_block_size = 3
+    grouped.config.model.moe.grouped_token_budget = 7
     if idle:
         for layer in [loop, grouped]:
             with torch.no_grad():

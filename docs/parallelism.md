@@ -11,19 +11,23 @@
 | Data Parallel (DDP) | Batch | All-reduce gradients | Multi-GPU, model fits on one GPU |
 | FSDP | Batch + params | All-gather params, reduce-scatter grads | Large models, full state sharding |
 | Tensor Parallel (TP) | Model weights (per layer) | All-gather / all-reduce per layer | Layers too large for one GPU |
+| Context Parallel (CP) | Sequence tokens | KV ring; sum replica gradients | Dense/MoE causal long-context training |
 | Expert Parallel (EP) | MoE expert subsets | All-to-all token dispatch | Mixture-of-Experts models |
 | Distributed Optimizer | Optimizer states only | Broadcast updated params | ZeRO-1 without full FSDP overhead |
 
-TP and DP/FSDP are orthogonal and freely combinable. EP adds a third axis on top of TP for MoE models.
+Dense CP is orthogonal to TP and DDP. CP currently rejects FSDP, distributed optimizers,
+offload. MoE EP1 and bounded EP2 composition are supported; see the contract below.
 
 ---
 
 ## Process group layout
 
-Ranks are arranged in a 2D grid `[DP × TP]`:
+Ranks are arranged in a `[DP][CP][TP]` mesh. The global rank is
+`(dp_rank * CP_size + cp_rank) * TP_size + tp_rank`. CP defaults to one,
+which preserves the previous TP/DP group layout:
 
 ```
-World size = TP_size × DP_size
+World size = TP_size × CP_size × DP_size
 
 Example: TP=2, DP=2 (world=4)
 
@@ -54,6 +58,204 @@ Enable with:
 trainer:
   tensor_model_parallel_size: 2   # number of TP ranks
 ```
+
+---
+
+## Context Parallelism (CP)
+
+CP partitions the sequence across ranks while keeping each TP weight shard replicated
+across CP. Attention rotates K/V blocks between CP peers; embeddings, projections,
+norms and dense MLPs operate on local tokens. CP does not partition model weights or
+optimizer states, so the model must still fit on each CP rank.
+
+```yaml
+trainer:
+  tensor_model_parallel_size: 1
+  context_parallel_size: 2
+  context_parallel_backend: ring
+model:
+  precision: bfloat16
+  dropout_attn: 0.0
+  dropout_mlp: 0.0
+  dropout_embd: 0.0
+  reset_attention_mask: false
+  reset_position_ids: false
+```
+
+`ring` wraps PyTorch's native FlashAttention forward/LSE/backward operators. It requires
+CUDA FP16 or BF16 compute, including BF16 autocast with FP32 stored weights. It does not
+require Transformer Engine or the separate `flash-attn` package. Operator details are
+isolated in `FlashAttentionKernel`; rerun the distributed regressions when upgrading
+PyTorch because these are internal ATen operators. CP initialization disables reduced-precision
+GEMM reductions so FP16/BF16 matrix products keep FP32 accumulation; the original
+reduced-precision flags are restored when CP groups are reset. BF16 outputs still have normal
+rounding differences across sequence partitions. The GPU implementation was exercised
+on PyTorch 2.14/CUDA 13.0 with two RTX 3090s.
+
+`sdpa` is a differentiable full-KV all-gather reference for FP32/CPU debugging. It saves
+the full sequence's K/V per rank and is not the memory-saving training backend.
+
+### Data, attention and loss semantics
+
+Each CP peer receives the **same full batch** from the DP sampler. Pass already-shifted
+labels into `LanguageModel.forward`; the model partitions inputs, labels and global
+position IDs together. Non-divisible sequences are right-padded, and padding labels are
+ignored. A shard with no valid labels still computes attention and supplies remote K/V
+gradients. An entirely masked DP batch returns zero loss/gradients and still participates
+in DDP; the trainer rejects an update only when all DP batches contain no valid tokens.
+
+For contiguous causal shards, attention computes its own block with a causal mask,
+all earlier blocks without a mask, and skips later blocks. Partial outputs are merged
+with FP32 log-sum-exp normalization. Backward uses the output/LSE normalized over global K/V for local queries and
+returns accumulated K/V gradients to their original owners. Communication buffers remain
+bounded by the local sequence length; full K/V is not retained by `ring`.
+
+Loss is the global valid-token mean over CP. Its backward contributes the local numerator
+only. The trainer sums parameter gradients over CP after DP synchronization and AMP
+unscale, before finite checks, clipping and optimizer updates. DP still averages distinct
+batches. Gradient norms count a CP replica once. LoRA follows the same CP synchronization.
+
+When labels are omitted, scoring reconstructs full sequence logits to preserve the public
+forward shape. This reconstruction allocates full logits and should be used for debugging
+or evaluation, rather than memory-sensitive training. Autoregressive generation and KV
+caches are not supported with CP.
+
+### Supported combinations and checkpoints
+
+The contract supports generic dense/MoE causal `pretrain`, including SmolLM2, with
+zero attention/MLP/embedding/LoRA dropout. SFT, document packing/reset masks, arbitrary
+attention masks, alignment, Gemma 4, FSDP, distributed optimizers and offload are
+rejected. `torch.compile` is skipped for CP communication. Dense activation recomputation,
+chunked vocabulary loss and recomputed linear cross-entropy can be used with CP.
+
+MoE routes local real tokens once per layer. CP divisibility padding is excluded from
+expert dispatch and load-balancing statistics. Small per-expert counts/probability sums
+are reduced over CP to compute the original full-sequence auxiliary loss; backward
+keeps local router derivatives, followed by the normal CP parameter-gradient sum.
+Router jitter must be zero. Both loop and batched expert backends support EP1.
+EP2 supports TP1 with `world_size = 2 * CP`; additional expert replicas and EP+TP
+training remain rejected. EP exchanges connect distinct DP batches at the same CP
+position, while CP peers own identical expert subsets. EP ranks therefore remain part
+of the trainer's DP batch-count axis.
+
+`world_size` must be divisible by `TP * CP`, and `DP = world_size / (TP * CP)`.
+Global batch size is `micro_batch_size * accumulation * DP`; CP does not multiply it.
+For example, TP2+CP2 needs four ranks. SmolLM2-135M has 9 query heads and 3 KV heads, so
+it supports CP2 but cannot use TP2; SmolLM2-1.7B has 32 heads and can use TP2.
+
+Only CP rank zero in each weight-shard group writes model/optimizer files, preventing
+replica write races. Native weights can be loaded without CP. Exact trainer resume
+requires the same DP/TP/CP topology, parameter precision and data-loader configuration;
+old trainer checkpoints without `cp_size` are interpreted as CP1. EP checkpoints use
+separate rank files with global expert identities and require the same world/EP/TP/CP
+topology; they do not use the dense CP writer gate.
+
+### Run and verify
+
+The example imports SmolLM2-135M and uses random tokens to test system behavior:
+
+```bash
+torchrun --standalone --nproc_per_node=2 -m ironcore train \
+  --config configs/experiments/smollm2_135m_cp2.yaml
+
+# Native GPU ring: output/Q/K/V gradients, causality, full/LoRA training,
+# activation/loss recomputation and checkpoint roundtrips.
+torchrun --standalone --nproc_per_node=2 \
+  -m tests.multi_gpu.test_context_parallel --device cuda --backend ring
+
+# Four CPU ranks: TP2+CP2 correctness against an independent full decoder.
+torchrun --standalone --nproc_per_node=4 \
+  -m tests.multi_gpu.test_context_parallel --tp 2 --cp 2
+
+# Four CPU ranks: CP2+DP2 with unequal valid-token counts.
+torchrun --standalone --nproc_per_node=4 -m tests.multi_gpu.test_context_parallel_dp
+```
+
+GPU coverage is CP2 on one node. TP2+CP2 and CP2+DP2 composition is additionally checked
+on CPU/Gloo; four-GPU NCCL and multi-node performance are not yet established. Contiguous
+causal shards have unequal attention work, so CP2 does not imply a 2x speedup. Zigzag
+load balancing remains follow-up work. Block-wise MLP is described below.
+
+## Block-wise MLP
+
+```yaml
+trainer:
+  mlp_chunk_size: 512
+operation:
+  activation_recompute: false
+```
+
+`mlp_chunk_size` counts flattened local tokens for dense/shared experts and routed
+tokens within each loop expert. Training checkpoints every block independently and
+recomputes expanded FFN activations in backward, including when inputs are frozen.
+Evaluation also computes in blocks without checkpointing. Full hidden-size inputs,
+outputs, weights, gradients and optimizer state remain resident. The default `null`
+preserves unchunked execution. This setting is separate from the unimplemented
+`sequence_chunk_size` async TP scheduler; block-wise MLP uses synchronous TP.
+
+MoE routing and auxiliary loss are computed once over the original token set, not
+once per block. The batched backend builds bounded `[experts, block_tokens, hidden]`
+padding inside checkpoints, retaining compact routed inputs rather than every padded
+block. It still stacks expert weights and retains routing/combination buffers.
+Globally idle experts keep `grad=None`. Layer checkpointing returns auxiliary loss as
+a differentiable output, including reentrant mode; recomputation does not recount
+router diagnostics or retain another auxiliary-loss graph.
+MoE with ordinary DDP uses non-reentrant layer checkpointing even when
+`recompute_strategy: optimized` is selected, because dynamic idle experts require
+DDP unused-parameter traversal. EP2's explicit gradient wrapper supports both engines.
+
+Zero MLP/LoRA dropout is required. Gemma 4, FSDP, offload and async MLP calls are
+rejected for this initial block-wise contract. Smaller GEMMs, repeated TP collectives,
+padding and checkpoint overhead can reduce throughput. Whole-layer checkpointing
+already removes most retained FFN activations, so adding block-wise MLP can increase
+time and even peak allocation. Benchmark both settings for the intended model.
+
+Examples: `configs/experiments/smollm2_135m_cp2_blockwise.yaml` and
+`configs/experiments/cs336_55m_moe_cp2_blockwise.yaml`.
+Measured memory and validation scope: [block-wise validation](experiments/blockwise_mlp_validation.md).
+
+### Virtual blocks and grouped GEMM
+
+```yaml
+model:
+  moe:
+    expert_backend: grouped
+    virtual_block_size: 128
+    grouped_token_budget: 4096
+trainer:
+  mlp_chunk_size: 4096  # Shared experts; grouped routed execution has its own budget.
+```
+
+The grouped backend sorts routed assignments once, creates logical per-expert tiles,
+and coalesces adjacent tiles into bounded execution groups. A group can contain
+several experts with different token counts; it calls CUDA
+`torch.nn.functional.grouped_mm` for up/gate and down projections without padding
+all experts to a common capacity. Empty experts receive no GEMM or parameter gradient.
+Logical tiles do not allocate separate tensors or launch a kernel individually.
+
+`grouped_token_budget` caps total valid routed rows in one execution group, rather
+than rows per expert. It must be at least `virtual_block_size`. Groups are checkpointed
+independently even when `mlp_chunk_size` is null. Shared experts still use the ordinary
+MLP setting. A token budget bounds expanded FFN rows; it is not a complete VRAM cap:
+weight packing, GEMM workspace, full hidden tensors and optimizer state remain.
+Only active weights for the current group are packed inside its checkpoint, avoiding
+retained per-layer copies. Routing weights, auxiliary objectives, TP input gradients
+and the single final TP output reduction preserve the existing mixture semantics.
+
+This backend currently requires EP1 and zero MLP/LoRA dropout and rejects FSDP/offload.
+CUDA requires the public grouped-mm API; missing support raises an error rather than
+silently running a Python expert loop. Native CUDA values/gradients were tested in
+FP32/FP16/BF16 on PyTorch 2.14 and RTX 3090. CPU runs use an independent dense-GEMM
+reference for correctness and do not establish CPU grouped acceleration.
+The planner currently copies expert counts to CPU once per routing call; metadata
+planning and weight packing can dominate small or balanced workloads. GPU-only
+planning, CUDA graph capture, attention/FFN fusion and grouped EP dispatch are future work.
+
+Example: `configs/experiments/cs336_55m_moe_cp2_grouped.yaml`.
+See [grouped validation and measurements](experiments/grouped_moe_validation.md).
+
+The wrapper approach follows the same kernel boundary used by
+[PyTorch's context parallel implementation](https://docs.pytorch.org/tutorials/unstable/context_parallel.html).
 
 ---
 
@@ -122,10 +324,12 @@ model:
     expert_model_parallel_size: 2
     num_routed_experts: 64
     num_shared_experts: 2
-    top_k: 2
+    num_experts_per_token: 2
 ```
 
-EP can be combined with TP. World size must equal `DP × EP × TP`.
+The native trainer supports EP2, TP1 and `world_size = 2 * CP`. EP overlays the DP
+batch axis; EP+TP and additional DP replicas of owned experts are not yet supported.
+The process-group primitives alone do not establish a supported training combination.
 
 ---
 
@@ -135,7 +339,7 @@ The trainer enforces this fixed initialization order — do not rearrange:
 
 ```
 1. initialize_process()             # dist.init_process_group + cuda.set_device
-2. initialize_model_parallel(tp)    # create TP/DP process groups
+2. initialize_model_parallel(tp, context_parallel_size=cp)  # TP/CP/DP groups
 3. initialize_expert_parallel(ep)   # only when MoE + EP > 1
 4. Build model and cast to dtype
 5. (Optional) Load HF checkpoint
@@ -229,7 +433,7 @@ torchrun --nproc_per_node 8 --nnodes 2 --node_rank 1 \
 ## Known limitations
 
 - **No pipeline parallelism.** All transformer layers run on the same TP group.
-- **No context parallelism.** Sequence length is not distributed across ranks.
+- **Context parallel scope:** generic dense/MoE causal pretraining with zero dropout; see the support contract above.
 - **TP divisibility:** `num_attention_heads`, `num_attention_groups`, and `vocab_size` must all be divisible by `tensor_model_parallel_size`.
 - **Distributed optimizer is incompatible with FSDP.** Use one or the other.
-- **EP requires `EP × TP ≤ world_size / DP`.**
+- **Native EP training:** EP2, TP1, `world_size = 2 * CP`; EP exchanges overlay the DP batch axis.

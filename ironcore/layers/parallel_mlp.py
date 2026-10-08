@@ -13,9 +13,8 @@ The async communication mechanism allows overlapping EP computation with
 communication by returning (partial_output, handle) and requiring finalize()
 to be called.
 
-Note: trainer.sequence_chunk_size is NOT implemented. This comment used to say
-chunking was handled at the transformer
-block level, not in this layer.
+trainer.mlp_chunk_size bounds token blocks and recomputes training intermediates.
+trainer.sequence_chunk_size remains an unimplemented async TP option.
 
 Usage:
     class MyMLP(ParallelMLP):
@@ -32,6 +31,7 @@ from torch import nn
 
 from ironcore.config import MainConfig
 from ironcore.layers.activations import GLUActivation, get_activation
+from ironcore.layers.blockwise import token_chunk_forward
 from ironcore.layers.module import BaseModule
 from ironcore.parallel.random import tensor_parallel_rng_fork
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
@@ -54,8 +54,7 @@ class ParallelMLP(BaseModule):
     - Caller must call finalize() to wait for handle and apply bias/dropout
     - This allows overlapping expert computation with communication
 
-    Note: Sequence chunking is handled at the transformer block level,
-    not in this layer.
+    Token chunking uses non-reentrant checkpointing within each MLP.
 
     Args:
         config: Main configuration
@@ -76,6 +75,9 @@ class ParallelMLP(BaseModule):
         concatenated_weights: int = 1,
     ):
         super().__init__(config)
+        from ironcore.config.config_blockwise import validate_blockwise_mlp
+
+        validate_blockwise_mlp(config)
 
         self.name = name
         self.hidden_size = hidden_size
@@ -152,6 +154,21 @@ class ParallelMLP(BaseModule):
             If async_communication is True:
                 Tuple of (partial_output, handle) where finalize() must be called
         """
+        if self.config.trainer.mlp_chunk_size is not None:
+            if async_communication:
+                raise ValueError("Block-wise MLP requires synchronous TP communication")
+            return token_chunk_forward(
+                self._forward_block,
+                x,
+                self.config.trainer.mlp_chunk_size,
+                training=self.training,
+            )
+        return self._forward_block(x, async_communication)
+
+    def _forward_block(
+        self, x: torch.Tensor, async_communication: bool = False
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, dist.Work]]:
+        """Run the original projection/activation/projection on one token block."""
         # Up projection
         x = self.up_proj(x)
 

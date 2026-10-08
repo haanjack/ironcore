@@ -781,8 +781,13 @@ def save_checkpoint(
     from .integrity import collective_checkpoint_action, digest_file
 
     def write_model():
-        if parallel_states.get_data_parallel_group_rank() == 0 and (
-            config.operation.save_dist_ckpt or parallel_states.get_tensor_model_parallel_rank() == 0
+        if (
+            parallel_states.get_context_parallel_rank() == 0
+            and parallel_states.get_data_parallel_group_rank() == 0
+            and (
+                config.operation.save_dist_ckpt
+                or parallel_states.get_tensor_model_parallel_rank() == 0
+            )
         ):
             tmp_path = ckpt_path.with_suffix(ckpt_path.suffix + ".tmp")
             with open(tmp_path, "wb") as f:

@@ -18,7 +18,9 @@ class MoEConfig(BaseConfig):
 
     # Enable/disable MoE
     use_moe: bool = field(default=False, metadata={"help": "Enable Mixture of Experts layer"})
-    expert_backend: str = "loop"  # loop | batched (padded batched GEMM, EP=1)
+    expert_backend: str = "loop"  # loop | batched | grouped (EP1 for batched/grouped)
+    virtual_block_size: int = 128
+    grouped_token_budget: int = 4096
 
     # Expert counts
     num_shared_experts: int = field(
@@ -82,8 +84,21 @@ class MoEConfig(BaseConfig):
 
     def __post_init__(self):
         """Validate MoE configuration."""
-        if self.expert_backend not in ("loop", "batched"):
-            raise ValueError("expert_backend must be loop or batched")
+        if self.expert_backend not in ("loop", "batched", "grouped"):
+            raise ValueError("expert_backend must be loop, batched or grouped")
+        if self.expert_backend == "grouped":
+            if (
+                not isinstance(self.virtual_block_size, int)
+                or isinstance(self.virtual_block_size, bool)
+                or self.virtual_block_size < 1
+            ):
+                raise ValueError("virtual_block_size must be a positive integer")
+            if (
+                not isinstance(self.grouped_token_budget, int)
+                or isinstance(self.grouped_token_budget, bool)
+                or self.grouped_token_budget < self.virtual_block_size
+            ):
+                raise ValueError("grouped_token_budget must be an integer >= virtual_block_size")
         if self.use_moe:
             if self.num_routed_experts <= 0:
                 raise ValueError("num_routed_experts must be positive when MoE is enabled")
