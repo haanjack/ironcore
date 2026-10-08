@@ -109,6 +109,10 @@ memory benefit here is avoiding retained FFN intermediates; progressively smalle
 blocks add little peak reduction and more scheduling/GEMM/checkpoint overhead.
 These short runs do not establish the optimal setting for larger experts or contexts.
 
+The follow-up [context doubling experiment](context_block_scaling_validation.md)
+compares absent, full-size and 512-token MLP checkpoints independently until
+each mode reaches a measured CUDA OOM ceiling.
+
 A possible follow-up is to decouple logical routing tiles from the execution
 token budget, grouping ready expert tiles for larger, bounded GEMMs. This needs
 an execution backend and measurements, rather than only smaller Python-loop blocks.

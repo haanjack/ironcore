@@ -273,6 +273,10 @@ init:
 `scripts/benchmark_moe_scaling.py` expert-count and backend sweep. See the
 [measured results](../docs/experiments/moe_scaling_validation.md).
 
+The same fixed decoder config is used by `scripts/benchmark_context_blocks.py`
+to isolate MLP checkpoint granularity while doubling context length. See the
+[long-context results](../docs/experiments/context_block_scaling_validation.md).
+
 ### Model Configs (`configs/model/`)
 - `gpt2-small.yaml` - GPT-2 Small (124M)
 - `gpt2-medium.yaml` - GPT-2 Medium (355M)
