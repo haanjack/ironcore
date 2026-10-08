@@ -74,6 +74,23 @@ def _exchange(
     return incoming, dist.batch_isend_irecv(operations)
 
 
+def _merge_attention_block_(
+    accumulator: torch.Tensor,
+    lse: torch.Tensor,
+    block_output: torch.Tensor,
+    block_lse: torch.Tensor,
+) -> torch.Tensor:
+    """Merge into the FP32 accumulator without full-query FP32 temporary copies.
+
+    Runs under the ring autograd Function's no-grad forward. addcmul reads the
+    original BF16/FP16 output directly and accumulates with FP32 coefficients.
+    """
+    combined = torch.logaddexp(lse, block_lse)
+    accumulator.mul_((lse - combined).exp().unsqueeze(-1))
+    accumulator.addcmul_(block_output, (block_lse - combined).exp().unsqueeze(-1))
+    return combined
+
+
 class _RingAttention(torch.autograd.Function):
     @staticmethod
     def forward(ctx, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
@@ -92,11 +109,7 @@ class _RingAttention(torch.autograd.Function):
                 partial = FlashAttentionKernel.forward(query, current[0], current[1], owner == rank)
                 block_output, block_lse = partial[:2]
                 metadata = tuple(partial[2:8])
-                combined = torch.logaddexp(lse, block_lse)
-                accumulator = accumulator * (lse - combined).exp().unsqueeze(
-                    -1
-                ) + block_output.float() * (block_lse - combined).exp().unsqueeze(-1)
-                lse = combined
+                lse = _merge_attention_block_(accumulator, lse, block_output, block_lse)
             for handle in work:
                 handle.wait()
             if next_buffers is not None:

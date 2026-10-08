@@ -411,6 +411,8 @@ class MoEMLP(BaseModule):
             # Keep divisibility padding out of routing, including idle-expert
             # optimizer semantics. All EP peers still enter empty exchanges.
             valid = token_mask.reshape(-1).nonzero().flatten()
+            if valid.numel() == batch_size * seq_len:
+                return self._route_and_combine_allreduce(x, topk_weights, topk_indices)
             compact = self._route_and_combine_allreduce(
                 x.reshape(-1, hidden_size)[valid][None],
                 topk_weights.reshape(-1, self.top_k)[valid][None],

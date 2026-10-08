@@ -195,8 +195,12 @@ preserves unchunked execution. This setting is separate from the unimplemented
 
 MoE routing and auxiliary loss are computed once over the original token set, not
 once per block. The batched backend builds bounded `[experts, block_tokens, hidden]`
-padding inside checkpoints, retaining compact routed inputs rather than every padded
-block. It still stacks expert weights and retains routing/combination buffers.
+padding inside checkpoints and recomputes input gather and mixture weighting.
+Checkpoints share the original hidden and router-weight storage. Weighted block
+outputs accumulate into one token-output buffer through a custom autograd operation
+that saves token indices, avoiding retained routed-input and unweighted-output
+copies. Expert weight stacks and routing metadata remain; smaller blocks also
+increase gather-backward and checkpoint overhead.
 Globally idle experts keep `grad=None`. Layer checkpointing returns auxiliary loss as
 a differentiable output, including reentrant mode; recomputation does not recount
 router diagnostics or retain another auxiliary-loss graph.
@@ -213,6 +217,8 @@ time and even peak allocation. Benchmark both settings for the intended model.
 Examples: `configs/experiments/smollm2_135m_cp2_blockwise.yaml` and
 `configs/experiments/cs336_55m_moe_cp2_blockwise.yaml`.
 Measured memory and validation scope: [block-wise validation](experiments/blockwise_mlp_validation.md).
+The batched checkpoint storage improvement and long-context measurements are in
+[streaming MoE validation](experiments/streaming_moe_validation.md).
 
 ### Virtual blocks and grouped GEMM
 

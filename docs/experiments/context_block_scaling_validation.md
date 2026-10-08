@@ -4,6 +4,10 @@ Measured 2026-10-09 on two RTX 3090 24-GiB GPUs, PyTorch 2.14.0+cu130.
 Baseline implementation: `7d49f6a`. The experiment asks whether smaller MLP
 checkpoint blocks save additional memory or extend the supported training context.
 
+These measurements precede the batched checkpoint storage redesign. See
+[streaming MoE validation](streaming_moe_validation.md) for the subsequent
+before/after comparison; the original results below remain the baseline.
+
 On the doubling grid, Dense completes through 262144 tokens in all three modes.
 MoE completes through 65536 without MLP checkpoints and 131072 with either
 checkpoint granularity. At MoE 131072, 512-token blocks save another 4.97% peak

@@ -8,9 +8,32 @@ import torch
 from tests.fixtures.config_fixtures import create_small_test_config
 
 from ironcore.config.config_context_parallel import validate_context_parallel
-from ironcore.layers.context_parallel_attention import ContextParallelAttention
+from ironcore.layers.context_parallel_attention import (
+    ContextParallelAttention,
+    _merge_attention_block_,
+)
 from ironcore.parallel import parallel_states as ps
 from ironcore.parallel.context_parallel import partition_context_inputs
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+def test_inplace_merge_matches_independent_online_softmax(dtype):
+    torch.manual_seed(67)
+    accumulator = torch.zeros(2, 3, 17, 8)
+    pointer = accumulator.data_ptr()
+    lse = torch.full((2, 3, 17), -torch.inf)
+    outputs = [torch.randn_like(accumulator).to(dtype) for _ in range(3)]
+    normalizers = [torch.randn_like(lse) * 5 for _ in outputs]
+    for output, normalizer in zip(outputs, normalizers, strict=True):
+        lse = _merge_attention_block_(accumulator, lse, output, normalizer)
+    combined = torch.stack(normalizers).logsumexp(0)
+    expected = sum(
+        output.float() * (normalizer - combined).exp()[..., None]
+        for output, normalizer in zip(outputs, normalizers, strict=True)
+    )
+    assert accumulator.data_ptr() == pointer
+    torch.testing.assert_close(lse, combined, atol=2e-6, rtol=1e-6)
+    torch.testing.assert_close(accumulator, expected, atol=3e-6, rtol=3e-6)
 
 
 @pytest.mark.parametrize("heads,kv", [(4, 4), (4, 2), (4, 1), (9, 3)])

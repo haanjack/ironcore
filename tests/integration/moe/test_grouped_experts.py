@@ -19,9 +19,58 @@ pytestmark = [
 ]
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("topk", [2, 3])
+def test_streaming_low_precision_inputs_and_topk(dtype, topk):
+    with single_gpu_env():
+        ps.initialize_model_parallel(1, 2)
+        try:
+            torch.manual_seed(86)
+            config = create_moe_test_config(
+                hidden_size=32,
+                intermediate_size=64,
+                num_shared_experts=1,
+                num_routed_experts=4,
+                num_experts_per_token=topk,
+                mlp_bias=False,
+                dropout_mlp=0,
+            )
+            config.model.activation_type = "swiglu"
+            config.model.moe.expert_backend = "batched"
+            reference = MoEMLP(config).cuda()
+            reference.init_weights()
+            actual = deepcopy(reference)
+            actual.config.trainer.mlp_chunk_size = 3
+            x = torch.randn(2, 17, 32, device="cuda", dtype=dtype, requires_grad=True)
+            y = x.detach().clone().requires_grad_()
+            with torch.autocast("cuda", dtype=dtype):
+                expected, result = reference(x), actual(y)
+                a = expected.float().square().sum() + reference.get_aux_loss()
+                b = result.float().square().sum() + actual.get_aux_loss()
+            assert expected.dtype == result.dtype
+            a.backward()
+            b.backward()
+            tolerance = 0.02 if dtype == torch.bfloat16 else 0.004
+            pairs = [(result, expected), (y.grad, x.grad)]
+            for (_, p), (_, q) in zip(
+                actual.named_parameters(), reference.named_parameters(), strict=True
+            ):
+                assert (p.grad is None) == (q.grad is None)
+                if p.grad is not None:
+                    pairs.append((p.grad, q.grad))
+            for value, target in pairs:
+                torch.testing.assert_close(value, target, atol=4e-4, rtol=tolerance)
+                assert (
+                    value.float() - target.float()
+                ).norm() <= tolerance * target.float().norm() + 3e-6
+        finally:
+            ps.destroy_model_parallel()
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("idle", [False, True])
-def test_native_grouped_expert_forward_and_backward(dtype, idle):
+@pytest.mark.parametrize("backend", ["grouped", "batched"])
+def test_native_grouped_expert_forward_and_backward(dtype, idle, backend):
     with single_gpu_env():
         ps.initialize_model_parallel(1, 2)
         try:
@@ -43,7 +92,9 @@ def test_native_grouped_expert_forward_and_backward(dtype, idle):
                     if name.endswith("bias"):
                         parameter.normal_(0, 0.01)
             actual = deepcopy(reference)
-            actual.expert_backend = "grouped"
+            actual.expert_backend = backend
+            if backend == "batched":
+                actual.config.trainer.mlp_chunk_size = 3
             actual.config.model.moe.virtual_block_size = 3
             actual.config.model.moe.grouped_token_budget = 7
             if idle:
