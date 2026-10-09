@@ -1,0 +1,17 @@
+context,expert_backend,blockwise_backend,layer_checkpoint,mlp_block_size,virtual_block_size,grouped_token_budget,status,completed_updates,peak_allocated_mib,mean_update_seconds,update_std_seconds,estimated_model_tflops_per_gpu,timing_note,source
+262144,batched,triton,none,512,128,4096,passed,3,14079.55078125,46.960087772517,0.1100156787108316,2.371079205901067,,.local/scheduled-context/final/262144-e4-batched-triton.json
+524288,batched,triton,none,512,128,4096,oom,0,21999.82275390625,,,,,.local/scheduled-context/524288-batched-triton.rank0.failure.json
+131072,batched,triton,none,128,128,4096,passed,3,7740.17578125,19.062317943491507,0.11929045196168293,2.920581011049634,,.local/layer-checkpoint-blocks/131072-batched-none-b128.json
+131072,batched,triton,none,2048,128,4096,passed,3,7741.05078125,13.083916765928734,0.027320719489724924,4.255074746220321,,.local/layer-checkpoint-blocks/131072-batched-none-b2048.json
+131072,batched,triton,none,512,128,4096,passed,3,7743.05078125,13.912935919477604,0.0011313035674597666,4.001530958998507,,.local/layer-checkpoint-blocks/131072-batched-none-b512.json
+131072,batched,triton,none,65536,128,4096,passed,3,9563.640625,13.282864659966435,0.009409373739064369,4.191343150558961,dynamic-width pack JIT,.local/layer-checkpoint-blocks/131072-batched-none-b65536.json
+131072,batched,triton,none,8192,128,4096,passed,3,7745.05078125,13.050109211006202,0.018169026643372353,4.266097923946757,,.local/layer-checkpoint-blocks/131072-batched-none-b8192.json
+131072,batched,triton,standard,512,128,4096,passed,3,3891.474609375,17.553904679021798,0.03181903723781477,3.1715475747618345,,.local/layer-checkpoint-blocks/131072-batched-standard-b512.json
+131072,grouped,triton,none,512,128,1024,passed,3,7854.310546875,14.784523085982073,0.013720193740609725,3.7656300097456867,,.local/layer-checkpoint-blocks/131072-grouped-none-b512-v128-g1024.json
+131072,grouped,triton,none,512,128,4096,passed,3,7845.0693359375,13.923566388490144,0.0073289715461606056,3.9984758400961034,,.local/layer-checkpoint-blocks/131072-grouped-none-b512-v128-g4096.json
+131072,grouped,triton,none,512,128,8192,passed,3,7860.52880859375,13.864366155001335,0.0063123903009404125,4.015549156011643,,.local/layer-checkpoint-blocks/131072-grouped-none-b512-v128-g8192.json
+131072,grouped,triton,none,512,512,4096,passed,3,7847.46533203125,13.940228535502683,0.030390991951014783,3.993696636361811,,.local/layer-checkpoint-blocks/131072-grouped-none-b512-v512-g4096.json
+524288,batched,triton,none,128,128,4096,oom,0,21999.82275390625,,,,,.local/layer-checkpoint-blocks/524288-batched-none-b128.rank0.failure.json
+524288,batched,triton,standard,128,128,4096,passed,3,11321.412109375,261.7297668690444,0.06730882420059268,0.850847719437397,,.local/layer-checkpoint-blocks/524288-batched-standard-b128.json
+524288,batched,triton,standard,2048,128,4096,passed,3,11327.287109375,225.3822573949583,0.5051407828257184,0.9880643570765368,,.local/layer-checkpoint-blocks/524288-batched-standard-b2048.json
+524288,batched,triton,standard,512,128,4096,passed,3,11333.662109375,230.5724567854777,1.3663232939977203,0.9658229710264074,,.local/layer-checkpoint-blocks/524288-batched-standard-b512.json

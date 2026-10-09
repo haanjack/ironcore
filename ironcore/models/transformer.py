@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any
+
 import torch
 from torch import nn
 
@@ -10,6 +12,7 @@ from ironcore.layers import BaseModule
 from ironcore.layers.attention import Attention
 from ironcore.layers.layernorm import get_norm
 from ironcore.layers.mlp import MLP
+from ironcore.parallel import parallel_states
 from ironcore.parallel.random import checkpoint_with_tensor_parallel_rng, tensor_parallel_rng_fork
 from ironcore.parallel.tensor_parallel import ColumnParallelLinear, RowParallelLinear
 from ironcore.peft import wrap_with_lora_if_target
@@ -165,6 +168,7 @@ class TransformerLayer(BaseModule):
         cache_position=None,
         block_kv_cache_manager=None,
         seq_id=None,
+        moe_token_mask=None,
     ):
         # Activation spilling path uses custom autograd.Function that
         # spills inputs to host during forward and restores during backward,
@@ -311,7 +315,11 @@ class TransformerLayer(BaseModule):
         residual = hidden_states
         norm_input = residual + attention_output
         norm_output = self.post_attn_layernorm(norm_input)
-        mlp_output = self.mlp(norm_output)
+        mlp_output = (
+            self.mlp(norm_output, token_mask=moe_token_mask)
+            if self.config.model.moe.use_moe
+            else self.mlp(norm_output)
+        )
         output = norm_input + mlp_output
 
         if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:
@@ -330,6 +338,7 @@ class TransformerLayer(BaseModule):
         cache_position=None,
         block_kv_cache_manager=None,
         seq_id=None,
+        moe_token_mask=None,
     ):
         return self.custom_forward(
             hidden_states,
@@ -342,7 +351,13 @@ class TransformerLayer(BaseModule):
             cache_position=cache_position,
             block_kv_cache_manager=block_kv_cache_manager,
             seq_id=seq_id,
+            moe_token_mask=moe_token_mask,
         )
+
+    def _checkpoint_forward_with_aux(self, *args: Any) -> tuple[torch.Tensor, torch.Tensor]:
+        """Expose auxiliary loss as a checkpoint output, including reentrant mode."""
+        output = self.custom_forward(*args)
+        return output, self.mlp.get_aux_loss()
 
 
 class TransformerModel(BaseModule):
@@ -408,6 +423,7 @@ class TransformerModel(BaseModule):
         block_kv_cache_manager=None,
         seq_id=None,
         input_ids=None,
+        moe_token_mask=None,
     ):
         if self.config.model.is_gemma4:
             if kv_cache_manager is not None or block_kv_cache_manager is not None:
@@ -438,6 +454,16 @@ class TransformerModel(BaseModule):
             and not is_fsdp
             and not activation_spill_active
         )
+        checkpoint_reentrant = self.use_reentrant
+        if (
+            self.config.model.moe.use_moe
+            and self.config.model.moe.expert_model_parallel_size == 1
+            and parallel_states.get_data_parallel_world_size() > 1
+        ):
+            # Dynamic idle experts require DDP's unused-parameter traversal.
+            # Reentrant checkpointing hides this graph and can mark parameters
+            # ready twice; preserve recomputation with the non-reentrant engine.
+            checkpoint_reentrant = False
 
         # Weight streaming: model stays on CPU but scheduler loads weights to GPU
         # per-layer. Move hidden_states (and related tensors) to GPU for computation.
@@ -461,8 +487,13 @@ class TransformerModel(BaseModule):
                 scheduler.on_layer_start(i)
 
             if use_layer_checkpointing:
+                checkpoint_kwargs = {}
+                if self.config.model.moe.use_moe:
+                    checkpoint_kwargs["recompute_context"] = layer.mlp.recompute_context
                 layer_out = checkpoint_with_tensor_parallel_rng(
-                    layer.custom_forward,
+                    layer._checkpoint_forward_with_aux
+                    if self.config.model.moe.use_moe
+                    else layer.custom_forward,
                     hidden_states,
                     attention_mask,
                     rotary_pos_emb,
@@ -473,8 +504,13 @@ class TransformerModel(BaseModule):
                     None,  # cache_position
                     None,  # block_kv_cache_manager
                     None,  # seq_id
-                    use_reentrant=self.use_reentrant,
+                    moe_token_mask,
+                    use_reentrant=checkpoint_reentrant,
+                    **checkpoint_kwargs,
                 )
+                if self.config.model.moe.use_moe:
+                    layer_out, aux_loss = layer_out
+                    layer.mlp._aux_loss = aux_loss
             else:
                 layer_out = layer(
                     hidden_states,
@@ -487,6 +523,7 @@ class TransformerModel(BaseModule):
                     cache_position=cache_position,
                     block_kv_cache_manager=block_kv_cache_manager,
                     seq_id=seq_id,
+                    moe_token_mask=moe_token_mask,
                 )
 
             # Weight streaming: mark layer as done (weights stay for backward)

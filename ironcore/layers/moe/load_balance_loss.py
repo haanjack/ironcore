@@ -22,6 +22,11 @@ This loss encourages:
 import torch
 import torch.nn.functional as F
 
+from ironcore.parallel.context_parallel import (
+    context_parallel_token_mean,
+    sum_context_parallel_statistics,
+)
+
 
 def count_expert_assignments(
     topk_indices: torch.Tensor,
@@ -45,6 +50,7 @@ def compute_load_balance_loss(
     topk_indices: torch.Tensor,
     num_experts: int,
     alpha: float = 0.01,
+    token_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Compute DeepSeek-MoE style load balancing auxiliary loss.
 
@@ -57,16 +63,23 @@ def compute_load_balance_loss(
     Returns:
         Scalar auxiliary loss tensor
     """
-    batch_size, seq_len, _ = router_logits.shape
-    num_tokens = batch_size * seq_len
+    if token_mask is None:
+        token_mask = torch.ones_like(router_logits[..., 0], dtype=torch.bool)
+    mask = token_mask.float()
+    num_tokens = sum_context_parallel_statistics(mask.sum()).clamp_min(1)
 
     # P_i: Average routing probability for each expert
     # [batch, seq, num_experts] -> [num_experts]
-    routing_probs = F.softmax(router_logits, dim=-1)
-    P_i = routing_probs.mean(dim=[0, 1])  # Average over batch and sequence
+    routing_probs = F.softmax(router_logits.float(), dim=-1)
+    P_i = (
+        sum_context_parallel_statistics((routing_probs * mask[..., None]).sum((0, 1))) / num_tokens
+    )
 
     # f_i: Fraction of tokens routed to each expert
-    expert_counts = count_expert_assignments(topk_indices, num_experts)
+    expert_counts = torch.bincount(
+        topk_indices[token_mask].flatten(), minlength=num_experts
+    ).float()
+    expert_counts = sum_context_parallel_statistics(expert_counts)
     f_i = expert_counts / (num_tokens * topk_indices.shape[-1])  # Normalize by total selections
 
     # Auxiliary loss: alpha * N * sum(f_i * P_i)
@@ -79,6 +92,7 @@ def compute_load_balance_loss(
 def compute_router_z_loss(
     router_logits: torch.Tensor,
     z_loss_weight: float = 0.001,
+    token_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Compute router z-loss to encourage stable routing.
 
@@ -93,7 +107,9 @@ def compute_router_z_loss(
     """
     # Z-loss: mean of log(sum(exp(logits)))^2
     log_z = torch.logsumexp(router_logits, dim=-1)  # [batch, seq]
-    z_loss = z_loss_weight * (log_z**2).mean()
+    if token_mask is None:
+        token_mask = torch.ones_like(log_z, dtype=torch.bool)
+    z_loss = z_loss_weight * context_parallel_token_mean(log_z**2, token_mask)
 
     return z_loss
 
@@ -126,6 +142,7 @@ class LoadBalanceLoss(torch.nn.Module):
         self,
         router_logits: torch.Tensor,
         topk_indices: torch.Tensor,
+        token_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute total load balancing loss.
 
@@ -142,6 +159,7 @@ class LoadBalanceLoss(torch.nn.Module):
             topk_indices=topk_indices,
             num_experts=self.num_experts,
             alpha=self.aux_loss_alpha,
+            token_mask=token_mask,
         )
 
         total_loss = aux_loss
@@ -151,6 +169,7 @@ class LoadBalanceLoss(torch.nn.Module):
             z_loss = compute_router_z_loss(
                 router_logits=router_logits,
                 z_loss_weight=self.z_loss_weight,
+                token_mask=token_mask,
             )
             total_loss = total_loss + z_loss
 

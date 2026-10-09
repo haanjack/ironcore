@@ -47,9 +47,13 @@ class MainConfig(BaseConfig):
 
 def _config_validation(config: MainConfig):
     """Validate arguments and update internal enum if necessary"""
+    from .config_blockwise import validate_blockwise_mlp
+    from .config_context_parallel import validate_context_parallel
     from .config_gemma4 import validate_gemma4_runtime
 
     validate_gemma4_runtime(config)
+    validate_blockwise_mlp(config)
+    validate_context_parallel(config)
     # train steps. Allow train_steps == 0 only in eval-only mode (eval datasets
     # present). This supports `ironcore evaluate`, which sets train_steps=0.
     has_eval = bool(getattr(config.data, "eval_datasets", None))
@@ -101,7 +105,7 @@ def _config_validation(config: MainConfig):
             "read under the other's vocabulary. Set them to the same value."
         )
 
-    dp_group_size = config.trainer.tensor_model_parallel_size
+    dp_group_size = config.trainer.tensor_model_parallel_size * config.trainer.context_parallel_size
     dp_world_size = config.parallel.world_size // dp_group_size
     if dp_world_size <= 0:
         raise ValueError(

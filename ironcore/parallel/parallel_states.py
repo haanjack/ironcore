@@ -15,30 +15,97 @@ _TENSOR_MODEL_PARALLEL_WORLD_SIZE = None
 _DATA_PARALLEL_GROUP = None
 
 _TENSOR_MODEL_PARALLEL_GROUP = None
+_CONTEXT_PARALLEL_WORLD_SIZE = 1
+_CONTEXT_PARALLEL_GROUP = None
+_CONTEXT_PARALLEL_RANKS: list[int] = []
+type _ReductionSetting = bool | tuple[bool, bool]
+_CONTEXT_PARALLEL_ORIGINAL_PRECISION: tuple[_ReductionSetting, _ReductionSetting] | None = None
+
+
+def parallel_group_ranks(
+    world_size: int, tp_size: int, cp_size: int = 1
+) -> dict[str, list[list[int]]]:
+    """Return the [DP][CP][TP] rank mesh without creating process groups."""
+    if min(world_size, tp_size, cp_size) < 1 or world_size % (tp_size * cp_size):
+        raise ValueError("world size must be divisible by positive TP * CP sizes")
+    dp_size = world_size // (tp_size * cp_size)
+
+    def rank(d: int, c: int, t: int) -> int:
+        return (d * cp_size + c) * tp_size + t
+
+    return {
+        "tp": [
+            [rank(d, c, t) for t in range(tp_size)] for d in range(dp_size) for c in range(cp_size)
+        ],
+        "cp": [
+            [rank(d, c, t) for c in range(cp_size)] for d in range(dp_size) for t in range(tp_size)
+        ],
+        "dp": [
+            [rank(d, c, t) for d in range(dp_size)] for c in range(cp_size) for t in range(tp_size)
+        ],
+    }
+
+
+def configure_context_parallel_precision() -> None:
+    """Keep FP32 GEMM accumulation when sequence sharding changes kernel shapes."""
+    global _CONTEXT_PARALLEL_ORIGINAL_PRECISION
+    if _CONTEXT_PARALLEL_ORIGINAL_PRECISION is None:
+        _CONTEXT_PARALLEL_ORIGINAL_PRECISION = (
+            # The public getters expose only reduction permission. Capture
+            # the backend tuple too, preserving a caller's split-K preference.
+            torch._C._get_cublas_allow_fp16_reduced_precision_reduction(),
+            torch._C._get_cublas_allow_bf16_reduced_precision_reduction(),
+        )
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+
+
+def _restore_context_parallel_precision() -> None:
+    global _CONTEXT_PARALLEL_ORIGINAL_PRECISION
+    if _CONTEXT_PARALLEL_ORIGINAL_PRECISION is not None:
+        fp16, bf16 = _CONTEXT_PARALLEL_ORIGINAL_PRECISION
+        torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = fp16
+        torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = bf16
+        _CONTEXT_PARALLEL_ORIGINAL_PRECISION = None
 
 
 def initialize_model_parallel(
     tensor_model_parallel_size: int,
     timeout_in_minutes: float,
+    context_parallel_size: int = 1,
 ):
     """Initialize parallel groups for model parallel communication"""
     from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
 
     reset_tensor_parallel_rng_tracker()
+    if context_parallel_size == 1:
+        _restore_context_parallel_precision()
     # pylint: disable=global-statement
 
     global _TENSOR_MODEL_PARALLEL_WORLD_SIZE
     _TENSOR_MODEL_PARALLEL_WORLD_SIZE = tensor_model_parallel_size
+    global _CONTEXT_PARALLEL_WORLD_SIZE, _CONTEXT_PARALLEL_GROUP, _CONTEXT_PARALLEL_RANKS
+    _CONTEXT_PARALLEL_WORLD_SIZE = context_parallel_size
+    _CONTEXT_PARALLEL_GROUP = None
+    _CONTEXT_PARALLEL_RANKS = []
 
     global _DATA_PARALLEL_WORLD_SIZE
     if dist.is_initialized():
         world_size = dist.get_world_size()
-        _DATA_PARALLEL_WORLD_SIZE = world_size // tensor_model_parallel_size
+        parallel_group_ranks(world_size, tensor_model_parallel_size, context_parallel_size)
+        _DATA_PARALLEL_WORLD_SIZE = world_size // (
+            tensor_model_parallel_size * context_parallel_size
+        )
     else:
         _DATA_PARALLEL_WORLD_SIZE = 1
 
     if not dist.is_initialized():
+        if context_parallel_size != 1:
+            raise ValueError("Context parallel requires an initialized distributed process group")
         return
+
+    if context_parallel_size > 1 and torch.cuda.is_available():
+        configure_context_parallel_precision()
 
     rank = dist.get_rank()
     world_size = dist.get_world_size()
@@ -57,7 +124,7 @@ def initialize_model_parallel(
     except (RuntimeError, ValueError):
         backend = "nccl" if torch.cuda.is_available() else "gloo"
 
-    dp_world_size = world_size // tensor_model_parallel_size
+    mesh = parallel_group_ranks(world_size, tensor_model_parallel_size, context_parallel_size)
 
     # Initialize the ranks for the tensor model parallel groups.
     #
@@ -67,10 +134,7 @@ def initialize_model_parallel(
     # For example, if dp_world_size is 4 and tensor_model_parallel_size is 4,
     # tp_ranks would be [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15]].
     global _TENSOR_MODEL_PARALLEL_GROUP
-    tp_ranks = [
-        [i * tensor_model_parallel_size + j for j in range(tensor_model_parallel_size)]
-        for i in range(dp_world_size)
-    ]
+    tp_ranks = mesh["tp"]
     for tp_group_id, ranks in enumerate(tp_ranks):  # pylint: disable=unused-variable
         group = dist.new_group(
             ranks,
@@ -89,7 +153,7 @@ def initialize_model_parallel(
     # For example, if tensor_model_parallel_size is 4 and world_size is 16,
     # dp_ranks would be [[0, 4, 8, 12], [1, 5, 9, 13], [2, 6, 10, 14], [3, 7, 11, 15]].
     global _DATA_PARALLEL_GROUP
-    dp_ranks = [[tp_group[i] for tp_group in tp_ranks] for i in range(tensor_model_parallel_size)]
+    dp_ranks = mesh["dp"]
     # create a new process group for data parallelism
     for dp_group_id, ranks in enumerate(dp_ranks):  # pylint: disable=unused-variable
         group = dist.new_group(
@@ -100,6 +164,13 @@ def initialize_model_parallel(
         # group_desc=f"data parallel group ({dp_group_id})",
         if rank in ranks:
             _DATA_PARALLEL_GROUP = group
+
+    if context_parallel_size > 1:
+        for ranks in mesh["cp"]:
+            group = dist.new_group(ranks, timeout=timeout, backend=backend)
+            if rank in ranks:
+                _CONTEXT_PARALLEL_GROUP = group
+                _CONTEXT_PARALLEL_RANKS = ranks
 
 
 def destroy_model_parallel():
@@ -114,6 +185,7 @@ def destroy_model_parallel():
     from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
 
     reset_tensor_parallel_rng_tracker()
+    _restore_context_parallel_precision()
 
     global _TENSOR_MODEL_PARALLEL_WORLD_SIZE
     global _DATA_PARALLEL_WORLD_SIZE
@@ -124,6 +196,30 @@ def destroy_model_parallel():
     _DATA_PARALLEL_WORLD_SIZE = None
     _TENSOR_MODEL_PARALLEL_GROUP = None
     _DATA_PARALLEL_GROUP = None
+    global _CONTEXT_PARALLEL_WORLD_SIZE, _CONTEXT_PARALLEL_GROUP, _CONTEXT_PARALLEL_RANKS
+    _CONTEXT_PARALLEL_WORLD_SIZE = 1
+    _CONTEXT_PARALLEL_GROUP = None
+    _CONTEXT_PARALLEL_RANKS = []
+
+
+def get_context_parallel_world_size() -> int:
+    return _CONTEXT_PARALLEL_WORLD_SIZE
+
+
+def get_context_parallel_group() -> dist.ProcessGroup:
+    if _CONTEXT_PARALLEL_GROUP is None:
+        raise RuntimeError("Context parallel group is not initialized")
+    return _CONTEXT_PARALLEL_GROUP
+
+
+def get_context_parallel_rank() -> int:
+    if _CONTEXT_PARALLEL_WORLD_SIZE == 1:
+        return 0
+    return dist.get_rank(get_context_parallel_group())
+
+
+def get_context_parallel_global_ranks() -> list[int]:
+    return list(_CONTEXT_PARALLEL_RANKS)
 
 
 def is_model_parallel_initialized() -> bool:

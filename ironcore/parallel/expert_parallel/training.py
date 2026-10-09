@@ -79,6 +79,8 @@ class ExpertParallelModel(nn.Module):
 
     def synchronize_gradients(self):
         for parameter in self.module.parameters():
+            if not parameter.requires_grad:
+                continue
             if getattr(parameter, "is_expert", False):
                 if parameter.grad is not None:
                     parameter.grad.div_(self.size)

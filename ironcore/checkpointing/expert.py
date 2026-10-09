@@ -52,6 +52,7 @@ def save_expert_checkpoint(config, model, optimizer, scheduler, step):
         "world_size": dist.get_world_size(),
         "ep_size": config.model.moe.expert_model_parallel_size,
         "tp_size": config.trainer.tensor_model_parallel_size,
+        "cp_size": config.trainer.context_parallel_size,
         "model": {names[n]: t.cpu() for n, t in module.state_dict().items()},
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
@@ -104,12 +105,13 @@ def load_expert_checkpoint(config, model, optimizer, scheduler, step):
 
     verify_manifest(directory, "ep_manifest.json")
     state = torch.load(directory / f"ep{dist.get_rank()}.pt", map_location="cpu", weights_only=True)
-    if (state["world_size"], state["ep_size"], state["tp_size"]) != (
+    if (state["world_size"], state["ep_size"], state["tp_size"], state.get("cp_size", 1)) != (
         dist.get_world_size(),
         config.model.moe.expert_model_parallel_size,
         config.trainer.tensor_model_parallel_size,
+        config.trainer.context_parallel_size,
     ):
-        raise ValueError("EP checkpoint requires original world/EP/TP topology")
+        raise ValueError("EP checkpoint requires original world/EP/TP/CP topology")
     module = getattr(model, "module", model)
     names = global_parameter_names(module)
     module.load_state_dict({n: state["model"][g] for n, g in names.items()}, strict=True)

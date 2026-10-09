@@ -1,0 +1,41 @@
+# CP2 + EP1, logical expert tiles coalesced into padding-free grouped GEMMs.
+model:
+  config_path: configs/model/cs336-55m-moe.yaml
+  reset_attention_mask: false
+  reset_position_ids: false
+  moe:
+    expert_backend: grouped
+    grouped_token_budget: 1024
+trainer:
+  model_name: cs336-55m-moe-cp2-grouped
+  model_path: /tmp/ironcore-cs336-55m-moe-cp2-grouped
+  micro_batch_size: 1
+  train_batch_size: 2
+  gradient_accumulation_steps: 2
+  tensor_model_parallel_size: 1
+  context_parallel_size: 2
+  context_parallel_backend: ring
+  mlp_chunk_size: 1024
+  use_flash_attn: false
+  parameter_precision: float32
+  loss_chunk_size: 128
+  recompute_linear_ce: true
+  log_interval: 1
+  save_checkpoint_steps: 3
+operation:
+  train_steps: 3
+  activation_recompute: false
+  save_full_model: true
+data:
+  task_type: pretrain
+  use_mock_data: true
+  seq_length: 1024
+  vocab_name_or_path: gpt2
+optim:
+  optimizer: adam
+  max_lr: 0.0001
+  min_lr: 0.0001
+  annealing_steps: 6
+  clip_grad: 1.0
+init:
+  seed: 42

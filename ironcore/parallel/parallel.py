@@ -116,22 +116,38 @@ def initialize_parallelism(
         if (
             config.parallel.use_fsdp
             or config.trainer.tensor_model_parallel_size != 1
-            or config.parallel.world_size != 2
+            or config.parallel.world_size != 2 * config.trainer.context_parallel_size
             or config.model.moe.expert_model_parallel_size != 2
         ):
-            raise ValueError(
-                "EP training currently supports exactly EP=2, TP=1, world=2 without FSDP"
-            )
+            raise ValueError("EP training currently supports EP=2, TP=1, world=2*CP without FSDP")
         from ironcore.parallel.expert_parallel.training import ExpertParallelModel
 
+        if config.trainer.context_parallel_size > 1:
+            ranks = parallel_states.get_context_parallel_global_ranks()
+            for parameter in model.parameters():
+                torch.distributed.broadcast(
+                    parameter.data, src=ranks[0], group=parallel_states.get_context_parallel_group()
+                )
         return ExpertParallelModel(model, parallel_states.get_data_parallel_group())
 
     logger = get_logger()
 
+    cp_size = config.trainer.context_parallel_size
+    if cp_size > 1:
+        # Same TP shard at different CP positions must start from identical
+        # parameters; DP initialization then broadcasts along its own axis.
+        ranks = parallel_states.get_context_parallel_global_ranks()
+        for parameter in model.parameters():
+            torch.distributed.broadcast(
+                parameter.data, src=ranks[0], group=parallel_states.get_context_parallel_group()
+            )
+
     # Single-GPU with no FSDP: return model as-is
-    if not config.parallel.use_fsdp and config.parallel.world_size == 1:
+    if not config.parallel.use_fsdp and (
+        config.parallel.world_size == 1 or parallel_states.get_data_parallel_world_size() == 1
+    ):
         if config.parallel.rank == 0:
-            logger.info("Skipping parallelism wrapping (single GPU, no FSDP)")
+            logger.info("Skipping parallelism wrapping (DP=1, no FSDP)")
         return model
 
     # Multi-GPU without FSDP: use DDP

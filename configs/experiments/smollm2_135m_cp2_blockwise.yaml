@@ -1,0 +1,38 @@
+# Token-block FFNs with CP2 and recomputed linear CE. Systems-only mock tokens.
+model: smollm2-135m
+trainer:
+  model_name: smollm2-135m-cp2-blockwise
+  model_path: /tmp/ironcore-smollm2-135m-cp2-blockwise
+  load_from_hf: HuggingFaceTB/SmolLM2-135M
+  tensor_model_parallel_size: 1
+  context_parallel_size: 2
+  context_parallel_backend: ring
+  micro_batch_size: 1
+  train_batch_size: 2
+  gradient_accumulation_steps: 2
+  mlp_chunk_size: 512
+  parameter_precision: float32
+  use_flash_attn: false
+  recompute_linear_ce: true
+  loss_chunk_size: 128
+  save_checkpoint_steps: 3
+  log_interval: 1
+  num_workers: 0
+operation:
+  train_steps: 3
+  save_full_model: true
+  save_dist_ckpt: false
+  activation_recompute: false
+data:
+  task_type: pretrain
+  use_mock_data: true
+  seq_length: 8192
+  vocab_name_or_path: HuggingFaceTB/SmolLM2-135M
+optim:
+  optimizer: adam
+  max_lr: 0.0001
+  min_lr: 0.0001
+  annealing_steps: 6
+  clip_grad: 1.0
+init:
+  seed: 42

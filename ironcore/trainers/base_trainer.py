@@ -112,6 +112,11 @@ class BaseTrainer(ABC):
         """
         if self._initialized:
             return
+        from ironcore.config.config_blockwise import validate_blockwise_mlp
+        from ironcore.config.config_context_parallel import validate_context_parallel
+
+        validate_blockwise_mlp(self.config)
+        validate_context_parallel(self.config)
         if self.config.parallel.use_fsdp and self.config.parallel.use_distributed_optimizer:
             raise ValueError(
                 "FSDP and DistributedOptimizer cannot partition the same optimizer states"
@@ -123,13 +128,13 @@ class BaseTrainer(ABC):
             if (
                 self.config.model.moe.expert_model_parallel_size != 2
                 or self.config.trainer.tensor_model_parallel_size != 1
-                or self.config.parallel.world_size != 2
+                or self.config.parallel.world_size != 2 * self.config.trainer.context_parallel_size
                 or self.config.parallel.use_fsdp
                 or self.config.parallel.use_distributed_optimizer
                 or self.config.offload.enabled
             ):
                 raise ValueError(
-                    "EP>1 trainer requires EP=2, TP=1, world=2 without FSDP/distributed optimizer/offload"
+                    "EP>1 trainer requires EP=2, TP=1, world=2*CP without FSDP/distributed optimizer/offload"
                 )
 
         self.logger.info("Acquiring training resources...")
@@ -142,6 +147,7 @@ class BaseTrainer(ABC):
             timeout_in_minutes=int(self.config.parallel.timeout_minute)
             if self.config.parallel.timeout_minute is not None
             else 10,
+            context_parallel_size=self.config.trainer.context_parallel_size,
         )
 
         # Initialize expert parallelism if MoE is enabled with EP > 1
@@ -151,6 +157,7 @@ class BaseTrainer(ABC):
             initialize_expert_parallel(
                 expert_model_parallel_size=self.config.model.moe.expert_model_parallel_size,
                 tensor_model_parallel_size=self.config.trainer.tensor_model_parallel_size,
+                context_parallel_size=self.config.trainer.context_parallel_size,
             )
 
         # Initialize data loader
@@ -285,6 +292,11 @@ class BaseTrainer(ABC):
             dist.barrier()
             if destroy_process_group:
                 dist.destroy_process_group()
+
+        if destroy_process_group:
+            from ironcore.parallel.parallel_states import destroy_model_parallel
+
+            destroy_model_parallel()
 
         self._initialized = False
 
@@ -459,10 +471,10 @@ class BaseTrainer(ABC):
         # Apply torch.compile BEFORE parallelism wrapping (DDP/FSDP)
         if self.config.trainer.compile_model:
             tp_size = self.config.trainer.tensor_model_parallel_size
-            if tp_size > 1:
+            if tp_size > 1 or self.config.trainer.context_parallel_size > 1:
                 self.logger.info(
-                    f"torch.compile skipped for tp_size={tp_size}: "
-                    f"dynamo tracing is incompatible with TP collective communication "
+                    f"torch.compile skipped for TP={tp_size}, CP={self.config.trainer.context_parallel_size}: "
+                    f"dynamo tracing is incompatible with parallel collective communication "
                     f"(all-reduce/all-gather in custom autograd Functions)."
                 )
             else:
@@ -710,6 +722,8 @@ class BaseTrainer(ABC):
         accumulation = self.config.trainer.gradient_accumulation_steps
         source_iterator = self.data_iterator["train"]
         batches = [next(source_iterator) for _ in range(accumulation)]
+        if "input_ids" in batches[0]:
+            self._last_sequence_length = batches[0]["input_ids"].size(1)
         task = getattr(getattr(self.config, "data", None), "task_type", None)
         if task is None:
             task = "sft" if self.loss_fn.__name__ == "loss_func_sft" else "pretrain"
@@ -844,6 +858,9 @@ class BaseTrainer(ABC):
         self.scaler.unscale_(self.optimizer)
         if hasattr(self.model, "synchronize_gradients"):
             self.model.synchronize_gradients()
+        from ironcore.parallel.context_parallel import synchronize_context_parallel_gradients
+
+        synchronize_context_parallel_gradients(self.model)
         # A finite objective can have a nonfinite derivative. BF16 has no
         # GradScaler, so loss checks alone cannot protect the optimizer state.
         invalid = torch.zeros((), dtype=torch.int32, device=get_device())
@@ -995,7 +1012,8 @@ class BaseTrainer(ABC):
             if train_start is not None and steps_done > 0:
                 metrics["avg_iter_time"] = (time.time() - train_start) / steps_done
 
-            tokens_per_step = self.config.trainer.train_batch_size * self.config.model.max_seq_len
+            sequence_length = getattr(self, "_last_sequence_length", self.config.model.max_seq_len)
+            tokens_per_step = self.config.trainer.train_batch_size * sequence_length
 
             if iter_time > 0:
                 metrics["tokens_per_sec"] = tokens_per_step / iter_time
@@ -1014,14 +1032,14 @@ class BaseTrainer(ABC):
                 if iter_time > 0:
                     metrics["tflops_per_gpu"] = self.mfu_calculator.compute_tflops(
                         batch_size=global_batch_size,
-                        seq_len=self.config.model.max_seq_len,
+                        seq_len=sequence_length,
                         step_time_seconds=iter_time,
                         num_gpus=gpu_world_size,
                     )
                 if avg_iter_time > 0:
                     metrics["avg_tflops_per_gpu"] = self.mfu_calculator.compute_tflops(
                         batch_size=global_batch_size,
-                        seq_len=self.config.model.max_seq_len,
+                        seq_len=sequence_length,
                         step_time_seconds=avg_iter_time,
                         num_gpus=gpu_world_size,
                     )

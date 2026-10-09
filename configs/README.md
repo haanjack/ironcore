@@ -20,6 +20,16 @@ trainer:
 
 Training process settings including batch sizes, parallelism, and checkpointing.
 
+`mlp_chunk_size: 512` enables checkpointed token-block MLPs for dense and MoE
+shared/routed experts. `null` disables it. It is separate from `sequence_chunk_size`,
+whose async TP scheduler is still unimplemented. See [execution limits](../docs/parallelism.md#block-wise-mlp).
+
+For `model.moe.expert_backend: grouped`, the positive `grouped_token_budget`
+bounds total routed rows per grouped GEMM. The planner fills groups directly
+from expert counts; the old `virtual_block_size` field has been removed.
+Shared experts continue to use `mlp_chunk_size`; routed groups use their own budget
+and checkpointing. See [grouped execution](../docs/parallelism.md#budgeted-grouped-gemm).
+
 | Name | Default | Description |
 |------|---------|-------------|
 | `model_name` | `"model"` | Model name |
@@ -28,6 +38,8 @@ Training process settings including batch sizes, parallelism, and checkpointing.
 | `train_batch_size` | `None` | Global training batch size |
 | `gradient_accumulation_steps` | `None` | Gradient accumulation steps |
 | `tensor_model_parallel_size` | `1` | Tensor parallelism size |
+| `context_parallel_size` | `1` | Causal sequence shards; world must be divisible by TP × CP |
+| `context_parallel_backend` | `"ring"` | CUDA FP16/BF16 KV ring; `sdpa` is a full-KV reference |
 | `save_checkpoint_steps` | `1000` | Checkpoint save interval |
 | `log_interval` | `20` | Progress print interval |
 | `grad_norm_log_interval` | `None` | Gradient norm logging cadence (`log`, `checkpoint`, or `None`) |
@@ -255,6 +267,16 @@ init:
 ```
 
 ## Available Presets
+
+### MoE Scaling (`configs/experiments/`)
+
+`moe_scaling_cp2.yaml` fixes an 8K CP2 decoder with top-2 routing for the
+`scripts/benchmark_moe_scaling.py` expert-count and backend sweep. See the
+[measured results](../docs/experiments/moe_scaling_validation.md).
+
+The same fixed decoder config is used by `scripts/benchmark_context_blocks.py`
+to isolate MLP checkpoint granularity while doubling context length. See the
+[long-context results](../docs/experiments/context_block_scaling_validation.md).
 
 ### Model Configs (`configs/model/`)
 - `gpt2-small.yaml` - GPT-2 Small (124M)

@@ -68,6 +68,15 @@ class TrainerConfig(BaseConfig):
     tensor_model_parallel_size: int = field(
         default=1, metadata={"help": "model parallel size on a same transformer layer"}
     )
+    context_parallel_size: int = field(
+        default=1, metadata={"help": "Split one causal training sequence across this many ranks"}
+    )
+    context_parallel_backend: Literal["ring", "sdpa"] = field(
+        default="ring",
+        metadata={
+            "help": "CP attention: memory-bounded FlashAttention ring, or full-KV SDPA reference"
+        },
+    )
 
     vocab_padding_unit: int = field(
         default=128,
@@ -104,7 +113,16 @@ class TrainerConfig(BaseConfig):
         },
     )
 
-    # Async Tensor Parallelism
+    # Token-block feed-forward execution
+    mlp_chunk_size: int | None = field(
+        default=None,
+        metadata={
+            "help": "Maximum tokens per dense/shared/loop or batched routed MLP block; "
+            "training recomputes block intermediates in backward. None disables block-wise MLP."
+            " Grouped routed experts use model.moe.grouped_token_budget independently."
+        },
+    )
+    # Legacy async TP scheduling option (not implemented)
     sequence_chunk_size: int | None = field(
         default=None,
         metadata={

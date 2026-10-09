@@ -1,0 +1,3 @@
+planner,peak_allocated_mib,mean_update_seconds,update_std_seconds,estimated_model_tflops_per_gpu,params_mib,adam_mib,post_update_allocated_mib,source
+virtual tiles (9251312),7845.0693359375,13.923566388490144,0.0073289715461606056,3.9984758400961034,342,684,1115,.local/layer-checkpoint-blocks/131072-grouped-none-b512-v128-g4096.json
+direct row budget,7851.55078125,13.667812022962607,0.057860961169214756,4.073295983206274,342,684,1113,.local/direct-grouped-validation/131072-e4-grouped-triton.json
