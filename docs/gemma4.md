@@ -41,7 +41,7 @@ model:
   config_path: configs/model/gemma4-e2b.yaml
 trainer:
   tensor_model_parallel_size: 1
-  pretrained_model_name_or_path: google/gemma-4-E2B-it
+  load_from_hf: google/gemma-4-E2B-it
   micro_batch_size: 1
   train_batch_size: 1
   gradient_accumulation_steps: 1
@@ -238,6 +238,57 @@ The text decoder has 4,628,569,344 parameters. `MFUCalculator` estimates
 **32.34 trillion training FLOPs per step** at batch size 1 and sequence length
 2048; TP divides this compute across ranks without reducing total model work.
 No GPU MFU was measured.
+
+## E2B pretrained SFT smoke test
+
+On 2026-10-09 the full official E2B text checkpoint passed native
+`LanguageModelTrainer` SFT on two RTX 3090 GPUs (TP=2, CP=1), with BF16
+autocast and FP32 stored parameters. The run used 16 hand-authored instruction
+conversations: 12 training examples and 4 held-out examples. Maximum actual
+conversation length was 31 tokens; collation padded to 128. This validates
+the training pipeline, not long-context training or downstream quality.
+
+LoRA rank 8 / alpha 16 targeted `q_proj`, `v_proj`, `o_proj`, `up_proj`, and
+`down_proj`, giving **8,724,480 replicated trainable parameters per rank**.
+Microbatch 1 and accumulation 2 produced 12 Adam updates at LR 1e-4, epsilon
+1e-4, clipping 1, and zero weight decay. Standard activation recomputation
+was enabled, vocabulary CE was chunked at 32 tokens, and
+`recompute_linear_ce` remained false to preserve logit softcapping.
+
+| Measurement | Before | After 12 updates |
+| --- | ---: | ---: |
+| Fixed training-set mean SFT loss | 9.492615 | 0.109005 |
+| Four-example held-out mean SFT loss | 11.696751 | 0.120599 |
+| Greedy answer to `What is 2 + 2? Answer briefly.` | `4` | `4.` |
+
+Loss averages include assistant content, the template's end-of-turn token and
+trailing newline; this tiny formatting-sensitive dataset does not establish
+generalization. All 310 adapter tensors changed and TP replicas agreed exactly.
+Peak allocated memory after initialization was **10,109,623,808 bytes
+(9.42 GiB) per GPU**. Allocator peak reserved memory was **21.87 GiB**, including
+cached allocations from initial model loading; allocated memory excludes
+loading peaks and CUDA driver/NCCL allocations.
+
+The full unmerged native LoRA checkpoint (`save_full_model: true`,
+`save_dist_ckpt: true`) occupied 18,725,882,587 bytes including trainer state.
+A fresh torchrun process restored step 12 adapters, Adam state and scheduler
+exactly. Its step 13 loss (**0.0271968404**), updated adapters and optimizer
+state matched an uninterrupted native trainer update bitwise. Native trainer
+state also restored the consumed data cursor.
+
+This check exposed and fixed preprocessing support for `sentencepiece`,
+Transformers `BatchEncoding` chat output, conversation-prefix assistant masks,
+and read-only NumPy memmap collation. Regenerate old SFT binary files after
+updating preprocessing; existing files are otherwise skipped. Training configs
+use `data.task_type: sft` and the supported `data.train_datasets` schema.
+For a full native resume, clear `trainer.load_from_hf` to avoid reloading the
+original base checkpoint before loading the saved model.
+
+Configs, data, observation scripts, checkpoint and JSON evidence are under
+ignored `.local/gemma4-e2b-sft/`; the standalone study is
+`.local/gemma4-e2b-sft-study.html`. The CPU selection excluding Hub downloads
+passed 925 tests; 12 focused preprocessing/collator tests also passed in the
+CUDA container. Ruff checks and formatting passed.
 
 ## Sources
 

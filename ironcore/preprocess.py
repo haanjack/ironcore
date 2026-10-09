@@ -25,7 +25,7 @@ def _resolve_tokenizer(data_config: DataConfig):
     Raises:
         ValueError: If tokenizer_type is not recognized.
     """
-    if data_config.tokenizer_type == "bbpe":
+    if data_config.tokenizer_type in ("bbpe", "sentencepiece"):
         from transformers import AutoTokenizer
 
         return AutoTokenizer.from_pretrained(data_config.vocab_name_or_path)
@@ -36,7 +36,7 @@ def _resolve_tokenizer(data_config: DataConfig):
     else:
         raise ValueError(
             f"Unknown tokenizer type: {data_config.tokenizer_type!r}. "
-            "Expected 'bbpe' or 'tiktoken'."
+            "Expected 'bbpe', 'sentencepiece', or 'tiktoken'."
         )
 
 

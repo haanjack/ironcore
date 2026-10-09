@@ -180,8 +180,15 @@ class UniversalCollator:
                 sample_id += 1
 
                 # Copy tokens
-                input_ids[batch_idx, current_pos : current_pos + written_len] = token_ids[:-1]
-                labels[batch_idx, current_pos : current_pos + written_len] = token_ids[1:]
+                # The streaming dataset returns read-only NumPy memmaps. Convert
+                # once rather than assigning NumPy arrays directly into PyTorch.
+                tokens = (
+                    token_ids
+                    if isinstance(token_ids, torch.Tensor)
+                    else torch.tensor(token_ids, dtype=torch.long)
+                )
+                input_ids[batch_idx, current_pos : current_pos + written_len] = tokens[:-1]
+                labels[batch_idx, current_pos : current_pos + written_len] = tokens[1:]
 
                 # Apply masking for user/system prompt tokens. mask_ranges are
                 # token-space indices, but labels are shifted by one relative to
