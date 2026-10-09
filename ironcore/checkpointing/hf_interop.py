@@ -191,6 +191,89 @@ def load_hf_config(checkpoint_path: Path) -> dict:
         return json.load(f)
 
 
+def _load_gemma4_safetensors(checkpoint_path, model, mapper, strict, architecture, num_layers):
+    """Map and copy one HF tensor at a time, bounding MoE import host memory."""
+    from safetensors import safe_open
+
+    from ironcore.parallel import parallel_states
+    from ironcore.parallel.tensor_parallel import comm
+
+    target = model.state_dict()
+    aliases = {name.replace(".base_layer.", "."): name for name in target}
+    modules = dict(model.named_modules())
+    loaded = set()
+    unexpected = []
+    info = detect_checkpoint_format(checkpoint_path)
+    with torch.no_grad():
+        for path in info["files"]:
+            with safe_open(str(path), framework="pt", device="cpu") as source:
+                for key in source.keys():
+                    if not key.startswith(
+                        (
+                            "model.language_model.",
+                            "language_model.",
+                            "model.layers.",
+                            "model.embed_tokens",
+                            "model.per_layer",
+                            "model.norm",
+                            "lm_head.",
+                        )
+                    ):
+                        continue
+                    mapped = mapper.hf_to_ironcore({key: source.get_tensor(key)}, strict=False)
+                    for canonical, tensor in mapped.items():
+                        name = aliases.get(canonical)
+                        match = re.fullmatch(
+                            r"(model\.layers\.\d+\.self_attn)\.(k_proj|v_proj|k_norm)\.weight",
+                            canonical,
+                        )
+                        if (
+                            name is None
+                            and match
+                            and getattr(modules.get(match[1]), "is_shared", False)
+                        ):
+                            continue
+                        if name is None:
+                            unexpected.append(canonical)
+                            continue
+                        module = modules.get(name.rsplit(".", 1)[0])
+                        if (
+                            parallel_states.get_tensor_model_parallel_world_size() > 1
+                            and module is not None
+                        ):
+                            column = getattr(module, "column_parallel", False)
+                            row = getattr(module, "row_parallel", False)
+                            if column or (row and name.endswith("weight")):
+                                tensor = comm.split_to_model_parallel_workers(
+                                    tensor,
+                                    {
+                                        "column_parallel": column,
+                                        "row_parallel": row,
+                                        "concatenated_weights": getattr(
+                                            module, "concatenated_weights", 1
+                                        ),
+                                    },
+                                )
+                        parameter = target[name]
+                        if tensor.numel() != parameter.numel():
+                            raise ValueError(
+                                f"Shape mismatch for {name}: checkpoint {tensor.shape}, model {parameter.shape}"
+                            )
+                        parameter.copy_(tensor.reshape_as(parameter))
+                        loaded.add(name)
+                    del mapped
+    missing = sorted(set(target) - loaded)
+    if strict and (missing or unexpected):
+        raise ValueError(f"Gemma 4 import mismatch: missing={missing}, unexpected={unexpected}")
+    return {
+        "loaded_keys": sorted(loaded),
+        "missing_keys": missing,
+        "unexpected_keys": unexpected,
+        "architecture": architecture,
+        "num_layers": num_layers,
+    }
+
+
 def validate_imported_base_parameters(model, missing_keys):
     """Require pretrained base weights, allowing newly initialized LoRA tensors."""
     from ironcore.peft.lora import LoRALinear
@@ -267,8 +350,11 @@ def load_from_huggingface(
 
     # Create weight mapper
     arch_enum = get_architecture(architecture)
-    if arch_enum == Architecture.GEMMA4 and hf_config.get("enable_moe_block", False):
-        raise ValueError("Gemma 4 MoE checkpoints cannot be loaded as dense text models")
+    if (
+        arch_enum == Architecture.GEMMA4
+        and hf_config.get("enable_moe_block", False) != model.config.model.moe.use_moe
+    ):
+        raise ValueError("Gemma 4 checkpoint and native model must use the same MoE layout")
     if (
         arch_enum == Architecture.GEMMA4
         and hf_config.get("num_kv_shared_layers", 0)
@@ -276,6 +362,14 @@ def load_from_huggingface(
     ):
         raise ValueError("Gemma 4 checkpoint and native model must use the same KV-sharing layout")
     mapper = WeightMapper(arch_enum, num_layers)
+
+    if (
+        arch_enum == Architecture.GEMMA4
+        and detect_checkpoint_format(checkpoint_path)["format"] == "safetensors"
+    ):
+        return _load_gemma4_safetensors(
+            checkpoint_path, model, mapper, strict, architecture, num_layers
+        )
 
     # Load HuggingFace state dict
     hf_state_dict = load_hf_state_dict(checkpoint_path, device=device)

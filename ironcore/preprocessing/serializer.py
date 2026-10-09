@@ -348,7 +348,7 @@ class DataSerializer:
 
             # Apply chat template and get token IDs + mask ranges
             token_ids, mask_ranges = self._apply_chat_template_and_get_masks(
-                messages, dataset_config.chat_template
+                messages, dataset_config.chat_template, dataset_config.chat_template_kwargs
             )
 
             # Apply FIM transformation with probability fim_rate
@@ -429,13 +429,13 @@ class DataSerializer:
             # Process chosen response
             chosen_messages = sample[chosen_column]
             chosen_token_ids, chosen_mask_ranges = self._apply_chat_template_and_get_masks(
-                chosen_messages, dataset_config.chat_template
+                chosen_messages, dataset_config.chat_template, dataset_config.chat_template_kwargs
             )
 
             # Process rejected response
             rejected_messages = sample[rejected_column]
             rejected_token_ids, rejected_mask_ranges = self._apply_chat_template_and_get_masks(
-                rejected_messages, dataset_config.chat_template
+                rejected_messages, dataset_config.chat_template, dataset_config.chat_template_kwargs
             )
 
             # Apply FIM transformation to both if enabled (same roll for the pair)
@@ -602,7 +602,10 @@ class DataSerializer:
             raise ValueError(f"Unsupported tokenizer type: {type(self.tokenizer)}")
 
     def _apply_chat_template_and_get_masks(
-        self, messages: list[dict[str, str]], chat_template: str | None = None
+        self,
+        messages: list[dict[str, str]],
+        chat_template: str | None = None,
+        chat_template_kwargs: dict | None = None,
     ) -> tuple[list[int], list[list[int]]]:
         """
         Apply chat template to messages and compute masking ranges.
@@ -619,7 +622,18 @@ class DataSerializer:
         if hasattr(self.tokenizer, "apply_chat_template"):
 
             def render(turns: list[dict[str, str]], generation_prompt: bool = False) -> list[int]:
-                kwargs = {"chat_template": chat_template} if chat_template is not None else {}
+                kwargs = dict(chat_template_kwargs or {})
+                if set(kwargs) & {
+                    "tokenize",
+                    "add_generation_prompt",
+                    "return_tensors",
+                    "return_dict",
+                }:
+                    raise ValueError(
+                        "Chat template kwargs cannot override tokenization or generation boundaries"
+                    )
+                if chat_template is not None:
+                    kwargs["chat_template"] = chat_template
                 encoded = self.tokenizer.apply_chat_template(
                     turns, tokenize=True, add_generation_prompt=generation_prompt, **kwargs
                 )

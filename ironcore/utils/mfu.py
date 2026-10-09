@@ -127,6 +127,13 @@ class MFUCalculator:
                 norms += hidden
             linear += projections
             total += projections + norms
+            if model.moe.use_moe:
+                moe = model.moe
+                expert = 3 * hidden * moe.expert_intermediate_size
+                router = hidden * moe.num_routed_experts
+                total += expert * moe.num_routed_experts + router
+                total += 4 * hidden + moe.num_routed_experts
+                linear += expert * moe.num_experts_per_token + router
         if ple:
             packed = model.num_layers * ple
             linear += hidden * packed
@@ -148,14 +155,26 @@ class MFUCalculator:
         flops_per_step = 6.0 * num_params * tokens_per_step
         if self._gemma4_model is not None:
             _, matmul_parameters = self._gemma4_parameters()
-            # PLE tables are indexed, not multiplied at every token. Explicit
-            # masked SDPA computes dense attention; a local mask is not a sparse kernel.
-            head_dims = sum(
-                self._gemma4_model.gemma4.head_layout(self._gemma4_model, i)[0]
-                for i in range(self.num_layers)
-            )
+            # PLE is a lookup; routed expert compute counts top-k rather than
+            # every stored expert. Query tiling crops K/V before dense SDPA.
+            model = self._gemma4_model
+            gemma = model.gemma4
+            attention_work = 0
+            for i, kind in enumerate(gemma.layer_types):
+                area = seq_len**2
+                if gemma.attention_chunk_size:
+                    area = 0
+                    for start in range(0, seq_len, gemma.attention_chunk_size):
+                        end = min(seq_len, start + gemma.attention_chunk_size)
+                        lo = (
+                            max(0, start - gemma.sliding_window + 1)
+                            if kind == "sliding_attention"
+                            else 0
+                        )
+                        area += (end - start) * (end - lo)
+                attention_work += area * gemma.head_layout(model, i)[0]
             flops_per_step = 6.0 * matmul_parameters * tokens_per_step
-            flops_per_step += 12.0 * batch_size * self.num_attention_heads * seq_len**2 * head_dims
+            flops_per_step += 12.0 * batch_size * self.num_attention_heads * attention_work
 
         # TFLOPS/s per GPU
         tflops_per_gpu = (flops_per_step / step_time_seconds / 1e12) / num_gpus

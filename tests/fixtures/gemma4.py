@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tiny dense Gemma 4 variants for local, download-free parity tests."""
+"""Tiny dense and MoE Gemma 4 variants for download-free parity tests."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ def gemma4_pair(
     tp_size: int = 1,
     lora_targets: list[str] | None = None,
     lora_dropout: float = 0.0,
+    cp_size: int = 1,
 ) -> tuple[LanguageModel, object, MainConfig]:
     """Build IronCore and Transformers decoders with identical reference weights."""
     import pytest
@@ -36,7 +37,7 @@ def gemma4_pair(
 
     from ironcore.checkpointing.weight_mapping import Architecture, WeightMapper
 
-    small = variant != "31B"
+    small = variant in {"E2B", "E4B"}
     hf_config = Gemma4TextConfig(
         vocab_size=32,
         hidden_size=16,
@@ -58,6 +59,10 @@ def gemma4_pair(
         final_logit_softcapping=30.0,
         attention_dropout=0.0,
         dtype="float32",
+        enable_moe_block=variant == "A4B",
+        num_experts=4,
+        top_k_experts=2,
+        moe_intermediate_size=8,
     )
     hf_config._attn_implementation = "eager"
     reference = Gemma4ForCausalLM(hf_config).float()
@@ -65,6 +70,13 @@ def gemma4_pair(
     config.model = model_config_from_gemma4(hf_config.to_dict())
     config.model.precision = "float32"
     config.trainer.tensor_model_parallel_size = tp_size
+    config.trainer.context_parallel_size = cp_size
+    config.parallel.world_size = tp_size * cp_size
+    if cp_size > 1:
+        config.trainer.context_parallel_backend = "sdpa"
+        config.model.gemma4.attention_chunk_size = 2
+        config.data.task_type = "sft"
+        config.data.sft_packing = False
     config.data.vocab_size = 32
     config.operation.activation_recompute = False
     if lora:

@@ -96,3 +96,38 @@ def test_rewritten_prefix_fails_instead_of_training_prompt_tokens(tmp_path):
         serializer._apply_chat_template_and_get_masks(
             [{"role": "user", "content": "Question"}, {"role": "assistant", "content": "Answer"}]
         )
+
+
+def test_chat_template_mode_is_consistent_for_all_prefixes(tmp_path):
+    calls = []
+    tokenizer = ChatTokenizer(False)
+    original = tokenizer.apply_chat_template
+
+    def render(messages, enable_thinking, **kwargs):
+        calls.append(enable_thinking)
+        return original(messages, **kwargs)
+
+    tokenizer.apply_chat_template = render
+    serializer = DataSerializer(
+        DataConfig(preprocessed_dir=tmp_path / "data", cache_dir=tmp_path / "cache"),
+        tokenizer,
+        verbose=False,
+    )
+    serializer._apply_chat_template_and_get_masks(
+        [{"role": "user", "content": "Question"}, {"role": "assistant", "content": "Answer"}],
+        chat_template_kwargs={"enable_thinking": True},
+    )
+    assert calls == [True, True, True]
+
+
+def test_chat_template_kwargs_cannot_change_tokenization_boundaries(tmp_path):
+    serializer = DataSerializer(
+        DataConfig(preprocessed_dir=tmp_path / "data", cache_dir=tmp_path / "cache"),
+        ChatTokenizer(False),
+        verbose=False,
+    )
+    with pytest.raises(ValueError, match="cannot override"):
+        serializer._apply_chat_template_and_get_masks(
+            [{"role": "user", "content": "Question"}, {"role": "assistant", "content": "Answer"}],
+            chat_template_kwargs={"tokenize": False},
+        )

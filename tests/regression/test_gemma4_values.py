@@ -12,7 +12,7 @@ from ironcore.checkpointing.weight_mapping import Architecture, WeightMapper
 from ironcore.layers.gemma4 import Gemma4RMSNorm
 
 
-@pytest.mark.parametrize("variant", ["E2B", "E4B", "31B"])
+@pytest.mark.parametrize("variant", ["E2B", "E4B", "31B", "A4B"])
 def test_gemma4_forward_and_backward_values(monkeypatch, variant):
     torch.manual_seed(42)
     native, reference, _ = gemma4_pair(monkeypatch, variant)

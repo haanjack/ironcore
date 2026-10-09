@@ -223,8 +223,13 @@ class LanguageModel(BaseModule):
         if (
             self.training
             and self.config.peft.method == "lora"
-            and self.config.operation.activation_recompute
-            and self.config.operation.recompute_strategy == "optimized"
+            and (
+                self.config.offload.activation_spill
+                or (
+                    self.config.operation.activation_recompute
+                    and self.config.operation.recompute_strategy == "optimized"
+                )
+            )
             and not x.requires_grad
         ):
             # Reentrant checkpointing needs a differentiable input even when
@@ -286,13 +291,24 @@ class LanguageModel(BaseModule):
                 self.config.trainer.loss_chunk_size or 1024,
                 self.padding_start_idx,
                 transposed=self.config.model.untie_embed,
+                softcap=self.config.model.gemma4.final_logit_softcapping
+                if self.config.model.is_gemma4
+                else None,
             )
             if loss_sample_ids is not None:
                 return self.loss_fn(per_token, loss_mask, sample_ids=loss_sample_ids)
             if cp_active:
-                from ironcore.parallel.context_parallel import context_parallel_token_mean
+                from ironcore.parallel.context_parallel import (
+                    context_parallel_sample_mean,
+                    context_parallel_token_mean,
+                )
 
-                return context_parallel_token_mean(per_token, loss_mask)
+                reduction = (
+                    context_parallel_sample_mean
+                    if self.config.data.task_type == "sft"
+                    else context_parallel_token_mean
+                )
+                return reduction(per_token, loss_mask)
             return self.loss_fn(per_token, loss_mask)
 
         if self.config.model.untie_embed:
@@ -383,9 +399,17 @@ class LanguageModel(BaseModule):
             ).contiguous()
 
         if self.config.trainer.context_parallel_size > 1:
-            from ironcore.parallel.context_parallel import context_parallel_token_mean
+            from ironcore.parallel.context_parallel import (
+                context_parallel_sample_mean,
+                context_parallel_token_mean,
+            )
 
-            return context_parallel_token_mean(per_token_losses, loss_mask)
+            reduction = (
+                context_parallel_sample_mean
+                if self.config.data.task_type == "sft"
+                else context_parallel_token_mean
+            )
+            return reduction(per_token_losses, loss_mask)
         if loss_sample_ids is not None:
             loss = self.loss_fn(per_token_losses, loss_mask, sample_ids=loss_sample_ids)
         else:

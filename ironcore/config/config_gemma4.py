@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Architecture-specific options for the Gemma 4 dense text decoder."""
+"""Architecture-specific options for Gemma 4 dense and MoE text decoders."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def validate_gemma4_runtime(config: MainConfig) -> None:
-    """Require the supported dense, causal, explicit-cache execution path."""
+    """Require supported causal decoder layouts and execution options."""
     model = config.model
     if not model.is_gemma4:
         return
@@ -42,7 +42,22 @@ def validate_gemma4_runtime(config: MainConfig) -> None:
                 "Gemma 4 KV heads must be divisible by TP size, or a single replicated head"
             )
     if model.moe.use_moe:
-        raise ValueError("Gemma 4 support is for E2B, E4B and 31B dense text models")
+        moe = model.moe
+        if moe.expert_backend not in {"loop", "grouped"}:
+            raise ValueError("Gemma 4 MoE supports loop or grouped experts")
+        if (
+            moe.num_shared_experts != 1
+            or moe.aux_loss_alpha
+            or moe.router_jitter_noise
+            or moe.router_bias
+            or moe.drop_tokens
+            or moe.expert_capacity_factor is not None
+        ):
+            raise ValueError("Gemma 4 MoE requires its native router and one shared MLP")
+        if model.moe.expert_model_parallel_size != 1:
+            raise ValueError("Gemma 4 MoE currently requires EP=1")
+        if not model.moe.expert_intermediate_size or model.moe.expert_intermediate_size % tp_size:
+            raise ValueError("Gemma 4 expert width must be divisible by TP size")
     if model.untie_embed or any(
         getattr(model.bias, name) for name in ("q", "k", "v", "o", "gate", "up", "down")
     ):
@@ -55,10 +70,11 @@ def validate_gemma4_runtime(config: MainConfig) -> None:
         raise ValueError("Gemma 4 does not use embedding or MLP dropout")
     if model.kv_cache.use_paged:
         raise ValueError("Gemma 4 uses explicit KV tuples; paged KV cache is not supported")
-    if config.trainer.recompute_linear_ce:
-        raise ValueError("Gemma 4 logit softcapping requires recompute_linear_ce=false")
     if config.offload.activation_spill or config.offload.weight_offload:
-        raise ValueError("Gemma 4 activation spill and weight streaming are not supported")
+        if gemma.hidden_size_per_layer_input or gemma.num_kv_shared_layers:
+            raise ValueError("Gemma 4 offload currently requires no PLE or shared KV")
+        if config.offload.activation_spill_granularity != "full_layer":
+            raise ValueError("Gemma 4 offload requires full_layer activation spilling")
 
 
 @dataclass
@@ -79,6 +95,7 @@ class Gemma4Config(BaseConfig):
     use_double_wide_mlp: bool = False
     final_logit_softcapping: float | None = 30.0
     pad_token_id: int = 0
+    attention_chunk_size: int | None = None
 
     def validate(self, model: ModelConfig) -> None:
         """Reject inconsistent layouts before allocating decoder weights."""
@@ -121,6 +138,12 @@ class Gemma4Config(BaseConfig):
             raise ValueError("Gemma 4 pad_token_id must be in the PLE vocabulary")
         if self.final_logit_softcapping is not None and self.final_logit_softcapping <= 0:
             raise ValueError("gemma4.final_logit_softcapping must be positive or None")
+        if self.attention_chunk_size is not None and (
+            not isinstance(self.attention_chunk_size, int)
+            or isinstance(self.attention_chunk_size, bool)
+            or self.attention_chunk_size < 1
+        ):
+            raise ValueError("Gemma 4 attention_chunk_size must be a positive integer or None")
         if self.num_kv_shared_layers:
             start = model.num_layers - self.num_kv_shared_layers
             available = set(self.layer_types[:start])
@@ -140,12 +163,13 @@ class Gemma4Config(BaseConfig):
 
 
 def model_config_from_gemma4(hf_config: dict) -> ModelConfig:
-    """Translate a Gemma 4 text or multimodal HF config into a dense text config."""
+    """Translate a Gemma 4 text or multimodal HF config into a native text config."""
     from .config_model import BiasConfig, KVCacheConfig, ModelConfig, PositionalEmbeddingConfig
+    from .config_moe import MoEConfig
 
     text = hf_config.get("text_config", hf_config)
-    if text.get("model_type") != "gemma4_text" or text.get("enable_moe_block", False):
-        raise ValueError("Only Gemma 4 dense text configurations are supported")
+    if text.get("model_type") != "gemma4_text":
+        raise ValueError("Only Gemma 4 text configurations are supported")
     rope = text.get("rope_parameters", {})
     local = rope.get("sliding_attention", {})
     global_rope = rope.get("full_attention", {})
@@ -206,6 +230,14 @@ def model_config_from_gemma4(hf_config: dict) -> ModelConfig:
         hf_architecture="Gemma4ForCausalLM",
         tokenizer_type="sentencepiece",
         vocab_name_or_path=hf_config.get("_name_or_path", "google/gemma-4-E2B-it"),
+        moe=MoEConfig(
+            use_moe=text.get("enable_moe_block", False),
+            num_shared_experts=1,
+            num_routed_experts=text.get("num_experts") or 128,
+            num_experts_per_token=text.get("top_k_experts") or 8,
+            expert_intermediate_size=text.get("moe_intermediate_size") or 704,
+            aux_loss_alpha=0.0,
+        ),
         gemma4=Gemma4Config(
             layer_types=text.get("layer_types", []),
             sliding_window=text.get("sliding_window", 512),

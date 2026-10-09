@@ -352,22 +352,38 @@ class BaseTrainer(ABC):
         )
         weight_streaming = self.config.offload.enabled and self.config.offload.weight_offload
 
+        original_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(parameter_dtype)
+            model = LanguageModel(self.config, self.loss_fn)
+        finally:
+            torch.set_default_dtype(original_dtype)
+        if (
+            self.config.peft.method == "lora"
+            and self.config.peft.lora.parameter_precision == "float32"
+        ):
+            for name, parameter in model.named_parameters():
+                if "lora_" in name:
+                    parameter.data = parameter.data.float()
+
         if weight_streaming:
             # Weight streaming: Keep model on CPU — ExecutionScheduler manages per-layer GPU staging.
             # This avoids OOM for models whose weights exceed GPU memory (e.g. 13B on 24GB).
-            model = LanguageModel(self.config, self.loss_fn)
-            model = model.to(dtype=parameter_dtype)
 
             # With TP > 1, the embedding and output head must stay on GPU because
             # VocabParallelEmbedding and vocab_parallel_cross_entropy call dist.all_reduce
             # which requires CUDA tensors when using NCCL backend.
             tp_size = self.config.trainer.tensor_model_parallel_size
-            if tp_size > 1:
+            if tp_size > 1 or self.config.model.is_gemma4:
                 gpu = torch.device(device)
                 model.embedding = model.embedding.to(gpu)
                 model.output_layernorm = model.output_layernorm.to(gpu)
                 if hasattr(model, "output_layer"):
                     model.output_layer = model.output_layer.to(gpu)
+                if self.config.model.is_gemma4:
+                    for module in model.model.modules():
+                        for name, buffer in module.named_buffers(recurse=False):
+                            module._buffers[name] = buffer.to(gpu)
                 self.logger.info(
                     f"TP={tp_size}: embedding + output head on {gpu}, "
                     "transformer layers on CPU for weight streaming"
@@ -375,8 +391,7 @@ class BaseTrainer(ABC):
 
             self.logger.info("Created Language Model on CPU (weight streaming mode)")
         else:
-            model = LanguageModel(self.config, self.loss_fn).to(device=device)
-            model = model.to(dtype=parameter_dtype)
+            model = model.to(device=device)
             self.logger.info("Created Language Model")
         if self.config.model.moe.use_moe and self.config.model.moe.expert_model_parallel_size > 1:
             import copy
@@ -430,6 +445,10 @@ class BaseTrainer(ABC):
 
             validate_imported_base_parameters(model, result["missing_keys"])
 
+        if self.config.peft.method == "lora" and self.config.peft.lora.adapter_path:
+            from ironcore.peft import load_lora_adapter
+
+            load_lora_adapter(model, self.config.peft.lora.adapter_path)
         optimizer = get_optimizer(self.config, model)
         self.logger.info("Created Optimizer")
 

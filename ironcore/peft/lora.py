@@ -44,6 +44,8 @@ class LoRALinear(nn.Module):
         # LoRA matrices: A (in -> rank), B (rank -> out)
         self.lora_A = nn.Parameter(torch.zeros(in_features, rank))
         self.lora_B = nn.Parameter(torch.zeros(rank, out_features))
+        for parameter in (self.lora_A, self.lora_B):
+            parameter.preserve_offload_precision = True
         # Adapter parameters are full replicas. Only transient computation views
         # are partitioned at the column/row-parallel boundaries.
         self.column_parallel = False

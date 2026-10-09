@@ -76,6 +76,7 @@ def test_gemma4_mfu_counts_ple_and_shared_projections(monkeypatch, variant):
         ("e2b", 1536, 35, 1),
         ("e4b", 2560, 42, 2),
         ("31b", 5376, 60, 16),
+        ("26b-a4b", 2816, 30, 8),
     ],
 )
 def test_official_model_presets_parse(variant, hidden, layers, groups):
@@ -97,7 +98,7 @@ def test_official_model_presets_parse(variant, hidden, layers, groups):
     assert model.gemma4.global_head_dim == 512
 
 
-@pytest.mark.parametrize("variant", ["e2b", "e4b", "31b"])
+@pytest.mark.parametrize("variant", ["e2b", "e4b", "31b", "26b-a4b"])
 @pytest.mark.parametrize("peft_method", ["none", "lora"])
 def test_official_presets_accept_tp2(variant, peft_method):
     from pathlib import Path
@@ -142,7 +143,7 @@ def test_gemma4_rejects_incompatible_tp_shards(invalid):
         validate_gemma4_runtime(config)
 
 
-@pytest.mark.parametrize("variant", ["E2B", "E4B", "31B"])
+@pytest.mark.parametrize("variant", ["E2B", "E4B", "31B", "A4B"])
 def test_cached_decode_matches_full_forward_and_generation(monkeypatch, variant):
     native, reference, _ = gemma4_pair(monkeypatch, variant)
     native.eval()
@@ -240,8 +241,9 @@ def test_gemma4_has_a_distinct_weight_mapping(architecture):
     )
 
 
-def test_gemma4_config_roundtrip(monkeypatch):
-    _, _, config = gemma4_pair(monkeypatch, "31B")
+@pytest.mark.parametrize("variant", ["31B", "A4B"])
+def test_gemma4_config_roundtrip(monkeypatch, variant):
+    _, _, config = gemma4_pair(monkeypatch, variant)
     exported = HFConfigManager.get_hf_config(config)
     recovered = model_config_from_gemma4(exported)
     assert recovered.gemma4 == config.model.gemma4
@@ -249,21 +251,32 @@ def test_gemma4_config_roundtrip(monkeypatch):
     assert recovered.num_attention_groups == 2
     assert recovered.gemma4.num_global_key_value_heads == 1
     assert recovered.d_model == 16
+    assert recovered.moe.use_moe == config.model.moe.use_moe
 
 
-@pytest.mark.parametrize(
-    "unsupported", ["tp", "moe", "paged", "linear_ce", "spill", "weight_offload"]
-)
+def test_a4b_packed_expert_hf_export_roundtrip(monkeypatch, tmp_path):
+    from transformers import Gemma4ForCausalLM
+
+    native, reference, config = gemma4_pair(monkeypatch, "A4B")
+    exported = export_to_huggingface(
+        native, tmp_path, architecture="gemma4_text", use_safetensors=True, ironcore_config=config
+    )
+    restored = Gemma4ForCausalLM.from_pretrained(exported["config_file"].parent).eval()
+    for name, value in reference.state_dict().items():
+        torch.testing.assert_close(restored.state_dict()[name], value, atol=0, rtol=0)
+    tokens = torch.tensor([[2, 3, 4, 5]])
+    torch.testing.assert_close(
+        restored(tokens).logits, reference(tokens).logits, atol=2e-5, rtol=2e-5
+    )
+
+
+@pytest.mark.parametrize("unsupported", ["tp", "paged", "spill", "weight_offload"])
 def test_unsupported_runtime_is_rejected_before_weight_allocation(monkeypatch, unsupported):
     _, _, config = gemma4_pair(monkeypatch)
     if unsupported == "tp":
         config.trainer.tensor_model_parallel_size = 3
-    elif unsupported == "moe":
-        config.model.moe.use_moe = True
     elif unsupported == "paged":
         config.model.kv_cache.use_paged = True
-    elif unsupported == "linear_ce":
-        config.trainer.recompute_linear_ce = True
     elif unsupported == "spill":
         config.offload.activation_spill = True
     else:
@@ -272,9 +285,12 @@ def test_unsupported_runtime_is_rejected_before_weight_allocation(monkeypatch, u
         validate_gemma4_runtime(config)
 
 
-def test_moe_checkpoint_config_is_not_misidentified_as_dense():
-    with pytest.raises(ValueError, match="dense"):
-        model_config_from_gemma4({"model_type": "gemma4_text", "enable_moe_block": True})
+def test_moe_checkpoint_config_is_not_misidentified_as_dense(monkeypatch):
+    _, reference, config = gemma4_pair(monkeypatch, "A4B")
+    assert reference.config.enable_moe_block
+    assert config.model.moe.use_moe
+    assert config.model.moe.num_routed_experts == 4
+    assert config.model.moe.expert_intermediate_size == 8
 
 
 def test_hf_import_rejects_mismatched_kv_sharing(monkeypatch, tmp_path):

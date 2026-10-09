@@ -53,13 +53,15 @@ def clip_grad_norm(
     max_norm = float(max_norm)
     norm_type = float(norm_type)
     device = grads[0].device
+    if dist.is_initialized() and dist.get_backend() == "nccl":
+        device = torch.device("cuda", torch.cuda.current_device())
 
     # Helper to calculate local power sum for a group of parameters
     def get_local_pow_sum(params):
         sharded_pow = torch.tensor(0.0, device=device)
         replicated_pow = torch.tensor(0.0, device=device)
         for p in params:
-            p_pow = p.grad.detach().norm(norm_type) ** norm_type
+            p_pow = (p.grad.detach().norm(norm_type) ** norm_type).to(device)
             if getattr(p, "is_tp_sharded", False):
                 sharded_pow += p_pow
             else:

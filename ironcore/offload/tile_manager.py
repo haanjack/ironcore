@@ -185,6 +185,11 @@ class TileManager:
         for param in params:
             full_numel = param.numel()
             original_dtype = param.dtype
+            storage_dtype = (
+                original_dtype
+                if getattr(param, "preserve_offload_precision", False)
+                else self._storage_dtype
+            )
 
             if self._dp_size > 1:
                 # ZeRO-3: each rank stores only its shard
@@ -194,23 +199,29 @@ class TileManager:
                 shard_numel = full_numel
                 storage_numel = full_numel
 
-            host_tensor = self._pool.allocate(storage_numel, self._storage_dtype)
+            host_tensor = self._pool.allocate(storage_numel, storage_dtype)
 
             if self._dp_size > 1:
                 # Copy only the owned shard to pinned memory
                 start = self._dp_rank * shard_numel
                 end = min(start + shard_numel, full_numel)
                 shard_data = param.data.flatten()[start:end]
-                if self._storage_dtype == original_dtype:
+                if storage_dtype == original_dtype:
                     host_tensor[: end - start].copy_(shard_data)
                 else:
-                    host_tensor[: end - start].copy_(shard_data.to(self._storage_dtype))
+                    host_tensor[: end - start].copy_(shard_data.to(storage_dtype))
             else:
                 # Copy full parameter to host
-                if self._storage_dtype == original_dtype:
+                if storage_dtype == original_dtype:
                     host_tensor.copy_(param.data.flatten())
                 else:
-                    host_tensor.copy_(param.data.flatten().to(self._storage_dtype))
+                    host_tensor.copy_(param.data.flatten().to(storage_dtype))
+                if (
+                    param.device.type == "cpu"
+                    and not param.requires_grad
+                    and storage_dtype == original_dtype
+                ):
+                    param.data = host_tensor.view(param.shape)
 
             gpu_tensor = None
 
@@ -218,7 +229,7 @@ class TileManager:
                 host_tensor=host_tensor,
                 gpu_tensor=gpu_tensor,
                 original_dtype=original_dtype,
-                storage_dtype=self._storage_dtype,
+                storage_dtype=storage_dtype,
                 slice_start=0,
                 slice_end=full_numel,
                 numel=full_numel,
@@ -318,15 +329,15 @@ class TileManager:
                     start = tile.dp_rank * tile.shard_numel
                     end = min(start + tile.shard_numel, tile.full_numel)
                     shard = flat_param[start:end]
-                if self._storage_dtype == param.dtype:
+                if tile.storage_dtype == param.dtype:
                     tile.host_tensor[: len(shard)].copy_(shard)
                 else:
-                    tile.host_tensor[: len(shard)].copy_(shard.to(self._storage_dtype))
+                    tile.host_tensor[: len(shard)].copy_(shard.to(tile.storage_dtype))
             else:
-                if self._storage_dtype == param.dtype:
+                if tile.storage_dtype == param.dtype:
                     tile.host_tensor.copy_(flat_param)
                 else:
-                    tile.host_tensor.copy_(flat_param.to(self._storage_dtype))
+                    tile.host_tensor.copy_(flat_param.to(tile.storage_dtype))
 
     @property
     def num_groups(self) -> int:

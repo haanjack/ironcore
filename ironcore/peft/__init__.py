@@ -9,6 +9,7 @@ Provides implementations of PEFT methods like LoRA for efficient fine-tuning
 of large language models with minimal trainable parameters.
 """
 
+from .adapter_io import load_lora_adapter, save_lora_adapter
 from .lora import (
     LoRAColumnParallelLinear,
     LoRAConcatenatedColumnParallel,
@@ -22,6 +23,8 @@ from .utils import (
 )
 
 __all__ = [
+    "load_lora_adapter",
+    "save_lora_adapter",
     "LoRALinear",
     "LoRAColumnParallelLinear",
     "LoRARowParallelLinear",

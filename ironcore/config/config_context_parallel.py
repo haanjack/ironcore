@@ -31,7 +31,13 @@ def validate_context_parallel(config: MainConfig) -> None:
         if not 8 <= config.model.head_dim <= 256 or config.model.head_dim % 8:
             raise ValueError("CP ring FlashAttention requires head_dim divisible by 8 in [8, 256]")
     if config.model.is_gemma4:
-        raise ValueError("Context parallel currently supports generic dense and MoE decoders")
+        gemma = config.model.gemma4
+        if config.trainer.context_parallel_backend != "sdpa" or gemma.attention_chunk_size is None:
+            raise ValueError(
+                "Gemma 4 CP requires sdpa with query-block attention; 512-dimensional global heads cannot use the ring FlashAttention kernel"
+            )
+        if gemma.hidden_size_per_layer_input or gemma.num_kv_shared_layers:
+            raise ValueError("Gemma 4 CP currently requires no PLE or shared KV")
     if config.model.moe.use_moe:
         ep_size = config.model.moe.expert_model_parallel_size
         if ep_size > 1 and (
@@ -43,12 +49,15 @@ def validate_context_parallel(config: MainConfig) -> None:
     if (
         config.parallel.use_fsdp
         or config.parallel.use_distributed_optimizer
-        or config.offload.enabled
+        or (config.offload.enabled and not config.model.is_gemma4)
     ):
         raise ValueError(
             "Context parallel FSDP, distributed optimizer and offload are not supported"
         )
-    if config.data.task_type != "pretrain":
+    unpacked_sft = (
+        config.model.is_gemma4 and config.data.task_type == "sft" and not config.data.sft_packing
+    )
+    if config.data.task_type != "pretrain" and not unpacked_sft:
         raise ValueError("Context parallel currently requires causal pretrain token-mean loss")
     if config.model.reset_attention_mask or config.model.reset_position_ids:
         raise ValueError("Context parallel does not support packed/reset document attention")

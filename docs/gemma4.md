@@ -1,6 +1,6 @@
-# Gemma 4 dense text models
+# Gemma 4 text models
 
-IronCore supports the **text decoders of Gemma 4 E2B, E4B and 31B** through
+IronCore supports the **text decoders of Gemma 4 E2B, E4B, 31B and 26B A4B** through
 `LanguageModel` and `TransformerModel`. The implementation includes:
 
 - Alternating causal sliding-window and full attention with per-type head dimensions.
@@ -12,7 +12,10 @@ IronCore supports the **text decoders of Gemma 4 E2B, E4B and 31B** through
 - LoRA projection wrappers and activation recomputation with gradients through shared KV.
 - HF import of either text-only or public multimodal checkpoints; text-only HF export.
 
-Image/audio encoders and the 26B A4B MoE model are outside this implementation.
+Image/audio encoders are outside this implementation. A4B includes its native
+normalized router, per-expert routing scales, GELU-tanh experts and separate
+normalizations of the shared and routed MLP outputs. Generic DeepSeek routing
+is not substituted for this architecture.
 Text-only HF exports use `Gemma4ForCausalLM` and `model_type: gemma4_text`.
 Merge trained LoRA adapters with `ironcore.peft.merge_lora_weights()` before
 exporting a dense HF model; unmerged adapter exports are rejected. For native
@@ -26,6 +29,7 @@ LoRA checkpoint resume through the current generic loader, set
 | `configs/model/gemma4-e2b.yaml` | 1536 | 35 | 8 / 1 | 512 | 20 | 256 |
 | `configs/model/gemma4-e4b.yaml` | 2560 | 42 | 8 / 2 | 512 | 18 | 256 |
 | `configs/model/gemma4-31b.yaml` | 5376 | 60 | 32 / 16 | 512 | 0 | 0 |
+| `configs/model/gemma4-26b-a4b.yaml` | 2816 | 30 | 16 / 8 | 512 | 0 | 0 |
 
 31B global layers use 4 KV heads; local layers use head dimension 256. E2B uses a
 4:1 local/global pattern; E4B and 31B use 5:1. Presets retain official positional
@@ -74,8 +78,11 @@ config.data.vocab_size = hf_config.get("text_config", hf_config)["vocab_size"]
 config.model.max_seq_len = 2048
 ```
 
-The converter understands public `text_config` nesting and recent Transformers
-`per_layer_config` serialization. It rejects MoE and unsupported attention layouts.
+The converter understands public `text_config` nesting, A4B MoE and recent
+Transformers `per_layer_config` serialization. Unsupported attention layouts
+are rejected. Packed HF expert tensors are split and transposed into native
+expert projections. Safetensors imports stream one source tensor at a time
+and do not allocate unused image/audio weights.
 
 ## Execution limits
 
@@ -88,16 +95,36 @@ PLE projection outputs are gathered for normalization, then each decoder rank
 receives its corresponding PLE channels. **LoRA also supports TP=1 and TP=2**
 with replicated adapter parameters and gradient communication at the TP
 boundaries. LoRA dropout and both activation-recompute strategies are covered
-by tiny-model CPU/Gloo and GPU/NCCL tests. Paged
-KV caches, activation spilling, weight streaming and recomputed linear CE are
-rejected before model construction. Logit softcapping must remain in the loss
-path, so bypassing it with the existing linear CE kernel would change training.
+by tiny-model CPU/Gloo and GPU/NCCL tests. Paged KV caches remain unsupported.
+Recomputed linear CE preserves final logit softcapping, including its derivative;
+a frozen output head allocates no weight gradient. CPU weight streaming and
+full-layer activation spilling require a layout without PLE or shared KV
+(A4B and 31B). E2B/E4B still reject those offload combinations.
 Optimizer-state offload remains a separate existing feature.
 
 The tuple cache retains the complete history of producer layers, including local
 layers; it reuses producer tensors across shared layers. The sliding mask bounds
 attention, but this SDPA path does not implement a sparse sliding-window kernel.
 Full-context configurations may therefore require substantial attention memory.
+Set `model.gemma4.attention_chunk_size` to bound score memory by query blocks:
+local blocks crop K/V to the sliding window, and global blocks crop to the causal
+prefix. Each block recomputes attention during backward. This supports 512-wide
+global heads through Torch SDPA without constructing a full sequence-square mask.
+
+A4B routed experts support `loop` or `grouped` with EP=1; grouped execution uses
+the existing assignment budget and scheduled/Triton routing kernels. A shared
+MLP can also use `trainer.mlp_chunk_size`. Virtual blocks are not reintroduced.
+The public A4B layout uses 128 routed experts and top-8 natural routing, with no
+token dropping or forced concentration. Attention-only LoRA leaves expert and
+router weights frozen while preserving their gradients with respect to inputs.
+
+For A4B/31B, CP requires `context_parallel_backend: sdpa` and query-block attention.
+This backend gathers K/V and sums backward contributions; it is not ring
+FlashAttention. The existing ring kernel does not support Gemma's 512-wide global
+heads. CP SFT requires `data.sft_packing: false`; it combines answer token counts
+across shards before taking the equal-sample mean, including shards containing
+only masked prompt tokens. TP=2 plus CP=2 requires four GPUs. On two GPUs, test
+TP=2/CP=1 and TP=1/CP=2 as separate choices.
 
 Gemma 4 norms scale directly by `weight`; they do not use older Gemma's `1 + weight`
 parameterization. HF projections are transposed into IronCore's native matrix
@@ -290,6 +317,146 @@ ignored `.local/gemma4-e2b-sft/`; the standalone study is
 passed 925 tests; 12 focused preprocessing/collator tests also passed in the
 CUDA container. Ruff checks and formatting passed.
 
+## A4B long-context LoRA SFT
+
+`examples/gemma4_sft.py` uses the production trainer, the official pretrained
+text weights and the official tokenizer. It builds a real instruction conversation
+with exactly `sequence_length + 1` tokens, then shifts it into a fully occupied
+input. It repeats one conversation to validate feasibility; it is not a quality
+evaluation. Assistant-only masking means only the short final answer is supervised,
+while the entire 32K prompt participates in forward and attention backward.
+
+```bash
+hf download google/gemma-4-26B-A4B-it --local-dir .local/models/gemma-4-26B-A4B-it
+MALLOC_MMAP_THRESHOLD_=131072 MALLOC_TRIM_THRESHOLD_=131072 MALLOC_ARENA_MAX=2 \
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+torchrun --standalone --nproc_per_node=2 examples/gemma4_sft.py \
+  --sequence-length 32768 --output .local/gemma4-a4b-study/full-tp2-32768
+```
+
+The run combines BF16 frozen weights, FP32 attention LoRA (rank 8, alpha 16),
+full-layer activation spilling/recomputation, query blocks of 128, shared MLP
+blocks of 512, grouped routed-expert assignment budget 4096 and recomputed
+softcapped CE blocks of 128. Adam LR is 1e-4, epsilon 1e-4, clipping 1, microbatch
+1 and accumulation 1. Router and all expert weights remain frozen; natural
+top-8 routing is preserved. The allocator environment limits retained CPU
+arenas when transferring frozen parameters into pinned tiles. The example
+also releases unused glibc memory once after initialization, outside the train loop.
+
+The official template is rendered with `enable_thinking: true` consistently
+for complete conversations and assistant prefixes, through per-dataset
+`chat_template_kwargs`. This avoids the empty thought block added only to
+generation prefixes by the default non-thinking template. Preprocessing retains
+strict prefix checks instead of silently supervising user/prompt tokens.
+
+On two RTX 3090 24 GiB GPUs, the full pretrained checkpoint passed TP=2/CP=1
+SFT at **32,768 real input tokens** on 2026-10-09:
+
+| Step | Assistant SFT loss | Seconds |
+| --- | ---: | ---: |
+| 1 | 9.765177 | 67.79 |
+| 2 | 4.299227 | 64.18 |
+| 3 | 2.886663 | 63.51 |
+
+Peak allocated GPU memory was **10,149,425,152 bytes (9.45 GiB) per rank**;
+peak reserved was 11.96 GiB. These allocator measurements exclude CUDA driver
+and NCCL memory. The initial run retained CPU allocation arenas and reached
+approximately 121 GiB of system RAM use, so the allocator settings above are
+material on a 123 GiB host. This is not a GPU-only recipe.
+With the allocator environment, source expert transpose views and
+`PYTORCH_ALLOC_CONF=expandable_segments:True`, a fresh TP2 process loaded the
+saved adapter and completed another real 32K step (loss **0.442490**).
+Its allocated/reserved peaks were **9.45 / 10.31 GiB** per GPU, and per-process
+training RSS was approximately **31.5 GiB**, compared with 54.5 GiB in the initial
+run. Observed host RAM use during this run was approximately 74 GiB.
+An eight-token `LanguageModel.generate()` smoke check also passed; it produced
+the beginning of a thought response, not a verified completed instruction answer.
+First-forward natural routing used **96–128 of 128 experts per layer** across
+the real 32K input. All 230 adapter tensors changed, and the two TP replicas
+agreed bitwise. The standalone adapter was zeroed and reloaded exactly.
+
+The adapter contains **5,744,640 FP32 parameters** and its safetensors file
+occupies 23,004,712 bytes. It contains no base-model weights. Its format is
+`ironcore_lora_v1`, with native `A[in, rank]` and `B[rank, out]` matrices and full
+TP replicas; it is not a PEFT-format Hub adapter. Load the same pretrained base
+and set `peft.lora.adapter_path` to the directory, or call:
+
+```python
+from ironcore.peft import load_lora_adapter
+load_lora_adapter(model, ".local/gemma4-a4b-study/full-tp2-32768/adapter")
+```
+
+`--adapter-path <directory>` on the example loads these weights before a fresh
+trainer run. This restores adapters; it does not restore Adam moments, scheduler
+or consumed data. Use native full checkpoints for an exact optimizer resume.
+Use `--tp 1` for the separate CP=2 alternative. JSON evidence, runnable config,
+tokenized data and adapter files remain in the ignored output directory.
+
+The full pretrained **TP=1/CP=2** alternative also completed three real 32K
+steps, with the CPU allocator environment above:
+
+| Step | Assistant SFT loss | Seconds |
+| --- | ---: | ---: |
+| 1 | 10.3216 | 63.00 |
+| 2 | 10.2312 | 58.43 |
+| 3 | 5.3305 | 59.15 |
+
+Allocated peaks were **8.75 / 8.93 GiB** on ranks 0/1. Reserved peaks were
+**11.48 / 22.86 GiB**; growing causal K/V prefix allocations caused allocator
+retries on rank 1, which recovered and completed training. Sampled system RAM
+use reached approximately **115.2 GiB**. Every adapter changed, replicas matched
+bitwise and standalone reload was exact. CP has comparable allocated GPU memory
+here but doubles frozen CPU weight storage relative to TP2; TP2 leaves more host
+RAM available. These BF16 runs do not establish numerical parity between TP and CP.
+With expandable CUDA segments, a fresh CP2 process also loaded the **same TP2
+adapter** and completed a real 32K update (loss **0.690831**, 62.22 seconds).
+Allocated peaks stayed at **8.75 / 8.93 GiB**, while reserved peaks dropped to
+**9.43 / 9.61 GiB**. This checks adapter portability across TP2 and CP2 and
+addresses the allocation-growth issue without changing attention semantics.
+
+Download-free verification additionally compares tiny A4B logits and every
+parameter gradient with Transformers, loop/grouped routing, bounded attention,
+shared MLP chunks, masked softcapped CE, standalone adapter round trips and CP2
+sample weighting/adapter gradients. Tiny TP2 offload and resident runs had
+identical three-step BF16 losses; tiny CP2 plus offload also updated adapters
+and decreased loss. Tiny-model results are separate from the full 32K result.
+
+On CUDA/NCCL, 18 A4B TP cases passed: six FP32, six BF16 training and six FP64
+checks across dropout 0/0.2 and no/standard/optimized recomputation. FP64 adapter
+gradients agreed within 4.45e-16. The tiny A4B's separate shared/routed RMSNorms
+amplify FP32 reduction rounding; FP32 adapter gradients use a per-tensor relative
+L2 bound of 5e-4, while FP64 retains `atol=1e-10, rtol=1e-8`. Updated adapters,
+losses, clipping, native checkpoint resume and TP replica equality are checked
+separately. CPU tests excluding CUDA, MP, expensive E2E and Hub downloads passed
+**952 cases**, with 30 skipped and 289 deselected. Sixteen existing CUDA
+weight-tile/scheduler regression cases also passed.
+
+For the fixed tiny A4B example (TP2, batch 1, 128 real tokens, three updates),
+resident and offload modes had bitwise-identical losses. The production
+`get_detailed_memory_breakdown()` measurements, taken after the optimizer step,
+show why offloading a small model has overhead without useful VRAM savings:
+
+| Measurement | Resident | Offload |
+| --- | ---: | ---: |
+| Parameter bytes, CPU + GPU | 17,205,792 | 17,205,792 |
+| Optimizer-state bytes | 122,880 | 122,880 |
+| Gradient bytes after step | 0 | 0 |
+| Peak CUDA allocated, bytes | 269,437,440 | 269,867,520 |
+| Mean time of steps 2–3, seconds | 0.0586 | 0.2754 |
+| Nominal model TFLOPS/s/GPU | 0.1123 | 0.0239 |
+
+These tiny timings are smoke measurements, not a throughput benchmark. Transfer,
+CPU optimizer and scheduling overhead dominate the tiny layer weights; the large
+resident vocabulary table is identical in both runs. The formal memory helper
+counts CPU parameters too, so its activation estimate is not a trustworthy GPU
+activation breakdown for offload. Raw CUDA peaks are reported separately.
+`MFUCalculator` now counts all stored Gemma experts but only top-k routed GEMMs,
+and accounts for cropped query-block attention. Its full 32K TP2 nominal model
+estimate is **1.062e15 FLOPs/step**, or **8.32 nominal TFLOPS/s/GPU** using the
+mean time of steps 2–3. This does not include extra recomputation, CPU work,
+transfer traffic or a precise frozen-LoRA backward correction; it is not measured
+hardware MFU. Trainer MoE logging continues to report measured tokens/s.
+
 ## Sources
 
 - [Google model card](https://ai.google.dev/gemma/docs/core/model_card_4)
@@ -298,3 +465,4 @@ CUDA container. Ruff checks and formatting passed.
 - [E2B config](https://huggingface.co/google/gemma-4-E2B-it/blob/main/config.json),
   [E4B config](https://huggingface.co/google/gemma-4-E4B-it/blob/main/config.json),
   [31B config](https://huggingface.co/google/gemma-4-31B-it/blob/main/config.json)
+- [A4B config](https://huggingface.co/google/gemma-4-26B-A4B-it/blob/main/config.json)

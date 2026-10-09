@@ -15,7 +15,9 @@ import torch.nn.functional as F
 from torch import nn
 
 from ironcore.config import MainConfig
+from ironcore.layers.blockwise import token_chunk_forward
 from ironcore.layers.module import BaseModule
+from ironcore.parallel.random import checkpoint_with_tensor_parallel_rng
 from ironcore.parallel.tensor_parallel import (
     ColumnParallelLinear,
     RowParallelLinear,
@@ -131,7 +133,7 @@ class Gemma4Attention(BaseModule):
             else self.head_dim // 2
         )
         # p-RoPE keeps the full head layout: unused frequencies are zero, not removed.
-        frequencies = torch.zeros(self.head_dim // 2)
+        frequencies = torch.zeros(self.head_dim // 2, dtype=torch.float32)
         frequencies[:count] = theta ** (-torch.arange(0, count * 2, 2).float() / self.head_dim)
         self.register_buffer("inv_freq", frequencies, persistent=False)
 
@@ -184,6 +186,16 @@ class Gemma4Attention(BaseModule):
                 key = torch.cat((past_key_value[0], key), dim=1)
                 value = torch.cat((past_key_value[1], value), dim=1)
         kv = key, value
+        from ironcore.parallel import parallel_states
+
+        if parallel_states.get_context_parallel_world_size() > 1:
+            from ironcore.parallel.context_parallel import gather_context_parallel
+
+            key = gather_context_parallel(key, reduce_backward=True)
+            value = gather_context_parallel(value, reduce_backward=True)
+        if self.config.model.gemma4.attention_chunk_size is not None:
+            offset = position_ids[0, 0].item()
+            return self._tiled_attention(query, key, value, attention_mask, offset), kv
         key_length = key.size(1)
         queries = torch.arange(key_length - length, key_length, device=query.device).unsqueeze(-1)
         keys = torch.arange(key_length, device=query.device).unsqueeze(0)
@@ -206,6 +218,55 @@ class Gemma4Attention(BaseModule):
         attended = attended.transpose(1, 2).reshape(batch, length, -1)
         return self.o_proj(attended), kv
 
+    def _tiled_attention(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attention_mask: torch.Tensor | None,
+        offset: int,
+    ) -> torch.Tensor:
+        """Bound score memory for 512-dimensional global heads and local windows."""
+        length = query.size(1)
+        past = offset
+        chunk = self.config.model.gemma4.attention_chunk_size
+        outputs = []
+        for start in range(0, length, chunk):
+            end = min(length, start + chunk)
+            lo = max(0, past + start - self.sliding_window + 1) if self.sliding_window else 0
+            hi = past + end
+            mask = None if attention_mask is None else attention_mask[..., start:end, lo:hi]
+
+            def attend(q, k, v, mask, start=start, lo=lo):
+                positions = torch.arange(past + start, past + start + q.size(1), device=q.device)
+                keys = torch.arange(lo, lo + k.size(1), device=q.device)
+                allowed = keys[None] <= positions[:, None]
+                if self.sliding_window is not None:
+                    allowed = allowed & (keys[None] > positions[:, None] - self.sliding_window)
+                if mask is not None:
+                    allowed = allowed & mask
+                repeats = self.query_heads // self.kv_heads
+                k = k.transpose(1, 2).repeat_interleave(repeats, dim=1)
+                v = v.transpose(1, 2).repeat_interleave(repeats, dim=1)
+                return F.scaled_dot_product_attention(
+                    q.transpose(1, 2),
+                    k,
+                    v,
+                    attn_mask=allowed,
+                    dropout_p=self.config.model.dropout_attn if self.training else 0.0,
+                    scale=1.0,
+                ).transpose(1, 2)
+
+            args = query[:, start:end], key[:, lo:hi], value[:, lo:hi], mask
+            out = (
+                checkpoint_with_tensor_parallel_rng(attend, *args, use_reentrant=False)
+                if self.training and torch.is_grad_enabled()
+                else attend(*args)
+            )
+            outputs.append(out)
+        attended = torch.cat(outputs, dim=1).reshape(query.size(0), length, -1)
+        return self.o_proj(attended)
+
 
 class Gemma4MLP(BaseModule):
     """GELU-tanh gated MLP, including E2B's double-wide shared layers."""
@@ -220,9 +281,61 @@ class Gemma4MLP(BaseModule):
         self.down_proj = _projection(config, width, model.d_model, "down_proj", row=True)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return token_chunk_forward(
+            self._project, hidden_states, self.config.trainer.mlp_chunk_size, training=self.training
+        )
+
+    def _project(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
             F.gelu(self.gate_proj(hidden_states), approximate="tanh") * self.up_proj(hidden_states)
         )
+
+
+class Gemma4Router(nn.Module):
+    """Reference RMS-scaled routing with normalized top-k and expert scales."""
+
+    def __init__(self, config: MainConfig) -> None:
+        super().__init__()
+        hidden = config.model.d_model
+        self.norm = Gemma4RMSNorm(hidden, config.model.ln_eps, with_scale=False)
+        self.proj = nn.Linear(hidden, config.model.moe.num_routed_experts, bias=False)
+        self.scale = nn.Parameter(torch.ones(hidden))
+        self.per_expert_scale = nn.Parameter(torch.ones(config.model.moe.num_routed_experts))
+        self.top_k = config.model.moe.num_experts_per_token
+        self.scalar_root_size = hidden**-0.5
+
+    def forward(self, hidden: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        scores = self.proj(self.norm(hidden) * self.scale * self.scalar_root_size)
+        probabilities = scores.float().softmax(-1)
+        weights, indices = probabilities.topk(self.top_k, dim=-1)
+        weights = weights / weights.sum(-1, keepdim=True)
+        return indices, weights * self.per_expert_scale[indices]
+
+
+class Gemma4GatedActivation(nn.Module):
+    """GELU-tanh on the first projection half times the second half."""
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        gate, up = value.chunk(2, dim=-1)
+        return F.gelu(gate, approximate="tanh") * up
+
+
+class Gemma4Expert(BaseModule):
+    """Fused gate/up expert compatible with the bounded grouped GEMM backend."""
+
+    def __init__(self, config: MainConfig) -> None:
+        super().__init__(config)
+        width = config.model.moe.expert_intermediate_size
+        self.up_proj = ColumnParallelLinear(
+            config, config.model.d_model, 2 * width, bias=False, concatenated_weights=2
+        )
+        self.down_proj = RowParallelLinear(
+            config, width, config.model.d_model, bias=False, input_is_parallel=True
+        )
+        self.activation = Gemma4GatedActivation()
+
+    def forward(self, value: torch.Tensor) -> torch.Tensor:
+        return self.down_proj(self.activation(self.up_proj(value)))
 
 
 class Gemma4Layer(BaseModule):
@@ -238,6 +351,14 @@ class Gemma4Layer(BaseModule):
         self.post_attention_layernorm = Gemma4RMSNorm(model.d_model, model.ln_eps)
         self.pre_feedforward_layernorm = Gemma4RMSNorm(model.d_model, model.ln_eps)
         self.post_feedforward_layernorm = Gemma4RMSNorm(model.d_model, model.ln_eps)
+        if model.moe.use_moe:
+            self.router = Gemma4Router(config)
+            self.experts = nn.ModuleList(
+                [Gemma4Expert(config) for _ in range(model.moe.num_routed_experts)]
+            )
+            self.post_feedforward_layernorm_1 = Gemma4RMSNorm(model.d_model, model.ln_eps)
+            self.post_feedforward_layernorm_2 = Gemma4RMSNorm(model.d_model, model.ln_eps)
+            self.pre_feedforward_layernorm_2 = Gemma4RMSNorm(model.d_model, model.ln_eps)
         self.register_buffer("layer_scalar", torch.ones(1))
         if gemma.hidden_size_per_layer_input:
             self.per_layer_input_gate = _projection(
@@ -269,9 +390,25 @@ class Gemma4Layer(BaseModule):
             shared_key_value,
         )
         hidden_states = hidden_states + self.post_attention_layernorm(attention)
-        hidden_states = hidden_states + self.post_feedforward_layernorm(
-            self.mlp(self.pre_feedforward_layernorm(hidden_states))
-        )
+        mlp = self.mlp(self.pre_feedforward_layernorm(hidden_states))
+        if self.config.model.moe.use_moe:
+            flat = hidden_states.reshape(-1, hidden_states.size(-1))
+            indices, weights = self.router(flat)
+            expert_inputs = self.pre_feedforward_layernorm_2(flat)
+            if self.config.model.moe.expert_backend == "grouped":
+                from ironcore.layers.moe.grouped import grouped_experts
+
+                routed = grouped_experts(expert_inputs, indices, weights, self.experts)
+            else:
+                routed = torch.zeros_like(flat)
+                for index, expert in enumerate(self.experts):
+                    tokens, slots = torch.where(indices == index)
+                    values = expert(expert_inputs[tokens]) * weights[tokens, slots, None]
+                    routed = routed.index_add(0, tokens, values.to(routed.dtype))
+            mlp = self.post_feedforward_layernorm_1(mlp) + self.post_feedforward_layernorm_2(
+                routed.to(flat.dtype).reshape_as(hidden_states)
+            )
+        hidden_states = hidden_states + self.post_feedforward_layernorm(mlp)
         if self.config.model.gemma4.hidden_size_per_layer_input:
             if per_layer_input is None:
                 raise ValueError("Gemma 4 PLE-enabled layers require per-layer inputs")
@@ -297,3 +434,12 @@ class Gemma4Layer(BaseModule):
             hidden_states, attention_mask, position_ids, None, shared, per_layer_input
         )
         return output, key, value
+
+    def forward_spilled(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor | None,
+        position_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Full-layer tensor output for scheduler-controlled CPU activation spilling."""
+        return self.forward(hidden_states, attention_mask, position_ids)[0]
