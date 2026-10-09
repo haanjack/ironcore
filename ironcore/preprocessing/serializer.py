@@ -9,6 +9,7 @@ Supports pretrain, SFT, DPO, and FIM task types.
 """
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from random import Random
 
@@ -616,28 +617,37 @@ class DataSerializer:
         """
         # Try to use HuggingFace apply_chat_template if available
         if hasattr(self.tokenizer, "apply_chat_template"):
-            # Use tokenizer's built-in chat template
-            token_ids = self.tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=False
-            )
 
-            # Compute mask ranges by tokenizing each message separately
-            mask_ranges = []
-            current_pos = 0
-
-            for msg in messages:
-                msg_tokens = self.tokenizer.apply_chat_template(
-                    [msg], tokenize=True, add_generation_prompt=False
+            def render(turns: list[dict[str, str]], generation_prompt: bool = False) -> list[int]:
+                kwargs = {"chat_template": chat_template} if chat_template is not None else {}
+                encoded = self.tokenizer.apply_chat_template(
+                    turns, tokenize=True, add_generation_prompt=generation_prompt, **kwargs
                 )
+                # Transformers can return BatchEncoding even without return_tensors.
+                return list(encoded["input_ids"] if isinstance(encoded, Mapping) else encoded)
 
-                msg_length = len(msg_tokens)
-
-                # Mask user messages (set labels to -100 for these ranges)
-                if msg["role"] == "user" or msg["role"] == "system":
-                    mask_ranges.append([current_pos, current_pos + msg_length])
-
-                current_pos += msg_length
-
+            token_ids = render(messages)
+            mask_ranges = []
+            masked_start = 0
+            for index, message in enumerate(messages):
+                if message["role"] != "assistant":
+                    continue
+                # Render conversation prefixes: isolated messages can repeat BOS,
+                # omit system context, or violate the template's role alternation.
+                before = render(messages[:index], generation_prompt=True)
+                after = render(messages[: index + 1])
+                if token_ids[: len(before)] != before or token_ids[: len(after)] != after:
+                    raise ValueError(
+                        "Chat template rewrites conversation prefixes; cannot safely derive "
+                        "assistant-only loss masks"
+                    )
+                if len(before) > len(after):
+                    raise ValueError("Chat template generation prompt exceeds the assistant turn")
+                if masked_start < len(before):
+                    mask_ranges.append([masked_start, len(before)])
+                masked_start = len(after)
+            if masked_start < len(token_ids):
+                mask_ranges.append([masked_start, len(token_ids)])
             return token_ids, mask_ranges
 
         else:
