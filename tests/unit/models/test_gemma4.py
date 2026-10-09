@@ -255,9 +255,9 @@ def test_gemma4_config_roundtrip(monkeypatch, variant):
 
 
 def test_a4b_packed_expert_hf_export_roundtrip(monkeypatch, tmp_path):
+    native, reference, config = gemma4_pair(monkeypatch, "A4B")
     from transformers import Gemma4ForCausalLM
 
-    native, reference, config = gemma4_pair(monkeypatch, "A4B")
     exported = export_to_huggingface(
         native, tmp_path, architecture="gemma4_text", use_safetensors=True, ironcore_config=config
     )
