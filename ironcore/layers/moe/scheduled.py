@@ -12,7 +12,7 @@ from torch.autograd.function import once_differentiable
 
 from ironcore.parallel.tensor_parallel import comm
 
-from .virtual_blocks import plan_virtual_blocks
+from .execution_groups import plan_execution_groups
 
 
 @dataclass(frozen=True)
@@ -286,12 +286,10 @@ def scheduled_experts(
             for start in range(0, max(active_sizes), width)
         )
     else:
-        plan = plan_virtual_blocks(
-            active_sizes, config.model.moe.virtual_block_size, config.model.moe.grouped_token_budget
-        )
+        groups = plan_execution_groups(active_sizes, config.model.moe.grouped_token_budget)
         blocks = tuple(
             _Block(g.experts, g.start, g.counts, unique_tokens=unique_topk and len(g.experts) == 1)
-            for g in plan.groups
+            for g in groups
         )
     bias = experts[0].up_proj.bias is not None
     parameters = tuple(

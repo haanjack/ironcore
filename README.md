@@ -22,8 +22,8 @@ Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experi
 - **Mixture of Experts (MoE)** — expert routing with load-balance loss and Z-loss, expert parallelism
 - **Block-wise MLP** — checkpointed token blocks for dense and shared/routed MoE experts,
   including loop/batched EP1 backends and bounded CP/EP composition; [usage](docs/parallelism.md#block-wise-mlp)
-- **Virtual expert blocks** — logical routing tiles coalesced into padding-free CUDA
-  grouped GEMMs under a token budget; [usage](docs/parallelism.md#virtual-blocks-and-grouped-gemm)
+- **Budgeted grouped MoE** — padding-free CUDA grouped GEMMs with execution
+  groups filled directly from expert counts under a token budget; [usage](docs/parallelism.md#budgeted-grouped-gemm)
 - **PEFT / LoRA** — TP-correct, replicated adapters; `offloadable=False` keeps adapters on GPU
   while base weights stream to host
 - **GRPO / RL alignment** — online rollout generation, group-relative advantage normalization,

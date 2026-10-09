@@ -1,5 +1,9 @@
 # Scheduled MoE backward and optional Triton routing
 
+These measurements predate retirement of `virtual_block_size`. Current grouped
+execution plans groups directly from `grouped_token_budget`; historical tile
+values below describe the measured implementation and are not current options.
+
 Validated 2026-10-09 on two RTX 3090 GPUs connected by NVLink (`NV4`),
 PyTorch 2.14.0+cu130 and Triton 3.8.0. The default Torch baseline preserves
 `8435831` expert execution. All routing in the trainer measurements is natural
@@ -11,6 +15,10 @@ At 128K grouped context, peak allocated memory falls from
 MiB/GPU (13.8% less).
 The 64-expert 8K case has essentially unchanged peak memory; the improvement is
 not a universal reduction in model/optimizer storage.
+
+The subsequent [whole-layer checkpoint and block-size validation](layer_checkpoint_block_validation.md)
+completes 512K with layer recomputation enabled. The measurements below retain
+their original whole-layer-checkpoint-off comparison.
 
 ## Behavior
 

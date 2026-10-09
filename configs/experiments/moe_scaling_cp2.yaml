@@ -39,7 +39,6 @@ model:
     expert_intermediate_size: 1024
     expert_model_parallel_size: 1
     expert_backend: grouped
-    virtual_block_size: 128
     grouped_token_budget: 4096
     aux_loss_alpha: 0.01
     router_dtype: float32

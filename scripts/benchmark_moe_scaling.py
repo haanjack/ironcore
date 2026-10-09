@@ -114,7 +114,6 @@ def benchmark(args: argparse.Namespace) -> None:
                 "sequence_length": config.data.seq_length,
                 "global_batch_size": config.trainer.train_batch_size,
                 "top_k": moe.num_experts_per_token,
-                "virtual_block_size": moe.virtual_block_size,
                 "grouped_token_budget": moe.grouped_token_budget,
                 "mlp_chunk_size": config.trainer.mlp_chunk_size,
                 "mean_update_seconds": seconds,

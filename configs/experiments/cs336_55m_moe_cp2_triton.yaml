@@ -5,7 +5,6 @@ model:
   reset_position_ids: false
   moe:
     expert_backend: grouped
-    virtual_block_size: 128
     grouped_token_budget: 4096
     blockwise_backend: triton
 trainer:

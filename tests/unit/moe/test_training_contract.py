@@ -61,7 +61,6 @@ def test_streaming_frozen_input_keeps_expert_and_router_derivatives(blockwise, b
     actual.expert_backend = backend
     actual.config.trainer.mlp_chunk_size = 3
     actual.config.model.moe.blockwise_backend = blockwise
-    actual.config.model.moe.virtual_block_size = 3
     actual.config.model.moe.grouped_token_budget = 7
     x = torch.randn(2, 13, 32)
     expected, result = reference(x), actual(x)
@@ -143,7 +142,6 @@ def test_batched_experts_match_loop_gradients_and_unused_parameters(
         3 if blockwise != "torch" and backend == "batched" else chunk
     )
     grouped.config.model.moe.blockwise_backend = blockwise
-    grouped.config.model.moe.virtual_block_size = 3
     grouped.config.model.moe.grouped_token_budget = 7
     if idle:
         for layer in [loop, grouped]:

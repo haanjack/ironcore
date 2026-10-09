@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 # SPDX-License-Identifier: Apache-2.0
 
-"""Measure long-context MLP checkpoint granularity in one fresh CUDA torchrun job."""
+"""Measure MLP blocks and whole-layer recomputation in a fresh CUDA torchrun job."""
 
 from __future__ import annotations
 
@@ -45,7 +45,6 @@ def benchmark(args: argparse.Namespace) -> None:
     config.model.moe.num_routed_experts = args.experts
     config.model.moe.expert_backend = args.expert_backend
     config.model.moe.blockwise_backend = args.blockwise_backend
-    config.model.moe.virtual_block_size = args.virtual_block_size
     config.model.moe.grouped_token_budget = args.grouped_token_budget
     config.model.moe.router_bias = True
     if args.tokenizer is not None:
@@ -57,7 +56,9 @@ def benchmark(args: argparse.Namespace) -> None:
         "full": local_tokens,
         "blocked": args.block_size,
     }[args.checkpoint_mode]
-    config.operation.activation_recompute = False
+    config.operation.activation_recompute = args.layer_checkpoint != "none"
+    if config.operation.activation_recompute:
+        config.operation.recompute_strategy = args.layer_checkpoint
     config.operation.no_save = True
     config.operation.train_steps = args.steps
     config.trainer.log_interval = args.steps
@@ -67,8 +68,10 @@ def benchmark(args: argparse.Namespace) -> None:
     metadata = {
         "model_type": args.model_type,
         "checkpoint_mode": args.checkpoint_mode,
+        "layer_checkpoint": args.layer_checkpoint,
         "expert_backend": args.expert_backend,
         "blockwise_backend": args.blockwise_backend,
+        "grouped_token_budget": args.grouped_token_budget,
         "num_routed_experts": args.experts,
         "sequence_length": args.context,
         "local_tokens": local_tokens,
@@ -222,13 +225,18 @@ def main() -> None:
     parser.add_argument("--tokenizer", type=Path)
     parser.add_argument("--model-type", choices=["dense", "moe"], required=True)
     parser.add_argument("--checkpoint-mode", choices=["none", "full", "blocked"], required=True)
+    parser.add_argument(
+        "--layer-checkpoint",
+        choices=["none", "standard", "optimized"],
+        default="none",
+        help="Whole transformer-layer recomputation, independent of MLP token blocks",
+    )
     parser.add_argument("--context", type=int, required=True)
     parser.add_argument("--experts", type=int, default=4)
     parser.add_argument("--expert-backend", choices=["batched", "grouped"], default="batched")
     parser.add_argument(
         "--blockwise-backend", choices=["torch", "scheduled", "triton"], default="torch"
     )
-    parser.add_argument("--virtual-block-size", type=int, default=128)
     parser.add_argument("--grouped-token-budget", type=int, default=4096)
     parser.add_argument("--block-size", type=int, default=512)
     parser.add_argument("--steps", type=int, default=3)

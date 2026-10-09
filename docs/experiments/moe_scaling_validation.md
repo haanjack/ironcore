@@ -1,5 +1,9 @@
 # MoE expert-count scaling with CP2
 
+These measurements predate retirement of `virtual_block_size`. Current grouped
+execution plans groups directly from `grouped_token_budget`; historical tile
+values below describe the measured implementation and are not current options.
+
 Measured 2026-10-08 on two RTX 3090 24-GiB GPUs, PyTorch 2.14.0+cu130.
 Implementation baseline: `c3bbbf2`. This is expert-count scaling at a fixed GPU
 count, rather than distributed strong scaling.

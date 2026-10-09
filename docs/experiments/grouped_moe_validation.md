@@ -1,6 +1,10 @@
 # Virtual-block grouped MoE validation
 
-Validation date: 2026-10-08. See [configuration](../parallelism.md#virtual-blocks-and-grouped-gemm).
+These measurements predate retirement of `virtual_block_size`. Current grouped
+execution plans groups directly from `grouped_token_budget`; historical tile
+values below describe the measured implementation and are not current options.
+
+Validation date: 2026-10-08. See [configuration](../parallelism.md#budgeted-grouped-gemm).
 
 ## Implementation
 

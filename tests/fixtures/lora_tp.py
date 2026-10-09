@@ -103,7 +103,6 @@ def smollm2_lora_model(
             expert_backend=expert_backend,
             blockwise_backend=blockwise_backend,
             expert_model_parallel_size=ep_size,
-            virtual_block_size=3 if expert_backend == "grouped" else 128,
             grouped_token_budget=7 if expert_backend == "grouped" else 4096,
         )
     config.trainer.context_parallel_size = cp_size

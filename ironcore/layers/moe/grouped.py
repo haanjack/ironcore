@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Jaegeun Han
 # SPDX-License-Identifier: Apache-2.0
 
-"""Padding-free virtual-block expert execution with native CUDA grouped GEMM."""
+"""Padding-free expert execution with bounded native CUDA grouped GEMM."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from ironcore.parallel.random import checkpoint_with_tensor_parallel_rng
 from ironcore.parallel.tensor_parallel import comm
 
-from .virtual_blocks import plan_virtual_blocks
+from .execution_groups import plan_execution_groups
 
 
 def _grouped_mm(
@@ -34,7 +34,7 @@ def grouped_experts(
     weights: torch.Tensor,
     experts: torch.nn.ModuleList,
 ) -> torch.Tensor:
-    """Route once, schedule logical tiles, and checkpoint bounded jagged GEMMs.
+    """Route once, fill row-budget groups, and checkpoint bounded jagged GEMMs.
 
     Only the execution group's active weights are packed inside its checkpoint,
     preserving grad=None for idle experts without retaining layer-wide copies.
@@ -54,7 +54,7 @@ def grouped_experts(
         return x * 0
     order = ids.argsort(stable=True)
     sizes = torch.bincount(ids, minlength=len(experts)).tolist()
-    plan = plan_virtual_blocks(sizes, config.virtual_block_size, config.grouped_token_budget)
+    groups = plan_execution_groups(sizes, config.grouped_token_budget)
     active = [i for i, count in enumerate(sizes) if count]
     compute_dtype = (
         torch.get_autocast_dtype(x.device.type)
@@ -69,11 +69,11 @@ def grouped_experts(
     # A single compact gather replaces repeated expert-capacity padding.
     routed = comm.copy_inputs_to_model_parallel_workers(hidden)[order // topk].to(compute_dtype)
     endpoints = torch.tensor(
-        [v for group in plan.groups for v in group.offsets], dtype=torch.int32, device=x.device
+        [v for group in groups for v in group.offsets], dtype=torch.int32, device=x.device
     )
     outputs = []
     offset_start = 0
-    for group in plan.groups:
+    for group in groups:
         offsets = endpoints[offset_start : offset_start + len(group.experts)]
         offset_start += len(group.experts)
 

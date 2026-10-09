@@ -24,10 +24,11 @@ Training process settings including batch sizes, parallelism, and checkpointing.
 shared/routed experts. `null` disables it. It is separate from `sequence_chunk_size`,
 whose async TP scheduler is still unimplemented. See [execution limits](../docs/parallelism.md#block-wise-mlp).
 
-For `model.moe.expert_backend: grouped`, `virtual_block_size` controls logical
-expert tiles and `grouped_token_budget` bounds total routed rows per grouped GEMM.
+For `model.moe.expert_backend: grouped`, the positive `grouped_token_budget`
+bounds total routed rows per grouped GEMM. The planner fills groups directly
+from expert counts; the old `virtual_block_size` field has been removed.
 Shared experts continue to use `mlp_chunk_size`; routed groups use their own budget
-and checkpointing. See [grouped execution](../docs/parallelism.md#virtual-blocks-and-grouped-gemm).
+and checkpointing. See [grouped execution](../docs/parallelism.md#budgeted-grouped-gemm).
 
 | Name | Default | Description |
 |------|---------|-------------|

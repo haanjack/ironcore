@@ -99,7 +99,6 @@ def test_native_grouped_expert_forward_and_backward(dtype, idle, backend, blockw
             actual.config.model.moe.blockwise_backend = blockwise
             if backend == "batched":
                 actual.config.trainer.mlp_chunk_size = 3
-            actual.config.model.moe.virtual_block_size = 3
             actual.config.model.moe.grouped_token_budget = 7
             if idle:
                 for model in (reference, actual):

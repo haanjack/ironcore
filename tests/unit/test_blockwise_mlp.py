@@ -41,7 +41,6 @@ def test_output_input_and_parameter_gradients(moe, expert_backend, activation, o
         num_experts_per_token=2,
         aux_loss_alpha=0.03,
         expert_backend=expert_backend,
-        virtual_block_size=3,
         grouped_token_budget=7,
     )
     reference = (MoEMLP if moe else MLP)(config)

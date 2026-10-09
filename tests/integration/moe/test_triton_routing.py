@@ -109,7 +109,6 @@ def test_duplicate_expert_slots_keep_atomic_fallback():
             )
             cfg.model.activation_type = "swiglu"
             cfg.model.moe.expert_backend = "grouped"
-            cfg.model.moe.virtual_block_size = 2
             cfg.model.moe.grouped_token_budget = 4
             reference = MoEMLP(cfg).cuda()
             reference.init_weights()

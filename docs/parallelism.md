@@ -220,28 +220,29 @@ Measured memory and validation scope: [block-wise validation](experiments/blockw
 The batched checkpoint storage improvement and long-context measurements are in
 [streaming MoE validation](experiments/streaming_moe_validation.md).
 
-### Virtual blocks and grouped GEMM
+### Budgeted grouped GEMM
 
 ```yaml
 model:
   moe:
     expert_backend: grouped
-    virtual_block_size: 128
     grouped_token_budget: 4096
     blockwise_backend: torch
 trainer:
   mlp_chunk_size: 4096  # Shared experts; grouped routed execution has its own budget.
 ```
 
-The grouped backend sorts routed assignments once, creates logical per-expert tiles,
-and coalesces adjacent tiles into bounded execution groups. A group can contain
+The grouped backend sorts routed assignments once and fills execution groups
+directly from expert counts up to the configured row budget. A group can contain
 several experts with different token counts; it calls CUDA
 `torch.nn.functional.grouped_mm` for up/gate and down projections without padding
 all experts to a common capacity. Empty experts receive no GEMM or parameter gradient.
-Logical tiles do not allocate separate tensors or launch a kernel individually.
+An expert can span multiple groups, and a group can span multiple experts.
+Every group except the final tail fills its row budget. No logical token-tile
+list or virtual-block setting is maintained.
 
 `grouped_token_budget` caps total valid routed rows in one execution group, rather
-than rows per expert. It must be at least `virtual_block_size`. The default `torch`
+than rows per expert. It must be a positive integer. The default `torch`
 path checkpoints groups independently even when `mlp_chunk_size` is null. Shared experts still use the ordinary
 MLP setting. A token budget bounds expanded FFN rows; it is not a complete VRAM cap:
 weight packing, GEMM workspace, full hidden tensors and optimizer state remain.
@@ -259,6 +260,11 @@ planning and weight packing can dominate small or balanced workloads. GPU-only
 planning, CUDA graph capture, attention/FFN fusion and grouped EP dispatch are future work.
 
 Example: `configs/experiments/cs336_55m_moe_cp2_grouped.yaml`.
+The retired `virtual_block_size` YAML field and `--virtual-block-size` benchmark
+option must be removed from older configurations and commands. Historical
+virtual-tile comparisons remain in the experiment reports.
+See [direct row-budget validation](experiments/direct_grouped_validation.md) for
+the retirement checks and before/after trainer measurements.
 See [grouped validation and measurements](experiments/grouped_moe_validation.md).
 
 `blockwise_backend` controls recomputation and routing for batched/grouped experts:
@@ -278,7 +284,7 @@ See [grouped validation and measurements](experiments/grouped_moe_validation.md)
   reference operations and does not establish Triton acceleration.
 
 Scheduled batched experts require a positive `trainer.mlp_chunk_size`; grouped
-experts use their virtual-block/group budget. These paths require parameter-free
+experts use their grouped row budget. These paths require parameter-free
 activations and support first-order training gradients. Use `torch` for higher-order
 derivatives. Triton scatter uses FP32 accumulation with an atomic fallback and rejects deterministic
 algorithm mode; use `scheduled` for native deterministic operation support.
@@ -290,6 +296,10 @@ not implement GPU-only planning, expert parallel dispatch or CUDA graph capture.
 An opt-in configuration is `configs/experiments/cs336_55m_moe_cp2_triton.yaml`.
 See [scheduled MoE validation and temporal activity trace](experiments/scheduled_moe_validation.md)
 for before/after memory, throughput and correctness scope.
+The [whole-layer checkpoint and block-size sweep](experiments/layer_checkpoint_block_validation.md)
+validates 512K training and distinguishes MLP transient budgets from retained
+attention/normalization state. The benchmark's `--layer-checkpoint` option controls
+whole-layer recomputation independently of MLP token blocks.
 
 The wrapper approach follows the same kernel boundary used by
 [PyTorch's context parallel implementation](https://docs.pytorch.org/tutorials/unstable/context_parallel.html).
