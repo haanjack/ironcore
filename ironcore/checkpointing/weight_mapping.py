@@ -175,6 +175,7 @@ class WeightMapper:
         model.language_model.; exported checkpoints are Gemma4ForCausalLM.
         """
         output = {}
+        expert_groups = {}
         projections = (
             "q_proj",
             "k_proj",
@@ -209,7 +210,30 @@ class WeightMapper:
                     "model.norm.weight": "output_layernorm.weight",
                 }
             )
-            if name in specials:
+            expert_match = (
+                re.fullmatch(r"(model\.layers\.\d+\.experts)\.(gate_up_proj|down_proj)", name)
+                if not to_hf
+                else None
+            )
+            export_match = (
+                re.fullmatch(
+                    r"(model\.layers\.\d+\.experts)\.(\d+)\.(up_proj|down_proj)\.weight", name
+                )
+                if to_hf
+                else None
+            )
+            if expert_match:
+                prefix, projection = expert_match.groups()
+                native_projection = "up_proj" if projection == "gate_up_proj" else "down_proj"
+                for index, expert in enumerate(tensor):
+                    # Import copies into native parameters; keep source views
+                    # instead of allocating all transposed experts at once.
+                    output[f"{prefix}.{index}.{native_projection}.weight"] = expert.t()
+            elif export_match:
+                prefix, index, projection = export_match.groups()
+                key = f"{prefix}.{'gate_up_proj' if projection == 'up_proj' else 'down_proj'}"
+                expert_groups.setdefault(key, {})[int(index)] = tensor.t().contiguous()
+            elif name in specials:
                 output[specials[name]] = tensor
             elif not to_hf and name == "lm_head.weight":
                 # Dense Gemma 4 ties its head to the token embedding.
@@ -231,6 +255,8 @@ class WeightMapper:
                 raise ValueError(f"Unmapped Gemma 4 key: {raw_name}")
         if to_hf and "model.embed_tokens.weight" in output:
             output["lm_head.weight"] = output["model.embed_tokens.weight"].clone()
+        for key, experts in expert_groups.items():
+            output[key] = torch.stack([experts[i] for i in range(len(experts))])
         return output
 
     # =========================================================================

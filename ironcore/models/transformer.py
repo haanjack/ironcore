@@ -579,13 +579,29 @@ class TransformerModel(BaseModule):
             per_layer_inputs = (token_inputs + projected) * 2.0**-0.5
         shared = {}
         cache = []
+        scheduler = getattr(self, "_offload_scheduler", None)
         for i, layer in enumerate(self.layers):
+            if scheduler is not None:
+                scheduler.on_layer_start(i)
             kind = gemma.layer_types[i]
             past = past_key_values[i] if past_key_values is not None else None
             kv = shared.get(kind) if layer.self_attn.is_shared else None
             per_layer_input = per_layer_inputs[:, :, i] if per_layer_inputs is not None else None
             args = hidden_states, attention_mask, position_ids, past, kv, per_layer_input
-            if (
+            if scheduler is not None and scheduler.spill_manager is not None and self.training:
+                from ironcore.offload.hooks import _SpillCheckpointFn
+
+                hidden_states = _SpillCheckpointFn.apply(
+                    layer.forward_spilled,
+                    scheduler,
+                    i,
+                    0,
+                    hidden_states,
+                    attention_mask,
+                    position_ids,
+                )
+                new_kv = None
+            elif (
                 self.activation_recompute
                 and self.training
                 and not use_cache
@@ -605,8 +621,10 @@ class TransformerModel(BaseModule):
                 new_kv = new_key, new_value
             else:
                 hidden_states, new_kv = layer(*args)
-            if not layer.self_attn.is_shared:
+            if gemma.num_kv_shared_layers and not layer.self_attn.is_shared:
                 shared[kind] = new_kv
             if use_cache:
                 cache.append(new_kv)
+            if scheduler is not None:
+                scheduler.on_layer_end(i)
         return (hidden_states, cache) if use_cache else hidden_states

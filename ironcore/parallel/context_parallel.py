@@ -104,6 +104,35 @@ def context_parallel_token_mean(losses: torch.Tensor, mask: torch.Tensor) -> tor
     return _TokenMean.apply(numerator, count)
 
 
+class _SampleMean(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, numerator, count):
+        totals = torch.stack((numerator.detach().double(), count.detach().double()))
+        dist.all_reduce(totals, group=ps.get_context_parallel_group())
+        active = totals[1] > 0
+        ctx.scale = (active / totals[1].clamp_min(1) / active.sum().clamp_min(1)).to(numerator)
+        return (
+            ((totals[0] / totals[1].clamp_min(1)) * active)
+            .sum()
+            .div(active.sum().clamp_min(1))
+            .to(numerator)
+        )
+
+    @staticmethod
+    def backward(ctx, gradient):
+        return gradient * ctx.scale, None
+
+
+def context_parallel_sample_mean(losses: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Equal sample weighting for unpacked SFT, including empty local answer shards."""
+    numerator = (losses.float() * mask.float()).sum(-1)
+    count = mask.float().sum(-1)
+    if ps.get_context_parallel_world_size() == 1:
+        active = count > 0
+        return ((numerator / count.clamp_min(1)) * active).sum() / active.sum().clamp_min(1)
+    return _SampleMean.apply(numerator, count)
+
+
 class _SumWithLocalGradient(torch.autograd.Function):
     @staticmethod
     def forward(ctx, value: torch.Tensor) -> torch.Tensor:
@@ -135,7 +164,9 @@ def synchronize_context_parallel_gradients(model: torch.nn.Module) -> None:
     present = torch.tensor(
         [parameter.grad is not None for parameter in parameters],
         dtype=torch.int32,
-        device=parameters[0].device,
+        device=torch.device("cuda", torch.cuda.current_device())
+        if dist.get_backend() == "nccl"
+        else parameters[0].device,
     )
     dist.all_reduce(present, op=dist.ReduceOp.MAX, group=group)
     for parameter, used in zip(parameters, present.tolist(), strict=True):
@@ -145,4 +176,10 @@ def synchronize_context_parallel_gradients(model: torch.nn.Module) -> None:
             continue
         if parameter.grad is None:
             parameter.grad = torch.zeros_like(parameter)
-        dist.all_reduce(parameter.grad, group=group)
+        gradient = parameter.grad
+        if gradient.device.type == "cpu" and dist.get_backend() == "nccl":
+            gradient = gradient.cuda()
+            dist.all_reduce(gradient, group=group)
+            parameter.grad.copy_(gradient.cpu())
+        else:
+            dist.all_reduce(gradient, group=group)

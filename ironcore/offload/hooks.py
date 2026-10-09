@@ -67,6 +67,8 @@ class _SpillCheckpointFn(torch.autograd.Function):
         ctx.activation_shape = activation.shape
         ctx.activation_dtype = activation.dtype
         ctx.activation_device = activation.device
+        ctx.autocast_enabled = torch.is_autocast_enabled(activation.device.type)
+        ctx.autocast_dtype = torch.get_autocast_dtype(activation.device.type)
 
         # Save auxiliary args - move tensors to CPU to free GPU memory
         ctx.aux_args = tuple(
@@ -118,7 +120,12 @@ class _SpillCheckpointFn(torch.autograd.Function):
 
         # Recompute forward with grad enabled, using saved RNG state for
         # consistent dropout masks
-        with tensor_parallel_rng_rewound_to(ctx.fwd_tp_rng_states):
+        with (
+            tensor_parallel_rng_rewound_to(ctx.fwd_tp_rng_states),
+            torch.autocast(
+                ctx.activation_device.type, dtype=ctx.autocast_dtype, enabled=ctx.autocast_enabled
+            ),
+        ):
             if ctx.had_cuda_rng:
                 _dev_idx = (
                     ctx.activation_device.index

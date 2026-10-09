@@ -33,6 +33,8 @@ class LoRAConfig(BaseConfig):
     - "gate_proj": MLP gate projection (same as up_proj in implementation)
     - "down_proj": MLP down projection
     """
+    parameter_precision: Literal["model", "float32"] = "model"
+    adapter_path: str | None = None
 
     @property
     def scaling(self) -> float:

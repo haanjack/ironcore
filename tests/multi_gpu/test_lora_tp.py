@@ -74,6 +74,7 @@ def check_lora_tp(
     checkpoint: Path | None = None,
     dropout: float = 0.0,
     recompute: str | None = None,
+    dtype: torch.dtype = torch.float32,
 ) -> dict:
     """Compare nonzero adapter gradients and three production trainer updates."""
     from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
@@ -81,7 +82,11 @@ def check_lora_tp(
     tokens = torch.tensor([[2, 3, 4, 5], [18, 19, 20, 21]], device=device)
     with pytest.MonkeyPatch.context() as single_patch:
         torch.manual_seed(42)
-        single = _model(single_patch, variant, 1, checkpoint, dropout).to(device).train()
+        single = (
+            _model(single_patch, variant, 1, checkpoint, dropout)
+            .to(device=device, dtype=dtype)
+            .train()
+        )
         with torch.no_grad():
             for name, p in single.named_parameters():
                 if name.endswith("lora_B"):
@@ -113,7 +118,9 @@ def check_lora_tp(
             records.append((loss, norm, _adapters(single)))
     with pytest.MonkeyPatch.context() as patch:
         torch.manual_seed(42)
-        native = _model(patch, variant, 2, checkpoint, dropout).to(device).train()
+        native = (
+            _model(patch, variant, 2, checkpoint, dropout).to(device=device, dtype=dtype).train()
+        )
         native.load_state_dict(
             {name: shard_like(native, name, full) for name, full in initial.items()}, strict=True
         )
@@ -139,14 +146,22 @@ def check_lora_tp(
                 max_gradient_error = max(
                     max_gradient_error, float((p.grad - gradients[name]).abs().max())
                 )
-                if checkpoint:
+                if dtype == torch.float64:
+                    torch.testing.assert_close(p.grad, gradients[name], atol=1e-10, rtol=1e-8)
+                elif checkpoint or variant == "A4B":
                     # Deep pretrained FP32 reductions can differ near zero.
                     # Bound each complete adapter's relative L2 error instead
                     # of assigning a large absolute tolerance to every entry.
                     error = (p.grad - gradients[name]).norm()
                     scale = gradients[name].norm()
                     assert torch.isfinite(p.grad).all()
-                    assert error <= 1e-4 * scale + 1e-6, (
+                    # A4B normalizes the shared and routed outputs separately,
+                    # amplifying FP32 TP reduction rounding on tiny weights.
+                    # FP64 A4B cases below retain the strict numerical check.
+                    relative_tolerance = (
+                        5e-4 if variant == "A4B" and dtype == torch.float32 else 1e-4
+                    )
+                    assert error <= relative_tolerance * scale + 1e-6, (
                         f"{name}: gradient error {error}, norm {scale}"
                     )
                     max_relative_gradient_error = max(
@@ -182,9 +197,11 @@ def check_lora_tp(
             assert loss == pytest.approx(expected_loss, abs=1e-4 if checkpoint else 2e-5), (
                 f"{variant} {recompute} dropout={dropout} step={step}: loss={loss}, expected={expected_loss}"
             )
-            assert norm == pytest.approx(expected_norm, rel=1e-4, abs=1e-6), (
-                f"step={step}: norm={norm}, expected={expected_norm}"
-            )
+            assert norm == pytest.approx(
+                expected_norm,
+                rel=5e-4 if variant == "A4B" and dtype == torch.float32 else 1e-4,
+                abs=1e-6,
+            ), f"step={step}: norm={norm}, expected={expected_norm}"
             for name, p in native.named_parameters():
                 if p.requires_grad:
                     torch.testing.assert_close(
@@ -400,7 +417,28 @@ def check_lora_bf16(
         return result
 
 
-@pytest.mark.parametrize("variant", ["SmolLM2", "E2B", "E4B", "31B"])
+@pytest.mark.parametrize("recompute", [None, "standard", "optimized"])
+@pytest.mark.parametrize("dropout", [0.0, 0.2])
+def test_a4b_lora_tp2_fp64(recompute: str | None, dropout: float) -> None:
+    """Separate TP communication correctness from amplified FP32 rounding."""
+    rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(rank)
+    if not dist.is_initialized():
+        dist.init_process_group("nccl")
+    initialize_model_parallel(2, timeout_in_minutes=5.0)
+    try:
+        check_lora_tp(
+            "A4B",
+            torch.device("cuda", rank),
+            dropout=dropout,
+            recompute=recompute,
+            dtype=torch.float64,
+        )
+    finally:
+        destroy_model_parallel()
+
+
+@pytest.mark.parametrize("variant", ["SmolLM2", "E2B", "E4B", "31B", "A4B"])
 @pytest.mark.parametrize("recompute", [None, "standard", "optimized"])
 @pytest.mark.parametrize("dropout", [0.0, 0.2])
 def test_smollm2_lora_tp2(variant: str, recompute: str | None, dropout: float) -> None:
@@ -415,7 +453,7 @@ def test_smollm2_lora_tp2(variant: str, recompute: str | None, dropout: float) -
         destroy_model_parallel()
 
 
-@pytest.mark.parametrize("variant", ["SmolLM2", "E2B", "E4B", "31B"])
+@pytest.mark.parametrize("variant", ["SmolLM2", "E2B", "E4B", "31B", "A4B"])
 @pytest.mark.parametrize("recompute", [None, "standard", "optimized"])
 @pytest.mark.parametrize("dropout", [0.0, 0.2])
 def test_lora_tp2_bf16(variant: str, recompute: str | None, dropout: float) -> None:
@@ -455,7 +493,7 @@ def main() -> None:
         if args.checkpoint:
             results.append(check("SmolLM2", device, checkpoint=args.checkpoint))
         else:
-            for variant in ["SmolLM2", "E2B", "E4B", "31B"]:
+            for variant in ["SmolLM2", "E2B", "E4B", "31B", "A4B"]:
                 for recompute in [None, "standard", "optimized"]:
                     for dropout in [0.0, 0.2]:
                         results.append(check(variant, device, dropout=dropout, recompute=recompute))

@@ -1,0 +1,64 @@
+# Gemma 4 MoE text decoder. Source: google/gemma-4-26B-A4B-it/config.json.
+# Training execution options are supplied by examples/gemma4_sft.py.
+name: gemma4-26b-a4b
+d_model: 2816
+d_ffn: 2112
+num_layers: 30
+num_attention_heads: 16
+num_attention_groups: 8
+head_dim: 256
+max_seq_len: 32768
+max_position_embeddings: 262144
+precision: bfloat16
+untie_embed: false
+dropout_embd: 0.0
+dropout_attn: 0.0
+dropout_mlp: 0.0
+ln_type: rmsnorm
+ln_eps: 1.0e-06
+layernorm_bias: false
+activation_type: gelu_pytorch_tanh
+bias:
+  q: false
+  k: false
+  v: false
+  o: false
+  gate: false
+  up: false
+  down: false
+positional_embedding:
+  type: rope
+reset_position_ids: false
+reset_attention_mask: false
+hf_model_type: gemma4_text
+hf_architecture: Gemma4ForCausalLM
+tokenizer_type: sentencepiece
+vocab_name_or_path: google/gemma-4-26B-A4B-it
+kv_cache:
+  enabled: true
+  use_paged: false
+moe:
+  use_moe: true
+  num_shared_experts: 1
+  num_routed_experts: 128
+  num_experts_per_token: 8
+  expert_intermediate_size: 704
+  aux_loss_alpha: 0.0
+  expert_backend: grouped
+  blockwise_backend: triton
+  grouped_token_budget: 4096
+gemma4:
+  sliding_window: 1024
+  global_head_dim: 512
+  num_global_key_value_heads: 2
+  hidden_size_per_layer_input: 0
+  vocab_size_per_layer_input: 262144
+  num_kv_shared_layers: 0
+  attention_k_eq_v: true
+  use_double_wide_mlp: false
+  final_logit_softcapping: 30.0
+  pad_token_id: 0
+  sliding_rope_theta: 10000.0
+  global_rope_theta: 1000000.0
+  global_partial_rotary_factor: 0.25
+  attention_chunk_size: 128

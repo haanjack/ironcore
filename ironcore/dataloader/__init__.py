@@ -135,7 +135,8 @@ def get_data_iterator(config):
             max_seq_len=data_config.seq_length,
             pad_token_id=_resolve_pad_token_id(data_config),
             use_flash_attention=getattr(config.trainer, "use_flash_attn", False),
-            return_full_attention_mask=True,
+            return_full_attention_mask=task_type != "sft" or data_config.sft_packing,
+            pack_sequences=data_config.sft_packing,
         )
 
         # Create dataloader

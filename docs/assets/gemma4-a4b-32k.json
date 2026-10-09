@@ -1,0 +1,568 @@
+{
+  "date": "2026-10-09",
+  "model": "google/gemma-4-26B-A4B-it",
+  "revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "hardware": "2 NVIDIA RTX 3090 24 GiB; host RAM 123 GiB",
+  "runtime": "PyTorch 2.14.0+cu130, Transformers 5.17.0, NCCL 2.30.7",
+  "text_parameters": 25233141760,
+  "scope": "Feasibility smoke SFT on one repeated real 32K instruction; not a quality evaluation.",
+  "adapter_format": "ironcore_lora_v1; full TP replicas; FP32 A[in,r] and B[r,out]; attention q/k/v/o; r=8 alpha=16",
+  "export": {
+    "source": "full-tp2-32768-reload",
+    "training": "3 updates, fresh-process adapter-only load, 1 further update with fresh Adam state",
+    "bytes": 23004712,
+    "sha256": "877b3dd4eaa02af2820108a810fb1d4961b103cef5e00bcda269eb9cc43a7671"
+  },
+  "tests": {
+    "cpu_passed": 952,
+    "cpu_skipped": 30,
+    "cpu_deselected": 289,
+    "a4b_cuda_tp_cases_passed": 18,
+    "cuda_tile_scheduler_regressions_passed": 16,
+    "cp2_masked_sample_gradient_parity": "passed CPU/Gloo with nonzero adapters"
+  },
+  "nominal_model_flops_per_32k_step": 1061937827807232,
+  "nominal_tp2_tflops_per_gpu": 8.316383369845552,
+  "flops_limitations": "Estimate excludes additional recomputation, CPU/transfer traffic and precise frozen-LoRA backward correction; not hardware MFU.",
+  "runs": [
+    {
+      "name": "full-tp2-128",
+      "tiny": false,
+      "sequence_length": 128,
+      "tp": 2,
+      "cp": 1,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 16.526996612548828,
+          "grad_norm": 717.2935180664062,
+          "seconds": 7.047475702944212,
+          "peak_allocated_bytes": 3121087488
+        },
+        {
+          "step": 2,
+          "loss": 8.281712532043457,
+          "grad_norm": 341.7593994140625,
+          "seconds": 5.796940875938162,
+          "peak_allocated_bytes": 3127395328
+        },
+        {
+          "step": 3,
+          "loss": 3.727210283279419,
+          "grad_norm": 207.88157653808594,
+          "seconds": 6.525637662038207,
+          "peak_allocated_bytes": 3127395328
+        }
+      ],
+      "changed_adapter_tensors": 230,
+      "adapter_parameters": 5744640,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 3127395328,
+          "memory_reserved_bytes": 3827302400,
+          "peak_process_rss_mib": 71897.390625,
+          "active_experts_min_max": [
+            66,
+            100
+          ]
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 3127395328,
+          "memory_reserved_bytes": 3827302400,
+          "peak_process_rss_mib": 71890.2109375,
+          "active_experts_min_max": [
+            66,
+            100
+          ]
+        }
+      ]
+    },
+    {
+      "name": "full-tp2-32768",
+      "tiny": false,
+      "sequence_length": 32768,
+      "tp": 2,
+      "cp": 1,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 9.765176773071289,
+          "grad_norm": 1256.9337158203125,
+          "seconds": 67.79101675096899,
+          "peak_allocated_bytes": 10149425152
+        },
+        {
+          "step": 2,
+          "loss": 4.299226760864258,
+          "grad_norm": 812.2020874023438,
+          "seconds": 64.17868343507871,
+          "peak_allocated_bytes": 10149425152
+        },
+        {
+          "step": 3,
+          "loss": 2.8866634368896484,
+          "grad_norm": 1620.596923828125,
+          "seconds": 63.513581409002654,
+          "peak_allocated_bytes": 10149425152
+        }
+      ],
+      "changed_adapter_tensors": 230,
+      "adapter_parameters": 5744640,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 10149425152,
+          "memory_reserved_bytes": 12838764544,
+          "peak_process_rss_mib": 72263.37109375,
+          "active_experts_min_max": [
+            96,
+            128
+          ]
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 10149425152,
+          "memory_reserved_bytes": 12838764544,
+          "peak_process_rss_mib": 72253.15625,
+          "active_experts_min_max": [
+            96,
+            128
+          ]
+        }
+      ]
+    },
+    {
+      "name": "full-cp2-32768",
+      "tiny": false,
+      "sequence_length": 32768,
+      "tp": 1,
+      "cp": 2,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 10.321569442749023,
+          "grad_norm": 4506.7333984375,
+          "seconds": 63.004378212965094,
+          "peak_allocated_bytes": 9392984576
+        },
+        {
+          "step": 2,
+          "loss": 10.231168746948242,
+          "grad_norm": 34431.140625,
+          "seconds": 58.42772677796893,
+          "peak_allocated_bytes": 9392984576
+        },
+        {
+          "step": 3,
+          "loss": 5.330525875091553,
+          "grad_norm": 1959.4801025390625,
+          "seconds": 59.15069376595784,
+          "peak_allocated_bytes": 9392984576
+        }
+      ],
+      "changed_adapter_tensors": 230,
+      "adapter_parameters": 5744640,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 9392984576,
+          "memory_reserved_bytes": 12324962304,
+          "peak_process_rss_mib": 65043.13671875,
+          "active_experts_min_max": [
+            94,
+            124
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 48325.9453125,
+            "rss_after_trim_mib": 48285.17578125
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 22978560,
+            "params_frozen": 50466283520,
+            "gradients": 0,
+            "optimizer_states": 45957120,
+            "optimizer_state_tensors": 460,
+            "cuda_allocated": 4811167744,
+            "cuda_reserved": 12324962304,
+            "cuda_peak_allocated": 9392984576,
+            "estimated_activations": 0
+          }
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 9589893632,
+          "memory_reserved_bytes": 24547164160,
+          "peak_process_rss_mib": 65034.71875,
+          "active_experts_min_max": [
+            80,
+            125
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 48292.90625,
+            "rss_after_trim_mib": 48277.32421875
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 22978560,
+            "params_frozen": 50466283520,
+            "gradients": 0,
+            "optimizer_states": 45957120,
+            "optimizer_state_tensors": 460,
+            "cuda_allocated": 4811167744,
+            "cuda_reserved": 20361248768,
+            "cuda_peak_allocated": 9589893632,
+            "estimated_activations": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "full-tp2-32768-reload",
+      "tiny": false,
+      "sequence_length": 32768,
+      "tp": 2,
+      "cp": 1,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 0.4424896538257599,
+          "grad_norm": 420.9949951171875,
+          "seconds": 68.73208992299624,
+          "peak_allocated_bytes": 10147931136
+        }
+      ],
+      "changed_adapter_tensors": 230,
+      "adapter_parameters": 5744640,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "generation_token_ids": [
+        100,
+        45518,
+        107,
+        818,
+        2430,
+        8150,
+        786,
+        531
+      ],
+      "generation_text": "<|channel>thought\nThe user wants me to",
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 10147931136,
+          "memory_reserved_bytes": 11066671104,
+          "peak_process_rss_mib": 56777.1875,
+          "active_experts_min_max": [
+            96,
+            127
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 25147.34765625,
+            "rss_after_trim_mib": 25105.3671875
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 22978560,
+            "params_frozen": 25244655616,
+            "gradients": 0,
+            "optimizer_states": 45957120,
+            "optimizer_state_tensors": 460,
+            "cuda_allocated": 2428325888,
+            "cuda_reserved": 11066671104,
+            "cuda_peak_allocated": 10147931136,
+            "estimated_activations": 0
+          }
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 10147931136,
+          "memory_reserved_bytes": 11066671104,
+          "peak_process_rss_mib": 56768.06640625,
+          "active_experts_min_max": [
+            96,
+            127
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 25116.16015625,
+            "rss_after_trim_mib": 25099.33203125
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 22978560,
+            "params_frozen": 25244655616,
+            "gradients": 0,
+            "optimizer_states": 45957120,
+            "optimizer_state_tensors": 460,
+            "cuda_allocated": 2428325888,
+            "cuda_reserved": 11066671104,
+            "cuda_peak_allocated": 10147931136,
+            "estimated_activations": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "full-cp2-32768-reload",
+      "tiny": false,
+      "sequence_length": 32768,
+      "tp": 1,
+      "cp": 2,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 0.6908311247825623,
+          "grad_norm": 265.2934265136719,
+          "seconds": 62.22330585599411,
+          "peak_allocated_bytes": 9390999040
+        }
+      ],
+      "changed_adapter_tensors": 230,
+      "adapter_parameters": 5744640,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 9390999040,
+          "memory_reserved_bytes": 10129244160,
+          "peak_process_rss_mib": 66006.67578125,
+          "active_experts_min_max": [
+            93,
+            125
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 48323.64453125,
+            "rss_after_trim_mib": 48285.375
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 22978560,
+            "params_frozen": 50466283520,
+            "gradients": 0,
+            "optimizer_states": 45957120,
+            "optimizer_state_tensors": 460,
+            "cuda_allocated": 4809182208,
+            "cuda_reserved": 10129244160,
+            "cuda_peak_allocated": 9390999040,
+            "estimated_activations": 0
+          }
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 9587908096,
+          "memory_reserved_bytes": 10315890688,
+          "peak_process_rss_mib": 65999.60546875,
+          "active_experts_min_max": [
+            83,
+            125
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 48292.26953125,
+            "rss_after_trim_mib": 48277.15234375
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 22978560,
+            "params_frozen": 50466283520,
+            "gradients": 0,
+            "optimizer_states": 45957120,
+            "optimizer_state_tensors": 460,
+            "cuda_allocated": 4809182208,
+            "cuda_reserved": 10315890688,
+            "cuda_peak_allocated": 9587908096,
+            "estimated_activations": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "tiny-tp2-resident-report",
+      "tiny": true,
+      "sequence_length": 128,
+      "tp": 2,
+      "cp": 1,
+      "weight_offload": false,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 12.576621055603027,
+          "grad_norm": 74.49775695800781,
+          "seconds": 1.0480680500622839,
+          "peak_allocated_bytes": 269292032
+        },
+        {
+          "step": 2,
+          "loss": 12.449718475341797,
+          "grad_norm": 62.277767181396484,
+          "seconds": 0.061999129015021026,
+          "peak_allocated_bytes": 269437440
+        },
+        {
+          "step": 3,
+          "loss": 12.322182655334473,
+          "grad_norm": 56.88233947753906,
+          "seconds": 0.05522604298312217,
+          "peak_allocated_bytes": 269437440
+        }
+      ],
+      "changed_adapter_tensors": 28,
+      "adapter_parameters": 15360,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 269437440,
+          "memory_reserved_bytes": 274726912,
+          "peak_process_rss_mib": 2459.08203125,
+          "active_experts_min_max": [
+            4,
+            4
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 1648.890625,
+            "rss_after_trim_mib": 1574.75
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 61440,
+            "params_frozen": 17144352,
+            "gradients": 0,
+            "optimizer_states": 122880,
+            "optimizer_state_tensors": 56,
+            "cuda_allocated": 34397696,
+            "cuda_reserved": 274726912,
+            "cuda_peak_allocated": 269437440,
+            "estimated_activations": 17069024
+          }
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 269437440,
+          "memory_reserved_bytes": 274726912,
+          "peak_process_rss_mib": 2431.421875,
+          "active_experts_min_max": [
+            4,
+            4
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 1621.046875,
+            "rss_after_trim_mib": 1547.42578125
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 61440,
+            "params_frozen": 17144352,
+            "gradients": 0,
+            "optimizer_states": 122880,
+            "optimizer_state_tensors": 56,
+            "cuda_allocated": 34397696,
+            "cuda_reserved": 274726912,
+            "cuda_peak_allocated": 269437440,
+            "estimated_activations": 17069024
+          }
+        }
+      ]
+    },
+    {
+      "name": "tiny-tp2-offload-report",
+      "tiny": true,
+      "sequence_length": 128,
+      "tp": 2,
+      "cp": 1,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 12.576621055603027,
+          "grad_norm": 74.49774932861328,
+          "seconds": 0.8343133450252935,
+          "peak_allocated_bytes": 269843968
+        },
+        {
+          "step": 2,
+          "loss": 12.449718475341797,
+          "grad_norm": 62.277767181396484,
+          "seconds": 0.28275782393757254,
+          "peak_allocated_bytes": 269867520
+        },
+        {
+          "step": 3,
+          "loss": 12.322182655334473,
+          "grad_norm": 56.88233947753906,
+          "seconds": 0.26804490911308676,
+          "peak_allocated_bytes": 269867520
+        }
+      ],
+      "changed_adapter_tensors": 28,
+      "adapter_parameters": 15360,
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 269867520,
+          "memory_reserved_bytes": 276824064,
+          "peak_process_rss_mib": 2420.17578125,
+          "active_experts_min_max": [
+            4,
+            4
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 1714.6484375,
+            "rss_after_trim_mib": 1615.765625
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 61440,
+            "params_frozen": 17144352,
+            "gradients": 0,
+            "optimizer_states": 122880,
+            "optimizer_state_tensors": 56,
+            "cuda_allocated": 34876928,
+            "cuda_reserved": 276824064,
+            "cuda_peak_allocated": 269867520,
+            "estimated_activations": 17548256
+          }
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 269867520,
+          "memory_reserved_bytes": 276824064,
+          "peak_process_rss_mib": 2394.4375,
+          "active_experts_min_max": [
+            4,
+            4
+          ],
+          "host_initialization": {
+            "rss_before_trim_mib": 1663.6328125,
+            "rss_after_trim_mib": 1590.22265625
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 61440,
+            "params_frozen": 17144352,
+            "gradients": 0,
+            "optimizer_states": 122880,
+            "optimizer_state_tensors": 56,
+            "cuda_allocated": 34876928,
+            "cuda_reserved": 276824064,
+            "cuda_peak_allocated": 269867520,
+            "estimated_activations": 17548256
+          }
+        }
+      ]
+    }
+  ]
+}

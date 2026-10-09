@@ -49,6 +49,7 @@ class DatasetConfig(BaseConfig):
         default=None, metadata={"help": "Chat template (uses tokenizer default if None)"}
     )
     max_samples: int | None = field(default=None, metadata={"help": "Max samples (for debugging)"})
+    chat_template_kwargs: dict = field(default_factory=dict)
     output_path: Path | None = field(default=None, metadata={"help": "Preprocessed output path"})
     dataset_path: str | None = field(
         default=None, metadata={"help": "Path to raw dataset (alternative to source)"}
@@ -114,6 +115,9 @@ class DataConfig(BaseConfig):
         default=None, metadata={"help": "Padding token ID (None = use EOS)"}
     )
     pad_to_max_length: bool = field(default=False, metadata={"help": "Pad sequences to max length"})
+    sft_packing: bool = field(
+        default=True, metadata={"help": "Pack SFT conversations with isolated document masks"}
+    )
 
     # Preprocessing
     preprocessed_dir: Path = field(
@@ -184,6 +188,7 @@ class DataConfig(BaseConfig):
                 prompt_column=ds.get("prompt_column", "prompt"),
                 answer_column=ds.get("answer_column", "answer"),
                 chat_template=ds.get("chat_template"),
+                chat_template_kwargs=ds.get("chat_template_kwargs", {}),
                 max_samples=ds.get("max_samples"),
             )
 
@@ -212,6 +217,7 @@ class DataConfig(BaseConfig):
             splits=d.get("splits", [0.99, 0.01, 0.0]),
             pad_token_id=d.get("pad_token_id"),
             pad_to_max_length=d.get("pad_to_max_length", False),
+            sft_packing=d.get("sft_packing", True),
             preprocessed_dir=Path(d.get("preprocessed_dir", "./data/preprocessed")),
             cache_dir=Path(d.get("cache_dir", "./data/cache")),
             num_workers=d.get("num_workers", 4),

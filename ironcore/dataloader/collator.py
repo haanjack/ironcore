@@ -32,6 +32,7 @@ class UniversalCollator:
         pad_token_id: int = 0,
         use_flash_attention: bool = True,
         return_full_attention_mask: bool = False,
+        pack_sequences: bool = True,
     ):
         """
         Initialize collator.
@@ -49,6 +50,7 @@ class UniversalCollator:
         self.pad_token_id = pad_token_id
         self.use_flash_attention = use_flash_attention
         self.return_full_attention_mask = return_full_attention_mask
+        self.pack_sequences = pack_sequences
 
     def __call__(self, batch: list) -> dict[str, torch.Tensor]:
         """
@@ -117,6 +119,8 @@ class UniversalCollator:
             # Find first bin with enough space
             placed = False
             for i, current_len in enumerate(bin_lengths):
+                if not self.pack_sequences:
+                    break
                 if current_len + sample_len <= self.max_seq_len:
                     bins[i].append((token_ids, metadata))
                     bin_lengths[i] += sample_len
@@ -163,7 +167,7 @@ class UniversalCollator:
                 # Truncate if sample exceeds remaining space in this row.
                 # position_ids needs sample_len slots; input_ids/labels need sample_len-1.
                 # So the binding constraint is sample_len <= max_seq_len - current_pos.
-                available = self.max_seq_len - current_pos
+                available = self.max_seq_len - current_pos + (0 if self.pack_sequences else 1)
                 if sample_len > available:
                     token_ids = token_ids[:available]
                     sample_len = available
@@ -222,8 +226,9 @@ class UniversalCollator:
             "input_ids": input_ids,
             "labels": labels,
             "position_ids": position_ids,
-            "loss_sample_ids": loss_sample_ids,
         }
+        if self.pack_sequences:
+            output["loss_sample_ids"] = loss_sample_ids
 
         if self.use_flash_attention:
             # FlashAttention format: list of cu_seqlens per batch element

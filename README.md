@@ -15,8 +15,8 @@ Inspired by NVIDIA Megatron-LM, HuggingFace Transformers, and from my own experi
   multi-node, and FSDP; `DistributedOptimizer` for ZeRO-1 state sharding
 - **Model architectures** — GPT-2/3, LLaMA/LLaMA-2/3, Gemma/Gemma-2, Qwen/Qwen2/Qwen3,
   Mistral, Mixtral, Phi-1/2 via a single `TransformerModel`; GQA/MQA, RoPE, SwiGLU/GeGLU
-- **Gemma 4 dense text** — E2B, E4B and 31B native decoders with PLE, hybrid attention,
-  shared KV, HF import/export and TP=2 for dense/LoRA; see [usage and limits](docs/gemma4.md)
+- **Gemma 4 text** — E2B, E4B, 31B and 26B A4B native decoders; A4B adds grouped
+  MoE, query-block attention, CPU offload and standalone LoRA weights; see [usage and limits](docs/gemma4.md)
 - **HF weight loading** — load any LLaMA-family HF checkpoint directly (Qwen2.5, Llama-3,
   Gemma-2, Mistral, Mixtral, …) via `trainer.pretrained_model_name_or_path`
 - **Mixture of Experts (MoE)** — expert routing with load-balance loss and Z-loss, expert parallelism
@@ -170,7 +170,7 @@ trainer:
 | GPT | `gpt2-small` through `gpt3` |
 | LLaMA | LLaMA, LLaMA-2, LLaMA-3; HF weight loading supported |
 | Gemma | Gemma 1 + Gemma 2; HF weight loading supported |
-| Gemma 4 | E2B, E4B and 31B dense text decoders; native training/generation and HF import/export, dense/LoRA TP=1/2. See [Gemma 4](docs/gemma4.md) |
+| Gemma 4 | E2B, E4B and 31B dense text decoders plus 26B A4B MoE; native training/generation, HF import/export and LoRA TP=1/2. See [Gemma 4](docs/gemma4.md) |
 | Qwen | Qwen, Qwen2, Qwen2.5, Qwen3; HF weight loading supported |
 | Mistral / Mixtral | LLaMA-architecture mapping; HF weight loading supported |
 | Phi | Phi-1, Phi-2 |
