@@ -1,0 +1,202 @@
+{
+  "date": "2026-10-09",
+  "model": "google/gemma-4-26B-A4B-it",
+  "revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "hardware": "2 RTX 3090 24 GiB; host RAM 123 GiB",
+  "runtime": "PyTorch 2.14.0+cu130, Transformers 5.17.0, NCCL 2.30.7",
+  "scope": "Repeated single real 32K instruction; execution, gradients and adapter validation; not held-out quality evaluation.",
+  "lora": {
+    "r": 8,
+    "alpha": 16,
+    "dropout": 0,
+    "precision": "float32",
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "expert_gate_up": "Independent gate and up rank-8 adapters on fused base projection",
+    "router": "frozen, natural top-8 of 128; no dropped tokens"
+  },
+  "optimizer": {
+    "name": "AdamW",
+    "lr": 0.0001,
+    "eps": 0.0001,
+    "clip_grad": 1,
+    "state_precision": "fp32",
+    "cpu_threads": 1
+  },
+  "tests": {
+    "cpu_core_passed": 867,
+    "cpu_core_skipped": 12,
+    "cpu_core_deselected": 164,
+    "cpu_subtests_passed": 10,
+    "cpu_models_moe_peft_integration_passed": 258,
+    "hf_import_export_passed": 65,
+    "cuda_a4b_loop_tp_cases_passed": 18,
+    "cuda_grouped_tp_cases_passed": 12,
+    "cp2_masked_sample_gradient_parity": "Passed CPU/Gloo and CUDA/NCCL; CUDA Triton routing",
+    "post_recovery": {
+      "tp_cuda_cases_passed": 30,
+      "cp_cuda_gradient_parity_passed": 1,
+      "cp_cpu_gradient_parity_passed": 1,
+      "targeted_cpu_cases_passed": 78,
+      "host_budget_tests_passed": 5
+    }
+  },
+  "cpu_thread_diagnostic": {
+    "operation": "sqrt",
+    "elements": 22528,
+    "dtype": "float32",
+    "iterations": 200,
+    "seconds": {
+      "1_thread": 0.0017573690274730325,
+      "19_threads": 2.7796531399944797
+    },
+    "context": "Concurrent with the stopped full-model run; diagnostic only, not an end-to-end speedup"
+  },
+  "stopped_attempt": "The initial 19-thread run was stopped during its first optimizer update; no completed-step claim.",
+  "adapter_file_bytes": 1337595536,
+  "runs": [
+    {
+      "tiny": false,
+      "sequence_length": 32768,
+      "tp": 2,
+      "cp": 1,
+      "weight_offload": true,
+      "precision": "BF16 frozen weights + FP32 LoRA, BF16 autocast",
+      "records": [
+        {
+          "step": 1,
+          "loss": 10.035908699035645,
+          "grad_norm": 1869.220947265625,
+          "seconds": 79.60069028299768,
+          "peak_allocated_bytes": 11244301312
+        },
+        {
+          "step": 2,
+          "loss": 4.067889213562012,
+          "grad_norm": 49830.6328125,
+          "seconds": 74.73576456704177,
+          "peak_allocated_bytes": 11269780480
+        },
+        {
+          "step": 3,
+          "loss": 1.6044386625289917,
+          "grad_norm": 268.52716064453125,
+          "seconds": 75.7324343379587,
+          "peak_allocated_bytes": 11279039488
+        }
+      ],
+      "changed_adapter_tensors": 17300,
+      "adapter_parameters": 333696000,
+      "adapter_components": {
+        "attention": {
+          "parameters": 5744640,
+          "tensors": 230,
+          "changed_tensors": 230
+        },
+        "shared_mlp": {
+          "parameters": 3548160,
+          "tensors": 180,
+          "changed_tensors": 180
+        },
+        "routed_experts": {
+          "parameters": 324403200,
+          "tensors": 23040,
+          "changed_tensors": 16890
+        }
+      },
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "name": "full-tp2-32768-t1",
+      "by_rank": [
+        {
+          "rank": 0,
+          "memory_allocated_bytes": 11279039488,
+          "memory_reserved_bytes": 12884901888,
+          "peak_process_rss_mib": 58479.7421875,
+          "host_initialization": {
+            "rss_before_trim_mib": 28926.41015625,
+            "rss_after_trim_mib": 28607.58203125
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 1334784000,
+            "params_frozen": 25244655616,
+            "gradients": 0,
+            "optimizer_states": 2414100480,
+            "optimizer_state_tensors": 42364,
+            "cuda_allocated": 2578793472,
+            "cuda_reserved": 12884901888,
+            "cuda_peak_allocated": 11279039488,
+            "estimated_activations": 0
+          },
+          "active_experts_min_max": [
+            96,
+            127
+          ]
+        },
+        {
+          "rank": 1,
+          "memory_allocated_bytes": 11279039488,
+          "memory_reserved_bytes": 12884901888,
+          "peak_process_rss_mib": 58464.91796875,
+          "host_initialization": {
+            "rss_before_trim_mib": 28894.66796875,
+            "rss_after_trim_mib": 28596.43359375
+          },
+          "memory_breakdown_bytes": {
+            "params_trainable": 1334784000,
+            "params_frozen": 25244655616,
+            "gradients": 0,
+            "optimizer_states": 2414100480,
+            "optimizer_state_tensors": 42364,
+            "cuda_allocated": 2578793472,
+            "cuda_reserved": 12884901888,
+            "cuda_peak_allocated": 11279039488,
+            "estimated_activations": 0
+          },
+          "active_experts_min_max": [
+            96,
+            127
+          ]
+        }
+      ]
+    }
+  ],
+  "cp2_full_model_attempt": {
+    "status": "failed_host_global_oom_and_nccl_timeout",
+    "successful_run": false,
+    "sequence_length": 32768,
+    "tp": 1,
+    "cp": 2,
+    "loaded_adapter": "full-tp2-32768-t1/adapter",
+    "partial_rank1_record": {
+      "step": 1,
+      "loss": 0.36535578966140747,
+      "grad_norm": 2032.3358154296875,
+      "seconds": 2563.107815467054,
+      "peak_allocated_bytes": 10553953792
+    },
+    "rank0_completed_step": false,
+    "final_adapter_saved": false,
+    "kernel_evidence": "2026-10-09 12:25:08 Asia/Seoul: global_oom; Out of memory: Killed process 9636 (traefik)",
+    "observability": "External RAM sampler stopped making progress at 02:46:30 UTC with ~3.91 GiB available; low-memory polling did not prevent the incident.",
+    "recovery": "Training workers are gone; GPUs idle; Traefik Running; node Ready, MemoryPressure=False."
+  },
+  "mitigations": {
+    "preallocation_host_budget": "Includes CP weight replicas, all FP32 adapter replicas/gradients/Adam moments, spilled inputs, import/runtime scratch and 16 GiB host headroom. Uses minimum of physical and cgroup v2 remaining capacity, allowing reclaimable inactive file cache. Screening estimate, not reservation.",
+    "tp2_estimated_available_requirement_bytes": 97987321856,
+    "cp2_estimated_available_requirement_bytes": 142917124096,
+    "gpu_test_container_memory_limit_bytes": 103079215104,
+    "gpu_test_container_swap_disabled": true,
+    "limit_added_after_full_tp2_run": true,
+    "same_cp2_workload_rerun": false,
+    "gpu_access_recovery": "The dedicated container later reported NVML Unknown Error during the combined recheck. Restarting only this test container restored GPU access; fresh TP and separate CPU/CUDA CP tests passed."
+  },
+  "adapter_sha256": "25a00607e3430b660fc8be928f901d302072cb8db500e32a8f361b20f90730f9"
+}

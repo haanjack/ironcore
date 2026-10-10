@@ -61,6 +61,13 @@ class Gemma4RMSNorm(nn.Module):
         self.sum_tp_grad = sum_tp_grad
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        from ironcore.layers.layernorm.rms_norm_kernel import frozen_scale_rms_norm
+
+        result = frozen_scale_rms_norm(
+            hidden_states, self.weight, self.eps, round_before_scale=False
+        )
+        if result is not None:
+            return result
         values = hidden_states.float()
         values = values * (values.square().mean(-1, keepdim=True) + self.eps).pow(-0.5)
         if self.weight is not None:
@@ -333,9 +340,41 @@ class Gemma4Expert(BaseModule):
             config, width, config.model.d_model, bias=False, input_is_parallel=True
         )
         self.activation = Gemma4GatedActivation()
+        if config.peft.method == "lora":
+            from ironcore.peft import LoRALinear
+
+            for name, inputs, outputs in (
+                ("gate_proj", config.model.d_model, width),
+                ("up_proj", config.model.d_model, width),
+                ("down_proj", width, config.model.d_model),
+            ):
+                if name in config.peft.lora.target_modules:
+                    adapter = LoRALinear(
+                        inputs,
+                        outputs,
+                        config.peft.lora.r,
+                        config.peft.lora.alpha,
+                        config.peft.lora.dropout,
+                    )
+                    self.add_module(f"lora_{name}", adapter)
 
     def forward(self, value: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(self.activation(self.up_proj(value)))
+        projected = self.up_proj(value)
+        gate, up = projected.chunk(2, dim=-1)
+        for name in ("gate_proj", "up_proj"):
+            adapter = getattr(self, f"lora_{name}", None)
+            if adapter is not None:
+                delta = adapter.forward_column(value, self.config.init.seed)
+                if name == "gate_proj":
+                    gate = gate + delta
+                else:
+                    up = up + delta
+        activated = F.gelu(gate, approximate="tanh") * up
+        result = self.down_proj(activated)
+        adapter = getattr(self, "lora_down_proj", None)
+        if adapter is not None:
+            result = result + adapter.forward_row(activated, self.config.init.seed)
+        return result
 
 
 class Gemma4Layer(BaseModule):

@@ -12,6 +12,7 @@ from ironcore.parallel.random import checkpoint_with_tensor_parallel_rng
 from ironcore.parallel.tensor_parallel import comm
 
 from .execution_groups import plan_execution_groups
+from .lora import expert_parameters
 
 
 def _grouped_mm(
@@ -21,7 +22,17 @@ def _grouped_mm(
         kernel = getattr(F, "grouped_mm", None)
         if kernel is None:
             raise RuntimeError("Grouped experts require torch.nn.functional.grouped_mm on CUDA")
-        return kernel(inputs, weights, offs=offsets)
+        # CUDA grouped GEMM requires 16-byte aligned row strides. Low LoRA
+        # ranks (and tiny TP shards) can violate that even with contiguous
+        # tensors. Pad only the compute operands, preserving adapter shapes.
+        alignment = 16 // inputs.element_size()
+        inner, output = weights.shape[-2:]
+        inner_pad, output_pad = -inner % alignment, -output % alignment
+        if inner_pad:
+            inputs = F.pad(inputs, (0, inner_pad))
+        if inner_pad or output_pad:
+            weights = F.pad(weights, (0, output_pad, 0, inner_pad))
+        return kernel(inputs, weights, offs=offsets)[..., :output]
     # Independent FP32 CPU reference, not a claim of grouped CPU acceleration.
     return torch.cat(
         [part @ weight for part, weight in zip(inputs.split(counts), weights, strict=True)]
@@ -42,6 +53,10 @@ def grouped_experts(
     autocast on all supported versions, so compute dtype is selected explicitly.
     Expanded up/gate/activation intermediates live within one execution group.
     """
+    if experts[0].config.model.moe.expert_accumulation_precision == "model":
+        from .model_accumulation import model_dtype_experts
+
+        return model_dtype_experts(x, indices, weights, experts)
     if experts[0].config.model.moe.blockwise_backend != "torch":
         from .scheduled import scheduled_experts
 
@@ -68,31 +83,27 @@ def grouped_experts(
     )
     # A single compact gather replaces repeated expert-capacity padding.
     routed = comm.copy_inputs_to_model_parallel_workers(hidden)[order // topk].to(compute_dtype)
-    endpoints = torch.tensor(
-        [v for group in groups for v in group.offsets], dtype=torch.int32, device=x.device
-    )
-    outputs = []
-    offset_start = 0
-    for group in groups:
-        offsets = endpoints[offset_start : offset_start + len(group.experts)]
-        offset_start += len(group.experts)
+    from .scheduled import _Block, _project
 
-        # Bind group metadata: checkpoint closures outlive this loop iteration.
-        def project(tokens, owners=group.experts, offsets=offsets, counts=group.counts):
-            up = torch.stack([experts[i].up_proj.weight for i in owners]).to(compute_dtype)
-            down = torch.stack([experts[i].down_proj.weight for i in owners]).to(compute_dtype)
-            projected = _grouped_mm(tokens, up, offsets, counts)
-            if experts[0].up_proj.bias is not None:
-                up_bias = torch.stack([experts[i].up_proj.bias for i in owners])
-                owners = torch.repeat_interleave(
-                    torch.arange(len(owners), device=x.device),
-                    torch.tensor(counts, device=x.device),
-                    output_size=tokens.size(0),
-                )
-                projected = projected + up_bias[owners]
-            activated = experts[0].activation(projected).to(compute_dtype)
-            result = _grouped_mm(activated, down, offsets, counts)
-            return result
+    parameters, adapters, stride = expert_parameters(experts, active)
+    # Group planning uses global ids; _project indexes the compact active list.
+    compact = {owner: i for i, owner in enumerate(active)}
+    outputs = []
+    for group in groups:
+        block = _Block(tuple(compact[i] for i in group.experts), group.start, group.counts)
+
+        def project(tokens, block=block):
+            return _project(
+                tokens,
+                parameters,
+                block,
+                experts[0].activation,
+                experts[0].up_proj.bias is not None,
+                False,
+                compute_dtype,
+                adapters,
+                stride,
+            )
 
         tokens = routed[group.start : group.start + group.tokens]
         if experts[0].training and torch.is_grad_enabled():

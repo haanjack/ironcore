@@ -75,6 +75,7 @@ def check_lora_tp(
     dropout: float = 0.0,
     recompute: str | None = None,
     dtype: torch.dtype = torch.float32,
+    expert_backend: str | None = None,
 ) -> dict:
     """Compare nonzero adapter gradients and three production trainer updates."""
     from ironcore.parallel.random import reset_tensor_parallel_rng_tracker
@@ -87,10 +88,20 @@ def check_lora_tp(
             .to(device=device, dtype=dtype)
             .train()
         )
+        if expert_backend:
+            single.config.model.moe.expert_backend = "grouped"
+            single.config.model.moe.blockwise_backend = "torch"
+            single.config.model.moe.grouped_token_budget = 5
         with torch.no_grad():
+            # Expert-specific nonzero B matrices avoid imposing the same
+            # symmetric rank pattern on every routed expert in this fixture.
+            generator = torch.Generator(device=device).manual_seed(3407)
             for name, p in single.named_parameters():
                 if name.endswith("lora_B"):
-                    p.copy_(torch.linspace(-0.01, 0.01, p.numel(), device=device).reshape_as(p))
+                    if variant == "A4B" and dtype != torch.float64:
+                        p.normal_(0, 0.01, generator=generator)
+                    else:
+                        p.copy_(torch.linspace(-0.01, 0.01, p.numel(), device=device).reshape_as(p))
         # Keep full pretrained snapshots off GPU; the TP=1 reference and TP=2
         # model already coexist on each rank during the numerical comparison.
         initial = {
@@ -124,6 +135,10 @@ def check_lora_tp(
         native.load_state_dict(
             {name: shard_like(native, name, full) for name, full in initial.items()}, strict=True
         )
+        if expert_backend:
+            native.config.model.moe.expert_backend = "grouped"
+            native.config.model.moe.blockwise_backend = expert_backend
+            native.config.model.moe.grouped_token_budget = 5
         if recompute:
             native.config.operation.activation_recompute = True
             native.config.operation.recompute_strategy = recompute
@@ -261,6 +276,8 @@ def _checkpoint_roundtrip(model, trainer, tokens: torch.Tensor, single, single_t
         name: trainer.optimizer.state[p]["exp_avg"].clone()
         for name, p in model.named_parameters()
         if p.requires_grad
+        and p in trainer.optimizer.state
+        and "exp_avg" in trainer.optimizer.state[p]
     }
     for distributed in [False, True]:
         model.config.operation.save_dist_ckpt = distributed
@@ -287,12 +304,15 @@ def _checkpoint_roundtrip(model, trainer, tokens: torch.Tensor, single, single_t
                 for name, p in single.named_parameters():
                     if p.requires_grad:
                         torch.testing.assert_close(p, expected[name], atol=0, rtol=0)
-                        torch.testing.assert_close(
-                            single_trainer.optimizer.state[p]["exp_avg"],
-                            moments[name],
-                            atol=0,
-                            rtol=0,
-                        )
+                        if name in moments:
+                            torch.testing.assert_close(
+                                single_trainer.optimizer.state[p]["exp_avg"],
+                                moments[name],
+                                atol=0,
+                                rtol=0,
+                            )
+                        else:
+                            assert not single_trainer.optimizer.state.get(p), name
         with torch.no_grad():
             for p in model.parameters():
                 if p.requires_grad:
@@ -305,9 +325,12 @@ def _checkpoint_roundtrip(model, trainer, tokens: torch.Tensor, single, single_t
         for name, p in model.named_parameters():
             if p.requires_grad:
                 torch.testing.assert_close(p, expected[name], atol=0, rtol=0)
-                torch.testing.assert_close(
-                    trainer.optimizer.state[p]["exp_avg"], moments[name], atol=0, rtol=0
-                )
+                if name in moments:
+                    torch.testing.assert_close(
+                        trainer.optimizer.state[p]["exp_avg"], moments[name], atol=0, rtol=0
+                    )
+                else:
+                    assert not trainer.optimizer.state.get(p), name
     dist.barrier()
     if dist.get_rank() == 0:
         shutil.rmtree(root)
@@ -319,6 +342,7 @@ def check_lora_bf16(
     checkpoint: Path | None = None,
     dropout: float = 0.0,
     recompute: str | None = None,
+    expert_backend: str | None = None,
 ) -> dict:
     """Exercise BF16 autocast with FP32 master weights and native TP=2 training.
 
@@ -334,6 +358,10 @@ def check_lora_bf16(
     with pytest.MonkeyPatch.context() as patch:
         torch.manual_seed(42)
         model = _model(patch, variant, 2, checkpoint, dropout).to(device).train()
+        if expert_backend:
+            model.config.model.moe.expert_backend = "grouped"
+            model.config.model.moe.blockwise_backend = expert_backend
+            model.config.model.moe.grouped_token_budget = 5
         if recompute:
             model.config.operation.activation_recompute = True
             model.config.operation.recompute_strategy = recompute
@@ -466,6 +494,22 @@ def test_lora_tp2_bf16(variant: str, recompute: str | None, dropout: float) -> N
     initialize_model_parallel(2, timeout_in_minutes=5.0)
     try:
         check_lora_bf16(variant, torch.device("cuda", rank), dropout=dropout, recompute=recompute)
+    finally:
+        destroy_model_parallel()
+
+
+@pytest.mark.parametrize("backend", ["torch", "scheduled", "triton"])
+@pytest.mark.parametrize("dropout", [0.0, 0.2])
+@pytest.mark.parametrize("precision", ["float32", "bfloat16"])
+def test_a4b_grouped_expert_lora_tp2(backend, dropout, precision):
+    rank = int(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(rank)
+    if not dist.is_initialized():
+        dist.init_process_group("nccl")
+    initialize_model_parallel(2, timeout_in_minutes=5.0)
+    try:
+        check = check_lora_bf16 if precision == "bfloat16" else check_lora_tp
+        check("A4B", torch.device("cuda", rank), dropout=dropout, expert_backend=backend)
     finally:
         destroy_model_parallel()
 

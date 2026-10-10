@@ -31,7 +31,7 @@ def test_scheduler_gradcheck_and_saved_original_storage(padded):
         torch.randn(*shape, dtype=torch.float64, requires_grad=True)
         for shape in ((2, 3), (3, 2), (2, 3), (3, 2))
     )
-    metadata = (blocks, torch.nn.SiLU(), False, padded, 2, False)
+    metadata = (blocks, torch.nn.SiLU(), False, padded, 2, False, (), 2)
 
     def run(*inputs):
         x, w, *params = inputs
@@ -92,7 +92,7 @@ def test_scheduler_rejects_double_backward_explicitly():
         torch.arange(2),
         torch.tensor([0]),
         torch.tensor([2]),
-        ((_Block((0,), 0, (2,), 2),), torch.nn.SiLU(), False, True, 1, False),
+        ((_Block((0,), 0, (2,), 2),), torch.nn.SiLU(), False, True, 1, False, (), 2),
         up,
         down,
     )

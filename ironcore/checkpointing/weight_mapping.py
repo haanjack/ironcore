@@ -190,7 +190,9 @@ class WeightMapper:
         )
         for raw_name, tensor in state_dict.items():
             name = raw_name
-            if to_hf and (".base_layer." in name or ".lora." in name):
+            if to_hf and (
+                ".base_layer." in name or ".lora." in name or name.endswith((".lora_A", ".lora_B"))
+            ):
                 raise ValueError(
                     "Merge Gemma 4 LoRA adapters before exporting a dense HF checkpoint"
                 )

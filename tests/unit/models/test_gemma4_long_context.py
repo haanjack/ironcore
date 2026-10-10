@@ -100,6 +100,35 @@ def test_unpacked_sft_uses_all_input_slots_without_quadratic_document_mask():
     assert "loss_sample_ids" not in batch
 
 
+@pytest.mark.parametrize("backend", ["loop", "grouped"])
+def test_eval_chunked_sft_loss_matches_independent_full_logit_reference(monkeypatch, backend):
+    """Held-out eval must use the same masked, per-conversation SFT objective."""
+    from ironcore.training_utils import loss_func_sft
+
+    native, reference, config = gemma4_pair(monkeypatch, "A4B", lora=True)
+    config.model.moe.expert_backend = backend
+    config.model.moe.grouped_token_budget = 5
+    config.model.moe.blockwise_backend = "scheduled" if backend == "grouped" else "torch"
+    config.trainer.recompute_linear_ce = True
+    config.trainer.loss_chunk_size = 2
+    native.loss_fn = loss_func_sft
+    native.eval()
+    reference.eval()
+    tokens = torch.tensor([[2, 3, 4, 5, 6, 7], [2, 8, 9, 10, 11, 12]])
+    labels = torch.tensor([[-100, -100, -100, -100, 7, 1], [-100, -100, 10, 11, 12, 1]])
+    with torch.no_grad():
+        logits = reference(tokens, use_cache=False).logits
+        per_token = torch.nn.functional.cross_entropy(
+            logits.reshape(-1, 32), labels.reshape(-1), reduction="none"
+        ).view_as(labels)
+        counts = (labels != -100).sum(1)
+        expected = (per_token.sum(1) / counts).mean()
+        actual = native(tokens, labels=labels)
+    torch.testing.assert_close(actual, expected, atol=2e-5, rtol=2e-5)
+    assert not actual.requires_grad
+    assert all(parameter.grad is None for parameter in native.parameters())
+
+
 def test_a4b_flop_estimate_counts_stored_experts_and_bounded_attention(monkeypatch):
     from ironcore.utils.mfu import MFUCalculator
 

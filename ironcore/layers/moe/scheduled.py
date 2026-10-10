@@ -10,9 +10,14 @@ from dataclasses import dataclass
 import torch
 from torch.autograd.function import once_differentiable
 
+from ironcore.parallel.random import (
+    snapshot_tensor_parallel_rng_tracker,
+    tensor_parallel_rng_rewound_to,
+)
 from ironcore.parallel.tensor_parallel import comm
 
 from .execution_groups import plan_execution_groups
+from .lora import adapter_projection, expert_parameters
 
 
 @dataclass(frozen=True)
@@ -84,8 +89,10 @@ def _scatter(
         )
 
 
-def _project(tokens, parameters, block, activation, bias, padded, compute_dtype):
-    stride = 3 if bias else 2
+def _project(
+    tokens, parameters, block, activation, bias, padded, compute_dtype, adapters=(), stride=None
+):
+    stride = stride or (3 if bias else 2)
     up = torch.stack([parameters[stride * i] for i in block.owners])
     down = torch.stack([parameters[stride * i + 1] for i in block.owners])
     if padded:
@@ -96,25 +103,52 @@ def _project(tokens, parameters, block, activation, bias, padded, compute_dtype)
                 projected
                 + torch.stack([parameters[stride * i + 2] for i in block.owners])[:, None, :]
             )
-        return torch.bmm(activation(projected), down).reshape_as(tokens).to(tokens.dtype)
-    from .grouped import _grouped_mm
 
-    offsets = torch.tensor(block.counts, device=tokens.device, dtype=torch.int32).cumsum(
-        0, dtype=torch.int32
-    )
-    projected = _grouped_mm(tokens.to(compute_dtype), up.to(compute_dtype), offsets, block.counts)
-    if bias:
-        selected = torch.repeat_interleave(
-            torch.arange(len(block.owners), device=tokens.device),
-            torch.tensor(block.counts, device=tokens.device),
-            output_size=tokens.size(0),
+        def multiply(values, matrices):
+            return torch.bmm(values, matrices)
+
+        inputs = packed
+    else:
+        from .grouped import _grouped_mm
+
+        offsets = torch.tensor(block.counts, device=tokens.device, dtype=torch.int32).cumsum(
+            0, dtype=torch.int32
         )
-        projected = (
-            projected + torch.stack([parameters[stride * i + 2] for i in block.owners])[selected]
+
+        def multiply(values, matrices):
+            return _grouped_mm(values, matrices, offsets, block.counts)
+
+        inputs = tokens
+        projected = multiply(tokens.to(compute_dtype), up.to(compute_dtype))
+        if bias:
+            selected = torch.repeat_interleave(
+                torch.arange(len(block.owners), device=tokens.device),
+                torch.tensor(block.counts, device=tokens.device),
+                output_size=tokens.size(0),
+            )
+            projected = (
+                projected
+                + torch.stack([parameters[stride * i + 2] for i in block.owners])[selected]
+            )
+    for adapter in adapters:
+        if adapter.name == "down_proj":
+            continue
+        delta = adapter_projection(
+            inputs, parameters, block.owners, stride, adapter, multiply, compute_dtype
         )
-    return _grouped_mm(
-        activation(projected).to(compute_dtype), down.to(compute_dtype), offsets, block.counts
-    )
+        gate, up_value = projected.chunk(2, dim=-1)
+        projected = torch.cat(
+            (gate + delta, up_value) if adapter.name == "gate_proj" else (gate, up_value + delta),
+            dim=-1,
+        )
+    activated = activation(projected).to(compute_dtype)
+    result = multiply(activated, down.to(compute_dtype))
+    for adapter in adapters:
+        if adapter.name == "down_proj":
+            result = result + adapter_projection(
+                activated, parameters, block.owners, stride, adapter, multiply, compute_dtype
+            )
+    return result.reshape_as(tokens).to(tokens.dtype) if padded else result
 
 
 class _ScheduledExperts(torch.autograd.Function):
@@ -127,7 +161,7 @@ class _ScheduledExperts(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, hidden, weights, order, prefixes, counts, metadata, *parameters):
-        blocks, activation, bias, padded, topk, fused = metadata
+        blocks, activation, bias, padded, topk, fused, adapters, stride = metadata
         device_type = hidden.device.type
         enabled = torch.is_autocast_enabled(device_type)
         compute_dtype = torch.get_autocast_dtype(device_type) if enabled else hidden.dtype
@@ -143,11 +177,17 @@ class _ScheduledExperts(torch.autograd.Function):
         ctx.execution_metadata = metadata
         ctx.autocast = (device_type, enabled, compute_dtype)
         ctx.parameter_needs_grad = tuple(p.requires_grad for p in parameters)
+        ctx.rng_states = []
         for block in blocks:
+            ctx.rng_states.append(
+                snapshot_tensor_parallel_rng_tracker() if any(a.dropout for a in adapters) else {}
+            )
             tokens, selected, assignments, token_ids = _pack(
                 hidden, weights, order, prefixes, counts, block, topk, fused
             )
-            projected = _project(tokens, parameters, block, activation, bias, padded, compute_dtype)
+            projected = _project(
+                tokens, parameters, block, activation, bias, padded, compute_dtype, adapters, stride
+            )
             if fused:
                 from .triton_routing import weighted_scatter
 
@@ -160,7 +200,7 @@ class _ScheduledExperts(torch.autograd.Function):
     @once_differentiable
     def backward(ctx, gradient):
         hidden, weights, order, prefixes, counts, *parameters = ctx.saved_tensors
-        blocks, activation, bias, padded, topk, fused = ctx.execution_metadata
+        blocks, activation, bias, padded, topk, fused, adapters, stride = ctx.execution_metadata
         device_type, enabled, compute_dtype = ctx.autocast
         hidden_grad = (
             torch.zeros_like(
@@ -178,9 +218,8 @@ class _ScheduledExperts(torch.autograd.Function):
             for p, need in zip(parameters, ctx.parameter_needs_grad, strict=True)
         ]
         parameter_grads = [None] * len(parameters)
-        stride = 3 if bias else 2
         # Match checkpoint backward's reverse block accumulation order.
-        for block in reversed(blocks):
+        for block, rng_states in reversed(tuple(zip(blocks, ctx.rng_states, strict=True))):
             tokens, selected, assignments, token_ids = _pack(
                 hidden, weights, order, prefixes, counts, block, topk, fused
             )
@@ -202,9 +241,18 @@ class _ScheduledExperts(torch.autograd.Function):
             with (
                 torch.enable_grad(),
                 torch.autocast(device_type, enabled=enabled, dtype=compute_dtype),
+                tensor_parallel_rng_rewound_to(rng_states),
             ):
                 projected = _project(
-                    tokens, detached, block, activation, bias, padded, compute_dtype
+                    tokens,
+                    detached,
+                    block,
+                    activation,
+                    bias,
+                    padded,
+                    compute_dtype,
+                    adapters,
+                    stride,
                 )
                 weighted = projected * selected[:, None]
                 grads = iter(torch.autograd.grad(weighted, targets, incoming.to(weighted.dtype)))
@@ -292,15 +340,7 @@ def scheduled_experts(
             for g in groups
         )
     bias = experts[0].up_proj.bias is not None
-    parameters = tuple(
-        parameter
-        for i in active
-        for parameter in (
-            (experts[i].up_proj.weight, experts[i].down_proj.weight, experts[i].up_proj.bias)
-            if bias
-            else (experts[i].up_proj.weight, experts[i].down_proj.weight)
-        )
-    )
+    parameters, adapters, stride = expert_parameters(experts, active)
     parallel_hidden = comm.copy_inputs_to_model_parallel_workers(hidden)
     parallel_weights = comm.copy_inputs_to_model_parallel_workers(weights).flatten()
     result = _ScheduledExperts.apply(
@@ -309,7 +349,7 @@ def scheduled_experts(
         order,
         prefixes,
         counts,
-        (blocks, activation, bias, padded, indices.size(-1), fused),
+        (blocks, activation, bias, padded, indices.size(-1), fused, adapters, stride),
         *parameters,
     )
     result = comm.reduce_inputs_from_model_parallel_workers(result)

@@ -47,6 +47,7 @@ moe:
   expert_backend: grouped
   blockwise_backend: triton
   grouped_token_budget: 4096
+  expert_accumulation_precision: model
 gemma4:
   sliding_window: 1024
   global_head_dim: 512

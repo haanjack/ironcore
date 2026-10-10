@@ -293,6 +293,32 @@ def test_moe_checkpoint_config_is_not_misidentified_as_dense(monkeypatch):
     assert config.model.moe.expert_intermediate_size == 8
 
 
+@pytest.mark.parametrize("moe", [False, True])
+def test_serialized_full_attention_inherits_common_head_dim(moe):
+    from transformers import Gemma4TextConfig
+
+    reference = Gemma4TextConfig(
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        global_head_dim=8,
+        num_global_key_value_heads=1,
+        hidden_size_per_layer_input=0,
+        enable_moe_block=moe,
+        num_experts=4,
+        top_k_experts=2,
+        moe_intermediate_size=8,
+        layer_types=["sliding_attention", "full_attention"],
+    )
+    serialized = reference.to_dict()
+    assert "head_dim" not in serialized["per_layer_config"].get("1", {})
+    native = model_config_from_gemma4(serialized)
+    assert native.gemma4.global_head_dim == reference.head_dim
+
+
 def test_hf_import_rejects_mismatched_kv_sharing(monkeypatch, tmp_path):
     native, reference, _ = gemma4_pair(monkeypatch)
     config = reference.config.to_dict()
@@ -317,12 +343,18 @@ def test_generate_accepts_multiple_stop_token_ids(monkeypatch):
     torch.testing.assert_close(actual, tokens, atol=0, rtol=0)
 
 
-def test_hf_export_rejects_unmerged_lora_weights():
+@pytest.mark.parametrize(
+    "name",
+    [
+        "model.layers.0.self_attn.q_proj.base_layer.weight",
+        "model.layers.0.experts.0.lora_gate_proj.lora_A",
+        "model.layers.0.experts.0.lora_down_proj.lora_B",
+    ],
+)
+def test_hf_export_rejects_unmerged_lora_weights(name):
     mapper = WeightMapper(Architecture.GEMMA4, 1)
     with pytest.raises(ValueError, match="Merge Gemma 4 LoRA"):
-        mapper.ironcore_to_hf(
-            {"model.layers.0.self_attn.q_proj.base_layer.weight": torch.ones(2, 2)}
-        )
+        mapper.ironcore_to_hf({name: torch.ones(2, 2)})
 
 
 def test_native_checkpoint_retains_ple_weights_and_layer_scalars(monkeypatch, tmp_path):

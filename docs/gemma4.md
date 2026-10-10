@@ -331,7 +331,7 @@ hf download google/gemma-4-26B-A4B-it --local-dir .local/models/gemma-4-26B-A4B-
 MALLOC_MMAP_THRESHOLD_=131072 MALLOC_TRIM_THRESHOLD_=131072 MALLOC_ARENA_MAX=2 \
 PYTORCH_ALLOC_CONF=expandable_segments:True \
 torchrun --standalone --nproc_per_node=2 examples/gemma4_sft.py \
-  --sequence-length 32768 --output .local/gemma4-a4b-study/full-tp2-32768
+  --attention-only --sequence-length 32768 --output .local/gemma4-a4b-study/full-tp2-32768
 ```
 
 The run combines BF16 frozen weights, FP32 attention LoRA (rank 8, alpha 16),
@@ -343,11 +343,32 @@ top-8 routing is preserved. The allocator environment limits retained CPU
 arenas when transferring frozen parameters into pinned tiles. The example
 also releases unused glibc memory once after initialization, outside the train loop.
 
-The official template is rendered with `enable_thinking: true` consistently
-for complete conversations and assistant prefixes, through per-dataset
-`chat_template_kwargs`. This avoids the empty thought block added only to
-generation prefixes by the default non-thinking template. Preprocessing retains
-strict prefix checks instead of silently supervising user/prompt tokens.
+The current example defaults to **non-thinking SFT** and follows the checkpoint's
+official generation prefix. A4B prefixes plain assistant answers with the empty
+`<|channel>thought\n<channel|>` channel and excludes it from loss. E2B ends its
+generation prefix at the model header, so its SFT answers do not add that channel.
+Training and held-out loss use the same template. Format `gemma4-sft-v3` and
+template/mode fingerprints isolate serialized caches. `--enable-thinking`
+requires structured `reasoning` or `reasoning_content` and one assistant target
+per example; split multi-turn reasoning data before training. Inference keeps
+the official template, including stripping past thoughts between ordinary turns.
+
+The historical recorded feasibility runs rendered the official template with
+`enable_thinking: true` for complete conversations and assistant prefixes,
+through per-dataset `chat_template_kwargs`. This satisfied the preprocessing
+prefix checks. However, the answers contained no structured reasoning, and
+this does **not** follow Google's recommendation to prepend an empty thought
+channel when fine-tuning A4B/31B on non-thinking answers. See the
+[official formatting guidance](https://ai.google.dev/gemma/docs/core/prompt-formatting-gemma4).
+Treat these runs as execution and adapter validation; they do not validate
+the training format or reproduce official model capabilities. The learning
+study records this mismatch separately from its loss measurements. An audit of
+all 346 learning-study assistant turns confirmed that their first answer labels
+penalized opening the thought channel under a thinking request. Native BF16
+probes found channel-opening probability near 100% for the base model but
+0.0061% and 0.0159% for the saved adapter on two fixed prompts. Existing adapters
+need retraining from the official base with the corrected format; a larger
+generation cap cannot repair these learned first-token probabilities.
 
 On two RTX 3090 24 GiB GPUs, the full pretrained checkpoint passed TP=2/CP=1
 SFT at **32,768 real input tokens** on 2026-10-09:
@@ -456,6 +477,188 @@ estimate is **1.062e15 FLOPs/step**, or **8.32 nominal TFLOPS/s/GPU** using the
 mean time of steps 2–3. This does not include extra recomputation, CPU work,
 transfer traffic or a precise frozen-LoRA backward correction; it is not measured
 hardware MFU. Trainer MoE logging continues to report measured tokens/s.
+
+## A4B attention, shared MLP and routed-expert LoRA
+
+Public-data learning validation, with fixed held-out FineTome and LongAlign
+conversations, is documented in the
+[learning validation study](notes/gemma4-learning-validation.md). That study
+measures loss before/after training and after standalone-adapter reload;
+the repeated-instruction feasibility runs below have a different purpose.
+
+The SFT example now defaults to attention plus **both** MLP paths. Set
+`--attention-only` to reproduce the earlier attention-only validation and load
+its adapters. Explicit configuration is:
+
+```yaml
+peft:
+  method: lora
+  lora:
+    r: 8
+    alpha: 16
+    dropout: 0
+    parameter_precision: float32
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+```
+
+`gate_proj`, `up_proj` and `down_proj` select the shared MLP and every routed
+expert. Each expert's fused gate/up base projection has separate gate and up
+adapters; down has its own adapter. The router and all pretrained weights stay
+frozen. Natural top-8 routing decides which expert adapters receive gradients;
+globally idle experts keep `grad=None` and do not acquire Adam moments.
+
+| Adapter component | Rank-8 trainable parameters |
+| --- | ---: |
+| Attention | 5,744,640 |
+| Shared MLP | 3,548,160 |
+| Routed experts | 324,403,200 |
+| Total | 333,696,000 |
+
+The adapter is approximately 1.24 GiB in FP32. Expert adapters dominate its
+size even though each token activates only eight experts. Standalone native
+adapter save/load includes all three components without pretrained weights.
+`merge_lora_weights()` folds expert deltas into the frozen fused gate/up and
+separate down weights; native adapters are still not HF PEFT-format exports.
+
+Grouped execution uses two small GEMMs for each low-rank update rather than
+materializing a dense weight delta. These operations remain inside the bounded
+execution group and are recomputed in backward. Replicated column-A/row-B
+adapter gradients are summed across TP; column-B/row-A compute views gather
+their gradients. Communication boundaries are built on packed active adapters
+outside tile recomputation, avoiding a collective for each individual expert
+in each tile. Small ranks are padded only in CUDA grouped-GEMM operands to
+satisfy 16-byte stride alignment; saved rank and parameter shapes stay unchanged.
+Dropout streams are replayed in bounded backward. A fixed seed does not promise
+identical dropout masks between loop and grouped execution orders.
+
+For this example, `offload.optimizer_cpu_threads=1` is intentional: thousands
+of small expert adapter tensors cannot amortize CPU thread-pool overhead. A
+concurrent diagnostic on 22,528-element FP32 tensors measured 200 `sqrt` calls
+at 0.00176 seconds with one thread versus 2.78 seconds with 19 threads. This is
+a microbenchmark, not an end-to-end training speedup. The initial 19-thread
+full-model attempt was stopped during its first optimizer update, without a
+completed-step claim. The general offload default is unchanged.
+
+Download-free validation covers expert output, input/router-weight derivatives,
+all active adapter gradients against an independent loop reference, idle
+experts, partial target selection, dropout replay, adapter reload and merged
+inference. CUDA/NCCL checks cover grouped `torch`, `scheduled` and `triton`
+backends, nonzero-adapter FP32 TP1/TP2 gradient parity, BF16 training, exact
+replicas and native checkpoint/optimizer-state round trips. CP2 checks compare
+masked sample loss and every adapter gradient to CP1 on CPU and CUDA, including
+Triton routing on CUDA. These checks do not establish BF16 TP/CP bitwise parity.
+
+On two RTX 3090s, the full A4B checkpoint completed three real 32K
+TP2/CP1 updates with FP32 attention/shared/expert adapters and FP32 Adam
+moments. The remaining execution settings match the earlier attention-only
+run. The command is:
+
+```bash
+MALLOC_MMAP_THRESHOLD_=131072 MALLOC_TRIM_THRESHOLD_=131072 MALLOC_ARENA_MAX=2 \
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+torchrun --standalone --nproc_per_node=2 examples/gemma4_sft.py \
+  --sequence-length 32768 --steps 3 \
+  --output .local/gemma4-a4b-mlp-study/full-tp2-32768-t1
+```
+
+| Step | Assistant loss | Pre-clip gradient norm | Seconds |
+| --- | ---: | ---: | ---: |
+| 1 | 10.035909 | 1869.22 | 79.60 |
+| 2 | 4.067889 | 49830.63 | 74.74 |
+| 3 | 1.604439 | 268.53 | 75.73 |
+
+Allocated/reserved GPU peaks were **10.50 / 12.00 GiB per rank**, excluding
+CUDA driver and NCCL memory. Mean time of steps 2–3 was **75.23 seconds**.
+The earlier attention-only run used 9.45 GiB allocated and averaged 63.85
+seconds for those steps. These are separate smoke runs rather than a controlled
+throughput benchmark. Gradient clipping was 1; the large pre-clip spike is
+recorded rather than interpreted as established stable long-run training.
+
+All 230 attention and 180 shared-MLP adapter tensors changed. Routed experts
+had **16,890 of 23,040 adapter tensors** change; adapters were not constrained
+to a fixed small set of experts. First-forward natural routing used **96–127
+of 128 experts per layer** across the 32K input. Forward routing coverage does
+not guarantee every adapter has a nonzero supervised gradient on a short answer.
+The complete adapter contains **333,696,000 FP32 parameters**, with a
+1,337,595,536-byte safetensors file. Cross-rank fingerprints agreed and zeroing
+then reloading every adapter reproduced each tensor exactly. The repeated
+one-conversation loss decrease does not establish held-out instruction quality.
+
+Raw metrics are summarized in
+[`gemma4-a4b-32k-mlp-lora.json`](assets/gemma4-a4b-32k-mlp-lora.json).
+The checkpoint and raw configs/results remain under the ignored output path.
+
+The subsequent full-model CP2 attempt **failed from host memory pressure**.
+It loaded the same TP2 adapter with fresh Adam state. Kernel logs at
+2026-10-09 12:25:08 Asia/Seoul report global OOM and the OOM-killer terminating
+Traefik. Rank 1 reported one finite step after 2,563 seconds, but rank 0 did not
+finish and the following collective timed out. No complete CP2 run or final
+CP2 adapter is claimed. GPU OOM was not reported; the rank-1 allocated peak
+was 9.83 GiB. The CPU weight pool alone used 46.9 GiB **per rank**, followed
+by adapter gradients, moments, spilled activations and runtime overhead.
+The external sampler stalled with the host and did not prevent this incident.
+Traefik subsequently recovered and the node's MemoryPressure condition cleared.
+
+The example now screens RAM **before model allocation**, with estimated
+requirements of 91.26 GiB available for TP2 and 133.10 GiB for CP2 at this
+configuration, including scratch space and 16 GiB headroom. It also respects
+cgroup v2 remaining capacity while accounting for reclaimable inactive file
+cache. The 123 GiB host fails the CP2 check even when otherwise idle. This
+conservative estimate is not a memory reservation or a measured peak.
+
+The dedicated GPU test container was subsequently capped at **96 GiB RAM with
+swap disabled**, bounding test processes independently of the preflight check.
+The successful full TP2 result above predates that cap; it was not rerun under
+the new cap. Full CP2 was not retried. After restarting the dedicated test container to
+restore its GPU access, 30 TP CUDA cases and separate CPU/CUDA CP gradient
+checks passed again. Host/cgroup budget screening has five passing tests.
+Tiny CP2 numerical tests remain a correctness check, not evidence that full CP2 fits this host. Use the validated
+TP2 configuration here; CP2 requires more host RAM or a different weight-storage
+strategy. TP2+CP2 together requires four GPUs in the current parallel layout.
+
+The public [Axolotl A4B recipe](https://github.com/axolotl-ai-cloud/axolotl/blob/main/examples/gemma4/26b-a4b-moe-qlora.yaml)
+likewise adapts attention, shared MLP and routed experts. Its base checkpoint,
+QLoRA quantization, rank and dataset differ from this BF16 feasibility run.
+
+## BF16 rounding and numerical validation
+
+Gemma's HF configuration selects `moe.expert_accumulation_precision: model`.
+Grouped execution rounds each weighted expert contribution to the model dtype
+and adds contributions in expert order. The generic MoE default remains
+`float32`; this option changes the rounding policy, not the expert selection.
+Frozen CUDA RMSNorm computes statistics in FP32 and writes its output and
+input gradient directly in the model dtype, without full-size FP32 activation
+buffers. Trainable norm weights and unsupported layouts use the ordinary path.
+
+Same-weight, same-input standalone A4B expert comparisons on two RTX 3090s
+measured maximum BF16 TP2 relative L2 differences of 0.53% for outputs,
+0.84% for input gradients and 0.63% for LoRA gradients. These local checks
+do not certify complete BF16 training parity. In a four-layer random scaled
+A4B model, a same-state, fixed-HF-top8 comparison measured a 27.12% full LoRA
+gradient difference. A separate HF-only experiment that split base GEMMs
+into two shards and added BF16 row-partial outputs reproduced 27.34%; its
+FP32 counterpart differed by 0.000828%. Matching each layer's input values
+reduced the native/HF gradient difference to 2.77%. Small forward rounding
+differences can therefore accumulate and amplify through attention even
+when each module's common-input comparison is close.
+
+For the scaled model's narrow K/V projection, the following process-level
+backend option removed the isolated column-GEMM discrepancy while preserving
+BF16 output tensors:
+
+```python
+torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+```
+
+The probe rejected Python-visible FP32 CUDA tensor results during those
+operations; opaque cuBLAS workspace was not inspected. The option does not
+remove differences from summing already-rounded BF16 row-partial outputs and
+is not enabled automatically. The real pretrained A4B has wider K/V projections
+and different learned norm scales than the random fixture. These experiments
+explain the scaled numerical discrepancy, not the previously observed
+full-size SFT capability regression. Raw traces, controls, BF16 storage notes
+and the standalone HTML report are retained under the ignored
+`.local/gemma4-boundary-study/` directory.
 
 ## Sources
 
