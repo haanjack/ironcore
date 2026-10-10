@@ -135,12 +135,16 @@ class TransformerLayer(BaseModule):
             with tensor_parallel_rng_fork(self.config.init.seed, attention_output.device):
                 attention_output = self.residual_dropout(attention_output)
 
+        if self.config.model.is_granitemoe:
+            attention_output = attention_output * self.config.model.granitemoe.residual_multiplier
         return hidden_states + attention_output
 
     def _mlp_subblock(self, norm_input):
         """MLP sub-block: layernorm + MLP + residual."""
         norm_output = self.post_attn_layernorm(norm_input)
         mlp_output = self.mlp(norm_output)
+        if self.config.model.is_granitemoe:
+            mlp_output = mlp_output * self.config.model.granitemoe.residual_multiplier
         return norm_input + mlp_output
 
     def _full_layer_subblock(
@@ -313,6 +317,8 @@ class TransformerLayer(BaseModule):
                 attention_output = self.residual_dropout(attention_output)
 
         residual = hidden_states
+        if self.config.model.is_granitemoe:
+            attention_output = attention_output * self.config.model.granitemoe.residual_multiplier
         norm_input = residual + attention_output
         norm_output = self.post_attn_layernorm(norm_input)
         mlp_output = (
@@ -320,6 +326,8 @@ class TransformerLayer(BaseModule):
             if self.config.model.moe.use_moe
             else self.mlp(norm_output)
         )
+        if self.config.model.is_granitemoe:
+            mlp_output = mlp_output * self.config.model.granitemoe.residual_multiplier
         output = norm_input + mlp_output
 
         if use_cache or kv_cache_manager is not None or block_kv_cache_manager is not None:

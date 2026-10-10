@@ -68,6 +68,28 @@ class HFConfigManager:
             "hidden_act": config.model.activation_type,
             "architectures": [architecture],
         }
+        if config.model.is_granitemoe:
+            from dataclasses import asdict
+
+            model = config.model
+            hf_config.update(
+                asdict(model.granitemoe),
+                hidden_act="silu",
+                rms_norm_eps=model.ln_eps,
+                num_key_value_heads=model.num_attention_groups,
+                num_local_experts=model.moe.num_routed_experts,
+                num_experts_per_tok=model.moe.num_experts_per_token,
+                rope_theta=model.positional_embedding.base,
+                rope_parameters={
+                    "rope_type": "default",
+                    "rope_theta": model.positional_embedding.base,
+                },
+                attention_dropout=model.dropout_attn,
+                attention_bias=False,
+                tie_word_embeddings=not model.untie_embed,
+                router_aux_loss_coef=0.0,
+                dtype=model.precision,
+            )
         return hf_config
 
     @staticmethod

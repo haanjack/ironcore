@@ -921,7 +921,13 @@ class BaseTrainer(ABC):
                 grad_norm = self.model.clip_grad_norm_(self.config.optim.clip_grad).item()
             else:
                 grad_norm = clip_grad_norm(
-                    self.model.parameters(), self.config.optim.clip_grad
+                    self.model.parameters(),
+                    self.config.optim.clip_grad,
+                    # Stable clipping across packed HF and per-expert native
+                    # adapter layouts. The scalar coefficient stays FP32.
+                    accumulation_dtype=torch.float64
+                    if self.config.utils.deterministic
+                    else torch.float32,
                 ).item()
         elif self.control.do_grad_norm(step):
             # No clipping, but compute norm for logging (clip_grad=inf means compute but don't clip)

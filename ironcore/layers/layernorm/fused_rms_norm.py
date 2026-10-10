@@ -17,11 +17,15 @@ class RmsNorm(BaseModule):
         self.layernorm = nn.RMSNorm(config.model.d_model, eps=float(config.model.ln_eps))
 
     def forward(self, x):
-        if self.config.model.hf_model_type == "llama":
+        if self.config.model.hf_model_type == "llama" or self.config.model.is_granitemoe:
             from .rms_norm_kernel import frozen_scale_rms_norm
 
             result = frozen_scale_rms_norm(
-                x, self.layernorm.weight, self.layernorm.eps, round_before_scale=True
+                x,
+                self.layernorm.weight,
+                self.layernorm.eps,
+                round_before_scale=True,
+                torch_compatible=self.config.model.is_granitemoe,
             )
             if result is not None:
                 return result

@@ -20,7 +20,6 @@ transient VRAM per parameter compared to staging optimizer states on GPU.
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -127,18 +126,17 @@ def _adamw_offloaded_step_cpu_compute(
         max_exp_avg_sq = state["max_exp_avg_sq"].to(dtype=torch.float32)
 
     # AdamW math on CPU (PyTorch ops use SIMD/AVX-512 via MKL/OpenBLAS)
-    exp_avg.mul_(beta1).add_(grad_cpu_f32, alpha=1 - beta1)
+    exp_avg.lerp_(grad_cpu_f32.to(exp_avg.dtype), 1 - beta1)
     exp_avg_sq.mul_(beta2).addcmul_(grad_cpu_f32, grad_cpu_f32, value=1 - beta2)
 
     if amsgrad and max_exp_avg_sq is not None:
         torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-        denom = max_exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
+        denom = (max_exp_avg_sq.sqrt() / ((1.0 - beta2 ** state["step"]) ** 0.5)).add_(eps)
     else:
-        denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
+        denom = (exp_avg_sq.sqrt() / ((1.0 - beta2 ** state["step"]) ** 0.5)).add_(eps)
 
     bias_correction1 = 1.0 - beta1 ** state["step"]
-    bias_correction2 = 1.0 - beta2 ** state["step"]
-    step_size = lr * math.sqrt(bias_correction2) / bias_correction1
+    step_size = lr / bias_correction1
 
     # Compute update delta on CPU, cast to param dtype for smaller H2D transfer
     delta = (exp_avg / denom).mul_(-step_size).to(p.dtype)
@@ -212,18 +210,17 @@ def _adamw_offloaded_step(
         # Use a float32 copy of gradient for accumulation if needed
         grad_f32 = grad.to(torch.float32)
 
-        exp_avg.mul_(beta1).add_(grad_f32, alpha=1 - beta1)
+        exp_avg.lerp_(grad_f32.to(exp_avg.dtype), 1 - beta1)
         exp_avg_sq.mul_(beta2).addcmul_(grad_f32, grad_f32, value=1 - beta2)
 
         if amsgrad and max_exp_avg_sq is not None:
             torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-            denom = max_exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
+            denom = (max_exp_avg_sq.sqrt() / ((1.0 - beta2 ** state["step"]) ** 0.5)).add_(eps)
         else:
-            denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
+            denom = (exp_avg_sq.sqrt() / ((1.0 - beta2 ** state["step"]) ** 0.5)).add_(eps)
 
         bias_correction1 = 1.0 - beta1 ** state["step"]
-        bias_correction2 = 1.0 - beta2 ** state["step"]
-        step_size = lr * math.sqrt(bias_correction2) / bias_correction1
+        step_size = lr / bias_correction1
 
         if weight_decay != 0:
             p.data.mul_(1 - lr * weight_decay)

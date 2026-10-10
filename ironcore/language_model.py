@@ -34,8 +34,10 @@ class LanguageModel(BaseModule):
         from ironcore.config.config_blockwise import validate_blockwise_mlp
         from ironcore.config.config_context_parallel import validate_context_parallel
         from ironcore.config.config_gemma4 import validate_gemma4_runtime
+        from ironcore.config.config_granitemoe import validate_granitemoe_runtime
 
         validate_gemma4_runtime(config)
+        validate_granitemoe_runtime(config)
         validate_blockwise_mlp(config)
         validate_context_parallel(config)
         if (
@@ -294,6 +296,10 @@ class LanguageModel(BaseModule):
                 softcap=self.config.model.gemma4.final_logit_softcapping
                 if self.config.model.is_gemma4
                 else None,
+                logits_scaling=self.config.model.granitemoe.logits_scaling
+                if self.config.model.is_granitemoe
+                else 1.0,
+                trim_padding=self.config.model.is_granitemoe,
             )
             if loss_sample_ids is not None:
                 return self.loss_fn(per_token, loss_mask, sample_ids=loss_sample_ids)
@@ -311,7 +317,24 @@ class LanguageModel(BaseModule):
                 return reduction(per_token, loss_mask)
             return self.loss_fn(per_token, loss_mask)
 
-        if self.config.model.untie_embed:
+        if self.config.model.is_granitemoe:
+            from ironcore.layers.linear_cross_entropy import vocab_linear
+            from ironcore.parallel.tensor_parallel import comm
+
+            input_parallel = comm.copy_inputs_to_model_parallel_workers(lm_output)
+            weight = (
+                self.output_layer.weight
+                if self.config.model.untie_embed
+                else self.embedding.word_embeddings.weight
+            )
+            logits_parallel = vocab_linear(
+                input_parallel,
+                weight,
+                self.padding_start_idx,
+                transposed=self.config.model.untie_embed,
+                trim_padding=True,
+            )
+        elif self.config.model.untie_embed:
             logits_parallel = self.output_layer(lm_output)
         else:
             from ironcore.parallel.tensor_parallel import comm
@@ -319,6 +342,8 @@ class LanguageModel(BaseModule):
             input_parallel = comm.copy_inputs_to_model_parallel_workers(lm_output)
             logits_parallel = F.linear(input_parallel, self.embedding.word_embeddings.weight)
 
+        if self.config.model.is_granitemoe:
+            logits_parallel = logits_parallel / self.config.model.granitemoe.logits_scaling
         if self.config.model.is_gemma4:
             softcap = self.config.model.gemma4.final_logit_softcapping
             if softcap is not None:

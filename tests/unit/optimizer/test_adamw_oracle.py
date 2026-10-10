@@ -68,3 +68,24 @@ def test_bfloat16_parameter_resume_preserves_original_fp32_moments(kind):
         torch.testing.assert_close(
             optimizer.state[parameter][key], before["state"][0][key], atol=0, rtol=0
         )
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_fp32_adamw_update_order_matches_torch_bitwise(device):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA update-order oracle")
+    torch.manual_seed(31)
+    native = torch.nn.Parameter(torch.randn(128, 8, device=device))
+    reference = torch.nn.Parameter(native.detach().clone())
+    options = dict(lr=2e-5, betas=(0.9, 0.95), eps=1e-4, weight_decay=0.03)
+    optimizer = AdamWOptimizer([native], **options)
+    oracle = torch.optim.AdamW([reference], foreach=False, **options)
+    for step in range(8):
+        gradient = torch.randn_like(native) * (10.0 ** (-step))
+        native.grad = gradient.clone()
+        reference.grad = gradient.clone()
+        optimizer.step()
+        oracle.step()
+        assert torch.equal(native, reference)
+        for name in ["exp_avg", "exp_avg_sq"]:
+            assert torch.equal(optimizer.state[native][name], oracle.state[reference][name])

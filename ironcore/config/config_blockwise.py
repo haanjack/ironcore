@@ -29,6 +29,8 @@ def validate_blockwise_mlp(config: MainConfig) -> None:
             raise ValueError("Gemma 4 blocked MoE currently requires grouped experts")
     if config.model.dropout_mlp or (config.peft.method == "lora" and config.peft.lora.dropout):
         raise ValueError("Block-wise MLP currently requires zero MLP/LoRA dropout")
-    gemma_offload = config.model.is_gemma4 and config.offload.activation_spill
-    if (config.offload.enabled and not gemma_offload) or config.parallel.use_fsdp:
+    decoder_offload = (
+        config.model.is_gemma4 or config.model.is_granitemoe
+    ) and config.offload.activation_spill
+    if (config.offload.enabled and not decoder_offload) or config.parallel.use_fsdp:
         raise ValueError("Block-wise MLP offload and FSDP have not been validated")

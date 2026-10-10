@@ -50,8 +50,10 @@ def _config_validation(config: MainConfig):
     from .config_blockwise import validate_blockwise_mlp
     from .config_context_parallel import validate_context_parallel
     from .config_gemma4 import validate_gemma4_runtime
+    from .config_granitemoe import validate_granitemoe_runtime
 
     validate_gemma4_runtime(config)
+    validate_granitemoe_runtime(config)
     validate_blockwise_mlp(config)
     validate_context_parallel(config)
     # train steps. Allow train_steps == 0 only in eval-only mode (eval datasets

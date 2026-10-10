@@ -27,6 +27,10 @@ def expert_parameters(experts, active):
     gathered gradients. Build those boundaries outside block recomputation so
     collectives run once for each packed adapter, rather than once per tile.
     """
+    if getattr(experts[0], "folded_parameter_lora", False):
+        from .granitemoe import folded_expert_parameters
+
+        return folded_expert_parameters(experts, active)
     bias = experts[0].up_proj.bias is not None
     stride = 3 if bias else 2
     parameters = [

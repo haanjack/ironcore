@@ -17,8 +17,6 @@ Key features:
 - Hybrid approach: Muon for 2D hidden weights, AdamW for embeddings/output/biases
 """
 
-import math
-
 import torch
 from torch.optim import Optimizer
 
@@ -406,18 +404,17 @@ class MuonOptimizer(Optimizer):
             state["step"] += 1
 
             # Decay the first and second moment running average coefficient
-            exp_avg.mul_(beta1).add_(grad, alpha=1 - beta1)
+            exp_avg.lerp_(grad.to(exp_avg.dtype), 1 - beta1)
             exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
             if amsgrad and max_exp_avg_sq is not None:
                 torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-                denom = max_exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
+                denom = (max_exp_avg_sq.sqrt() / ((1.0 - beta2 ** state["step"]) ** 0.5)).add_(eps)
             else:
-                denom = exp_avg_sq.sqrt().add_(eps * math.sqrt(1.0 - beta2 ** state["step"]))
+                denom = (exp_avg_sq.sqrt() / ((1.0 - beta2 ** state["step"]) ** 0.5)).add_(eps)
 
             bias_correction1 = 1.0 - beta1 ** state["step"]
-            bias_correction2 = 1.0 - beta2 ** state["step"]
-            step_size = lr * math.sqrt(bias_correction2) / bias_correction1
+            step_size = lr / bias_correction1
 
             # Apply decoupled weight decay
             if weight_decay != 0:

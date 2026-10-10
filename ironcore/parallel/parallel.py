@@ -41,6 +41,12 @@ def initialize_process(config: MainConfig):
     # rank/world_size are passed explicitly to init_process_group.
     import os
 
+    if config.utils.deterministic:
+        # cuDNN alone does not select deterministic Flash SDPA backward.
+        # Set the cuBLAS workspace before the first CUDA context is created.
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+        torch.use_deterministic_algorithms(True)
+
     os.environ.setdefault("MASTER_ADDR", "localhost")
     os.environ.setdefault("MASTER_PORT", "29500")
     os.environ.setdefault("RANK", str(config.parallel.rank))
@@ -67,6 +73,7 @@ def initialize_process(config: MainConfig):
 
         if config.utils.deterministic:
             torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
 
     # initialize parallelism
     if not torch.cuda.is_available():

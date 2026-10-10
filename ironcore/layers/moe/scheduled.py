@@ -95,6 +95,11 @@ def _project(
     stride = stride or (3 if bias else 2)
     up = torch.stack([parameters[stride * i] for i in block.owners])
     down = torch.stack([parameters[stride * i + 1] for i in block.owners])
+    if getattr(activation, "hf_weight_layout", False):
+        # Match HF packed [expert, output, input] storage while preserving
+        # native checkpoint layout. GEMM operand strides affect BF16 rounding.
+        up = up.transpose(-1, -2).contiguous().transpose(-1, -2)
+        down = down.transpose(-1, -2).contiguous().transpose(-1, -2)
     if padded:
         packed = tokens.view(len(block.owners), block.width, tokens.size(-1))
         projected = torch.bmm(packed, up)

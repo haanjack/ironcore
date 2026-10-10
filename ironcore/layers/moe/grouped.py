@@ -67,9 +67,12 @@ def grouped_experts(
     ids = indices.reshape(-1)
     if ids.numel() == 0:
         return x * 0
-    order = ids.argsort(stable=True)
+    granite = experts[0].config.model.is_granitemoe
+    order = ids.argsort(stable=not granite)
     sizes = torch.bincount(ids, minlength=len(experts)).tolist()
-    groups = plan_execution_groups(sizes, config.grouped_token_budget)
+    groups = plan_execution_groups(
+        sizes, config.grouped_token_budget, preserve_expert_segments=granite
+    )
     active = [i for i, count in enumerate(sizes) if count]
     compute_dtype = (
         torch.get_autocast_dtype(x.device.type)
@@ -112,10 +115,24 @@ def grouped_experts(
             result = project(tokens)
         outputs.append(result)
     sorted_outputs = torch.cat(outputs) if len(outputs) > 1 else outputs[0]
+    if granite:
+        # HF scales complete expert outputs, after row-TP reduction. Reduce
+        # before weighting to preserve this rounding boundary and avoid
+        # summing the replicated routing-weight gradients a second time.
+        sorted_outputs = comm.reduce_inputs_from_model_parallel_workers(sorted_outputs)
     original = sorted_outputs[order.argsort()].view(-1, topk, hidden.size(-1))
-    parallel_weights = comm.copy_inputs_to_model_parallel_workers(weights)
-    result = (original * parallel_weights.reshape(-1, topk, 1)).sum(1)
-    result = comm.reduce_inputs_from_model_parallel_workers(result)
+    parallel_weights = weights if granite else comm.copy_inputs_to_model_parallel_workers(weights)
+    weighted = original * parallel_weights.reshape(-1, topk, 1)
+    if granite:
+        # CUDA autocast promotes sum() to an FP32 result. HF explicitly casts
+        # that sum back before the residual. Specifying the output dtype keeps
+        # the internal FP32 reduction and writes BF16 directly, without a
+        # hidden-sized FP32 output buffer or a promoted residual stream.
+        result = weighted.sum(1, dtype=x.dtype)
+    else:
+        result = weighted.sum(1)
+    if not granite:
+        result = comm.reduce_inputs_from_model_parallel_workers(result)
     if down_bias is not None:
         # Map original global expert ids to compact active weights without
         # creating optimizer gradients for globally idle experts.

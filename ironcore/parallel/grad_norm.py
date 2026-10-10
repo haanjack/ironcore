@@ -21,6 +21,7 @@ def clip_grad_norm(
     parameters: Union[torch.Tensor, Iterable[torch.Tensor]],
     max_norm: float,
     norm_type: float = 2.0,
+    accumulation_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     """
     Clips gradient norm of an iterable of parameters across distributed training.
@@ -58,10 +59,12 @@ def clip_grad_norm(
 
     # Helper to calculate local power sum for a group of parameters
     def get_local_pow_sum(params):
-        sharded_pow = torch.tensor(0.0, device=device)
-        replicated_pow = torch.tensor(0.0, device=device)
+        sharded_pow = torch.tensor(0.0, device=device, dtype=accumulation_dtype)
+        replicated_pow = torch.tensor(0.0, device=device, dtype=accumulation_dtype)
         for p in params:
-            p_pow = (p.grad.detach().norm(norm_type) ** norm_type).to(device)
+            p_pow = (p.grad.detach().norm(norm_type, dtype=accumulation_dtype) ** norm_type).to(
+                device
+            )
             if getattr(p, "is_tp_sharded", False):
                 sharded_pow += p_pow
             else:
@@ -164,7 +167,7 @@ def clip_grad_norm(
                 local_expert_pow, local_non_expert_pow = combined[0], combined[1]
 
         total_norm_pow = local_expert_pow + local_non_expert_pow
-        total_norm = total_norm_pow ** (1.0 / norm_type)
+        total_norm = (total_norm_pow ** (1.0 / norm_type)).float()
 
     # --- Step 5: Apply Clipping ---
     clip_coef = max_norm / (total_norm + 1e-6)

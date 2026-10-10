@@ -88,6 +88,11 @@ class MoEMLP(BaseModule):
 
         model_config = config.model
         moe_config = model_config.moe
+        expert_class, router_class = ExpertMLP, TopKRouter
+        if model_config.is_granitemoe:
+            from .granitemoe import GraniteExpert, GraniteRouter
+
+            expert_class, router_class = GraniteExpert, GraniteRouter
 
         # MoE parameters
         self.hidden_size = model_config.d_model
@@ -128,7 +133,7 @@ class MoEMLP(BaseModule):
         # These are not affected by expert parallelism (each rank has full shared experts)
         self.shared_experts = nn.ModuleList(
             [
-                ExpertMLP(
+                expert_class(
                     config=config,
                     hidden_size=self.hidden_size,
                     intermediate_size=self.expert_intermediate_size,
@@ -156,7 +161,7 @@ class MoEMLP(BaseModule):
         # Routed experts - each rank holds a subset if EP > 1
         self.routed_experts = nn.ModuleList(
             [
-                ExpertMLP(
+                expert_class(
                     config=config,
                     hidden_size=self.hidden_size,
                     intermediate_size=self.expert_intermediate_size,
@@ -172,7 +177,7 @@ class MoEMLP(BaseModule):
                 p.is_expert = True
 
         # Router
-        self.router = TopKRouter(
+        self.router = router_class(
             config=config,
             hidden_size=self.hidden_size,
             num_experts=self.num_routed_experts,

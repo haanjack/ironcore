@@ -41,6 +41,30 @@ def test_group_boundary_splits_an_expert_and_fills_spare_rows():
     )
 
 
+@pytest.mark.parametrize("counts", [[5, 0, 3, 7], [1, 100, 1], [7, 7, 7, 7], [0, 0]])
+def test_preserve_expert_geometry_with_a_hard_row_budget(counts):
+    budget = 7
+    groups = plan_execution_groups(counts, budget, preserve_expert_segments=True)
+    ownership = [expert for expert, count in enumerate(counts) for _ in range(count)]
+    actual = []
+    segments = {i: [] for i in range(len(counts))}
+    for group in groups:
+        assert group.start == len(actual)
+        assert 0 < group.tokens <= budget
+        for expert, count in zip(group.experts, group.counts, strict=True):
+            actual.extend([expert] * count)
+            segments[expert].append(count)
+    assert actual == ownership
+    for expert, count in enumerate(counts):
+        if 0 < count <= budget:
+            assert segments[expert] == [count]
+    assert plan_execution_groups([5, 0, 3, 7], budget, preserve_expert_segments=True) == (
+        ExecutionGroup(0, 5, (0,), (5,)),
+        ExecutionGroup(5, 3, (2,), (3,)),
+        ExecutionGroup(8, 7, (3,), (7,)),
+    )
+
+
 @pytest.mark.parametrize("budget", [0, -1, True, 2.5, "7", None])
 def test_invalid_group_budget(budget):
     with pytest.raises(ValueError, match="positive integer"):

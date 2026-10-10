@@ -416,6 +416,22 @@ def load_from_huggingface(
 
     # Apply tensor parallel splitting if needed
     tp_world_size = parallel_states.get_tensor_model_parallel_world_size()
+    model_state = model.state_dict()
+    # Pad the global vocabulary BEFORE sharding. A checkpoint vocabulary can
+    # be odd (Granite: 49155), and padding each already-split shard would move
+    # token IDs at the partition boundary. Untied native heads use [H, V].
+    for name, dim in (("embedding.word_embeddings.weight", 0), ("output_layer.weight", 1)):
+        if name not in ironcore_state_dict or name not in model_state:
+            continue
+        loaded = ironcore_state_dict[name]
+        target = model_state[name].shape[dim] * tp_world_size
+        if loaded.shape[dim] != target:
+            shape = list(loaded.shape)
+            shape[dim] = target
+            padded = loaded.new_zeros(shape)
+            count = min(target, loaded.shape[dim])
+            padded.narrow(dim, 0, count).copy_(loaded.narrow(dim, 0, count))
+            ironcore_state_dict[name] = padded
     if tp_world_size > 1:
         for name in list(ironcore_state_dict.keys()):
             module_name = ".".join(name.split(".")[:-1])
@@ -431,7 +447,6 @@ def load_from_huggingface(
                     )
 
     # Reshape tensors to match model parameters
-    model_state = model.state_dict()
     final_state_dict = {}
     missing_keys = []
     unexpected_keys = list(ironcore_state_dict.keys())
@@ -578,6 +593,11 @@ def export_to_huggingface(
     arch_enum = get_architecture(architecture)
     mapper = WeightMapper(arch_enum, num_layers)
     hf_state_dict = mapper.ironcore_to_hf(ironcore_state_dict, strict=False)
+    if arch_enum == Architecture.GRANITEMOE:
+        vocab = model.padding_start_idx
+        for name in ("model.embed_tokens.weight", "lm_head.weight"):
+            if name in hf_state_dict:
+                hf_state_dict[name] = hf_state_dict[name][:vocab].contiguous()
 
     # Move all tensors to CPU for saving
     hf_state_dict = {k: v.cpu() for k, v in hf_state_dict.items()}
@@ -758,6 +778,12 @@ def _generate_hf_config(
 ) -> dict:
     """Generate HuggingFace config from ironcore model."""
     config = getattr(model, "config", None)
+    if config is not None and config.model.is_granitemoe:
+        from .native import HFConfigManager
+
+        hf_config = HFConfigManager.get_hf_config(config)
+        hf_config["vocab_size"] = model.padding_start_idx
+        return hf_config
 
     # Try to extract dimensions from model
     hidden_size = None

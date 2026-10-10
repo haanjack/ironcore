@@ -63,3 +63,29 @@ def test_frozen_cuda_norm_matches_hf_without_full_fp32_activation(family, width,
     for a, b in ((actual, expected), (inputs.grad, other.grad)):
         error = (a.float() - b.float()).norm()
         assert error <= 2e-3 * b.float().norm(), (family, width, dtype, float(error))
+
+
+@pytest.mark.parametrize("width,rows", [(1024, 1024), (1024, 1), (576, 21), (2816, 21), (128, 7)])
+def test_granite_reference_reduction_without_fp32_activation(width, rows):
+    if not torch.cuda.is_available():
+        pytest.skip("Frozen-scale fused RMSNorm requires CUDA")
+    from transformers.models.granitemoe.modeling_granitemoe import GraniteMoeRMSNorm
+
+    torch.manual_seed(42)
+    reference = GraniteMoeRMSNorm(width, eps=1e-6).to("cuda", torch.bfloat16).requires_grad_(False)
+    reference.weight.data.uniform_(0.5, 1.5)
+    x = (torch.randn(rows, width, device="cuda", dtype=torch.bfloat16) * 7).requires_grad_()
+    other = x.detach().clone().requires_grad_()
+    coefficient = torch.randn_like(x)
+    expected = reference(other)
+    expected.backward(coefficient)
+    trace = FullPrecisionActivationTrace(x.numel())
+    with trace:
+        actual = frozen_scale_rms_norm(
+            x, reference.weight, 1e-6, round_before_scale=True, torch_compatible=True
+        )
+        actual.backward(coefficient)
+    assert actual.dtype == torch.bfloat16
+    assert not trace.outputs, trace.outputs
+    assert torch.equal(actual, expected)
+    assert torch.equal(x.grad, other.grad)

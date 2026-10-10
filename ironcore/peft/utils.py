@@ -119,6 +119,7 @@ def merge_lora_weights(model):
         The same model, mutated in-place, for convenience.
     """
     from ironcore.layers.gemma4 import Gemma4Expert
+    from ironcore.layers.moe.granitemoe import GraniteExpert, folded_expert_parameters
 
     from .lora import (
         LoRAColumnParallelLinear,
@@ -145,7 +146,14 @@ def merge_lora_weights(model):
     @torch.no_grad()
     def _merge_module(module: torch.nn.Module):
         for name, child in list(module.named_children()):
-            if isinstance(child, Gemma4Expert):
+            if isinstance(child, GraniteExpert):
+                parameters, _, _ = folded_expert_parameters([child], [0])
+                child.up_proj.weight.copy_(parameters[0])
+                child.down_proj.weight.copy_(parameters[1])
+                for projection in ("gate_up_proj", "down_proj"):
+                    if hasattr(child, f"lora_{projection}"):
+                        delattr(child, f"lora_{projection}")
+            elif isinstance(child, Gemma4Expert):
                 for projection in ("gate_proj", "up_proj", "down_proj"):
                     adapter_name = f"lora_{projection}"
                     adapter = getattr(child, adapter_name, None)

@@ -67,7 +67,10 @@ class UtilsConfig(BaseConfig):
 
     log_level: str = field(default="INFO", metadata={"help": "log level"})
 
-    deterministic: bool = field(default=False, metadata={"help": "Enable deterministic mode"})
+    deterministic: bool = field(
+        default=False,
+        metadata={"help": "Enable deterministic kernels and FP64 clipping-norm accumulation"},
+    )
 
     report_memory_usage: bool = field(
         default=True, metadata={"help": "Show detailed memory breakdown at step 1"}
