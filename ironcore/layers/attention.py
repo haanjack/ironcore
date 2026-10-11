@@ -42,6 +42,9 @@ class Attention(BaseModule):
         self.attn_dropout = nn.Dropout(config.model.dropout_attn)
 
         self.scale_factor = self.head_dimension**0.5
+        self.softmax_scale = (
+            config.model.granitemoe.attention_multiplier if config.model.is_granitemoe else None
+        )
         self.mask_value = torch.finfo(get_model_dtype(self.config)).min
         self.context_attention = None
         if config.trainer.context_parallel_size > 1:
@@ -60,8 +63,14 @@ class Attention(BaseModule):
         is_causal: bool = False,
     ):
         """Attention via F.scaled_dot_product_attention using [b, s, n, d] layout."""
+        native_gqa = (
+            self.config.model.is_granitemoe
+            and query.device.type == "cuda"
+            and (attention_mask is None or is_causal)
+            and key.size(-1) == value.size(-1) <= 256
+        )
         # GQA expansion
-        if key.size(2) != query.size(2):
+        if key.size(2) != query.size(2) and not native_gqa:
             key = expand_for_gqa(
                 key, self.num_local_attention_groups, self.num_local_attention_heads, kv_dim=2
             )
@@ -70,9 +79,11 @@ class Attention(BaseModule):
             )
 
         # SDPA expects [b, n, s, d]; contiguous() ensures fast kernel dispatch
-        query = query.transpose(1, 2).contiguous()
-        key = key.transpose(1, 2).contiguous()
-        value = value.transpose(1, 2).contiguous()
+        query = query.transpose(1, 2)
+        key = key.transpose(1, 2)
+        value = value.transpose(1, 2)
+        if not native_gqa:
+            query, key, value = (t.contiguous() for t in (query, key, value))
 
         dropout_p = self.config.model.dropout_attn if self.training else 0.0
         # is_causal=True is the reliable path under torch.compile — SDPA boolean masks
@@ -91,6 +102,8 @@ class Attention(BaseModule):
                 attn_mask=sdpa_mask,
                 dropout_p=dropout_p,
                 is_causal=is_causal,
+                scale=self.softmax_scale,
+                enable_gqa=native_gqa and query.size(1) != key.size(1),
             )
 
         # [b, n, sq, d] -> [b, sq, n*d]
@@ -147,6 +160,8 @@ class Attention(BaseModule):
             seq_len_kv,
             dropout_p,
             causal=causal,
+            softmax_scale=self.softmax_scale,
+            deterministic=torch.are_deterministic_algorithms_enabled(),
         )
 
         # [b*sq, hn, hd] -> [b, sq, hn*hd]

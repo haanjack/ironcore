@@ -21,6 +21,7 @@ class MoEConfig(BaseConfig):
     expert_backend: str = "loop"  # loop | batched | grouped (EP1 for batched/grouped)
     grouped_token_budget: int = 4096
     blockwise_backend: str = "torch"  # torch | scheduled | triton
+    expert_accumulation_precision: str = "float32"  # float32 | model (bias-free grouped)
 
     # Expert counts
     num_shared_experts: int = field(
@@ -88,6 +89,8 @@ class MoEConfig(BaseConfig):
             raise ValueError("expert_backend must be loop, batched or grouped")
         if self.blockwise_backend not in ("torch", "scheduled", "triton"):
             raise ValueError("blockwise_backend must be torch, scheduled or triton")
+        if self.expert_accumulation_precision not in ("float32", "model"):
+            raise ValueError("expert_accumulation_precision must be float32 or model")
         if self.blockwise_backend != "torch" and self.expert_backend == "loop":
             raise ValueError("Scheduled blockwise backends require batched or grouped experts")
         if self.expert_backend == "grouped":

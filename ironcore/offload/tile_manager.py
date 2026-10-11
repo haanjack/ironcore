@@ -216,11 +216,11 @@ class TileManager:
                     host_tensor.copy_(param.data.flatten())
                 else:
                     host_tensor.copy_(param.data.flatten().to(storage_dtype))
-                if (
-                    param.device.type == "cpu"
-                    and not param.requires_grad
-                    and storage_dtype == original_dtype
-                ):
+                if param.device.type == "cpu" and storage_dtype == original_dtype:
+                    # Keep idle CPU parameters aliased to the authoritative
+                    # host tile, including trainable FP32 adapters. Loading an
+                    # adapter after scheduler construction must reach the next
+                    # prefetch instead of being overwritten by a stale copy.
                     param.data = host_tensor.view(param.shape)
 
             gpu_tensor = None

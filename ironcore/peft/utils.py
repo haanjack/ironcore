@@ -118,6 +118,9 @@ def merge_lora_weights(model):
     Returns:
         The same model, mutated in-place, for convenience.
     """
+    from ironcore.layers.gemma4 import Gemma4Expert
+    from ironcore.layers.moe.granitemoe import GraniteExpert, folded_expert_parameters
+
     from .lora import (
         LoRAColumnParallelLinear,
         LoRAConcatenatedColumnParallel,
@@ -143,7 +146,29 @@ def merge_lora_weights(model):
     @torch.no_grad()
     def _merge_module(module: torch.nn.Module):
         for name, child in list(module.named_children()):
-            if isinstance(child, (LoRAColumnParallelLinear, LoRARowParallelLinear)):
+            if isinstance(child, GraniteExpert):
+                parameters, _, _ = folded_expert_parameters([child], [0])
+                child.up_proj.weight.copy_(parameters[0])
+                child.down_proj.weight.copy_(parameters[1])
+                for projection in ("gate_up_proj", "down_proj"):
+                    if hasattr(child, f"lora_{projection}"):
+                        delattr(child, f"lora_{projection}")
+            elif isinstance(child, Gemma4Expert):
+                for projection in ("gate_proj", "up_proj", "down_proj"):
+                    adapter_name = f"lora_{projection}"
+                    adapter = getattr(child, adapter_name, None)
+                    if adapter is None:
+                        continue
+                    if projection == "down_proj":
+                        weight = child.down_proj.weight
+                        delta = _delta(adapter, False, True)
+                    else:
+                        index = 0 if projection == "gate_proj" else 1
+                        weight = child.up_proj.weight.chunk(2, dim=-1)[index]
+                        delta = _delta(adapter, True, False)
+                    weight.add_(delta.to(weight.dtype))
+                    delattr(child, adapter_name)
+            elif isinstance(child, (LoRAColumnParallelLinear, LoRARowParallelLinear)):
                 base_weight = child.base_layer.weight.data
                 base_weight.add_(
                     _delta(child.lora, child.column_parallel, child.row_parallel).to(

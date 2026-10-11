@@ -134,7 +134,7 @@ def gemma4_pair(
             )
             info = load_from_huggingface(checkpoint, native, strict=not lora)
             assert not info["unexpected_keys"]
-            assert all(".lora." in name for name in info["missing_keys"])
+            assert all("lora_" in name for name in info["missing_keys"])
         if lora:
             from ironcore.peft.utils import freeze_base_model
 
@@ -151,7 +151,7 @@ def gemma4_pair(
                 state[name] = mapped[canonical]
         missing, unexpected = native.load_state_dict(state, strict=False)
         assert not unexpected
-        assert all(".lora." in name for name in missing)
+        assert all("lora_" in name for name in missing)
         freeze_base_model(native, "lora")
     else:
         native.load_state_dict(mapped, strict=True)

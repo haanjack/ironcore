@@ -37,6 +37,8 @@ class LanguageModelEmbedding(BaseModule):
     def forward(self, input_ids, position_ids):
         # Embeddings.
         output = self.word_embeddings(input_ids)
+        if self.config.model.is_granitemoe:
+            output = output * self.config.model.granitemoe.embedding_multiplier
         if self.config.model.is_gemma4:
             # Match Gemma's dtype-rounded sqrt(hidden_size) embedding scale.
             scale = torch.tensor(

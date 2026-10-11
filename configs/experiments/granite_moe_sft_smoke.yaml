@@ -1,0 +1,61 @@
+# Short real SFT smoke, not a benchmark-quality recipe.
+# python -m ironcore train --config configs/experiments/granite_moe_sft_smoke.yaml
+model:
+  config_path: configs/model/granite-3.1-1b-a400m.yaml
+trainer:
+  model_name: granite-moe-sft-smoke
+  model_path: /tmp/ironcore-granite-moe-sft-smoke
+  load_from_hf: ibm-granite/granite-3.1-1b-a400m-instruct
+  tensor_model_parallel_size: 1
+  context_parallel_size: 1
+  micro_batch_size: 2
+  train_batch_size: 4
+  gradient_accumulation_steps: 2
+  parameter_precision: model
+  use_flash_attn: false
+  recompute_linear_ce: true
+  loss_chunk_size: 128
+  log_interval: 1
+  num_workers: 0
+operation:
+  train_steps: 8
+  activation_recompute: false
+  no_save: true
+data:
+  task_type: sft
+  vocab_name_or_path: ibm-granite/granite-3.1-1b-a400m-instruct
+  tokenizer_type: sentencepiece
+  vocab_size: 49155
+  seq_length: 512
+  sft_packing: false
+  preprocessed_dir: /tmp/ironcore-granite-moe-sft-data
+  datasets:
+    - name: smol-smoltalk
+      source: HuggingFaceTB/smol-smoltalk
+      task_type: sft
+      split: train
+      messages_column: messages
+      max_samples: 128
+peft:
+  method: lora
+  lora:
+    r: 8
+    alpha: 16.0
+    dropout: 0.0
+    parameter_precision: float32
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_up_proj, down_proj]
+optim:
+  optimizer: adam
+  max_lr: 0.00002
+  min_lr: 0.00002
+  warmup_steps: 0
+  annealing_steps: 8
+  weight_decay: 0.0
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 0.0001
+  clip_grad: 1.0
+init:
+  seed: 42
+utils:
+  deterministic: true

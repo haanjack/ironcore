@@ -23,6 +23,25 @@ class SimpleModel(torch.nn.Module):
         return self.fc2(x)
 
 
+def test_fp64_clip_accumulation_preserves_parameter_partition_geometry(monkeypatch):
+    from ironcore.parallel import parallel_states
+
+    monkeypatch.setattr(parallel_states, "get_tensor_model_parallel_world_size", lambda: 1)
+    monkeypatch.setattr(parallel_states, "get_data_parallel_world_size", lambda: 1)
+    torch.manual_seed(42)
+    gradient = torch.randn(8192)
+    packed = torch.nn.Parameter(torch.zeros_like(gradient))
+    packed.grad = gradient.clone()
+    parts = [torch.nn.Parameter(torch.zeros(128)) for _ in range(64)]
+    for p, g in zip(parts, gradient.split(128), strict=True):
+        p.grad = g.clone()
+    expected = gradient.double().norm().float()
+    a = clip_grad_norm([packed], 1.0, accumulation_dtype=torch.float64)
+    b = clip_grad_norm(parts, 1.0, accumulation_dtype=torch.float64)
+    assert torch.equal(a, expected) and torch.equal(b, expected)
+    assert torch.equal(packed.grad, torch.cat([p.grad for p in parts]))
+
+
 @pytest.mark.parametrize("norm_type", [2.0, float("inf")])
 def test_clip_grad_norm_basic(norm_type):
     """Test basic gradient clipping without distributed setup."""

@@ -74,8 +74,15 @@ class MLP(ParallelMLP):
         if config.peft.method == "lora":
             if is_glu:
                 # Up and Gate are concatenated in up_proj
+                # SwiGLU applies SiLU to the first half: imported Llama
+                # weights are [gate, up]. Other GLUs use [feature, gate].
+                projection_names = (
+                    ["gate_proj", "up_proj"]
+                    if model_config.activation_type == "swiglu"
+                    else ["up_proj", "gate_proj"]
+                )
                 self.up_proj = wrap_with_lora_if_target(
-                    self.up_proj, ["up_proj", "gate_proj"], config.peft.lora, concatenated=True
+                    self.up_proj, projection_names, config.peft.lora, concatenated=True
                 )
             else:
                 self.up_proj = wrap_with_lora_if_target(self.up_proj, "up_proj", config.peft.lora)

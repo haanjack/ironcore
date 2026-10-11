@@ -189,7 +189,11 @@ def model_config_from_gemma4(hf_config: dict) -> ModelConfig:
     # Recent Transformers versions serialize legacy global_head_dim as indexed
     # per_layer_config overrides. Accept both layouts and reject heterogeneous
     # overrides that the native configuration cannot express.
-    global_dim = text.get("global_head_dim", 512)
+    global_dim = text.get("global_head_dim")
+    if global_dim is None:
+        # Indexed overrides inherit the common field when no override is
+        # serialized. Equal local/global dimensions omit head_dim entirely.
+        global_dim = text["head_dim"] if "per_layer_config" in text else 512
     global_groups = text.get("num_global_key_value_heads")
     overrides = text.get("per_layer_config", {})
     full_layers = [
@@ -231,6 +235,7 @@ def model_config_from_gemma4(hf_config: dict) -> ModelConfig:
         tokenizer_type="sentencepiece",
         vocab_name_or_path=hf_config.get("_name_or_path", "google/gemma-4-E2B-it"),
         moe=MoEConfig(
+            expert_accumulation_precision="model",
             use_moe=text.get("enable_moe_block", False),
             num_shared_experts=1,
             num_routed_experts=text.get("num_experts") or 128,

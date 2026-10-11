@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "observed_utc": "2026-10-11T01:05:57.640332+00:00",
+  "validated_code_commit": "9d8fc9e12938bb34874544654665470e41aa02e5",
+  "model": "google/gemma-4-26B-A4B-it",
+  "model_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "hardware": {
+    "gpu": "2xRTX3090,24GiB each",
+    "interconnect": "NV4; observed PCIeGen4x8",
+    "container_ram_limit_gib": 96
+  },
+  "training": {
+    "base_dtype": "BF16",
+    "base_quantization": null,
+    "adapter_dtype": "FP32",
+    "optimizer_moments_dtype": "FP32",
+    "adapter_parameters": 333696000,
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "targets": "attention, shared MLP, every routed expert"
+  },
+  "short": {
+    "protocol": "128 public complete conversations;context512,batch4,32 AdamW updates,lr2e-5; shared initial adapter and data",
+    "controls": {
+      "hf": {
+        "complete_updates": 32,
+        "initial_adapter_sha256": "8507870b72ba990b4cdec5ab44e4d4955b53f4f065e7478482aeb845066e4a80",
+        "final_test_ce": 1.5662289530737326,
+        "gpu_count": 1,
+        "mean_step_seconds": 46.44644683156366,
+        "peak_pytorch_allocated_gib_per_gpu": 3.6866044998168945,
+        "direct": {
+          "correct": 91,
+          "total": 140
+        },
+        "direct-generation": {
+          "correct": 87,
+          "total": 140
+        },
+        "thinking": {
+          "correct": 113,
+          "total": 140,
+          "unfinished_thoughts": 3,
+          "repetitive_unfinished_tails": 0
+        }
+      },
+      "ironcore": {
+        "complete_updates": 32,
+        "initial_adapter_sha256": "8507870b72ba990b4cdec5ab44e4d4955b53f4f065e7478482aeb845066e4a80",
+        "final_test_ce": 1.5691769025288522,
+        "gpu_count": 2,
+        "mean_step_seconds": 32.24508615813829,
+        "peak_pytorch_allocated_gib_per_gpu": 7.039510726928711,
+        "direct": {
+          "correct": 89,
+          "total": 140
+        },
+        "direct-generation": {
+          "correct": 86,
+          "total": 140
+        },
+        "thinking": {
+          "correct": 116,
+          "total": 140,
+          "unfinished_thoughts": 2,
+          "repetitive_unfinished_tails": 0
+        }
+      }
+    },
+    "original_thinking": {
+      "correct": 110,
+      "total": 140
+    }
+  },
+  "long": {
+    "protocol": "Shared Native short32 checkpoint,16 LongAlign conversations,32K padded inputs,1 sample/update,16 fresh AdamW updates,lr1e-5,warmup2;4 validation,4 test,16 short retention",
+    "native": {
+      "status": "complete",
+      "model": "google/gemma-4-26B-A4B-it",
+      "context": 32768,
+      "optimizer_updates": 16,
+      "tp": 2,
+      "cp": 1,
+      "starting_adapter": "/workspace/.local/gemma4-capability-preservation-v1/native-sft-32/native-adapter",
+      "mean_step_seconds": 75.15659861401946,
+      "step_seconds_range": [
+        73.78922149701975,
+        78.64807441702578
+      ],
+      "gradient_norm_range": [
+        1.8704586029052734,
+        38.060455322265625
+      ],
+      "gpu_peak_allocated_GiB_by_rank": {
+        "0": 6.833506107330322,
+        "1": 6.833506107330322
+      },
+      "replicas_exact": true,
+      "standalone_adapter_reload_exact": true,
+      "adapter_parameters": 333696000,
+      "adapter_components": {
+        "attention": {
+          "parameters": 5744640,
+          "tensors": 230,
+          "changed_tensors": 230
+        },
+        "shared_mlp": {
+          "parameters": 3548160,
+          "tensors": 180,
+          "changed_tensors": 180
+        },
+        "routed_experts": {
+          "parameters": 324403200,
+          "tensors": 23040,
+          "changed_tensors": 22640
+        }
+      },
+      "losses": {
+        "baseline": {
+          "train_probe": 1.587681382894516,
+          "validation": 1.6480689942836761,
+          "test": 2.181954950094223,
+          "retention": 1.3440302722156048
+        },
+        "step_8": {
+          "validation": 1.6309362351894379
+        },
+        "reloaded_final": {
+          "train_probe": 1.5183969140052795,
+          "validation": 1.5960039645433426,
+          "test": 2.0970820486545563,
+          "retention": 1.3081171698868275
+        }
+      }
+    },
+    "thinking": {
+      "status": "complete",
+      "case": "native-32k",
+      "correct": 112,
+      "total": 140,
+      "accuracy": 0.8,
+      "wilson95": [
+        0.7261308544506974,
+        0.8578454250816198
+      ],
+      "elapsed_seconds": 2916.567637681961,
+      "thinking_opened": 140,
+      "unfinished_thoughts": 5,
+      "repetitive_unfinished_tails": 0,
+      "generated_tokens": 609924
+    },
+    "hf_training_status": "running",
+    "hf_completed_updates": 5,
+    "hf_last_completed_step": {
+      "step": 5,
+      "sample_index": 1,
+      "loss": 1.147652268409729,
+      "grad_norm": 3.6297292709350586,
+      "lr": 1e-05,
+      "seconds": 524.5809085650835,
+      "peak_allocated_bytes": 17213440000
+    },
+    "hf_full_training_and_capability_comparison_complete": false,
+    "retrieval_correct_before_and_after": {
+      "before": 20,
+      "after": 20,
+      "questions": 20
+    }
+  },
+  "resource_metrics": {
+    "scope": "Current tested LoRA SFT recipes; live HF32K remains partial until completed",
+    "short": {
+      "IronCore512": {
+        "completed_steps": 32,
+        "gpus": 2,
+        "mean_step_seconds": 32.24508615813829,
+        "min_step_seconds": 31.496380875003524,
+        "max_step_seconds": 33.26115514303092,
+        "step_time_cv_percent": 1.204707738831652,
+        "padded_tokens_per_update": 2048,
+        "padded_tokens_per_second": 63.51355335061209,
+        "gpu_occupancy_seconds_per_update": 64.49017231627658,
+        "sum_step_seconds": 1031.8427570604254,
+        "peak_allocated_gib_per_gpu": 7.039510726928711,
+        "sum_per_gpu_peaks_gib": 14.079021453857422
+      },
+      "HF512": {
+        "completed_steps": 32,
+        "gpus": 1,
+        "mean_step_seconds": 46.44644683156366,
+        "min_step_seconds": 46.0378599090036,
+        "max_step_seconds": 48.771075040102005,
+        "step_time_cv_percent": 1.0807320663191295,
+        "padded_tokens_per_update": 2048,
+        "padded_tokens_per_second": 44.09379273783842,
+        "gpu_occupancy_seconds_per_update": 46.44644683156366,
+        "sum_step_seconds": 1486.2862986100372,
+        "peak_allocated_gib_per_gpu": 3.6866044998168945,
+        "sum_per_gpu_peaks_gib": 3.6866044998168945
+      }
+    },
+    "long": {
+      "IronCore32K": {
+        "completed_steps": 16,
+        "gpus": 2,
+        "mean_step_seconds": 75.15659861401946,
+        "min_step_seconds": 73.78922149701975,
+        "max_step_seconds": 78.64807441702578,
+        "step_time_cv_percent": 1.5974013398289688,
+        "padded_tokens_per_update": 32768,
+        "padded_tokens_per_second": 435.99631441925806,
+        "gpu_occupancy_seconds_per_update": 150.31319722803892,
+        "sum_step_seconds": 1202.5055778243113,
+        "peak_allocated_gib_per_gpu": 6.833506107330322,
+        "sum_per_gpu_peaks_gib": 13.667012214660645
+      },
+      "HF32K": {
+        "completed_steps": 5,
+        "gpus": 1,
+        "mean_step_seconds": 525.891130169807,
+        "min_step_seconds": 522.191592321964,
+        "max_step_seconds": 535.6011577609461,
+        "step_time_cv_percent": 0.9349284121750092,
+        "padded_tokens_per_update": 32768,
+        "padded_tokens_per_second": 62.3094745663792,
+        "gpu_occupancy_seconds_per_update": 525.891130169807,
+        "sum_step_seconds": 2629.455650849035,
+        "peak_allocated_gib_per_gpu": 16.031265258789062,
+        "sum_per_gpu_peaks_gib": 16.031265258789062
+      }
+    },
+    "native32k_sampled_nvml_resident_peak_gib": {
+      "0": 9.01727294921875,
+      "1": 9.01727294921875
+    },
+    "hf32k_status": "running",
+    "resource_definitions": {
+      "step_time": "forward/backward/optimizer; excludes load/evaluation/save",
+      "tokens_per_second": "padded input tokens divided by step seconds; not supervised tokens",
+      "gpu_occupancy_seconds": "step wall seconds times allocated GPU count; not kernel active time",
+      "aggregate_memory": "sum of per-GPU PyTorch maxima, not time-aligned simultaneous peak"
+    },
+    "sources": [
+      "gemma4-capability-preservation-v1/hf-sft-32/result.json",
+      "gemma4-capability-preservation-v1/native-sft-32/result-rank0.json",
+      "gemma4-32k-current-v1/native-longalign/results.json",
+      "gemma4-32k-current-v1/hf-savedviews/progress.json"
+    ],
+    "updated_utc": "2026-10-11T01:05:28.306255+00:00"
+  },
+  "hf_single_gpu_reason": {
+    "implemented_control": "Serial single-GPU differentiable CPU layer staging; custom HF/PEFT expert adapters and CPU optimizer; no distributed training integration",
+    "is_a_huggingface_gpu_count_limit": false,
+    "installed_gemma4_tp_plan_exists": true,
+    "unverified_combination": "Gemma4 HF TP2 plus this custom expert LoRA, CPU weight/saved-tensor offload and CPU optimizer",
+    "ddp_is_not_tp": "Data parallel replicas do not shard a single sample/model like tensor parallelism"
+  },
+  "interpretation": {
+    "tested_lora_sft_replacement_supported": true,
+    "native32k_training_and_capability_validation_complete": true,
+    "universal_hf_speedup_claim_supported": false,
+    "official_full_benchmark_reproduction": false,
+    "full_finetuning_or_long_convergence_verified": false
+  },
+  "evaluation_protocol": {
+    "questions": "MMLU-Pro balanced140,14categoriesx10",
+    "thinking": "Stock5shotCoT,16K generation cap,temp1,topP.95,topK64,seed3407;same2x70 batching",
+    "inference": "vLLM TP2,MoE-onlyFP8,dense/activationsBF16;trainingunquantized",
+    "references": "Completed identical-protocol original/HFshort/Nativeshort results reused"
+  },
+  "local_evidence_roots": [
+    ".local/gemma4-capability-preservation-v1",
+    ".local/gemma4-32k-current-v1"
+  ],
+  "official_documentation": [
+    "https://huggingface.co/docs/transformers/v5.15.0/en/tensor_parallelism",
+    "https://huggingface.co/docs/accelerate/main/en/concept_guides/big_model_inference"
+  ]
+}

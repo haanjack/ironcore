@@ -192,8 +192,22 @@ class ColumnParallelLinear(ParallelLinear):
             self.bias.tp_concatenated_weights = concatenated_weights
 
     def forward(self, x):
-        parallel_x = comm.copy_inputs_to_model_parallel_workers(x)
-        parallel_output = torch.matmul(parallel_x, self.weight)
+        if self.config.model.is_granitemoe and self.concatenated_weights > 1:
+            # Preserve separate K/V backward GEMMs and their BF16 rounding.
+            parallel_output = torch.cat(
+                [
+                    F.linear(comm.copy_inputs_to_model_parallel_workers(x), w.T.contiguous())
+                    for w in self.weight.chunk(self.concatenated_weights, -1)
+                ],
+                dim=-1,
+            )
+        else:
+            parallel_x = comm.copy_inputs_to_model_parallel_workers(x)
+            parallel_output = (
+                F.linear(parallel_x, self.weight.T.contiguous())
+                if self.config.model.is_granitemoe
+                else torch.matmul(parallel_x, self.weight)
+            )
         if self.bias is not None:
             parallel_output = parallel_output + self.bias
         if self.gather_output:
@@ -255,7 +269,11 @@ class RowParallelLinear(ParallelLinear):
             parallel_x = x
         else:
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
-        output = torch.matmul(parallel_x, self.weight)
+        output = (
+            F.linear(parallel_x, self.weight.T.contiguous())
+            if self.config.model.is_granitemoe
+            else torch.matmul(parallel_x, self.weight)
+        )
 
         if async_communication:
             # Async path: bias added later in finalize() to avoid race conditions

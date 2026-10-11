@@ -29,13 +29,16 @@ class ExecutionGroup:
 
 
 def plan_execution_groups(
-    expert_counts: list[int], token_budget: int
+    expert_counts: list[int], token_budget: int, *, preserve_expert_segments: bool = False
 ) -> tuple[ExecutionGroup, ...]:
     """Cover sorted assignments once, filling every group except the final tail.
 
     Split an expert at a group boundary and fill spare rows with the next expert.
     Planning cost depends on expert and execution-group counts, not token tiles.
     Zero-token experts have no segment and retain their original expert ids.
+    With preserve_expert_segments, flush spare rows before an expert which
+    fits the budget, instead of changing its GEMM M dimension. Oversized
+    experts still split to respect the hard memory bound.
     """
     if not isinstance(token_budget, int) or isinstance(token_budget, bool) or token_budget < 1:
         raise ValueError("grouped_token_budget must be a positive integer")
@@ -45,6 +48,11 @@ def plan_execution_groups(
     start, rows = 0, 0
     owners, counts = [], []
     for expert, remaining in enumerate(expert_counts):
+        if preserve_expert_segments and rows and remaining > token_budget - rows:
+            groups.append(ExecutionGroup(start, rows, tuple(owners), tuple(counts)))
+            start += rows
+            rows = 0
+            owners, counts = [], []
         while remaining:
             take = min(remaining, token_budget - rows)
             owners.append(expert)

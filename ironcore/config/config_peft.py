@@ -29,9 +29,10 @@ class LoRAConfig(BaseConfig):
     - "k_proj": Key projection in attention
     - "v_proj": Value projection in attention
     - "o_proj": Output projection in attention
-    - "up_proj": MLP up projection
-    - "gate_proj": MLP gate projection (same as up_proj in implementation)
-    - "down_proj": MLP down projection
+    - "up_proj": MLP up projection (shared and routed Gemma 4 MLPs)
+    - "gate_proj": MLP gate projection (separate Gemma 4 gate adapter)
+    - "gate_up_proj": Packed Granite MoE gate/up parameter (shared A factor)
+    - "down_proj": MLP down projection (shared and routed Gemma 4 MLPs)
     """
     parameter_precision: Literal["model", "float32"] = "model"
     adapter_path: str | None = None

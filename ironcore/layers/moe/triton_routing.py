@@ -162,9 +162,15 @@ def pack(
     return tokens, selected, assignments, token_ids
 
 
-def _launch_scatter(destination, values, token_ids, weights=None, unique=False):
+def _launch_scatter(
+    destination, values, token_ids, weights=None, unique=False, round_to_destination=False
+):
     dtype = (
-        torch.promote_types(values.dtype, weights.dtype) if weights is not None else values.dtype
+        destination.dtype
+        if round_to_destination
+        else torch.promote_types(values.dtype, weights.dtype)
+        if weights is not None
+        else values.dtype
     )
     product_dtype = {
         torch.float32: tl.float32,
@@ -207,9 +213,51 @@ def weighted_scatter(
     token_ids: torch.Tensor,
     *,
     unique: bool = False,
+    round_to_destination: bool = False,
 ) -> None:
     """Fuse mixture multiplication and scatter without a weighted-output allocation."""
-    _launch_scatter(destination, values, token_ids, weights, unique)
+    _launch_scatter(destination, values, token_ids, weights, unique, round_to_destination)
+
+
+@triton.jit
+def _mixture_weight_gradient_kernel(
+    values,
+    gradient,
+    output,
+    value_s0: tl.constexpr,
+    value_s1: tl.constexpr,
+    grad_s0: tl.constexpr,
+    grad_s1: tl.constexpr,
+    channels: tl.constexpr,
+    tile: tl.constexpr,
+):
+    row = tl.program_id(0)
+    cols = tl.arange(0, tile)
+    value = tl.load(values + row * value_s0 + cols * value_s1, mask=cols < channels, other=0).to(
+        tl.float32
+    )
+    grad = tl.load(gradient + row * grad_s0 + cols * grad_s1, mask=cols < channels, other=0).to(
+        tl.float32
+    )
+    tl.store(output + row, tl.sum(value * grad, axis=0))
+
+
+def mixture_weight_gradient(values, gradient, dtype):
+    """FP32 register reduction; only one scalar per assignment is stored."""
+    result = torch.empty(values.size(0), dtype=dtype, device=values.device)
+    _mixture_weight_gradient_kernel[(values.size(0),)](
+        values,
+        gradient,
+        result,
+        values.stride(0),
+        values.stride(1),
+        gradient.stride(0),
+        gradient.stride(1),
+        values.size(1),
+        triton.next_power_of_2(values.size(1)),
+        enable_fp_fusion=False,
+    )
+    return result
 
 
 def gather_gradient(gradient: torch.Tensor, token_ids: torch.Tensor) -> torch.Tensor:

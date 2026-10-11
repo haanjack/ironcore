@@ -6,6 +6,7 @@ import math
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from ironcore.config import LoRAConfig
 from ironcore.parallel.random import tensor_parallel_rng_fork
@@ -64,7 +65,9 @@ class LoRALinear(nn.Module):
     def _init_weights(self, generator: torch.Generator | None = None) -> None:
         """Initialize LoRA weights following standard practice."""
         # A: Kaiming uniform (ensures gradient flow)
-        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5), generator=generator)
+        # Native A is [input, rank], the transpose of nn.Linear's [rank, input].
+        # Calculate fan-in from the input width, not from the LoRA rank.
+        nn.init.kaiming_uniform_(self.lora_A.T, a=math.sqrt(5), generator=generator)
         # B: zeros (ensures LoRA starts as identity - no effect initially)
         nn.init.zeros_(self.lora_B)
 
@@ -79,14 +82,14 @@ class LoRALinear(nn.Module):
             LoRA output tensor [batch, seq, out_features]
         """
         # x @ A: [batch, seq, in_features] @ [in_features, rank] -> [batch, seq, rank]
-        result = torch.matmul(x, self.lora_A)
+        result = F.linear(x, self.lora_A.T.contiguous())
 
         # Apply dropout to intermediate activations if configured
         if self.dropout is not None:
             result = self.dropout(result)
 
         # result @ B: [batch, seq, rank] @ [rank, out_features] -> [batch, seq, out_features]
-        result = torch.matmul(result, self.lora_B)
+        result = F.linear(result, self.lora_B.T.contiguous())
 
         # Apply scaling
         return self.scaling * result
@@ -101,19 +104,21 @@ class LoRALinear(nn.Module):
         """Split B's compute view; sum low-rank gradients before replicated A."""
         from ironcore.parallel.tensor_parallel import comm
 
-        hidden = self._dropout(x @ self.lora_A, seed)
+        # Match nn.Linear's [output, input] operand layout. Algebraically
+        # equivalent transposed GEMMs can choose different BF16 kernels.
+        hidden = self._dropout(F.linear(x, self.lora_A.T.contiguous()), seed)
         hidden = comm.copy_inputs_to_model_parallel_workers(hidden)
         local_b = comm.scatter_input_to_model_parallel_workers(self.lora_B)
-        return self.scaling * (hidden @ local_b)
+        return self.scaling * F.linear(hidden, local_b.T.contiguous())
 
     def forward_row(self, x: torch.Tensor, seed: int) -> torch.Tensor:
         """Reduce partial low-rank activations before dropout and replicated B."""
         from ironcore.parallel.tensor_parallel import comm
 
         local_a = comm.scatter_input_to_model_parallel_workers(self.lora_A.T).T
-        hidden = comm.reduce_inputs_from_model_parallel_workers(x @ local_a)
+        hidden = comm.reduce_inputs_from_model_parallel_workers(F.linear(x, local_a.T.contiguous()))
         hidden = self._dropout(hidden, seed)
-        return self.scaling * (hidden @ self.lora_B)
+        return self.scaling * F.linear(hidden, self.lora_B.T.contiguous())
 
     def __repr__(self):
         return (
@@ -239,6 +244,28 @@ class LoRAConcatenatedColumnParallel(nn.Module):
         """
         Forward pass with replicated adapters for concatenated projections.
         """
+        if self.base_layer.config.model.is_granitemoe:
+            from ironcore.parallel.tensor_parallel import comm
+
+            parts = []
+            for i, weight in enumerate(self.base_layer.weight.chunk(self.num_concatenated, -1)):
+                # Keep each input-gradient boundary separate too: a shared
+                # copy node would sum K/V BF16 dX before the TP reduction.
+                part = F.linear(
+                    comm.copy_inputs_to_model_parallel_workers(x), weight.T.contiguous()
+                )
+                if i in self.adapter_map:
+                    part = part + self.lora_adapters[self.adapter_map[i]].forward_column(
+                        x, self.base_layer.config.init.seed
+                    )
+                parts.append(part)
+            output = torch.cat(parts, -1)
+            if self.base_layer.gather_output:
+                output = comm.gather_from_model_parallel_workers(
+                    output,
+                    {"column_parallel": True, "concatenated_weights": self.num_concatenated},
+                )
+            return output
         # Base computation
         base_output = self.base_layer(x)  # [batch, seq, total_out/tp_size]
 
@@ -307,7 +334,11 @@ class LoRARowParallelLinear(nn.Module):
         else:
             parallel_x = comm.scatter_input_to_model_parallel_workers(x)
 
-        base_partial = torch.matmul(parallel_x, self.base_layer.weight)
+        base_partial = (
+            F.linear(parallel_x, self.base_layer.weight.T.contiguous())
+            if self.base_layer.config.model.is_granitemoe
+            else torch.matmul(parallel_x, self.base_layer.weight)
+        )
         output = comm.reduce_inputs_from_model_parallel_workers(base_partial)
         output = output + self.lora.forward_row(parallel_x, self.base_layer.config.init.seed)
 

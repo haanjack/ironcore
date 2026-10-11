@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .config import BaseConfig
 from .config_gemma4 import Gemma4Config
+from .config_granitemoe import GraniteMoeConfig
 from .config_moe import MoEConfig
 
 
@@ -183,6 +184,11 @@ class ModelConfig(BaseConfig):
     # Mixture of Experts
     moe: MoEConfig = field(default_factory=MoEConfig)
     gemma4: Gemma4Config = field(default_factory=Gemma4Config)
+    granitemoe: GraniteMoeConfig = field(default_factory=GraniteMoeConfig)
+
+    @property
+    def is_granitemoe(self) -> bool:
+        return self.hf_model_type == "granitemoe" or self.name == "granitemoe"
 
     @property
     def is_gemma4(self) -> bool:

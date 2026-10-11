@@ -25,10 +25,12 @@ class Architecture(Enum):
     GPT2 = "gpt2"
     LLAMA = "llama"
     GEMMA4 = "gemma4_text"
+    GRANITEMOE = "granitemoe"
 
 
 # Architecture aliases - many models use LLaMA-style naming
 ARCHITECTURE_ALIASES = {
+    "granitemoe": Architecture.GRANITEMOE,
     "gemma4": Architecture.GEMMA4,
     "gemma4text": Architecture.GEMMA4,
     "llama": Architecture.LLAMA,
@@ -137,6 +139,8 @@ class WeightMapper:
             return self._hf_llama_to_ironcore(hf_state_dict, strict)
         elif self.architecture == Architecture.GEMMA4:
             return self._map_gemma4(hf_state_dict, to_hf=False, strict=strict)
+        elif self.architecture == Architecture.GRANITEMOE:
+            return self._map_granitemoe(hf_state_dict, to_hf=False, strict=strict)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
 
@@ -162,8 +166,64 @@ class WeightMapper:
             return self._ironcore_to_hf_llama(ironcore_state_dict, strict)
         elif self.architecture == Architecture.GEMMA4:
             return self._map_gemma4(ironcore_state_dict, to_hf=True, strict=strict)
+        elif self.architecture == Architecture.GRANITEMOE:
+            return self._map_granitemoe(ironcore_state_dict, to_hf=True, strict=strict)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
+
+    def _map_granitemoe(self, state_dict, *, to_hf, strict):
+        """Accept both legacy IBM packed keys and current Transformers keys."""
+        ordinary, mapped = {}, {}
+        packed = {}
+        for key, tensor in state_dict.items():
+            if to_hf:
+                if key == "rotary_pos_emb.theta":
+                    continue  # Derived from the serialized RoPE configuration.
+                if "lora_" in key or ".base_layer." in key:
+                    raise ValueError("Merge Granite LoRA before exporting dense HF weights")
+                match = re.fullmatch(
+                    r"model.layers.(\d+).mlp.routed_experts.(\d+).(up_proj|down_proj).weight", key
+                )
+                if match:
+                    layer, expert, projection = match.groups()
+                    name = "gate_up_proj" if projection == "up_proj" else "down_proj"
+                    target = f"model.layers.{layer}.block_sparse_moe.experts.{name}"
+                    packed.setdefault(target, {})[int(expert)] = tensor.T
+                    continue
+                match = re.fullmatch(r"model.layers.(\d+).mlp.router.weight", key)
+                if match:
+                    mapped[f"model.layers.{match[1]}.block_sparse_moe.router.weight"] = tensor.T
+                    continue
+            else:
+                match = re.fullmatch(
+                    r"model.layers.(\d+).block_sparse_moe.(input_linear.weight|output_linear.weight|"
+                    r"experts.gate_up_proj|experts.down_proj|router.layer.weight|router.weight)",
+                    key,
+                )
+                if match:
+                    layer, name = match.groups()
+                    prefix = f"model.layers.{layer}.mlp"
+                    if name.startswith("router"):
+                        mapped[f"{prefix}.router.weight"] = tensor.T
+                    else:
+                        projection = (
+                            "up_proj"
+                            if name in {"input_linear.weight", "experts.gate_up_proj"}
+                            else "down_proj"
+                        )
+                        for expert, value in enumerate(tensor):
+                            mapped[f"{prefix}.routed_experts.{expert}.{projection}.weight"] = (
+                                value.T
+                            )
+                    continue
+            ordinary[key] = tensor
+        for key, experts in packed.items():
+            if sorted(experts) != list(range(len(experts))):
+                raise ValueError(f"Noncontiguous Granite expert indices for {key}")
+            mapped[key] = torch.stack([experts[i] for i in range(len(experts))])
+        mapper = self._ironcore_to_hf_llama if to_hf else self._hf_llama_to_ironcore
+        mapped.update(mapper(ordinary, strict))
+        return mapped
 
     @staticmethod
     def _map_gemma4(
@@ -190,7 +250,9 @@ class WeightMapper:
         )
         for raw_name, tensor in state_dict.items():
             name = raw_name
-            if to_hf and (".base_layer." in name or ".lora." in name):
+            if to_hf and (
+                ".base_layer." in name or ".lora." in name or name.endswith((".lora_A", ".lora_B"))
+            ):
                 raise ValueError(
                     "Merge Gemma 4 LoRA adapters before exporting a dense HF checkpoint"
                 )
@@ -325,7 +387,9 @@ class WeightMapper:
         }
 
         if normalized_key in simple_mappings:
-            return simple_mappings[normalized_key], tensor
+            return simple_mappings[
+                normalized_key
+            ], tensor.T if normalized_key == "lm_head.weight" else tensor
 
         # Layer-specific mappings
         layer_match = re.match(r"transformer\.h\.(\d+)\.(.*)", normalized_key)
@@ -413,7 +477,8 @@ class WeightMapper:
 
         for ic_key, hf_key in simple_mappings.items():
             if ic_key in ironcore_state_dict:
-                hf_state_dict[hf_key] = ironcore_state_dict[ic_key]
+                value = ironcore_state_dict[ic_key]
+                hf_state_dict[hf_key] = value.T if ic_key == "output_layer.weight" else value
                 mapped_keys.add(ic_key)
 
         # Process layer keys
@@ -556,7 +621,7 @@ class WeightMapper:
         }
 
         if hf_key in simple_mappings:
-            return simple_mappings[hf_key], tensor
+            return simple_mappings[hf_key], tensor.T if hf_key == "lm_head.weight" else tensor
 
         # Layer-specific mappings
         layer_match = re.match(r"model\.layers\.(\d+)\.(.*)", hf_key)
@@ -660,7 +725,8 @@ class WeightMapper:
 
         for ic_key, hf_key in simple_mappings.items():
             if ic_key in ironcore_state_dict:
-                hf_state_dict[hf_key] = ironcore_state_dict[ic_key]
+                value = ironcore_state_dict[ic_key]
+                hf_state_dict[hf_key] = value.T if ic_key == "output_layer.weight" else value
                 mapped_keys.add(ic_key)
 
         # Process layer keys
