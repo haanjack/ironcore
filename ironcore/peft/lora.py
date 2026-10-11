@@ -251,7 +251,9 @@ class LoRAConcatenatedColumnParallel(nn.Module):
             for i, weight in enumerate(self.base_layer.weight.chunk(self.num_concatenated, -1)):
                 # Keep each input-gradient boundary separate too: a shared
                 # copy node would sum K/V BF16 dX before the TP reduction.
-                part = F.linear(comm.copy_inputs_to_model_parallel_workers(x), weight.T.contiguous())
+                part = F.linear(
+                    comm.copy_inputs_to_model_parallel_workers(x), weight.T.contiguous()
+                )
                 if i in self.adapter_map:
                     part = part + self.lora_adapters[self.adapter_map[i]].forward_column(
                         x, self.base_layer.config.init.seed

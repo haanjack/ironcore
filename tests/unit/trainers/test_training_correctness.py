@@ -11,7 +11,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from ironcore.config import TrainerConfig
+from ironcore.config import TrainerConfig, UtilsConfig
 from ironcore.controller import TrainingControl
 from ironcore.trainers import LanguageModelTrainer
 from ironcore.training_utils import loss_func, loss_func_sft
@@ -24,7 +24,7 @@ def make_trainer(model, batches, loss_fn=loss_func, accumulation=1, amp=False):
         trainer=TrainerConfig(gradient_accumulation_steps=accumulation),
         optim=SimpleNamespace(clip_grad=0.5),
         operation=SimpleNamespace(),
-        utils=SimpleNamespace(),
+        utils=UtilsConfig(),
     )
     trainer.model = model
     trainer.loss_fn = loss_fn

@@ -17,13 +17,9 @@ Tests:
 """
 
 import math
-import os
-import sys
 import unittest
 
 import torch
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ironcore.layers.positional_embedding.rotary import RotaryPositionalEmbedding
 
