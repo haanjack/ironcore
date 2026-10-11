@@ -1,5 +1,10 @@
 # Gemma 4 A4B public-data learning validation
 
+This page preserves the earlier recipe and failure investigation. For fresh
+training after the initialization and execution fixes, see the
+[current trainer validation](gemma4-trainer-validation.md), which records
+HF-level short SFT and a successful Native 32K continuation.
+
 This study starts from the official BF16 `google/gemma-4-26B-A4B-it` checkpoint
 (`4d7ae4984b7db7de8f8457170b3f1a419ee76d52`). It does not start from the
 earlier repeated-COPPER adapter. Evidence is written under

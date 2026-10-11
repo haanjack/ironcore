@@ -22,6 +22,17 @@ exporting a dense HF model; unmerged adapter exports are rejected. For native
 LoRA checkpoint resume through the current generic loader, set
 `operation.save_full_model: true` so the checkpoint also contains base weights.
 
+## Current learning validation
+
+Matched actual-26B short SFT produces HF-level heldout loss and retains
+thinking. The corrected Native trainer also completes 16 updates at 32K,
+saves/reloads FP32 attention/shared-MLP/routed-expert adapters, and preserves
+reasoning and long-context retrieval. See the
+[trainer validation and resource comparison](notes/gemma4-trainer-validation.md)
+for measured quality, speed, memory, checkpoint behavior and the supported
+replacement scope. Timing compares Native TP2 with a single-GPU HF CPU-streaming
+control, so it is not an equal-resource HF speed benchmark.
+
 ## Presets
 
 | Preset | Hidden size | Layers | Local heads / KV heads | Global head dimension | Shared KV layers | PLE dimension |
