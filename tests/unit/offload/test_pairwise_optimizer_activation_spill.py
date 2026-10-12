@@ -115,7 +115,7 @@ def _run_training(config, num_steps):
     with (
         patch(
             "ironcore.trainers.base_trainer.get_data_iterator",
-            return_value=create_mock_data_iterator(),
+            return_value=create_mock_data_iterator(BATCH_SIZE, SEQ_LEN),
         ),
         patch(
             "ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()

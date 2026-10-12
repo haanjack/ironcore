@@ -135,13 +135,22 @@ def prepare_instruction(path: Path, tokenizer_path: Path, length: int) -> None:
     path.write_text(json.dumps({"messages": conversation}, ensure_ascii=False) + "\n")
 
 
-def estimate_host_budget(model, sequence_length: int, tp: int, world: int, attention_only=False):
+def estimate_host_budget(
+    model,
+    sequence_length: int,
+    tp: int,
+    world: int,
+    attention_only=False,
+    recompute_interval=1,
+    recompute_skip_count=None,
+):
     """Conservative example-only budget, before constructing pretrained weights.
 
     Account for replicated CP weights, full FP32 adapter replicas, FP32 Adam
     moments/gradients, spilled layer inputs and host/import headroom. This is a
     screening estimate, not a measured peak or a runtime memory reservation.
     """
+    from ironcore.config.recompute import recompute_segments
     from ironcore.utils.mfu import MFUCalculator
 
     rank, hidden = 8, model.d_model
@@ -168,7 +177,11 @@ def estimate_host_budget(model, sequence_length: int, tp: int, world: int, atten
     parts = {
         "frozen_weights_bytes": base * 2 * world // tp,
         "adapter_weights_gradients_adam_bytes": adapters * 16 * world,
-        "spilled_inputs_bytes": sequence_length * hidden * model.num_layers * 2 * tp,
+        "spilled_inputs_bytes": sequence_length
+        * hidden
+        * len(recompute_segments(model.num_layers, recompute_interval, recompute_skip_count))
+        * 2
+        * tp,
         "runtime_import_workspace_bytes": 4 * 1024**3 * world,
         "host_headroom_bytes": 16 * 1024**3,
     }
@@ -480,6 +493,13 @@ def main() -> None:
     parser.add_argument("--tp", type=int, default=2)
     parser.add_argument("--tiny", action="store_true")
     parser.add_argument("--no-offload", action="store_true")
+    parser.add_argument("--recompute-interval", type=int, default=1)
+    parser.add_argument(
+        "--recompute-skip-count",
+        type=int,
+        default=None,
+        help="Omit this many layer input boundaries; evenly distributed; interval must be 1",
+    )
     parser.add_argument("--attention-chunk", type=int, default=128)
     parser.add_argument("--mlp-chunk", type=int, default=512)
     parser.add_argument("--grouped-budget", type=int, default=4096)
@@ -504,6 +524,8 @@ def main() -> None:
     parser.add_argument("--warmup-steps", type=int, default=0)
     parser.add_argument("--eval-interval", type=int, default=20)
     args = parser.parse_args()
+    if args.recompute_interval < 1 and not args.no_offload:
+        raise ValueError("Weight offload requires a positive recompute interval")
     if args.enable_thinking and not args.training_data:
         raise ValueError(
             "Thinking SFT requires reasoning data; the COPPER fixture has plain answers"
@@ -540,7 +562,13 @@ def main() -> None:
             json.loads((tokenizer_path / "config.json").read_text())
         )
         budget = estimate_host_budget(
-            metadata, args.sequence_length, args.tp, world, args.attention_only
+            metadata,
+            args.sequence_length,
+            args.tp,
+            world,
+            args.attention_only,
+            args.recompute_interval,
+            args.recompute_skip_count,
         )
         available = available_host_bytes()
         check_host_budget(budget, available)
@@ -631,6 +659,8 @@ def main() -> None:
             train_steps=args.steps,
             no_save=True,
             activation_recompute=args.no_offload,
+            recompute_interval=args.recompute_interval,
+            recompute_skip_count=args.recompute_skip_count,
             eval_interval=args.eval_interval,
         ),
         peft=PEFTConfig(method="lora"),

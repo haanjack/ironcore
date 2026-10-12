@@ -100,9 +100,8 @@ Weights are dequantized back to the original dtype when copied to GPU. The trade
 
 Weight streaming is **incompatible** with:
 - **FSDP** (`parallel.use_fsdp: true`): FSDP manages its own parameter sharding/unsharding.
-- **Activation checkpointing** (`model.activation_recompute: true`): Checkpointing replays the forward pass during backward, but scheduler hooks only fire in the main forward pass. Weights must stay resident for correctness.
 
-Activation spilling is a replacement for checkpointing that is compatible with weight streaming.
+Layer recomputation supports weight streaming with either CPU or GPU input boundaries. `weight_offload` enables safe graph-free layer replay but does not enable `activation_spill`. Choose the boundary storage explicitly.
 
 ### CPU-resident parameters and optimizer
 
@@ -128,9 +127,44 @@ The D2H snapshot to host tiles happens only once per step, in `on_training_step_
 
 When enabled, intermediate activations are spilled to CPU at sub-layer boundaries during the forward pass (layer input, post-attention residual) and prefetched back during the backward pass. Freed after consumption to limit host memory.
 
-Replaces activation checkpointing. Enabling `activation_spill: true` automatically disables `activation_recompute` with a warning.
+`activation_spill: true` selects CPU storage for recompute inputs; false keeps them on GPU. This setting is independent of `operation.recompute_interval`. It does not disable `operation.activation_recompute`.
 
-Granularity: `sub_layer` (default and only option). Spills at attention/MLP boundaries for lower host memory usage.
+Granularity: `sub_layer` (default) or `full_layer`. Grouped intervals greater than one require `full_layer`.
+
+### Recompute interval
+
+```yaml
+operation:
+  activation_recompute: true
+  recompute_interval: 2
+offload:
+  enabled: true
+  weight_offload: true
+  activation_spill: true
+  activation_spill_granularity: full_layer
+```
+
+`recompute_interval` is the number of Transformer layers in one recompute segment. Default `1` preserves the existing layer boundaries; `2` stores one input for each pair of layers; `0` disables whole-layer recomputation. With GPU-resident weights, enable `operation.activation_recompute` explicitly. Weight streaming requires a positive interval and enables replay automatically. CPU activation storage is never enabled automatically.
+
+### Omit a specified number of input boundaries
+
+`operation.recompute_skip_count` specifies how many **layer input checkpoint boundaries** to omit. The default `null` selects interval mode. Count mode requires `recompute_interval: 1` (the default) and `0 <= recompute_skip_count < num_layers`. Other intervals conflict with count mode. The first input is always retained for replay.
+
+```yaml
+operation:
+  activation_recompute: true
+  recompute_skip_count: 8
+offload:
+  activation_spill: false  # true selects CPU storage instead
+```
+
+For 32 layers, count 8 retains 24 input boundaries: eight pairs and sixteen single-layer segments, evenly distributed. Segment lengths differ by at most one; larger counts necessarily create longer segments. Single-layer segments use only one backward replay, without the extra segment reconstruction. Backward weight prefetch resumes at the actual previous segment's start, including nonuniform segment lengths.
+
+This does not mean only eight layer interiors recompute. All interiors still recompute; count mode controls additional input reconstruction. It works with GPU checkpoints independently of CPU spilling. Omitted CPU boundaries require `full_layer` granularity. Grouped FSDP remains unsupported. Manual index selection is not implemented. The public example's `--recompute-skip-count` and host budget estimate use the same segment plan.
+
+The interval also works with all weights and inputs on GPU (`offload.enabled: false`). GPU checkpointing groups layers into a uniform segment, including a shorter final segment. With streamed weights, backward first rebuilds that segment's inputs using GPU layer checkpoints, then reloads and evicts weights one layer at a time. This reduces original host boundaries while bounding resident weights and internal activation graphs. GPU boundary memory and replay work still increase with segment size.
+
+Grouped FSDP intervals are not yet supported. Gemma offload still requires no PLE or shared KV; GPU-resident Gemma recompute supports both. MLP/MoE internal blocking and recomputation remain separate from this whole-layer interval.
 
 ## Memory pools
 

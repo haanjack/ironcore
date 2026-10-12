@@ -2,12 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from contextlib import ExitStack, contextmanager
+from functools import partial
 from typing import Any
 
 import torch
 from torch import nn
 
 from ironcore.config import MainConfig
+from ironcore.config.recompute import recompute_segments
 from ironcore.layers import BaseModule
 from ironcore.layers.attention import Attention
 from ironcore.layers.layernorm import get_norm
@@ -139,10 +142,14 @@ class TransformerLayer(BaseModule):
             attention_output = attention_output * self.config.model.granitemoe.residual_multiplier
         return hidden_states + attention_output
 
-    def _mlp_subblock(self, norm_input):
+    def _mlp_subblock(self, norm_input, moe_token_mask=None):
         """MLP sub-block: layernorm + MLP + residual."""
         norm_output = self.post_attn_layernorm(norm_input)
-        mlp_output = self.mlp(norm_output)
+        mlp_output = (
+            self.mlp(norm_output, token_mask=moe_token_mask)
+            if self.config.model.moe.use_moe
+            else self.mlp(norm_output)
+        )
         if self.config.model.is_granitemoe:
             mlp_output = mlp_output * self.config.model.granitemoe.residual_multiplier
         return norm_input + mlp_output
@@ -153,12 +160,13 @@ class TransformerLayer(BaseModule):
         attention_mask,
         rotary_pos_emb,
         position_ids=None,
+        moe_token_mask=None,
     ):
         """Full layer block: attention + MLP, for full_layer spill granularity."""
         norm_input = self._attention_subblock(
             hidden_states, attention_mask, rotary_pos_emb, position_ids
         )
-        return self._mlp_subblock(norm_input)
+        return self._mlp_subblock(norm_input, moe_token_mask)
 
     def custom_forward(
         self,
@@ -399,7 +407,11 @@ class TransformerModel(BaseModule):
             )
 
         # Activation checkpointing configuration
-        self.activation_recompute = config.operation.activation_recompute
+        self.recompute_interval = config.operation.recompute_interval
+        self.recompute_skip_count = config.operation.recompute_skip_count
+        self.activation_recompute = (
+            config.operation.activation_recompute and self.recompute_interval > 0
+        )
         self.use_reentrant = config.operation.recompute_strategy == "optimized"
 
     def _is_fsdp_enabled(self) -> bool:
@@ -449,9 +461,8 @@ class TransformerModel(BaseModule):
         is_fsdp = self._is_fsdp_enabled()
         scheduler = getattr(self, "_offload_scheduler", None)
 
-        # Activation spilling replaces checkpointing: when spill_manager is active,
-        # activations are saved to host memory during forward and prefetched during
-        # backward. Checkpointing is disabled to avoid recomputing twice.
+        # Spilled inputs use their own replay engine rather than ordinary GPU
+        # checkpointing. Group planning below controls the stored input boundaries.
         activation_spill_active = scheduler is not None and scheduler.spill_manager is not None
         use_layer_checkpointing = (
             self.activation_recompute
@@ -486,6 +497,27 @@ class TransformerModel(BaseModule):
                 rotary_pos_emb = rotary_pos_emb.to(compute_device)
             if position_ids is not None and isinstance(position_ids, torch.Tensor):
                 position_ids = position_ids.to(compute_device)
+
+        if (
+            (self.grouped_recompute or (weight_streaming and not activation_spill_active))
+            and self.training
+            and not use_cache
+            and kv_cache_manager is None
+            and block_kv_cache_manager is None
+            and (activation_spill_active or use_layer_checkpointing)
+        ):
+            hidden_states = self._forward_grouped(
+                hidden_states,
+                attention_mask,
+                rotary_pos_emb,
+                position_ids,
+                moe_token_mask,
+                scheduler if activation_spill_active or weight_streaming else None,
+                checkpoint_reentrant,
+            )
+            if weight_streaming and hidden_states.device != original_device:
+                hidden_states = hidden_states.to(original_device)
+            return hidden_states
 
         for i, layer in enumerate(self.layers):
             past_kv = past_key_values[i] if past_key_values is not None else None
@@ -554,6 +586,81 @@ class TransformerModel(BaseModule):
             return hidden_states, new_key_values
         return hidden_states
 
+    @contextmanager
+    def _group_recompute_context(self, start, end):
+        with ExitStack() as stack:
+            if self.config.model.moe.use_moe:
+                for layer in self.layers[start:end]:
+                    stack.enter_context(layer.mlp.recompute_context())
+            yield
+
+    def get_recompute_segments(self) -> tuple[tuple[int, int], ...]:
+        return recompute_segments(
+            len(self.layers), self.recompute_interval, self.recompute_skip_count
+        )
+
+    @property
+    def grouped_recompute(self) -> bool:
+        return self.recompute_interval > 1 or (self.recompute_skip_count or 0) > 0
+
+    def _forward_grouped(self, hidden, mask, rotary, positions, token_mask, scheduler, reentrant):
+        """Recompute segments, independent of the activation storage device."""
+        for start, end in self.get_recompute_segments():
+            if scheduler is not None:
+                from ironcore.offload.recompute import recompute_streamed_segment
+
+                def streamed(layer, value, attention_mask, rotary_pos_emb, position_ids, moe_mask):
+                    output = layer._full_layer_subblock(
+                        value, attention_mask, rotary_pos_emb, position_ids, moe_mask
+                    )
+                    if self.config.model.moe.use_moe:
+                        return output, layer.mlp.get_aux_loss()
+                    return output
+
+                functions = [partial(streamed, layer) for layer in self.layers[start:end]]
+                if self.config.model.moe.use_moe:
+                    for function, layer in zip(functions, self.layers[start:end], strict=True):
+                        function.recompute_context = layer.mlp.recompute_context
+                output = recompute_streamed_segment(
+                    functions,
+                    scheduler,
+                    start,
+                    hidden,
+                    mask,
+                    rotary,
+                    positions,
+                    token_mask,
+                    offload_input=scheduler.spill_manager is not None,
+                )
+            else:
+                output = checkpoint_with_tensor_parallel_rng(
+                    partial(self._run_group, start, end),
+                    hidden,
+                    mask,
+                    rotary,
+                    positions,
+                    token_mask,
+                    use_reentrant=reentrant,
+                    recompute_context=partial(self._group_recompute_context, start, end),
+                )
+            if self.config.model.moe.use_moe:
+                hidden, *losses = output
+                for layer, loss in zip(self.layers[start:end], losses, strict=True):
+                    layer.mlp._aux_loss = loss
+            else:
+                hidden = output
+        return hidden
+
+    def _run_group(self, start, end, hidden, mask, rotary, positions, token_mask):
+        losses = []
+        for layer in self.layers[start:end]:
+            hidden = layer.custom_forward(
+                hidden, mask, rotary, position_ids=positions, moe_token_mask=token_mask
+            )
+            if self.config.model.moe.use_moe:
+                losses.append(layer.mlp.get_aux_loss())
+        return (hidden, *losses) if losses else hidden
+
     def _forward_gemma4(
         self,
         hidden_states: torch.Tensor,
@@ -588,6 +695,23 @@ class TransformerModel(BaseModule):
         shared = {}
         cache = []
         scheduler = getattr(self, "_offload_scheduler", None)
+        spill_active = scheduler is not None and scheduler.spill_manager is not None
+        streamed_gpu = (
+            scheduler is not None and scheduler.weight_streaming_enabled and not spill_active
+        )
+        if (
+            (self.grouped_recompute or streamed_gpu)
+            and self.training
+            and not use_cache
+            and (spill_active or (self.activation_recompute and not self._is_fsdp_enabled()))
+        ):
+            return self._forward_gemma4_grouped(
+                hidden_states,
+                attention_mask,
+                position_ids,
+                per_layer_inputs,
+                scheduler if spill_active or streamed_gpu else None,
+            )
         for i, layer in enumerate(self.layers):
             if scheduler is not None:
                 scheduler.on_layer_start(i)
@@ -636,3 +760,66 @@ class TransformerModel(BaseModule):
             if scheduler is not None:
                 scheduler.on_layer_end(i)
         return (hidden_states, cache) if use_cache else hidden_states
+
+    def _forward_gemma4_grouped(self, hidden, mask, positions, per_layer_inputs, scheduler):
+        shared = {}
+        for start, end in self.get_recompute_segments():
+            if scheduler is not None:
+                from ironcore.offload.recompute import recompute_streamed_segment
+
+                hidden = recompute_streamed_segment(
+                    [layer.forward_spilled for layer in self.layers[start:end]],
+                    scheduler,
+                    start,
+                    hidden,
+                    mask,
+                    positions,
+                    offload_input=scheduler.spill_manager is not None,
+                )
+            else:
+                kinds = tuple(shared)
+                hidden, *kv_outputs = checkpoint_with_tensor_parallel_rng(
+                    partial(self._run_gemma4_group, start, end, kinds),
+                    hidden,
+                    mask,
+                    positions,
+                    per_layer_inputs,
+                    *(tensor for kind in kinds for tensor in shared[kind]),
+                    use_reentrant=self.use_reentrant,
+                )
+                output_kinds = tuple(
+                    dict.fromkeys(
+                        (
+                            *kinds,
+                            *(
+                                self.config.model.gemma4.layer_types[i]
+                                for i in range(start, end)
+                                if self.config.model.gemma4.num_kv_shared_layers
+                                and not self.layers[i].self_attn.is_shared
+                            ),
+                        )
+                    )
+                )
+                shared = {
+                    kind: tuple(kv_outputs[2 * i : 2 * i + 2])
+                    for i, kind in enumerate(output_kinds)
+                }
+        return hidden
+
+    def _run_gemma4_group(self, start, end, kinds, hidden, mask, positions, ple, *kv_inputs):
+        shared = {kind: tuple(kv_inputs[2 * i : 2 * i + 2]) for i, kind in enumerate(kinds)}
+        gemma = self.config.model.gemma4
+        for i in range(start, end):
+            layer = self.layers[i]
+            kind = gemma.layer_types[i]
+            hidden, new_kv = layer(
+                hidden,
+                mask,
+                positions,
+                None,
+                shared.get(kind) if layer.self_attn.is_shared else None,
+                ple[:, :, i] if ple is not None else None,
+            )
+            if gemma.num_kv_shared_layers and not layer.self_attn.is_shared:
+                shared[kind] = new_kv
+        return hidden, *(tensor for kv in shared.values() for tensor in kv)

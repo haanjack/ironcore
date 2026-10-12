@@ -411,8 +411,8 @@ class TestActivationSpillConfigValidation:
         _config_validation(config)  # should not raise
         assert config.offload.activation_spill_granularity == "full_layer"
 
-    def test_spill_auto_disables_recompute(self):
-        """activation_spill=true auto-disables activation_recompute."""
+    def test_activation_spill_preserves_recompute(self):
+        """Activation storage and recompute settings remain independent."""
         import warnings
 
         from ironcore.config import _config_validation
@@ -426,9 +426,8 @@ class TestActivationSpillConfigValidation:
             warnings.simplefilter("always")
             _config_validation(config)
 
-        assert config.operation.activation_recompute is False
-        assert len(w) == 1
-        assert "Disabling activation_recompute" in str(w[0].message)
+        assert config.operation.activation_recompute is True
+        assert len(w) == 0
 
     def test_valid_spill_config(self):
         from ironcore.config import _config_validation

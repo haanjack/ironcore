@@ -35,8 +35,9 @@ class OffloadConfig(BaseConfig):
     Activation spill fields:
         activation_spill, activation_spill_granularity
 
-    Activation spilling replaces activation checkpointing when enabled.
-    activation_spill=true automatically disables activation_recompute.
+    Activation spilling chooses CPU storage for recompute boundaries.
+    The boundary plan is configured independently by recompute_interval or
+    recompute_skip_count in operation.
     """
 
     # Master switch. All offload features are gated on this.
@@ -57,9 +58,8 @@ class OffloadConfig(BaseConfig):
     gpu_staging_chunk_mb: float = 256.0  # chunk size for GPU staging pool
 
     # Activation spill (forward D2H spill + backward H2D prefetch)
-    # When enabled, replaces activation checkpointing. D2H spill during forward,
-    # H2D prefetch during backward, free-after-consume to limit host memory.
-    # Mutually exclusive with activation_recompute (auto-disabled with warning).
+    # D2H spill during forward, H2D prefetch during backward, free-after-consume.
+    # Independent of the recompute boundary plan; weight_offload does not enable it.
     activation_spill: bool = False
     activation_spill_granularity: str = "sub_layer"  # "sub_layer" or "full_layer"
 

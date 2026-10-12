@@ -170,6 +170,21 @@ class OperationConfig(BaseConfig):
         default=False,
         metadata={"help": "use activation recompute to reduce memory footprints in training"},
     )
+    recompute_interval: int = field(
+        default=1,
+        metadata={
+            "help": "Transformer layers per recompute segment; 0 disables layer recompute. "
+            "Applies to GPU checkpointing and full-layer activation spilling."
+        },
+    )
+    recompute_skip_count: int | None = field(
+        default=None,
+        metadata={
+            "help": "Number of layer input checkpoint boundaries to omit, evenly distributed. "
+            "None uses recompute_interval; count mode requires interval=1. "
+            "All layer interiors still recompute; applies to GPU or CPU boundaries."
+        },
+    )
     recompute_strategy: str | None = field(
         default="default",
         metadata={

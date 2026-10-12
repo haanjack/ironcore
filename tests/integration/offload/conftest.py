@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared fixtures for offload integration tests."""
 
+from itertools import repeat
 from unittest.mock import patch
 
 import pytest
@@ -42,10 +43,15 @@ def create_mock_forward_step_func(batch_size=2, seq_len=16):
     return mock_forward_step
 
 
-def create_mock_data_iterator():
-    """Create a mock data iterator that yields nothing."""
+def create_mock_data_iterator(batch_size=2, seq_len=16):
+    """Provide uniform batch counts for forward steps that generate their own data.
+
+    The trainer preloads batches before calling the mocked forward step. Keep
+    the train iterator alive without consuming RNG or allocating GPU tensors.
+    """
+    tokens = torch.zeros(batch_size, seq_len, dtype=torch.long)
     return {
-        "train": iter([]),
+        "train": repeat({"input_ids": tokens, "labels": tokens}),
         "eval": iter([]),
         "test": iter([]),
     }

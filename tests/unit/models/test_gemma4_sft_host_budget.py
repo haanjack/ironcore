@@ -58,6 +58,19 @@ def test_attention_only_budget_has_previous_adapter_size():
     assert budget["adapter_parameters"] == 5744640
 
 
+def test_count_changes_only_checkpoint_input_budget():
+    model = a4b_metadata()
+    baseline = estimate_host_budget(model, 131072, 2, 2)
+    counted = estimate_host_budget(model, 131072, 2, 2, recompute_skip_count=8)
+    assert counted["spilled_inputs_bytes"] * 30 == baseline["spilled_inputs_bytes"] * 22
+    for key in [
+        "frozen_weights_bytes",
+        "adapter_weights_gradients_adam_bytes",
+        "adapter_parameters",
+    ]:
+        assert counted[key] == baseline[key]
+
+
 @pytest.mark.parametrize("cached_gib", [0, 2])
 def test_container_capacity_overrides_large_physical_host_memory(monkeypatch, cached_gib):
     from pathlib import Path
