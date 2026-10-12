@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Pairwise offload test: Optimizer state offload + Weight streaming (activation spill auto-enabled).
+Pairwise offload test: Optimizer state offload + Weight streaming + Activation spill.
 
 Verifies optimizer offload + weight streaming + activation spilling combination works correctly.
-Note: Weight streaming automatically enables activation spilling for weight eviction safety.
+Activation spilling is selected explicitly, independently of weight streaming.
 """
 
 import math
@@ -116,7 +116,7 @@ def _run_training(config, num_steps):
     with (
         patch(
             "ironcore.trainers.base_trainer.get_data_iterator",
-            return_value=create_mock_data_iterator(),
+            return_value=create_mock_data_iterator(BATCH_SIZE, SEQ_LEN),
         ),
         patch(
             "ironcore.trainers.base_trainer.get_evaluators", return_value=create_mock_evaluators()
@@ -138,13 +138,14 @@ def _run_training(config, num_steps):
 
 @skip_no_cuda
 class TestOptimizerWeightOffload:
-    """Optimizer state offload + Weight streaming (activation spill auto-enabled) combination test."""
+    """Optimizer state offload + Weight streaming + Activation spill combination test."""
 
     def test_optimizer_weight_offload_converges(self):
         """Optimizer offload + weight streaming should converge and produce valid gradients."""
         config = _make_config(
             optimizer_offload=True,
             weight_offload=True,
+            activation_spill=True,
             weight_storage_precision="bf16",
             optimizer_state_precision="bf16",
             pinned_memory_pool_gb=2.0,
@@ -171,6 +172,7 @@ class TestOptimizerWeightOffload:
             _make_config(
                 optimizer_offload=True,
                 weight_offload=True,
+                activation_spill=True,
                 weight_storage_precision="bf16",
                 optimizer_state_precision="bf16",
                 pinned_memory_pool_gb=2.0,
