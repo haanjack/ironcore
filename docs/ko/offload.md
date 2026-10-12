@@ -50,7 +50,7 @@ offload:
 
 1. **`on_training_step_start()`**: 처음 N개 레이어 프리페치
 2. **`on_layer_start(i)`**: 레이어 i의 전송 대기, 가중치를 파라미터에 적용 (CPU param.data를 GPU 스테이징 버퍼로 교환), 다음 레이어 프리페치
-3. **`on_layer_end(i)`**: 활성화 스필 활성화 시 (자동 활성화): GPU에서 가중치 방출 — param.data를 호스트 타일 값으로 교체, GPU 스테이징 버퍼 풀에 반환. 활성화 스필 없을 때: no-op (가중치가 역전파를 위해 유지)
+3. **`on_layer_end(i)`**: 활성화 스필 또는 가중치 스트리밍 재계산 시: GPU에서 가중치 방출 — param.data를 호스트 타일 값으로 교체, GPU 스테이징 버퍼 풀에 반환. 구간 내부에서도 재계산을 통해 레이어별 가중치를 복원하고 방출
 4. **`on_backward_layer_start(i)`**: 역전파 재계산에 필요하면 방출된 가중치 다시 로딩
 5. **`on_backward_layer_end(i)`**: 역전파 계산 후 가중치 다시 방출
 6. **`on_training_step_end()`**: 업데이트된 파라미터(옵티마이저 스텝 후)를 호스트 타일로 스냅샷
@@ -96,9 +96,8 @@ GPU로 복사할 때 원래 dtype으로 역양자화됩니다. 트레이드오�
 
 가중치 스트리밍은 다음과 **호환되지 않습니다**:
 - **FSDP** (`parallel.use_fsdp: true`): FSDP가 자체 파라미터 샤딩/언샤딩을 관리합니다.
-- **활성화 체크포인팅** (`model.activation_recompute: true`): 체크포인팅이 역전파 중 순전파를 재실행하지만, 스케줄러 훅은 메인 순전파에서만 실행됩니다.
 
-활성화 스필은 가중치 스트리밍과 호환되는 체크포인팅 대체제입니다.
+레이어 재계산은 구간 입력을 CPU 또는 GPU에 저장하는 가중치 스트리밍 경로와 함께 사용할 수 있습니다. `weight_offload`는 안전한 재계산을 활성화하지만 `activation_spill`은 자동으로 켜지 않습니다.
 
 ### CPU 상주 파라미터 및 옵티마이저
 
@@ -114,9 +113,44 @@ GPU로 복사할 때 원래 dtype으로 역양자화됩니다. 트레이드오�
 
 활성화 스필을 활성화하면 순전파 중 서브레이어 경계에서 중간 활성화가 CPU로 스필되고, 역전파 중 다시 프리페치됩니다. 소비 후 즉시 해제되어 호스트 메모리를 제한합니다.
 
-활성화 체크포인팅을 대체합니다. `activation_spill: true`를 활성화하면 경고와 함께 `activation_recompute`가 자동으로 비활성화됩니다.
+`activation_spill: true`는 재계산에 필요한 구간 입력을 CPU에 저장하며 false는 GPU에 유지합니다. `operation.recompute_interval`과 독립적인 선택이고, `activation_recompute`를 비활성화하지 않습니다.
 
-세분도: `sub_layer` (기본값 및 유일한 옵션). 더 낮은 호스트 메모리 사용을 위해 어텐션/MLP 경계에서 스필합니다.
+세분도는 `sub_layer`(기본값) 또는 `full_layer`입니다. interval이 1보다 크면 `full_layer`를 사용합니다.
+
+### Recompute interval
+
+```yaml
+operation:
+  activation_recompute: true
+  recompute_interval: 2
+offload:
+  enabled: true
+  weight_offload: true
+  activation_spill: true
+  activation_spill_granularity: full_layer
+```
+
+`recompute_interval`은 재계산 구간에 포함하는 Transformer 레이어 수입니다. 기본값 1은 기존 레이어별 경계를 유지하고, 2는 두 레이어마다 입력 하나를 저장합니다. 0은 전체 레이어 재계산을 비활성화합니다. GPU 상주 모델에서는 `activation_recompute`를 명시적으로 켭니다. 가중치 스트리밍은 양수 interval이 필요하고 안전한 재계산을 활성화하지만, CPU activation 저장은 자동으로 켜지 않습니다.
+
+### 생략할 입력 경계 개수 지정
+
+`operation.recompute_skip_count`는 저장하지 않을 **레이어 입력 경계**의 개수입니다. 기본값 `null`은 interval 방식입니다. 개수 방식은 `recompute_interval: 1`(기본값)과 함께 사용하며, `0 <= recompute_skip_count < num_layers`여야 합니다. 다른 interval을 동시에 지정하면 오류입니다. 최초 레이어 입력은 복원을 위해 항상 저장합니다.
+
+```yaml
+operation:
+  activation_recompute: true
+  recompute_skip_count: 8
+offload:
+  activation_spill: false  # true이면 구간 입력을 CPU에 저장
+```
+
+32레이어에서 8을 지정하면 24개 입력 경계를 저장합니다. 두 레이어 구간 8개와 단일 레이어 구간 16개를 고르게 분산하며, 구간 길이 차이는 최대 1입니다. 더 많이 생략하면 3개 이상 레이어를 복원하는 구간이 필요합니다. 단일 레이어 구간에는 구간 복원용 추가 재계산을 적용하지 않습니다. 가중치 prefetch도 실제 구간 경계에 따라 이전 구간의 시작에서 재개합니다.
+
+이 옵션은 "8개 레이어만 재계산"하는 선택적 recompute가 아닙니다. 모든 레이어 내부는 계속 재계산하며, 저장 경계 생략에 따른 추가 복원 작업을 조절합니다. CPU spill과 독립적으로 GPU 입력 checkpoint에도 적용됩니다. 경계를 생략하는 CPU spill은 `full_layer` granularity가 필요하며, FSDP에서는 아직 지원하지 않습니다. index 수동 지정은 제공하지 않습니다. 공개 예제의 `--recompute-skip-count`와 host RAM 예상치도 동일한 구간 계획을 사용합니다.
+
+가중치와 입력을 모두 GPU에 유지하는 `offload.enabled: false`에서도 interval을 사용할 수 있습니다. GPU 상주 경로는 여러 레이어를 하나의 재계산 구간으로 묶으며 마지막 짧은 구간도 처리합니다. 가중치 스트리밍 경로는 backward에서 구간 입력을 복원한 뒤 GPU 레이어 checkpoint로 구간 내부 입력을 재구성하고, 레이어마다 가중치를 다시 올리고 방출합니다. 원래 forward에서 저장하는 host 경계 수를 줄이면서 여러 레이어의 가중치와 내부 gradient graph가 동시에 GPU에 남는 것을 방지합니다. 구간이 커지면 GPU 입력 보관량과 재계산 비용은 증가합니다.
+
+현재 묶음 단위 FSDP 재계산은 지원하지 않습니다. Gemma offload의 PLE·shared KV 제한은 유지되지만 GPU 상주 Gemma 재계산에서는 둘 다 지원합니다. MLP·MoE 내부의 blocking 및 재계산은 이 전체 레이어 interval과 별도로 적용됩니다.
 
 ## 메모리 풀
 

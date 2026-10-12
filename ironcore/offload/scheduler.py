@@ -108,6 +108,7 @@ class ExecutionScheduler:
         self._device = device or torch.device("cuda")
         self._spill_manager = spill_manager
         self._activation_spill_granularity: str = "sub_layer"
+        self._recompute_weight_streaming = False
         self._gpu_pool = gpu_pool
 
         # ZeRO-3 DP sharding state
@@ -183,18 +184,6 @@ class ExecutionScheduler:
             )
             return None
 
-        # Skip weight streaming if activation checkpointing is enabled.
-        # Checkpointing replays the forward pass during backward, and the
-        # scheduler's per-layer hooks only fire in TransformerModel.forward(),
-        # not during recomputation. Weights must stay resident for correctness.
-        # Note: activation spilling itself disables checkpointing via config validation.
-        if config.weight_offload and _is_checkpointing_enabled(model):
-            _get_logger().info(
-                "Weight streaming skipped: activation checkpointing is enabled. "
-                "Weights must stay on GPU for backward recomputation."
-            )
-            return None
-
         if device is None:
             device = torch.device("cuda")
 
@@ -249,6 +238,9 @@ class ExecutionScheduler:
             scheduler._set_num_layers(model)
         scheduler._propagate_to_layers()
         scheduler._activation_spill_granularity = config.activation_spill_granularity
+        scheduler._recompute_weight_streaming = config.weight_offload and _is_checkpointing_enabled(
+            model
+        )
 
         # Auto-size GPU pool based on registered layer sizes
         if gpu_pool is not None:
@@ -429,10 +421,15 @@ class ExecutionScheduler:
         if self._gpu_pool is not None and not params_were_on_cpu:
             self._tile_manager.return_gpu_buffers(group)
 
-        # Prefetch next layers
+        # Prefetch next layers, bounded by the active backward replay segment.
+        replay_end = getattr(self, "_recompute_forward_end", None)
         for ahead in range(1, self._prefetch_layers + 1):
             next_idx = layer_idx + ahead
-            if next_idx < self._num_layers and next_idx not in self._layer_on_gpu:
+            if (
+                next_idx < self._num_layers
+                and (replay_end is None or next_idx < replay_end)
+                and next_idx not in self._layer_on_gpu
+            ):
                 self._prefetch_layer(next_idx)
 
         self._current_forward_layer = layer_idx
@@ -445,9 +442,10 @@ class ExecutionScheduler:
         uses torch.no_grad(), so no weight references are saved in the autograd
         graph. Weights will be re-loaded during backward recomputation.
 
-        Without activation spill: weights must stay on GPU for backward.
+        With recompute weight streaming, GPU inputs also permit graph-free
+        forward eviction. Other paths retain weights for backward.
         """
-        if self._spill_manager is None:
+        if self._spill_manager is None and not self._recompute_weight_streaming:
             return
 
         group = self._weight_groups.get(layer_idx)
@@ -489,28 +487,49 @@ class ExecutionScheduler:
         With activation spill: evicts weights from GPU, freeing VRAM, and prefetches
         the previous layer's weights so the H2D transfer overlaps with
         autograd traversal to the next layer.
-        Weight streaming only (no activation spill): keeps weights on GPU for subsequent micro-batches;
-        eviction happens in on_backward_pass_end after all micro-batches.
+        Recompute weight streaming also evicts and prefetches with GPU inputs.
+        Legacy streaming without replay retains weights until on_backward_pass_end.
         """
         group = self._weight_groups.get(layer_idx)
         if group is None:
             return
 
-        if self._spill_manager is not None:
+        if self._spill_manager is not None or self._recompute_weight_streaming:
             self._evict_layer_weights(group)
             self._layer_on_gpu.discard(layer_idx)
 
             # Prefetch previous layers' weights async so the H2D transfer
             # runs while autograd traverses to the next backward call.
             # Configurable depth via backward_weight_prefetch_layers.
-            for dl in range(1, self._backward_prefetch_layers + 1):
-                if layer_idx - dl >= 0:
-                    self._prefetch_layer(layer_idx - dl)
+            planner = getattr(self._model, "get_recompute_segments", None)
+            segments = planner() if planner is not None else ()
+            starts = [start for start, _ in segments]
+            interval = getattr(self._model, "recompute_interval", 1)
+            at_boundary = (
+                layer_idx in starts if segments else interval > 1 and layer_idx % interval == 0
+            )
+            if at_boundary:
+                # The next segment first reconstructs its inputs in forward
+                # order. Prefetch its start, not its last layer: holding that
+                # last layer while loading the prefix would exhaust the pool.
+                previous_start = (
+                    starts[starts.index(layer_idx) - 1]
+                    if segments and layer_idx > 0
+                    else layer_idx - interval
+                )
+                for ahead in range(self._backward_prefetch_layers):
+                    index = previous_start + ahead
+                    if 0 <= index < layer_idx:
+                        self._prefetch_layer(index)
+            else:
+                for dl in range(1, self._backward_prefetch_layers + 1):
+                    if layer_idx - dl >= 0:
+                        self._prefetch_layer(layer_idx - dl)
 
             # Prefetch sub_layer=1 activation for the next backward layer.
             # Backward order: layer N sub=0 → layer N-1 sub=1, so after
             # finishing layer N, the next activation needed is N-1 sub=1.
-            if layer_idx > 0:
+            if layer_idx > 0 and self._spill_manager is not None:
                 self._spill_manager.prefetch_activation(layer_idx - 1, 1, self._device)
         # Weight streaming only: don't evict or discard — weights stay on GPU
         # for the next micro-batch. Eviction happens in on_backward_pass_end().

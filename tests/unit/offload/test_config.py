@@ -103,8 +103,8 @@ class TestOffloadConfigValidation:
         with pytest.raises(ValueError, match="must be 'sub_layer' or 'full_layer'"):
             _config_validation(config)
 
-    def test_activation_spill_disables_recompute(self):
-        """activation_spill=true auto-disables activation_recompute with warning."""
+    def test_activation_spill_preserves_recompute(self):
+        """Activation storage and recompute settings remain independent."""
         from ironcore.config import _config_validation
 
         config = _make_minimal_main_config()
@@ -116,9 +116,8 @@ class TestOffloadConfigValidation:
             warnings.simplefilter("always")
             _config_validation(config)
 
-        assert config.operation.activation_recompute is False
-        assert len(w) == 1
-        assert "Disabling activation_recompute" in str(w[0].message)
+        assert config.operation.activation_recompute is True
+        assert len(w) == 0
 
     def test_all_enabled_valid(self):
         """Enabling everything validly should not raise."""

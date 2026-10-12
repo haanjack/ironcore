@@ -203,6 +203,17 @@ def _config_validation(config: MainConfig):
             )
 
     # Offload validation
+    from .recompute import recompute_segments
+
+    interval = config.operation.recompute_interval
+    segments = recompute_segments(
+        config.model.num_layers, interval, config.operation.recompute_skip_count
+    )
+    grouped_recompute = any(end - start > 1 for start, end in segments)
+    if interval == 0:
+        config.operation.activation_recompute = False
+    if grouped_recompute and config.parallel.use_fsdp:
+        raise ValueError("Grouped recompute currently requires non-FSDP execution")
     if config.offload.optimizer_offload and not config.offload.enabled:
         raise ValueError("offload.optimizer_offload requires offload.enabled to be true")
     if config.offload.optimizer_state_precision not in ("fp32", "fp16", "bf16"):
@@ -217,15 +228,6 @@ def _config_validation(config: MainConfig):
             f"offload.activation_spill_granularity must be 'sub_layer' or 'full_layer', "
             f"got '{config.offload.activation_spill_granularity}'"
         )
-    if config.offload.activation_spill and config.operation.activation_recompute:
-        import warnings
-
-        warnings.warn(
-            "offload.activation_spill is enabled but activation_recompute is also enabled. "
-            "Activation spilling replaces checkpointing. Disabling activation_recompute.",
-            stacklevel=2,
-        )
-        config.operation.activation_recompute = False
     if config.offload.weight_offload and not config.offload.enabled:
         raise ValueError("offload.weight_offload requires offload.enabled to be true")
     if config.offload.weight_offload and config.offload.weight_storage_precision not in (
@@ -242,15 +244,18 @@ def _config_validation(config: MainConfig):
             "offload.weight_offload is incompatible with FSDP. "
             "FSDP manages its own parameter sharding/unsharding."
         )
-    if config.offload.weight_offload and not config.offload.activation_spill:
-        import warnings
+    if config.offload.weight_offload:
+        if interval == 0:
+            raise ValueError("Weight streaming requires operation.recompute_interval >= 1")
+        # Streaming evicts frozen weights after graph-free forward. Replay is
+        # necessary, but the boundary storage device remains an explicit choice.
+        config.operation.activation_recompute = True
 
-        warnings.warn(
-            "offload.weight_offload requires activation spilling for weight "
-            "eviction (no_autograd_graph). Enabling offload.activation_spill automatically.",
-            stacklevel=2,
-        )
-        config.offload.activation_spill = True
+    if config.offload.activation_spill:
+        if interval == 0:
+            raise ValueError("Activation spilling requires operation.recompute_interval >= 1")
+        if grouped_recompute and config.offload.activation_spill_granularity != "full_layer":
+            raise ValueError("Grouped recompute requires full_layer activation spilling")
 
     if config.offload.weight_prefetch_layers < 1:
         raise ValueError(
