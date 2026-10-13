@@ -9,6 +9,7 @@ Supports pretrain, SFT, DPO, and FIM task types.
 """
 
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from random import Random
@@ -18,6 +19,25 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 from ironcore.dataloader.data_config import DataConfig, DatasetConfig
+
+# Fork-inherited context for parallel SFT tokenization (set by _serialize_sft
+# before Pool creation; children only read it).
+_SFT_WORKER_CTX = None
+
+
+def _sft_worker_count() -> int:
+    """Half the cores by default — template rendering is jinja/Python bound and
+    serial otherwise (~30 convs/s for RP-length conversations)."""
+    return max(1, (os.cpu_count() or 1) // 2)
+
+
+def _sft_tokenize_sample(sample):
+    serializer, dataset_config = _SFT_WORKER_CTX
+    return serializer._apply_chat_template_and_get_masks(
+        sample[dataset_config.messages_column],
+        dataset_config.chat_template,
+        dataset_config.chat_template_kwargs,
+    )
 
 
 class DataSerializer:
@@ -86,7 +106,11 @@ class DataSerializer:
         """
         output_path = self.config.get_dataset_output_path(dataset_config)
         bin_path = output_path / "data.bin"
-        idx_path = output_path / "data.idx"
+        # np.save appends .npy to whatever it is given, so the on-disk index is
+        # data.idx.npy — and the streaming loader reads that name. Checking the
+        # bare "data.idx" here made the cache check never pass: every run
+        # re-tokenized every dataset. (Found running gemma4 A4B SFT.)
+        idx_path = output_path / "data.idx.npy"
 
         if self.verbose:
             print(f"\n[{dataset_config.name}] Task: {dataset_config.task_type}")
@@ -336,33 +360,11 @@ class DataSerializer:
         all_tokens = []
         metadata = []
         current_offset = 0
-
         desc = "  Tokenizing" + (" (FIM)" if fim_enabled else "")
-        if self.verbose:
-            dataset_iter = tqdm(dataset, desc=desc, unit="convs")
-        else:
-            dataset_iter = dataset
 
-        for sample in dataset_iter:
-            messages = sample[messages_column]
-
-            # Apply chat template and get token IDs + mask ranges
-            token_ids, mask_ranges = self._apply_chat_template_and_get_masks(
-                messages, dataset_config.chat_template, dataset_config.chat_template_kwargs
-            )
-
-            # Apply FIM transformation with probability fim_rate
-            if fim_enabled and rng.random() < self.config.fim_rate:
-                token_ids = self._apply_fim_transformation(
-                    token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
-                )
-                # FIM sequences don't use standard SFT masking as tokens are reordered
-                mask_ranges = []
-
-            # Append to token stream
+        def _absorb(token_ids, mask_ranges):
+            nonlocal current_offset
             all_tokens.extend(token_ids)
-
-            # Record metadata with mask ranges
             metadata.append(
                 (
                     current_offset,  # offset
@@ -372,8 +374,56 @@ class DataSerializer:
                     json.dumps(mask_ranges),  # mask_ranges as JSON
                 )
             )
-
             current_offset += len(token_ids)
+
+        if not fim_enabled and _sft_worker_count() > 1:
+            # Parallel path: per-conversation template rendering + tokenization
+            # is jinja/Python bound and single-core serial otherwise. Fork
+            # workers inherit the tokenizer; imap preserves stream order, so the
+            # .bin/.idx bytes are identical to the serial path.
+            import multiprocessing as mp
+
+            # HF tokenizers warn (and risk rayon fork deadlocks) when a forked
+            # child encodes with a live parallel pool.
+            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+            global _SFT_WORKER_CTX
+            _SFT_WORKER_CTX = (self, dataset_config)
+            workers = _sft_worker_count()
+            samples = list(dataset)
+            if self.verbose:
+                print(f"  Parallel tokenizing: {workers} workers, {len(samples):,} convs")
+            with mp.Pool(workers) as pool:
+                results = pool.imap(_sft_tokenize_sample, samples, chunksize=64)
+                iterator = (
+                    tqdm(results, desc=desc, unit="convs", total=len(samples))
+                    if self.verbose
+                    else results
+                )
+                for token_ids, mask_ranges in iterator:
+                    _absorb(token_ids, mask_ranges)
+        else:
+            if self.verbose:
+                dataset_iter = tqdm(dataset, desc=desc, unit="convs")
+            else:
+                dataset_iter = dataset
+
+            for sample in dataset_iter:
+                messages = sample[messages_column]
+
+                # Apply chat template and get token IDs + mask ranges
+                token_ids, mask_ranges = self._apply_chat_template_and_get_masks(
+                    messages, dataset_config.chat_template, dataset_config.chat_template_kwargs
+                )
+
+                # Apply FIM transformation with probability fim_rate
+                if fim_enabled and rng.random() < self.config.fim_rate:
+                    token_ids = self._apply_fim_transformation(
+                        token_ids, fim_prefix_id, fim_suffix_id, fim_middle_id, rng
+                    )
+                    # FIM sequences don't use standard SFT masking as tokens are reordered
+                    mask_ranges = []
+
+                _absorb(token_ids, mask_ranges)
 
         # Save .bin file
         tokens_array = np.array(
@@ -648,7 +698,10 @@ class DataSerializer:
                     continue
                 # Render conversation prefixes: isolated messages can repeat BOS,
                 # omit system context, or violate the template's role alternation.
-                before = render(messages[:index], generation_prompt=True)
+                # An assistant-first conversation (e.g. RP greeting openers) has
+                # no prompt to render: the empty prefix trivially matches, so the
+                # opening assistant turn trains from the template's BOS.
+                before = render(messages[:index], generation_prompt=True) if index else []
                 after = render(messages[: index + 1])
                 if token_ids[: len(before)] != before or token_ids[: len(after)] != after:
                     raise ValueError(
