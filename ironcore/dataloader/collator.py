@@ -106,9 +106,6 @@ class UniversalCollator:
         # Sort by length (descending) for better packing
         samples.sort(key=lambda x: len(x[0]), reverse=True)
 
-        # Pre-create range tensor for position_ids (avoids torch.arange in loop)
-        position_range = torch.arange(self.max_seq_len, dtype=torch.long)
-
         # Bin-packing: First-Fit Decreasing
         bins = []  # Each bin: [(token_ids, metadata), ...]
         bin_lengths = []  # Current length of each bin
@@ -135,14 +132,29 @@ class UniversalCollator:
         # Now construct tensors from bins
         batch_size = len(bins)
 
-        # Initialize tensors
-        input_ids = torch.full((batch_size, self.max_seq_len), self.pad_token_id, dtype=torch.long)
+        # Exact-length rows: each bin is cropped to its content so the row
+        # width follows the packed tokens instead of padding everything to
+        # max_seq_len. Rows are padded only up to the longest bin in the
+        # batch — padding positions are masked anyway, but the GEMMs still
+        # computed them, which on packed 32K rows wasted up to the full
+        # padding fraction of every step.
+        bin_lens = []
+        for bin_samples in bins:
+            total = 0
+            for token_ids, metadata in bin_samples:
+                total += max(len(token_ids) - 1, 0)  # written_len per sample
+            bin_lens.append(total)
+        rows = min(max(bin_lens) if bin_lens else 1, self.max_seq_len)
+        rows = max(rows, 1)
+        position_range = torch.arange(rows, dtype=torch.long)
+
+        input_ids = torch.full((batch_size, rows), self.pad_token_id, dtype=torch.long)
         labels = torch.full(
-            (batch_size, self.max_seq_len),
+            (batch_size, rows),
             -100,  # Ignore index for loss
             dtype=torch.long,
         )
-        position_ids = torch.zeros((batch_size, self.max_seq_len), dtype=torch.long)
+        position_ids = torch.zeros((batch_size, rows), dtype=torch.long)
         loss_sample_ids = torch.full_like(labels, -1)
         sample_id = 0
 
@@ -151,9 +163,7 @@ class UniversalCollator:
 
         # For full attention mask (fallback)
         if self.return_full_attention_mask:
-            attention_mask = torch.zeros(
-                (batch_size, self.max_seq_len, self.max_seq_len), dtype=torch.bool
-            )
+            attention_mask = torch.zeros((batch_size, rows, rows), dtype=torch.bool)
 
         # Fill tensors
         for batch_idx, bin_samples in enumerate(bins):
