@@ -16,6 +16,7 @@ import os
 import resource
 import time
 from dataclasses import asdict
+from datetime import timedelta
 from pathlib import Path
 
 import torch
@@ -231,12 +232,21 @@ class ObservedSFTTrainer(LanguageModelTrainer):
     """Keep training in the production loop; observe updates, routing and memory."""
 
     def __init__(
-        self, config: MainConfig, output: Path, evaluation_files=None, generation_prompts=None
+        self,
+        config: MainConfig,
+        output: Path,
+        evaluation_files=None,
+        generation_prompts=None,
+        adapter_save_interval: int = 0,
     ) -> None:
         super().__init__(config, forward_step, loss_func_sft)
         self.output = output
         self.records = []
         self.routing = {}
+        # Periodic standalone adapter snapshots for long runs: the final export
+        # in export_and_verify is all-or-nothing, so a step-2400 crash of a
+        # 3000-step run would otherwise discard two days of training.
+        self.adapter_save_interval = adapter_save_interval
         self.evaluation_files = evaluation_files or {}
         self.generation_prompts = generation_prompts
         self.evaluations = []
@@ -420,6 +430,14 @@ class ObservedSFTTrainer(LanguageModelTrainer):
         }
         self.records.append(record)
         print(f"rank={dist.get_rank()} SFT_RECORD {json.dumps(record)}", flush=True)
+        if self.adapter_save_interval and (step + 1) % self.adapter_save_interval == 0:
+            snapshot = self.output / f"adapter-step{step + 1}"
+            if dist.get_rank() == 0:
+                save_lora_adapter(self.model, snapshot)
+            dist.barrier()
+            if dist.get_rank() == 0:
+                snapshot_info = json.dumps({"step": step + 1, "path": str(snapshot)})
+                print(f"ADAPTER_SNAPSHOT {snapshot_info}", flush=True)
         if self.evaluation_files and (step + 1) % self.config.operation.eval_interval == 0:
             self.evaluate_files(f"step_{step + 1}", splits={"validation"})
         return result
@@ -495,6 +513,20 @@ def main() -> None:
     parser.add_argument("--no-offload", action="store_true")
     parser.add_argument("--recompute-interval", type=int, default=1)
     parser.add_argument(
+        "--pinned-gb",
+        type=float,
+        default=None,
+        help="Override offload pinned_memory_pool_gb (tp>1 default 36 is oversized "
+        "for weight_prefetch_layers=1 and contributed to host OOM at step 1",
+    )
+    parser.add_argument(
+        "--no-spill",
+        action="store_true",
+        help="Disable host activation spill; boundary tensors stay on GPU and the "
+        "recompute boundary plan (see --recompute-interval) governs residency. "
+        "For host-RAM-constrained hosts: removes the step-time shmem spike.",
+    )
+    parser.add_argument(
         "--recompute-skip-count",
         type=int,
         default=None,
@@ -509,6 +541,37 @@ def main() -> None:
     )
     parser.add_argument("--verify-generation", action="store_true")
     parser.add_argument("--training-data", type=Path)
+    parser.add_argument(
+        "--mix-config",
+        type=Path,
+        help=(
+            "YAML with train_datasets: [{name, path, ratio}] for multi-dataset "
+            "mixture SFT; overrides --training-data"
+        ),
+    )
+    parser.add_argument("--lora-r", type=int, default=8)
+    parser.add_argument("--lora-alpha", type=float, default=16.0)
+    parser.add_argument(
+        "--sft-packing",
+        action="store_true",
+        help="Enable FFD bin-packing of SFT samples into max_seq_len bins",
+    )
+    parser.add_argument(
+        "--adapter-save-interval",
+        type=int,
+        default=0,
+        help="Save a standalone LoRA adapter snapshot every N steps (0 = final only)",
+    )
+    parser.add_argument(
+        "--micro-batch",
+        type=int,
+        default=1,
+        help=(
+            "Samples per collator call. With --sft-packing this must be >1: "
+            "FFD packs micro_batch samples into max_seq_len bins. Ignored "
+            "semantics: bins, not samples, are the forward rows."
+        ),
+    )
     parser.add_argument(
         "--enable-thinking",
         action="store_true",
@@ -578,7 +641,12 @@ def main() -> None:
                 flush=True,
             )
     torch.cuda.set_device(local)
-    dist.init_process_group("nccl")
+    # Preprocessing runs on rank 0 only; the other ranks wait in barrier for
+    # its full duration (hour-scale on real mixtures). The default 600s NCCL
+    # watchdog kills the waiting ranks long before that — observed as a
+    # SIGABRT at a "suspiciously consistent" tokenization progress point,
+    # which was just where 600s of serialization landed.
+    dist.init_process_group("nccl", timeout=timedelta(hours=6))
     if rank == 0:
         output.mkdir(parents=True, exist_ok=True)
     checkpoint = (
@@ -600,31 +668,55 @@ def main() -> None:
         tokenizer_type="sentencepiece",
         vocab_size=262144,
         seq_length=args.sequence_length,
-        sft_packing=False,
+        sft_packing=args.sft_packing,
         pad_token_id=0,
         splits=[1.0, 0.0, 0.0],
         # Changing mode/template must never reuse the old serialized labels.
         preprocessed_dir=output / "data" / training_format["cache_namespace"],
         cache_dir=output / "cache",
         num_workers=0,
-        datasets=[
-            DatasetConfig(
-                name="instruction",
-                source=str(
-                    args.training_data.resolve()
-                    if args.training_data
-                    else output / "instruction.jsonl"
-                ),
-                task_type="sft",
-                chat_template=training_template,
-                chat_template_kwargs={"enable_thinking": args.enable_thinking},
-            )
-        ],
+        datasets=(
+            [
+                DatasetConfig(
+                    name=ds["name"],
+                    source=str(Path(ds["path"]).resolve()),
+                    task_type="sft",
+                    ratio=float(ds.get("ratio", 1.0)),
+                    chat_template=training_template,
+                    chat_template_kwargs={"enable_thinking": args.enable_thinking},
+                )
+                for ds in yaml.safe_load(args.mix_config.read_text())["train_datasets"]
+            ]
+            if args.mix_config is not None
+            else [
+                DatasetConfig(
+                    name="instruction",
+                    source=str(
+                        args.training_data.resolve()
+                        if args.training_data
+                        else output / "instruction.jsonl"
+                    ),
+                    task_type="sft",
+                    chat_template=training_template,
+                    chat_template_kwargs={"enable_thinking": args.enable_thinking},
+                )
+            ]
+        ),
     )
+    if args.mix_config is not None and rank == 0:
+        print(
+            "MIX_DATASETS "
+            + json.dumps(
+                [
+                    {"name": ds["name"], "ratio": float(ds.get("ratio", 1.0))}
+                    for ds in yaml.safe_load(args.mix_config.read_text())["train_datasets"]
+                ]
+            ),
+            flush=True,
+        )
     if rank == 0:
-        if args.training_data is None:
+        if args.training_data is None and args.mix_config is None:
             prepare_instruction(output / "instruction.jsonl", tokenizer_path, args.sequence_length)
-        preprocess(data)
     dist.barrier()
     config = MainConfig(
         model=model_config,
@@ -646,8 +738,8 @@ def main() -> None:
             context_parallel_size=world // args.tp,
             context_parallel_backend="sdpa",
             parameter_precision="model",
-            micro_batch_size=1,
-            train_batch_size=args.gradient_accumulation,
+            micro_batch_size=args.micro_batch,
+            train_batch_size=args.micro_batch * args.gradient_accumulation,
             gradient_accumulation_steps=args.gradient_accumulation,
             eval_batch_size=1,
             recompute_linear_ce=True,
@@ -669,12 +761,14 @@ def main() -> None:
         offload=OffloadConfig(
             enabled=not args.no_offload,
             weight_offload=not args.no_offload,
-            activation_spill=not args.no_offload,
+            activation_spill=not (args.no_offload or args.no_spill),
             activation_spill_granularity="full_layer",
             weight_storage_precision="bf16",
             weight_prefetch_layers=1,
             backward_weight_prefetch_layers=1,
-            pinned_memory_pool_gb=1 if args.tiny else (36 if args.tp > 1 else 55),
+            pinned_memory_pool_gb=1
+            if args.tiny
+            else (args.pinned_gb if args.pinned_gb is not None else (36 if args.tp > 1 else 55)),
             pinned_chunk_gb=0.0625 if args.tiny else 1,
             gpu_staging_chunk_mb=1 if args.tiny else 256,
             # Thousands of rank-8 expert tensors are too small to amortize
@@ -682,13 +776,19 @@ def main() -> None:
             optimizer_cpu_threads=1,
         ),
     )
-    config.peft.lora.r, config.peft.lora.alpha = 8, 16
+    config.peft.lora.r = args.lora_r
+    config.peft.lora.alpha = args.lora_alpha
     config.peft.lora.target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
     if not args.attention_only:
         config.peft.lora.target_modules += ["gate_proj", "up_proj", "down_proj"]
     config.peft.lora.parameter_precision = "float32"
     config.peft.lora.adapter_path = str(args.adapter_path.resolve()) if args.adapter_path else None
     _config_validation(config)
+    # Fail-fast ordering: validate the full config before the potentially
+    # hour-long serialization, not after it.
+    if rank == 0:
+        preprocess(data)
+    dist.barrier()
     if rank == 0:
         serialized = json.loads(json.dumps(asdict(config), default=str))
         serialized["data"]["train_datasets"] = serialized["data"].pop("datasets")
@@ -703,7 +803,21 @@ def main() -> None:
         }.items()
         if path is not None
     }
-    with ObservedSFTTrainer(config, output, evaluation_files, args.generation_prompts) as trainer:
+    if rank == 0:
+        print(
+            "MODEL_LOAD_START — 체크포인트 적재·offload 초기화는 수 분간"
+            " 로그 출력이 없다. GPU 메모리가 오르는 것으로 생존을 확인할 수 있다.",
+            flush=True,
+        )
+    with ObservedSFTTrainer(
+        config,
+        output,
+        evaluation_files,
+        args.generation_prompts,
+        adapter_save_interval=args.adapter_save_interval,
+    ) as trainer:
+        if rank == 0:
+            print("MODEL_LOAD_DONE — 학습 스텝 시작.", flush=True)
         trainer.train()
         verification = trainer.export_and_verify()
         if evaluation_files:
