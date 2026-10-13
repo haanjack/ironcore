@@ -56,6 +56,27 @@ class DatasetConfig(BaseConfig):
     )
 
     def __post_init__(self):
+        # A chat_template value may name a file on disk (e.g. a checked-in
+        # Gemma 4 SFT template derived from the tokenizer's inference
+        # template). Inline the contents so downstream code keeps seeing the
+        # rendered template string. Mirrors the local-path handling of
+        # `source` in the serializer. Templates are multi-line jinja; a path
+        # never contains newlines, and stat() on a multi-KB "filename" raises
+        # ENAMETOOLONG instead of returning False — so gate on the newline
+        # check first.
+        if (
+            isinstance(self.chat_template, str)
+            and self.chat_template
+            and "\n" not in self.chat_template
+            and len(self.chat_template) < 4096
+        ):
+            template_path = Path(self.chat_template)
+            try:
+                is_file = template_path.is_file()
+            except OSError:
+                is_file = False
+            if is_file:
+                self.chat_template = template_path.read_text(encoding="utf-8")
         if self.ratio <= 0:
             raise ValueError(f"Dataset {self.name}: ratio must be positive, got {self.ratio}")
         if self.task_type not in ["pretrain", "sft", "dpo", "grpo"]:

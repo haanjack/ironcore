@@ -107,6 +107,25 @@ def _config_validation(config: MainConfig):
             "read under the other's vocabulary. Set them to the same value."
         )
 
+    # Packing happens inside the collator, which only sees micro_batch_size
+    # samples per call. With micro_batch_size == 1 the packer has nothing to
+    # pack: every sample becomes its own row padded to data.seq_length, so
+    # sft_packing is inert while the padded compute and the full attention
+    # mask ([rows, seq, seq]) are paid in full. Observed running gemma4 A4B
+    # SFT at seq 32768: ~8-16x wasted compute per micro-step.
+    if (
+        getattr(config.data, "task_type", None) == "sft"
+        and getattr(config.data, "sft_packing", False)
+        and (config.trainer.micro_batch_size or 1) == 1
+    ):
+        raise ValueError(
+            "data.sft_packing=true with trainer.micro_batch_size=1 packs "
+            "nothing: the collator sees one sample per call, so each forward "
+            "is a single sample padded to seq_length. Set micro_batch_size>1 "
+            "(forward rows become ~total_tokens/seq_length bins per call), "
+            "or turn sft_packing off if per-sample rows are intended."
+        )
+
     dp_group_size = config.trainer.tensor_model_parallel_size * config.trainer.context_parallel_size
     dp_world_size = config.parallel.world_size // dp_group_size
     if dp_world_size <= 0:
