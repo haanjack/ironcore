@@ -19,7 +19,9 @@ Thank you for contributing. This document is the single source of truth for how 
 
 ### Container first
 
-IronCore requires a GPU container for all non-trivial development. **Do not attempt to install flash-attn via pip on the host.** Flash attention is provided by the NGC PyTorch base image (`nvcr.io/nvidia/pytorch:25.12-py3`) and requires a matching CUDA toolchain to build. The container ships a pre-built version; there is no host pip path that reliably works.
+IronCore requires a GPU container for all non-trivial development. **Do not attempt to install flash-attn via pip on the host.** Flash attention is provided by the NGC PyTorch base image (`nvcr.io/nvidia/pytorch:26.10-py3`) and requires a matching CUDA toolchain to build. The container ships a pre-built version; there is no host pip path that reliably works.
+
+CUDA builds require PyTorch 2.15 or newer, including the `2.15.0a0` build bundled with NGC 26.10.
 
 All integration and multi-GPU tests must be run inside the container.
 
@@ -34,7 +36,7 @@ DATASET_DIR=/path/to/datasets
 MODEL_DIR=/path/to/models
 
 # Optional: change the NGC version or target ROCm
-# NGC_VERSION=25.12
+# NGC_VERSION=26.10
 # ARCH=rocm
 ```
 
@@ -83,7 +85,7 @@ This installs IronCore in editable mode plus `pytest` and `ruff` (the `dev` extr
 | `requirements.txt` | Packages installed into the Docker image layer (subset of `pyproject.toml` — excludes torch and dev tools, which come from the NGC base or the `[dev]` extra) |
 | NGC base image | Flash-attn, cuDNN, NCCL, PyTorch — **do not add these to pyproject.toml** |
 
-To upgrade PyTorch or flash-attn, bump `NGC_VERSION` in `.env` (or the `Dockerfile` `ARG BASE_IMAGE`) and rebuild the container. Do not pin these packages inside the repo.
+Set `NGC_VERSION` in `.env` to select a different NGC release for a local build. To change the repository default, update `scripts/docker/build.sh` and the `BASE_IMAGE` default in `Dockerfile` together. Do not pin these packages inside the repo.
 
 ### Building the docs
 

@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.12-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:26.10-py3
 FROM ${BASE_IMAGE}
 
 RUN apt update && apt install -y --no-install-recommends \
