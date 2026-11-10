@@ -2,8 +2,22 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from .global_vars import get_config, get_logger, get_timer, get_tokenizer, set_global_states
-from .utils.mfu import MFUCalculator, MFUResult, compute_tflops
+import torch
+
+if torch.version.cuda is not None and torch.__version__ < "2.15.0a0":
+    raise ImportError(
+        "IronCore requires PyTorch 2.15 or newer for CUDA, including NGC 2.15.0a0 builds. "
+        f"Found {torch.__version__}. Rebuild the CUDA container with scripts/docker/build.sh."
+    )
+
+from .global_vars import (  # noqa: E402
+    get_config,
+    get_logger,
+    get_timer,
+    get_tokenizer,
+    set_global_states,
+)
+from .utils.mfu import MFUCalculator, MFUResult, compute_tflops  # noqa: E402
 
 __all__ = [
     "get_config",

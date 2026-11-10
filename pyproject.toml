@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # NVIDIA CUDA — install with: pip install -e ".[cuda]"
-# Requires: pip install torch --index-url https://download.pytorch.org/whl/cu124
+# Requires a CUDA PyTorch build from the 2.15 release series or newer.
 cuda = [
     "flash-attn>=2.0",
 ]

@@ -37,7 +37,7 @@ if [ "$ARCH" == "rocm" ] || [ "$ARCH" == "rocm-wsl" ]; then
         TAG="ironcore:rocm"
     fi
 else
-    NGC_VERSION=${NGC_VERSION:-"25.12"}
+    NGC_VERSION=${NGC_VERSION:-"26.10"}
     BASE_IMAGE="nvcr.io/nvidia/pytorch:${NGC_VERSION}-py3"
     TAG="ironcore:cuda"
 fi
